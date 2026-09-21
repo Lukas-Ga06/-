@@ -1672,3 +1672,10 @@ body {
    ============================================================ */
 .home-expense .exp-stat,
 .home-expense .exp-sub { position: relative; z-index: 1; }
+/* 路由懒加载时的占位：避免切换页面出现空白 */
+.route-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+}

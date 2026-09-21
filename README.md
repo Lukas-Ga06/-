@@ -1,10 +1,12 @@
-# 多模态智能旅行 Agent（Multimodal Intelligent Travel Agent）
+# AI 个人助理（旅行规划 · 记账 · 备忘 · 办公 · 学习 · 健康）
 
-面向「行前规划 + 行中动态调整」的智能旅行规划与决策系统。
+以「行前规划 + 行中动态调整」为主线的个人助理系统，同时覆盖记账、备忘、日程、办公自动化（邮件/纪要/日报/发票）、学习辅助与健康数据。
 
 **技术路线**：Spring Boot 3 + Agent Engine（Intent / Planner / Executor / Reflect）+ RAG + Tools + React 18
 **核心交互**：Voice/Text + Map + Timeline + Card
 **核心闭环**：自然语言表达意图 → Agent 理解与规划 → Tools 执行 → RAG 提供知识 → GUI 可视化 → 用户确认 → 行程更新
+
+> 仓库目录沿用 `travel-agent`，前端标题为「AI 个人助理」：旅行是核心场景，其余模块复用同一套 Agent 引擎与权限体系。
 
 ---
 
@@ -14,21 +16,27 @@
 travel-agent/
 ├── sql/init.sql                        # MySQL 初始化脚本（H2 模式无需执行）
 ├── docker-compose.yml                  # 可选：MySQL + Redis 基础设施
+├── .github/workflows/ci.yml            # CI：后端 mvn verify + 前端 typecheck/test/build
+├── docs/DEVELOPMENT.md                 # 环境变量、测试、部署与后续规划
+├── .e2e/                               # 手工端到端验证脚本（需本地先启动后端）
 ├── travel-agent-server/                # 后端（Spring Boot 3 / Java 17）
-│   └── src/main/java/com/travel/agent/
-│       ├── agent/                      # Agent Engine：状态机 + 四个 Agent + 上下文 + 计划
-│       ├── tool/                       # AgentTool 接口 / ToolRegistry / SafetyInterceptor / 10 个工具
-│       ├── rag/                        # Embedding / VectorStore / RagService / 知识库引导
-│       ├── llm/                        # 统一 LLM 接口（OpenAI-compatible，可切 DeepSeek/Qwen）
-│       ├── controller/                 # REST API + SSE 流式接口
-│       ├── service/                    # 行程 / 预算 / 操作历史 / 目录 / 天气 / 路线
-│       ├── entity/ repository/         # JPA 实体与数据访问
-│       ├── security/ config/           # JWT 认证与安全配置
-│       └── exception/                  # 全局异常（含 HumanConfirmationRequired）
-└── travel-agent-web/                   # 前端（React 18 + TypeScript + Vite + AntD + ECharts + Leaflet）
+│   ├── src/main/java/com/travel/agent/
+│   │   ├── agent/                      # Agent Engine：状态机 + 四个 Agent + 上下文 + 计划
+│   │   ├── tool/                       # AgentTool 接口 / ToolRegistry / SafetyInterceptor / 10 个工具
+│   │   ├── rag/                        # Embedding / VectorStore / RagService / 知识库引导
+│   │   ├── llm/                        # 统一 LLM 接口（OpenAI-compatible，可切 DeepSeek/Qwen）
+│   │   ├── controller/                 # REST API + SSE 流式接口
+│   │   ├── service/                    # 行程/预算/操作历史/目录/天气/路线/办公/学习/健康
+│   │   ├── entity/ repository/         # JPA 实体与数据访问
+│   │   ├── security/ config/           # JWT 认证、安全配置、CORS
+│   │   ├── util/                       # 通用工具（日期解析等）
+│   │   └── exception/                  # 全局异常处理（含 HumanConfirmationRequired）
+│   └── src/test/                       # JUnit + MockMvc 集成测试（内存 H2，不触网）
+└── travel-agent-web/                   # 前端（React 18 + TypeScript + Vite + AntD + ECharts + Leaflet/MapLibre）
+    ├── vitest.config.ts                # 前端单元测试配置
     └── src/
         ├── components/                 # ChatPanel / MapView(MapProvider) / Timeline / ItineraryCard / BudgetChart / PlanDiff / VoiceButton
-        ├── pages/                      # Home / Planner / Trip（主界面）/ Login / Profile
+        ├── pages/                      # Home / Planner / Trip / Travel / Expenses / Memos / Schedule / Office / Learning / Health / Assistant / Profile / Login
         ├── store/                      # zustand：auth / trip / agent / ui
         ├── api/                        # axios 封装 + SSE EventSource 客户端
         └── types/                      # 与后端 AgentResult / PlanDiff 对齐的 TS 类型
@@ -40,10 +48,13 @@ travel-agent/
 | --- | --- | --- |
 | JDK | 17+ | 后端编译运行 |
 | Maven | 3.8+ | 后端构建 |
-| Node.js | 18+ | 前端构建（含 npm） |
+| Node.js | 18+（CI 使用 20） | 前端构建与测试（含 npm） |
 
 数据库：**默认使用 H2 文件数据库，开箱即用，无需安装任何数据库**。
 要切换 MySQL/Redis 时运行 `docker compose up -d` 并按第 6 节修改配置。
+
+> ⚠️ 仓库内**不保存任何密钥**：`JWT_SECRET` 与 `LLM_API_KEY` 一律通过环境变量注入，
+> 未配置时的降级行为见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)。
 
 ## 3. 快速启动
 
@@ -51,6 +62,14 @@ travel-agent/
 
 ```bash
 cd travel-agent-server
+
+# 可选但推荐：固定 JWT 密钥
+#   不设置时每次启动生成一次性随机密钥 —— 开箱即用，但重启后需重新登录
+export JWT_SECRET="$(openssl rand -base64 48)"     # Windows PowerShell: $env:JWT_SECRET = "<base64>"
+
+# 可选：接入真实大模型；不设置则全部走规则引擎，功能完整可用
+export LLM_API_KEY="sk-你的key"
+
 mvn spring-boot:run
 ```
 
@@ -79,6 +98,8 @@ npm run dev
 6. **撤销**：点击右上角撤销按钮，基于操作历史 before/after 快照还原上一步；
 7. **预算/知识问答**：「现在花了多少钱？」「上海有什么适合亲子游的地方？」→ 预算服务 / RAG 检索回答。
 
+同一套对话入口还能完成：记账（「记一笔午餐 45 元」）、备忘（「记一下明天办签证」）、日程（「明天下午3点开评审会」）、日报（「生成今日日报」）、健康查询（「我最近睡得怎么样」）。
+
 ## 4. 核心设计
 
 ### 4.1 Agent 状态机
@@ -90,7 +111,7 @@ RECEIVE → UNDERSTAND → PLAN → EXECUTE → REFLECT → PRESENT → CONFIRM 
 
 - **IntentAgent**：LLM 优先 + 规则兜底，输出 `{intent, target, constraints}`；
 - **PlannerAgent**：结合行程/预算/偏好/天气/交通生成 `AgentPlan`（操作列表，不直接落库）；
-- **ExecutorAgent**：preview（生成 Diff + 确认请求）→ 用户确认 → commit（Service → Repository + 操作历史）；
+- **ExecutorAgent**：preview（生成 Diff + 确认请求）→ 用户确认 → commit（单事务内 Service → Repository + 操作历史）；
 - **ReflectAgent**：时间冲突、预算超限校验，输出警告。
 
 ### 4.2 Human-in-the-loop 三级风险
@@ -106,6 +127,9 @@ RECEIVE → UNDERSTAND → PLAN → EXECUTE → REFLECT → PRESENT → CONFIRM 
 - **RAG**：旅游知识、景点介绍、城市攻略、注意事项（内置 10 篇文档，内存向量库 Top-K 检索）；
 - **Tools**：天气 / 路线 / 酒店价格等实时信息（MVP 为确定性模拟数据，接口与真实服务一致）。
 
+> 当前 Embedding 为本地字符 bigram 哈希（`LocalHashEmbeddingService`），属于词面匹配而非语义向量；
+> 要获得真正的语义检索需替换为真实 Embedding 模型（`EmbeddingService` 已预留接口）。
+
 ### 4.4 SSE 流式协议（GET /api/agent/stream）
 
 事件流：`start → intent → planning → tool_call → tool_result → rag_result → plan_update → focus → confirmation → complete`。
@@ -119,54 +143,106 @@ Agent 通过 **GUI Focus 协议** 返回 focus（day/itemId/坐标），前端�
 ## 5. REST API 一览
 
 ```
-POST   /api/auth/register        POST /api/auth/login
-GET    /api/trips                POST /api/trips
-GET    /api/trips/{id}           PUT  /api/trips/{id}      DELETE /api/trips/{id}
-GET    /api/trips/{id}/itinerary POST /api/trips/{id}/itinerary
-PUT    /api/itinerary/{id}       DELETE /api/itinerary/{id}
+POST   /api/auth/register         POST /api/auth/login
 
-POST   /api/agent/chat           # 同步对话
-GET    /api/agent/stream         # SSE 流式对话（token 走查询参数）
-POST   /api/agent/confirm        # 确认提交 planId
-POST   /api/agent/cancel         # 取消方案
-POST   /api/agent/undo           # 撤销上一次修改
+GET    /api/trips                 POST /api/trips
+GET    /api/trips/{id}            PUT  /api/trips/{id}      DELETE /api/trips/{id}
+GET    /api/trips/{id}/itinerary  POST /api/trips/{id}/itinerary
+GET    /api/trips/map             # 首页足迹地图坐标
+PUT    /api/itinerary/{id}        DELETE /api/itinerary/{id}
+
+POST   /api/agent/chat            # 同步对话
+GET    /api/agent/stream          # SSE 流式对话（token 走查询参数）
+POST   /api/agent/confirm         # 确认提交 planId
+POST   /api/agent/cancel          # 取消方案
+POST   /api/agent/undo            # 撤销上一次修改
+
+GET    /api/trips/{tripId}/expenses   POST /api/trips/{tripId}/expenses
+GET    /api/expenses/overview         DELETE /api/expenses/{id}
+
+GET    /api/memos                 POST /api/memos
+POST   /api/memos/{id}/toggle     DELETE /api/memos/{id}
+GET    /api/schedule              POST /api/schedule
+POST   /api/schedule/{id}/toggle  DELETE /api/schedule/{id}
+
+POST   /api/office/mail/classify  GET  /api/office/mail
+POST   /api/office/minutes/generate   GET /api/office/minutes
+POST   /api/office/invoice/extract    GET /api/office/invoice
+POST   /api/office/report/generate    GET /api/office/report
+
+POST   /api/learning/generate     GET  /api/learning/artifacts
+DELETE /api/learning/artifacts/{id}
+POST   /api/learning/knowledge/add    POST /api/learning/knowledge/search
+
+POST   /api/health/record         POST /api/health/seed-demo
+GET    /api/health/records        GET  /api/health/summary
 ```
 
 统一响应：`{"code":0,"message":"success","data":...}`。
+**code 与 HTTP 状态码保持一致**：参数校验失败 400、未登录 401、无权限 403、资源不存在 404、数据冲突 409、服务端异常 500（不返回内部细节）。
 
 ## 6. 配置说明
 
-### 6.1 接入真实大模型（可选）
+### 6.1 环境变量
 
-默认关闭（纯规则引擎完整可运行）。编辑 `travel-agent-server/src/main/resources/application.yml`：
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `JWT_SECRET` | 空 | Base64 密钥（解码后 ≥ 32 字节）。为空时启动生成一次性随机密钥，重启后 token 失效；**生产必须显式配置** |
+| `JWT_EXPIRE_HOURS` | 72 | token 有效期（小时） |
+| `LLM_API_KEY` | 空 | 为空则全部走规则引擎（功能完整，效果弱于模型） |
+| `LLM_BASE_URL` | `https://api.deepseek.com/v1` | 任意 OpenAI-compatible 端点 |
+| `LLM_MODEL` | `deepseek-chat` | 模型名，可换 `qwen-plus`、`gpt-4o-mini` 等 |
+| `LLM_ENABLED` | true | 设 false 可强制关闭模型调用 |
+| `AMAP_KEY` | 空 | 高德 Web 服务 Key，配置后城市 POI 定位走真实数据 |
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | 允许的前端来源 |
+| `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_DATABASE` / `MYSQL_USERNAME` / `MYSQL_PASSWORD` | localhost / 3306 / travel_agent / root / root | 仅在 `mysql` profile 下生效 |
 
-```yaml
-travel:
-  llm:
-    enabled: true
-    base-url: https://api.deepseek.com/v1   # 或 https://dashscope.aliyuncs.com/compatible-mode/v1
-    api-key: sk-xxx
-    model: deepseek-chat                     # 或 qwen-plus / gpt-4o-mini
+### 6.2 接入真实大模型（可选）
+
+```bash
+cd travel-agent-server
+export LLM_API_KEY="sk-xxx"
+export LLM_BASE_URL="https://api.deepseek.com/v1"   # 或 dashscope.aliyuncs.com/compatible-mode/v1
+export LLM_MODEL="deepseek-chat"                    # 或 qwen-plus / gpt-4o-mini
+mvn spring-boot:run
 ```
 
-模型仅用于意图识别增强与回复润色，关闭时全流程可用。
+模型仅用于意图识别增强、方案生成与文案润色；调用失败（余额不足、网络异常）会自动降级为规则引擎，主流程不中断。
 
-### 6.2 切换 MySQL
+### 6.3 切换 MySQL
 
 ```bash
 docker compose up -d                 # 启动 MySQL（自动执行 sql/init.sql）与 Redis
 cd travel-agent-server
 mvn spring-boot:run -Dspring-boot.run.profiles=mysql
-# 环境变量：MYSQL_USERNAME / MYSQL_PASSWORD 可覆盖默认 root/root
 ```
 
-## 7. MVP 与后续规划
+## 7. 测试与 CI
 
-当前实现对应开发文档中的 **MVP 第一版 + Phase 2~7 核心能力**（CRUD、地图/时间轴/预算 GUI、Agent 引擎、Tools、RAG、多模态上下文 selectedElement、Diff/Confirm/Undo/Audit）。
+```bash
+# 后端：集成测试（内存 H2，不访问网络、不调用真实模型）
+cd travel-agent-server && mvn test
 
-后续可扩展：
+# 前端：类型检查 + 单元测试 + 生产构建
+cd travel-agent-web && npm run typecheck && npm test && npm run build
+```
+
+当前覆盖：认证与授权（401 契约、跨用户越权）、Agent 计划落地（ADD/MODIFY/REMOVE、跨行程守卫）、确认提交与撤销链路、
+错误语义（400/401/404/409）、前端流式状态机与 SSE 客户端参数编码。
+
+CI（[.github/workflows/ci.yml](.github/workflows/ci.yml)）在 push / PR 时执行 `mvn -B verify` 与
+`npm ci && npm run typecheck && npm test && npm run build`。
+
+## 8. 后续规划
+
+已完成的工程化改造：密钥外置、版本控制、测试与 CI、原子化提交、参数校验、错误语义对齐、前端路由懒加载与分包。
+
+继续推进的方向：
 - 真实数据源：高德/百度 POI 与路径规划、和风天气、酒店/餐厅开放平台；
-- Pgvector / Milvus 替换内存向量库（`VectorStore` 接口已预留）；
-- Redis 存储待确认会话与缓存（多实例部署）；
-- 语音合成（TTS）、WebSocket 实时状态、RabbitMQ 异步任务；
-- compare_hotel / check_opening_hours / search_ticket / generate_trip_summary 等二期工具。
+- 向量检索升级：真实 Embedding + Pgvector/Milvus 替换内存向量库（`VectorStore` 接口已预留）；
+- 多实例部署：Redis 存储待确认会话（`PendingPlanStore`）与限流、每用户 LLM 配额；
+- 安全加固：SSE 改用一次性短时 ticket 替代 query 传 token、token 存储从 localStorage 迁出、接口限流；
+- 数据库：Flyway/Liquibase 管理 schema（当前 `ddl-auto: update`）、补 `trip_id`/`user_id` 索引与列表分页；
+- 可观测性：Actuator 健康检查、指标与 traceId、LLM 调用失败率监控；
+- 前端：依赖漏洞升级（`npm audit` 中的 echarts / maplibre-gl / vite / react-router）、ECharts 按需引入、地图引擎收敛为一套；
+- 二期工具：compare_hotel / check_opening_hours / search_ticket / generate_trip_summary。

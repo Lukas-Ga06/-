@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { App, Button, Empty, Input } from 'antd';
 import { SendOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
@@ -11,7 +11,6 @@ import { listMinutes, listReports } from '../../api/assistant';
 import { listArtifacts } from '../../api/assistant';
 import { useAuthStore } from '../../store/authStore';
 import AppShell from '../../components/AppShell';
-import FootprintMap from '../../components/FootprintMap';
 import VoiceButton from '../../components/VoiceButton';
 import type { ExpenseOverview } from '../../types/expense';
 import type { Memo } from '../../types/memo';
@@ -222,7 +221,9 @@ export default function Home() {
             ) : mapPoints.length === 0 ? (
               <div className="footprint-loading">还没有行程，去「旅行规划」创建一个吧</div>
             ) : (
-              <FootprintMap points={mapPoints} onSelect={(id) => navigate(`/trip/${id}`)} />
+              <Suspense fallback={<div className="footprint-loading">地图加载中…</div>}>
+                <FootprintMap points={mapPoints} onSelect={(id) => navigate(`/trip/${id}`)} />
+              </Suspense>
             )}
           </div>
         </div>
@@ -230,3 +231,5 @@ export default function Home() {
     </AppShell>
   );
 }
+// 首页足迹地图依赖 maplibre-gl（约 1MB），懒加载避免拖慢首屏
+const FootprintMap = lazy(() => import('../../components/FootprintMap'));
