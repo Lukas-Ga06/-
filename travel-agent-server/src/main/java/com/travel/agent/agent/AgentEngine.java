@@ -7,6 +7,7 @@ import com.travel.agent.entity.ItineraryItem;
 import com.travel.agent.entity.Memo;
 import com.travel.agent.entity.ScheduleItem;
 import com.travel.agent.entity.Trip;
+import com.travel.agent.exception.BusinessException;
 import com.travel.agent.model.WeatherInfo;
 import com.travel.agent.rag.RagService;
 import com.travel.agent.service.BudgetService;
@@ -81,13 +82,26 @@ public class AgentEngine {
                         .message(MessageTemplates.HELP)
                         .build());
             };
+        } catch (BusinessException e) {
+            // 业务规则/校验类错误（含越权、参数不合法）：原样告诉用户，不伪装成系统故障
+            log.info("Agent 业务校验未通过: {}", e.getMessage());
+            ctx.setState(AgentState.ERROR);
+            AgentDtos.AgentResult rejected = AgentDtos.AgentResult.builder()
+                    .intent("REJECTED")
+                    .status(AgentDtos.STATUS_FAILED)
+                    .message(e.getMessage())
+                    .build();
+            ctx.emit("error", Map.of("message", rejected.getMessage()));
+            ctx.emit("complete", rejected);
+            return rejected;
         } catch (Exception e) {
             log.error("Agent 执行异常", e);
             ctx.setState(AgentState.ERROR);
             AgentDtos.AgentResult failed = AgentDtos.AgentResult.builder()
                     .intent("ERROR")
                     .status(AgentDtos.STATUS_FAILED)
-                    .message("抱歉，处理请求时出现问题：" + e.getMessage())
+                    // 内部异常细节只进日志，不返回给用户
+                    .message("抱歉，处理请求时出现问题，请稍后重试或换一种说法")
                     .build();
             ctx.emit("error", Map.of("message", failed.getMessage()));
             ctx.emit("complete", failed);

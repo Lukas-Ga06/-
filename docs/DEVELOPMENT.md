@@ -75,6 +75,12 @@ node .e2e/e2e.mjs
 
 **错误语义**：控制器不自行拼装 `ApiResponse.error`，而是抛 `BusinessException(code, message)`，
 由 `GlobalExceptionHandler` 统一转换成对应的 HTTP 状态码，且 `code` 与 HTTP 状态保持一致。
+Agent 内部抛出的 `BusinessException` 也会原样透出给用户（不再包装成"服务端异常"），
+而真正的未知异常只返回通用提示、细节进日志。
+
+**工具层只读**：`AgentTool.readOnly()` 默认为 true，`ToolRegistry` 会拒绝注册写操作工具；
+任何"会改数据"的能力都必须实现为 `AgentPlan` 的操作项，经确认后由 `ExecutorAgent.commit` 落地。
+HIGH 风险只表示"方案需要显式确认"（超预算），不是"抛异常报错"。
 
 **事务边界**：`ExecutorAgent.commit` 是唯一落库入口，标注 `@Transactional`；
 行程变更与操作历史必须同生共死，否则用户会「改成功但撤不回来」。

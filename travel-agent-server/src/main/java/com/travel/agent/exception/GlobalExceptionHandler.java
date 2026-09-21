@@ -31,12 +31,6 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.error(e.getCode(), e.getMessage()));
     }
 
-    @ExceptionHandler(HumanConfirmationRequiredException.class)
-    public ResponseEntity<ApiResponse<Void>> handleConfirmation(HumanConfirmationRequiredException e) {
-        return ResponseEntity.status(HttpStatus.ACCEPTED)
-                .body(ApiResponse.error(202, e.getMessage()));
-    }
-
     @ExceptionHandler(BadCredentialsException.class)
     public ResponseEntity<ApiResponse<Void>> handleBadCredentials(BadCredentialsException e) {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResponse.error(401, "用户名或密码错误"));

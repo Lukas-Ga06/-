@@ -22,7 +22,7 @@ travel-agent/
 ├── travel-agent-server/                # 后端（Spring Boot 3 / Java 17）
 │   ├── src/main/java/com/travel/agent/
 │   │   ├── agent/                      # Agent Engine：状态机 + 四个 Agent + 上下文 + 计划
-│   │   ├── tool/                       # AgentTool 接口 / ToolRegistry / SafetyInterceptor / 10 个工具
+│   │   ├── tool/                       # AgentTool 接口 / ToolRegistry / SafetyInterceptor / 8 个只读工具
 │   │   ├── rag/                        # Embedding / VectorStore / RagService / 知识库引导
 │   │   ├── llm/                        # 统一 LLM 接口（OpenAI-compatible，可切 DeepSeek/Qwen）
 │   │   ├── controller/                 # REST API + SSE 流式接口
@@ -30,7 +30,7 @@ travel-agent/
 │   │   ├── entity/ repository/         # JPA 实体与数据访问
 │   │   ├── security/ config/           # JWT 认证、安全配置、CORS
 │   │   ├── util/                       # 通用工具（日期解析等）
-│   │   └── exception/                  # 全局异常处理（含 HumanConfirmationRequired）
+│   │   └── exception/                  # 全局异常处理
 │   └── src/test/                       # JUnit + MockMvc 集成测试（内存 H2，不触网）
 └── travel-agent-web/                   # 前端（React 18 + TypeScript + Vite + AntD + ECharts + Leaflet/MapLibre）
     ├── vitest.config.ts                # 前端单元测试配置
@@ -116,11 +116,16 @@ RECEIVE → UNDERSTAND → PLAN → EXECUTE → REFLECT → PRESENT → CONFIRM 
 
 ### 4.2 Human-in-the-loop 三级风险
 
-| 等级 | 操作 | 策略 |
+风险等级**只用于方案级判定**（`SafetyInterceptor.evaluatePlanChange`），由 Agent 写成 `confirmation.riskLevel`，前端据此决定确认框的样式：
+
+| 等级 | 判定条件 | 策略 |
 | --- | --- | --- |
-| LOW | 查询、推荐 | 自动执行 |
-| MEDIUM | 修改行程 | 生成 Diff，确认后提交 |
-| HIGH | 超预算等大额调整 | Diff + 醒目警告，确认后提交 |
+| LOW | 只读操作（查询、推荐） | 自动执行 |
+| MEDIUM | 会改变行程 | 生成 Diff，确认后提交 |
+| HIGH | 变更后超出行程预算 | Diff + 醒目警告，确认后提交 |
+
+工具层（AgentTool）**只允许只读操作**：`ToolRegistry` 会拒绝注册任何 `readOnly()==false` 的工具，
+因此不存在"工具绕过确认直接改库"的路径——所有写入必须表达为 AgentPlan 的操作项。
 
 ### 4.3 静态知识 / 实时信息分离
 
@@ -135,10 +140,13 @@ RECEIVE → UNDERSTAND → PLAN → EXECUTE → REFLECT → PRESENT → CONFIRM 
 事件流：`start → intent → planning → tool_call → tool_result → rag_result → plan_update → focus → confirmation → complete`。
 Agent 通过 **GUI Focus 协议** 返回 focus（day/itemId/坐标），前端自动切换 Day、滚动时间轴、地图 flyTo。
 
-### 4.5 一期工具清单（10 个）
+### 4.5 工具清单（8 个，全部只读）
 
 `search_attraction` / `search_hotel` / `search_restaurant` / `query_weather` / `calculate_route` /
-`calculate_budget` / `get_itinerary` / `add_itinerary_item` / `modify_itinerary_item` / `undo_operation`
+`calculate_budget` / `get_itinerary` / `search_city_online`
+
+> 写操作（新增/修改/删除行程项、撤销）不是工具，而是 `AgentPlan` 的操作项，统一经
+> preview → Diff → 用户确认 → `ExecutorAgent.commit` 落地，并写入操作历史以便撤销。
 
 ## 5. REST API 一览
 
