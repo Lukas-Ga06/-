@@ -1,5 +1,8 @@
 package com.travel.agent.dto;
 
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -10,6 +13,8 @@ public class ChatDtos {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class ChatRequest {
+        @NotBlank(message = "不能为空")
+        @Size(max = 500, message = "长度不能超过 500 个字符")
         private String message;
         private Long tripId;
         private Integer currentDay;
@@ -39,6 +44,7 @@ public class ChatDtos {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class ConfirmRequest {
+        @NotBlank(message = "不能为空")
         private String planId;
     }
 
@@ -46,6 +52,7 @@ public class ChatDtos {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class UndoRequest {
+        @NotNull(message = "不能为空")
         private Long tripId;
     }
 }

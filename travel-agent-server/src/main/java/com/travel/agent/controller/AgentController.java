@@ -8,6 +8,7 @@ import com.travel.agent.dto.AgentDtos;
 import com.travel.agent.dto.ChatDtos;
 import com.travel.agent.entity.User;
 import com.travel.agent.service.AuthService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -30,7 +31,7 @@ public class AgentController {
 
     /** 同步对话：POST /api/agent/chat */
     @PostMapping("/chat")
-    public ApiResponse<AgentDtos.AgentResult> chat(@RequestBody ChatDtos.ChatRequest request,
+    public ApiResponse<AgentDtos.AgentResult> chat(@Valid @RequestBody ChatDtos.ChatRequest request,
                                                    Authentication authentication) {
         User user = authService.requireUser(authentication.getName());
         AgentContext ctx = buildContext(user, request);
@@ -80,21 +81,21 @@ public class AgentController {
 
     /** 确认提交（Human-in-the-loop） */
     @PostMapping("/confirm")
-    public ApiResponse<AgentDtos.AgentResult> confirm(@RequestBody ChatDtos.ConfirmRequest request,
+    public ApiResponse<AgentDtos.AgentResult> confirm(@Valid @RequestBody ChatDtos.ConfirmRequest request,
                                                       Authentication authentication) {
         User user = authService.requireUser(authentication.getName());
         return ApiResponse.ok(agentEngine.confirm(request.getPlanId(), user.getId()));
     }
 
     @PostMapping("/cancel")
-    public ApiResponse<AgentDtos.AgentResult> cancel(@RequestBody ChatDtos.ConfirmRequest request,
+    public ApiResponse<AgentDtos.AgentResult> cancel(@Valid @RequestBody ChatDtos.ConfirmRequest request,
                                                      Authentication authentication) {
         User user = authService.requireUser(authentication.getName());
         return ApiResponse.ok(agentEngine.cancel(request.getPlanId(), user.getId()));
     }
 
     @PostMapping("/undo")
-    public ApiResponse<AgentDtos.AgentResult> undo(@RequestBody ChatDtos.UndoRequest request,
+    public ApiResponse<AgentDtos.AgentResult> undo(@Valid @RequestBody ChatDtos.UndoRequest request,
                                                    Authentication authentication) {
         User user = authService.requireUser(authentication.getName());
         return ApiResponse.ok(agentEngine.undo(request.getTripId(), user.getId()));

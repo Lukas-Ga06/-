@@ -1,6 +1,9 @@
 package com.travel.agent.dto;
 
 import com.travel.agent.entity.Trip;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -13,10 +16,15 @@ public class TripDtos {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class TripRequest {
+        @Size(max = 200, message = "长度不能超过 200 个字符")
         private String name;
+        @Size(max = 200, message = "长度不能超过 200 个字符")
         private String destination;
+        @Pattern(regexp = "^\\d{4}-\\d{2}-\\d{2}$", message = "格式需为 yyyy-MM-dd")
         private String startDate;  // yyyy-MM-dd
+        @Pattern(regexp = "^\\d{4}-\\d{2}-\\d{2}$", message = "格式需为 yyyy-MM-dd")
         private String endDate;    // yyyy-MM-dd
+        @DecimalMin(value = "0", message = "不能为负数")
         private BigDecimal budget;
     }
 

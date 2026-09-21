@@ -9,6 +9,7 @@ import com.travel.agent.service.AuthService;
 import com.travel.agent.service.ItineraryService;
 import com.travel.agent.service.TripMapService;
 import com.travel.agent.service.TripService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -39,7 +40,7 @@ public class TripController {
     }
 
     @PostMapping
-    public ApiResponse<TripDtos.TripResponse> create(@RequestBody TripDtos.TripRequest request, Authentication authentication) {
+    public ApiResponse<TripDtos.TripResponse> create(@Valid @RequestBody TripDtos.TripRequest request, Authentication authentication) {
         User user = authService.requireUser(authentication.getName());
         return ApiResponse.ok(TripDtos.TripResponse.from(tripService.create(user.getId(), request)));
     }
@@ -51,7 +52,7 @@ public class TripController {
     }
 
     @PutMapping("/{id}")
-    public ApiResponse<TripDtos.TripResponse> update(@PathVariable Long id, @RequestBody TripDtos.TripRequest request,
+    public ApiResponse<TripDtos.TripResponse> update(@PathVariable Long id, @Valid @RequestBody TripDtos.TripRequest request,
                                                      Authentication authentication) {
         User user = authService.requireUser(authentication.getName());
         return ApiResponse.ok(TripDtos.TripResponse.from(tripService.update(id, user.getId(), request)));
@@ -73,7 +74,7 @@ public class TripController {
 
     @PostMapping("/{id}/itinerary")
     public ApiResponse<ItineraryDtos.ItineraryItemDTO> addItem(@PathVariable Long id,
-                                                               @RequestBody ItineraryDtos.AddItemRequest request,
+                                                               @Valid @RequestBody ItineraryDtos.AddItemRequest request,
                                                                Authentication authentication) {
         User user = authService.requireUser(authentication.getName());
         Trip trip = tripService.getOwned(id, user.getId());

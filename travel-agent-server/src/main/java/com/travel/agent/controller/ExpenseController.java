@@ -8,6 +8,8 @@ import com.travel.agent.entity.User;
 import com.travel.agent.service.AuthService;
 import com.travel.agent.service.ExpenseService;
 import com.travel.agent.service.TripService;
+import com.travel.agent.util.Dates;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -32,12 +34,12 @@ public class ExpenseController {
 
     @PostMapping("/api/trips/{tripId}/expenses")
     public ApiResponse<ExpenseDtos.ExpenseDTO> add(@PathVariable Long tripId,
-                                                   @RequestBody ExpenseDtos.AddExpenseRequest request,
+                                                   @Valid @RequestBody ExpenseDtos.AddExpenseRequest request,
                                                    Authentication authentication) {
         User user = authService.requireUser(authentication.getName());
         tripService.getOwned(tripId, user.getId());
         LocalDate spentAt = request.getSpentAt() == null || request.getSpentAt().isBlank()
-                ? LocalDate.now() : LocalDate.parse(request.getSpentAt());
+                ? LocalDate.now() : Dates.parseDate(request.getSpentAt(), "消费日期");
         Expense saved = expenseService.add(tripId, user.getId(), request.getCategory(),
                 request.getAmount(), request.getNote(), spentAt, request.getPaymentMethod());
         return ApiResponse.ok(ExpenseDtos.ExpenseDTO.from(saved));

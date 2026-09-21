@@ -7,6 +7,7 @@ import com.travel.agent.entity.User;
 import com.travel.agent.service.AuthService;
 import com.travel.agent.service.ItineraryService;
 import com.travel.agent.service.TripService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -22,7 +23,7 @@ public class ItineraryController {
 
     @PutMapping("/{id}")
     public ApiResponse<ItineraryDtos.ItineraryItemDTO> update(@PathVariable Long id,
-                                                              @RequestBody ItineraryDtos.UpdateItemRequest request,
+                                                              @Valid @RequestBody ItineraryDtos.UpdateItemRequest request,
                                                               Authentication authentication) {
         User user = authService.requireUser(authentication.getName());
         var item = itineraryService.findById(id);

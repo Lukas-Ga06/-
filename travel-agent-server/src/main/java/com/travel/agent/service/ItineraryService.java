@@ -90,30 +90,45 @@ public class ItineraryService {
     public void applyOperations(Long tripId, List<PlanOperation> operations) {
         for (PlanOperation op : operations) {
             switch (op.getType()) {
-                case "REMOVE_ITEM" -> repository.deleteById(op.getTargetItemId());
+                case "REMOVE_ITEM" -> repository.delete(requireItemOfTrip(tripId, op.getTargetItemId()));
                 case "ADD_ITEM" -> {
                     ItineraryItem draft = op.getDraft();
+                    if (draft == null) {
+                        throw new BusinessException(400, "新增条目缺少内容");
+                    }
                     draft.setTripId(tripId);
                     repository.save(draft);
                 }
                 case "MODIFY_ITEM" -> {
                     ItineraryItem target = op.getDraft();
-                    repository.findById(op.getTargetItemId()).ifPresent(existing -> {
-                        existing.setTitle(target.getTitle());
-                        existing.setItemType(target.getItemType());
-                        existing.setStartTime(target.getStartTime());
-                        existing.setEndTime(target.getEndTime());
-                        existing.setLatitude(target.getLatitude());
-                        existing.setLongitude(target.getLongitude());
-                        existing.setCost(target.getCost());
-                        existing.setTags(target.getTags());
-                        existing.setDescription(target.getDescription());
-                        repository.save(existing);
-                    });
+                    if (target == null) {
+                        throw new BusinessException(400, "修改条目缺少内容");
+                    }
+                    ItineraryItem existing = requireItemOfTrip(tripId, op.getTargetItemId());
+                    existing.setTitle(target.getTitle());
+                    existing.setItemType(target.getItemType());
+                    existing.setStartTime(target.getStartTime());
+                    existing.setEndTime(target.getEndTime());
+                    existing.setLatitude(target.getLatitude());
+                    existing.setLongitude(target.getLongitude());
+                    existing.setCost(target.getCost());
+                    existing.setTags(target.getTags());
+                    existing.setDescription(target.getDescription());
+                    repository.save(existing);
                 }
                 default -> throw new BusinessException("未知操作类型: " + op.getType());
             }
         }
+    }
+
+    /** 计划中的条目必须属于当前行程，避免跨行程改写/删除数据 */
+    private ItineraryItem requireItemOfTrip(Long tripId, Long itemId) {
+        if (itemId == null) {
+            throw new BusinessException(400, "操作缺少目标条目");
+        }
+        return repository.findById(itemId)
+                .filter(item -> item.getTripId().equals(tripId))
+                .orElseThrow(() -> new BusinessException(404, "行程条目不存在或不属于该行程"));
     }
 
     /** 用快照整体替换行程（撤销用） */

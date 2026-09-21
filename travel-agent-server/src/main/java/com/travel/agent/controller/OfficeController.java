@@ -10,6 +10,9 @@ import com.travel.agent.repository.MailItemRepository;
 import com.travel.agent.repository.MeetingMinutesRepository;
 import com.travel.agent.service.AuthService;
 import com.travel.agent.service.LlmAssistantService;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -28,10 +31,14 @@ public class OfficeController {
     private final MeetingMinutesRepository minutesRepository;
     private final InvoiceRepository invoiceRepository;
 
-    public record MailClassifyRequest(String sender, String subject, String text) {}
+    public record MailClassifyRequest(
+            @Size(max = 200, message = "长度不能超过 200 个字符") String sender,
+            @Size(max = 200, message = "长度不能超过 200 个字符") String subject,
+            @NotBlank(message = "不能为空")
+            @Size(max = 20000, message = "长度不能超过 20000 个字符") String text) {}
 
     @PostMapping("/mail/classify")
-    public ApiResponse<MailItem> classifyMail(@RequestBody MailClassifyRequest request, Authentication authentication) {
+    public ApiResponse<MailItem> classifyMail(@Valid @RequestBody MailClassifyRequest request, Authentication authentication) {
         User user = authService.requireUser(authentication.getName());
         String text = (request.text() == null ? "" : request.text()) + "\n"
                 + (request.subject() == null ? "" : request.subject());
@@ -54,10 +61,13 @@ public class OfficeController {
         return ApiResponse.ok(mailItemRepository.findByUserIdOrderByCreatedAtDesc(user.getId()));
     }
 
-    public record MinutesRequest(String title, String rawText) {}
+    public record MinutesRequest(
+            @Size(max = 200, message = "长度不能超过 200 个字符") String title,
+            @NotBlank(message = "不能为空")
+            @Size(max = 50000, message = "长度不能超过 50000 个字符") String rawText) {}
 
     @PostMapping("/minutes/generate")
-    public ApiResponse<MeetingMinutes> generateMinutes(@RequestBody MinutesRequest request, Authentication authentication) {
+    public ApiResponse<MeetingMinutes> generateMinutes(@Valid @RequestBody MinutesRequest request, Authentication authentication) {
         User user = authService.requireUser(authentication.getName());
         String content = llmAssistantService.generateMinutes(request.title(), request.rawText());
         MeetingMinutes saved = minutesRepository.save(MeetingMinutes.builder()
@@ -75,14 +85,16 @@ public class OfficeController {
         return ApiResponse.ok(minutesRepository.findByUserIdOrderByCreatedAtDesc(user.getId()));
     }
 
-    public record InvoiceExtractRequest(String text) {}
+    public record InvoiceExtractRequest(
+            @NotBlank(message = "不能为空")
+            @Size(max = 20000, message = "长度不能超过 20000 个字符") String text) {}
 
     @PostMapping("/invoice/extract")
-    public ApiResponse<Invoice> extractInvoice(@RequestBody InvoiceExtractRequest request, Authentication authentication) {
+    public ApiResponse<Invoice> extractInvoice(@Valid @RequestBody InvoiceExtractRequest request, Authentication authentication) {
         User user = authService.requireUser(authentication.getName());
         LlmAssistantService.InvoiceResult result = llmAssistantService.extractInvoice(request.text());
         if (result == null) {
-            return ApiResponse.error(400, "未能从文本中提取出发票信息，请检查内容（需包含金额）");
+            throw new com.travel.agent.exception.BusinessException(400, "未能从文本中提取出发票信息，请检查内容（需包含金额）");
         }
         Invoice saved = invoiceRepository.save(Invoice.builder()
                 .userId(user.getId())

@@ -44,7 +44,7 @@ class TripOwnershipTest extends IntegrationTestSupport {
         long tripId = createTrip(owner);
 
         mockMvc.perform(get("/api/trips/" + tripId).header("Authorization", intruder.bearer()))
-                .andExpect(status().is4xxClientError())
+                .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value(404));
     }
 
@@ -56,7 +56,7 @@ class TripOwnershipTest extends IntegrationTestSupport {
         long tripId = createTrip(owner);
 
         mockMvc.perform(delete("/api/trips/" + tripId).header("Authorization", intruder.bearer()))
-                .andExpect(status().is4xxClientError());
+                .andExpect(status().isNotFound());
 
         mockMvc.perform(get("/api/trips/" + tripId).header("Authorization", owner.bearer()))
                 .andExpect(status().isOk());

@@ -7,6 +7,7 @@ import com.travel.agent.entity.Trip;
 import com.travel.agent.exception.BusinessException;
 import com.travel.agent.repository.ItineraryItemRepository;
 import com.travel.agent.repository.TripRepository;
+import com.travel.agent.util.Dates;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,10 +36,14 @@ public class TripService {
 
     public Trip create(Long userId, TripDtos.TripRequest req) {
         LocalDate start = req.getStartDate() == null || req.getStartDate().isBlank()
-                ? LocalDate.now().plusDays(1) : LocalDate.parse(req.getStartDate());
+                ? LocalDate.now().plusDays(1) : Dates.parseDate(req.getStartDate(), "开始日期");
+        LocalDate requestedEnd = Dates.parseDate(req.getEndDate(), "结束日期");
+        if (requestedEnd != null && requestedEnd.isBefore(start)) {
+            throw new BusinessException(400, "结束日期不能早于开始日期");
+        }
         int days = 3;
-        if (req.getEndDate() != null && !req.getEndDate().isBlank()) {
-            days = (int) (LocalDate.parse(req.getEndDate()).toEpochDay() - start.toEpochDay()) + 1;
+        if (requestedEnd != null) {
+            days = (int) (requestedEnd.toEpochDay() - start.toEpochDay()) + 1;
         }
         Trip trip = Trip.builder()
                 .userId(userId)
@@ -56,8 +61,13 @@ public class TripService {
         Trip trip = getOwned(tripId, userId);
         if (req.getName() != null) trip.setName(req.getName());
         if (req.getDestination() != null) trip.setDestination(req.getDestination());
-        if (req.getStartDate() != null && !req.getStartDate().isBlank()) trip.setStartDate(LocalDate.parse(req.getStartDate()));
-        if (req.getEndDate() != null && !req.getEndDate().isBlank()) trip.setEndDate(LocalDate.parse(req.getEndDate()));
+        LocalDate newStart = Dates.parseDate(req.getStartDate(), "开始日期");
+        LocalDate newEnd = Dates.parseDate(req.getEndDate(), "结束日期");
+        if (newStart != null) trip.setStartDate(newStart);
+        if (newEnd != null) trip.setEndDate(newEnd);
+        if (trip.getStartDate() != null && trip.getEndDate() != null && trip.getEndDate().isBefore(trip.getStartDate())) {
+            throw new BusinessException(400, "结束日期不能早于开始日期");
+        }
         if (req.getBudget() != null) trip.setBudget(req.getBudget());
         return tripRepository.save(trip);
     }

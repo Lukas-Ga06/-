@@ -6,6 +6,11 @@ import com.travel.agent.entity.User;
 import com.travel.agent.service.AuthService;
 import com.travel.agent.service.HealthService;
 import com.travel.agent.service.LlmAssistantService;
+import com.travel.agent.util.Dates;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Pattern;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -24,14 +29,18 @@ public class HealthController {
     private final AuthService authService;
     private final LlmAssistantService llmAssistantService;
 
-    public record HealthRecordRequest(String date, Integer steps, Double sleepHours,
-                                      Integer heartRate, Double weight) {}
+    public record HealthRecordRequest(
+            @Pattern(regexp = "^\\d{4}-\\d{2}-\\d{2}$", message = "格式需为 yyyy-MM-dd") String date,
+            @Min(value = 0, message = "不能为负数") Integer steps,
+            @DecimalMin(value = "0", message = "不能为负数") Double sleepHours,
+            @Min(value = 0, message = "不能为负数") Integer heartRate,
+            @DecimalMin(value = "0", message = "不能为负数") Double weight) {}
 
     @PostMapping("/record")
-    public ApiResponse<HealthRecord> upsert(@RequestBody HealthRecordRequest request, Authentication authentication) {
+    public ApiResponse<HealthRecord> upsert(@Valid @RequestBody HealthRecordRequest request, Authentication authentication) {
         User user = authService.requireUser(authentication.getName());
         LocalDate date = request.date() == null || request.date().isBlank()
-                ? LocalDate.now() : LocalDate.parse(request.date());
+                ? LocalDate.now() : Dates.parseDate(request.date(), "记录日期");
         return ApiResponse.ok(healthService.upsert(user.getId(), date,
                 request.steps(), request.sleepHours(), request.heartRate(), request.weight()));
     }

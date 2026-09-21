@@ -39,7 +39,7 @@ class AuthFlowTest extends IntegrationTestSupport {
         mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"%s\",\"password\":\"wrong-password\"}".formatted(account.username())))
-                .andExpect(status().is4xxClientError())
+                .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value(401));
     }
 
@@ -47,13 +47,15 @@ class AuthFlowTest extends IntegrationTestSupport {
     @DisplayName("未携带 token 访问受保护接口会被拒绝")
     void anonymousRequestIsRejected() throws Exception {
         mockMvc.perform(get("/api/trips"))
-                .andExpect(status().is4xxClientError());
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value(401))
+                .andExpect(jsonPath("$.message").isNotEmpty());
     }
 
     @Test
     @DisplayName("伪造的 token 会被拒绝")
     void forgedTokenIsRejected() throws Exception {
         mockMvc.perform(get("/api/trips").header("Authorization", "Bearer not-a-real-token"))
-                .andExpect(status().is4xxClientError());
+                .andExpect(status().isUnauthorized());
     }
 }

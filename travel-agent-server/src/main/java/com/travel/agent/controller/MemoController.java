@@ -5,6 +5,9 @@ import com.travel.agent.entity.Memo;
 import com.travel.agent.entity.User;
 import com.travel.agent.service.AuthService;
 import com.travel.agent.service.MemoService;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -20,7 +23,9 @@ public class MemoController {
     private final MemoService memoService;
     private final AuthService authService;
 
-    public record AddMemoRequest(String content) {}
+    public record AddMemoRequest(
+            @NotBlank(message = "不能为空")
+            @Size(max = 500, message = "长度不能超过 500 个字符") String content) {}
 
     @GetMapping
     public ApiResponse<List<Memo>> list(Authentication authentication) {
@@ -29,7 +34,7 @@ public class MemoController {
     }
 
     @PostMapping
-    public ApiResponse<Memo> add(@RequestBody AddMemoRequest request, Authentication authentication) {
+    public ApiResponse<Memo> add(@Valid @RequestBody AddMemoRequest request, Authentication authentication) {
         User user = authService.requireUser(authentication.getName());
         return ApiResponse.ok(memoService.add(user.getId(), request.content()));
     }

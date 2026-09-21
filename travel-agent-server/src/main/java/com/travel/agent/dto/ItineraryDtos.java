@@ -1,6 +1,9 @@
 package com.travel.agent.dto;
 
 import com.travel.agent.entity.ItineraryItem;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -55,9 +58,12 @@ public class ItineraryDtos {
     public static class AddItemRequest {
         private Integer dayIndex;
         private String itemType;
+        @NotBlank(message = "不能为空")
+        @Size(max = 200, message = "长度不能超过 200 个字符")
         private String title;
         private String startTime;   // HH:mm
         private String endTime;     // HH:mm
+        @DecimalMin(value = "0", message = "不能为负数")
         private BigDecimal cost;
         private Double latitude;
         private Double longitude;
@@ -71,9 +77,11 @@ public class ItineraryDtos {
     public static class UpdateItemRequest {
         private Integer dayIndex;
         private String itemType;
+        @Size(max = 200, message = "长度不能超过 200 个字符")
         private String title;
         private String startTime;
         private String endTime;
+        @DecimalMin(value = "0", message = "不能为负数")
         private BigDecimal cost;
         private Double latitude;
         private Double longitude;

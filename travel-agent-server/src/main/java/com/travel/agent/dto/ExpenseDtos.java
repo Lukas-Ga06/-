@@ -1,6 +1,10 @@
 package com.travel.agent.dto;
 
 import com.travel.agent.entity.Expense;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -47,10 +51,16 @@ public class ExpenseDtos {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class AddExpenseRequest {
+        @Size(max = 30, message = "长度不能超过 30 个字符")
         private String category;       // 餐饮/交通/住宿/门票/购物/其他
+        @NotNull(message = "不能为空")
+        @DecimalMin(value = "0.01", message = "必须大于 0")
         private BigDecimal amount;
+        @Size(max = 500, message = "长度不能超过 500 个字符")
         private String note;
+        @Pattern(regexp = "^\\d{4}-\\d{2}-\\d{2}$", message = "格式需为 yyyy-MM-dd")
         private String spentAt;        // yyyy-MM-dd，缺省今天
+        @Size(max = 30, message = "长度不能超过 30 个字符")
         private String paymentMethod;  // 微信支付/支付宝/现金/银行卡，缺省现金
     }
 

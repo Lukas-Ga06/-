@@ -15,6 +15,9 @@ import com.travel.agent.repository.RagChunkRepository;
 import com.travel.agent.repository.RagDocumentRepository;
 import com.travel.agent.service.AuthService;
 import com.travel.agent.service.LlmAssistantService;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -39,10 +42,13 @@ public class LearningController {
     private final RagService ragService;
     private final VectorStore vectorStore;
 
-    public record GenerateRequest(String kind, String topic, String text) {}
+    public record GenerateRequest(
+            @Size(max = 30, message = "长度不能超过 30 个字符") String kind,
+            @Size(max = 200, message = "长度不能超过 200 个字符") String topic,
+            @Size(max = 20000, message = "长度不能超过 20000 个字符") String text) {}
 
     @PostMapping("/generate")
-    public ApiResponse<LearningArtifact> generate(@RequestBody GenerateRequest request, Authentication authentication) {
+    public ApiResponse<LearningArtifact> generate(@Valid @RequestBody GenerateRequest request, Authentication authentication) {
         User user = authService.requireUser(authentication.getName());
         String kind = request.kind() == null ? LearningArtifact.KIND_SUMMARY : request.kind();
         String topic = request.topic() == null || request.topic().isBlank()
@@ -80,16 +86,16 @@ public class LearningController {
 
     // ==================== 知识库搭建与调用（复用 RAG 管线） ====================
 
-    public record KnowledgeAddRequest(String title, String content) {}
+    public record KnowledgeAddRequest(
+            @Size(max = 200, message = "长度不能超过 200 个字符") String title,
+            @NotBlank(message = "不能为空")
+            @Size(max = 20000, message = "长度不能超过 20000 个字符") String content) {}
 
     /** 知识库搭建：自定义文档 → 切块 → 向量化 → 进入统一检索 */
     @PostMapping("/knowledge/add")
-    public ApiResponse<Map<String, Object>> addKnowledge(@RequestBody KnowledgeAddRequest request,
+    public ApiResponse<Map<String, Object>> addKnowledge(@Valid @RequestBody KnowledgeAddRequest request,
                                                          Authentication authentication) {
         User user = authService.requireUser(authentication.getName());
-        if (request.content() == null || request.content().isBlank()) {
-            return ApiResponse.error(400, "知识内容不能为空");
-        }
         RagDocument doc = ragDocumentRepository.save(RagDocument.builder()
                 .title(request.title() == null || request.title().isBlank() ? "未命名知识" : request.title())
                 .city("个人")
@@ -116,10 +122,12 @@ public class LearningController {
     }
 
     /** 知识库调用：向量检索 */
-    public record KnowledgeSearchRequest(String query) {}
+    public record KnowledgeSearchRequest(
+            @NotBlank(message = "不能为空")
+            @Size(max = 500, message = "长度不能超过 500 个字符") String query) {}
 
     @PostMapping("/knowledge/search")
-    public ApiResponse<List<Map<String, Object>>> searchKnowledge(@RequestBody KnowledgeSearchRequest request,
+    public ApiResponse<List<Map<String, Object>>> searchKnowledge(@Valid @RequestBody KnowledgeSearchRequest request,
                                                                   Authentication authentication) {
         authService.requireUser(authentication.getName());
         List<VectorSearchResult> results = ragService.search(request.query(), null, 5);

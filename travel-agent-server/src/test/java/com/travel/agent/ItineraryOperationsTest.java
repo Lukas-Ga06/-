@@ -94,4 +94,31 @@ class ItineraryOperationsTest extends IntegrationTestSupport {
 
         assertThat(itineraryService.listEntities(trip.getId())).isEmpty();
     }
+
+    @Test
+    @DisplayName("计划不能修改或删除其它行程的条目")
+    void operationsCannotTouchAnotherTrip() throws Exception {
+        Account account = registerNew();
+        Trip tripA = newTrip(account.id());
+        Trip tripB = newTrip(account.id());
+
+        itineraryService.applyOperations(tripA.getId(), List.of(addOperation("外滩", BigDecimal.valueOf(100))));
+        Long itemIdOfA = itineraryService.listEntities(tripA.getId()).get(0).getId();
+
+        assertThatThrownBy(() -> itineraryService.applyOperations(tripB.getId(), List.of(PlanOperation.builder()
+                .type(PlanOperation.MODIFY)
+                .targetItemId(itemIdOfA)
+                .draft(ItineraryItem.builder().dayIndex(1).itemType(ItineraryItem.TYPE_ATTRACTION).title("被篡改").build())
+                .build())))
+                .isInstanceOf(BusinessException.class);
+
+        assertThatThrownBy(() -> itineraryService.applyOperations(tripB.getId(), List.of(PlanOperation.builder()
+                .type(PlanOperation.REMOVE)
+                .targetItemId(itemIdOfA)
+                .build())))
+                .isInstanceOf(BusinessException.class);
+
+        assertThat(itineraryService.listEntities(tripA.getId())).hasSize(1);
+        assertThat(itineraryService.listEntities(tripA.getId()).get(0).getTitle()).isEqualTo("外滩");
+    }
 }
