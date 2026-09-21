@@ -38,9 +38,17 @@ public class PendingPlanStore {
         return pending;
     }
 
+    /** 查看待确认计划：过期即清除并返回 null（避免过期计划长期占用内存） */
     public PendingPlan peek(String planId, Long userId) {
         PendingPlan pending = store.get(planId);
-        if (pending == null || !pending.userId().equals(userId)) {
+        if (pending == null) {
+            return null;
+        }
+        if (pending.createdAt().plusMillis(TTL_MS).isBefore(Instant.now())) {
+            store.remove(planId);
+            return null;
+        }
+        if (!pending.userId().equals(userId)) {
             return null;
         }
         return pending;

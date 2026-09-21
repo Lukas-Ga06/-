@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend / Maven verify
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: travel-agent-server
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Build and test
+        run: mvn -B verify
+
+  frontend:
+    name: Frontend / typecheck + test + build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: travel-agent-web
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: travel-agent-web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Production build
+        run: npm run build

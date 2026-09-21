@@ -408,14 +408,17 @@ public class AgentEngine {
     // ==================== 确认 / 取消 / 撤销（Human-in-the-loop） ====================
 
     public AgentDtos.AgentResult confirm(String planId, Long userId) {
-        PendingPlanStore.PendingPlan pending = pendingPlans.take(planId, userId);
+        // 先 peek 再提交，提交成功后才移除：提交失败时用户仍可重试，不必重新发起规划
+        PendingPlanStore.PendingPlan pending = pendingPlans.peek(planId, userId);
         if (pending == null) {
             return AgentDtos.AgentResult.builder()
                     .status(AgentDtos.STATUS_FAILED)
                     .message("确认会话不存在或已过期，请重新发起请求。")
                     .build();
         }
-        return executorAgent.commit(pending.plan(), userId);
+        AgentDtos.AgentResult result = executorAgent.commit(pending.plan(), userId);
+        pendingPlans.remove(planId);
+        return result;
     }
 
     public AgentDtos.AgentResult cancel(String planId, Long userId) {

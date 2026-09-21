@@ -13,6 +13,7 @@ import com.travel.agent.tool.SafetyInterceptor;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -107,7 +108,11 @@ public class ExecutorAgent {
                 .build();
     }
 
-    /** 用户确认后真正提交：写入数据库并记录操作历史 */
+    /**
+     * 用户确认后真正提交：写入数据库并记录操作历史。
+     * 必须整体处于同一事务中——否则「行程已改、撤销历史未写入」会让用户无法撤销。
+     */
+    @Transactional
     public AgentDtos.AgentResult commit(AgentPlan plan, Long userId) {
         if (plan.getTripDraft() != null) {
             List<ItineraryItem> items = plan.getOperations().stream()

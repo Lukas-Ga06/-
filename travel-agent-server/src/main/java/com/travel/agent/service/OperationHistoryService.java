@@ -41,8 +41,9 @@ public class OperationHistoryService {
                     .afterState(objectMapper.writeValueAsString(toDtoList(after)))
                     .agentReason(reason)
                     .build());
-        } catch (Exception e) {
-            log.error("记录操作历史失败", e);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            // 不能吞掉：历史写不进去就必须回滚行程变更，否则用户会失去撤销能力
+            throw new IllegalStateException("操作历史序列化失败，已回滚本次行程修改", e);
         }
     }
 
