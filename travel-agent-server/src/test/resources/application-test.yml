@@ -13,6 +13,9 @@ spring:
       enabled: false
 
 travel:
+  photos:
+    # 测试产生的照片单独存放，避免污染本地 data/photos
+    dir: data/test-photos
   jwt:
     # 仅用于测试的固定密钥（Base64，解码后 48 字节）；生产密钥一律通过环境变量注入
     secret: "zH5p+FxWgj8rMvkAbh49f7lG7jON+493C+/qTaxuJ4I92t+NNB0QA+fdyB4VQYf9"

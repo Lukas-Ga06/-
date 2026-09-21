@@ -10,6 +10,10 @@
 | `LLM_API_KEY` | 可选 | Agent 全部走规则引擎：意图识别、方案生成、文案润色使用内置模板与规则，功能完整但效果弱于模型 |
 | `AMAP_KEY` | 可选 | 城市 POI 走「大模型生成坐标 + OSM Nominatim」兜底路径，速度较慢 |
 | `APP_TIMEZONE` | 可选（已设默认） | 默认 `Asia/Shanghai`；若部署在其他时区需显式覆盖，否则「今天/明天」会按上海时间计算 |
+| `travel.photos.dir` | 可选（已设默认） | 行程照片落盘目录，默认 `data/photos`（已 gitignore）；换对象存储时只需替换 `PhotoStorage` |
+
+本地开发建议把密钥写进 `travel-agent-server/.env.local`（已 gitignore），用 `.\run-dev.ps1` 启动：
+脚本会注入其中的环境变量，并在缺少 `JWT_SECRET` 时自动生成一个写回该文件，避免每次重启都被登出。
 
 生成 JWT 密钥：
 
@@ -118,6 +122,11 @@ HIGH 风险只表示"方案需要显式确认"（超预算），不是"抛异常
 
 **越权保护**：所有行程相关接口先做 `tripService.getOwned(tripId, userId)`；
 批量操作（`applyOperations`）还会校验每个条目确实属于该行程。
+
+**照片存储**：文件落在 `travel.photos.dir`（默认 `data/photos`），库里只存元数据（`trip_photo`）。
+读写都要先过行程归属校验；原图接口允许 token 走查询参数（`<img>` 无法自定义请求头，与 SSE 同一取舍）；
+上传同时接受 `image/*` MIME 与已知图片扩展名（部分客户端不带 MIME）。
+删除行程会级联清理照片记录与磁盘文件。
 
 **校验**：DTO 使用 `jakarta.validation` 注解，控制器参数加 `@Valid`；
 「格式正确但值非法」的日期（如 2026-02-30）通过 `util/Dates` 统一转 400。

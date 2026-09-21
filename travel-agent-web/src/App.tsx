@@ -20,6 +20,7 @@ const Schedule = lazy(() => import('./pages/Schedule'));
 const Assistant = lazy(() => import('./pages/Assistant'));
 const Travel = lazy(() => import('./pages/Travel'));
 const Footprint = lazy(() => import('./pages/Footprint'));
+const Workbench = lazy(() => import('./pages/Workbench'));
 
 function Protected({ children }: { children: ReactNode }) {
   const token = useAuthStore((s) => s.token);
@@ -55,6 +56,7 @@ export default function App() {
           <Route path="/assistant" element={<Protected><Assistant /></Protected>} />
           <Route path="/travel" element={<Protected><Travel /></Protected>} />
           <Route path="/footprint" element={<Protected><Footprint /></Protected>} />
+          <Route path="/workbench" element={<Protected><Workbench /></Protected>} />
           <Route path="/profile" element={<Protected><Profile /></Protected>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

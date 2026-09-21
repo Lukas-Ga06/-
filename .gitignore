@@ -20,6 +20,10 @@ travel-agent-server/data/
 *.mv.db
 *.trace.db
 
+# ---- 本地密钥（绝不入库）----
+.env.local
+*.env.local
+
 # ---- 系统 ----
 .DS_Store
 Thumbs.db

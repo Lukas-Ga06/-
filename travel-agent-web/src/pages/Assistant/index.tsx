@@ -16,7 +16,11 @@ export default function Assistant() {
     const q = params.get('q');
     if (q && !startedRef.current) {
       startedRef.current = true;
-      setTimeout(() => send({ message: q }), 120);
+      const tripId = Number(params.get('tripId'));
+      setTimeout(
+        () => send({ message: q, tripId: Number.isFinite(tripId) && tripId > 0 ? tripId : null }),
+        120,
+      );
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params]);

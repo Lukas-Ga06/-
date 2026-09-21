@@ -110,7 +110,7 @@ export default function Home() {
   const todayStats = [
     { icon: '📅', cls: 'blue', label: '今日安排', num: String(todaySchedule.length), sub: '项', path: '/schedule' },
     { icon: '💰', cls: 'orange', label: '本月支出', num: `¥${(overview?.monthSpent ?? 0).toFixed(0)}`, path: '/expenses' },
-    { icon: '🤖', cls: 'green', label: 'AI 任务', num: String(aiCount), sub: '项', path: '/office' },
+    { icon: '🤖', cls: 'green', label: 'AI 任务', num: String(aiCount), sub: '项', path: '/workbench' },
     { icon: '⏰', cls: 'purple', label: '待提醒', num: String(openMemos.length), sub: '项', path: '/memos' },
   ];
 
@@ -367,9 +367,10 @@ export default function Home() {
         spendByTrip={spendByTrip}
         onClose={() => setSelectedCity(null)}
         onOpenTrip={(tripId) => navigate(`/trip/${tripId}`)}
-        onAskAi={(question) => {
+        onAskAi={(question, tripId) => {
           setSelectedCity(null);
-          navigate(`/assistant?q=${encodeURIComponent(question)}`);
+          const suffix = tripId ? `&tripId=${tripId}` : '';
+          navigate(`/assistant?q=${encodeURIComponent(question)}${suffix}`);
         }}
       />
     </AppShell>

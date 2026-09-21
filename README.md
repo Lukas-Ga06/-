@@ -21,6 +21,8 @@ travel-agent/
 ├── docs/CHANGELOG.md                   # 行为变化记录（含影响使用习惯的调整）
 ├── .e2e/                               # 手工端到端验证脚本（需本地先启动后端）
 ├── travel-agent-server/                # 后端（Spring Boot 3 / Java 17）
+│   ├── run-dev.ps1                     # 本地启动脚本：读取 .env.local 注入密钥后启动
+│   ├── .env.local                      # 本地密钥（gitignore，不入库）
 │   ├── src/main/java/com/travel/agent/
 │   │   ├── agent/                      # Agent Engine：状态机 + 四个 Agent + 上下文 + 计划
 │   │   ├── tool/                       # AgentTool 接口 / ToolRegistry / SafetyInterceptor / 8 个只读工具
@@ -37,7 +39,7 @@ travel-agent/
     ├── vitest.config.ts                # 前端单元测试配置
     └── src/
         ├── components/                 # ChatPanel / MapView(MapProvider) / Timeline / ItineraryCard / BudgetChart / PlanDiff / VoiceButton
-        ├── pages/                      # Home / Planner / Trip / Travel / Footprint(3D 足迹) / Expenses / Memos / Schedule / Office / Learning / Health / Assistant / Profile / Login
+        ├── pages/                      # Home / Planner / Trip / Travel / Footprint(3D 足迹) / Workbench(办公+学习) / Expenses / Memos / Schedule / Office / Learning / Health / Assistant / Profile / Login
         ├── store/                      # zustand：auth / trip / agent / ui
         ├── api/                        # axios 封装 + SSE EventSource 客户端
         └── types/                      # 与后端 AgentResult / PlanDiff 对齐的 TS 类型
@@ -73,6 +75,9 @@ export LLM_API_KEY="sk-你的key"
 
 mvn spring-boot:run
 ```
+
+> 更省事的方式（推荐）：把密钥写进 `travel-agent-server/.env.local`（该文件已被 gitignore），
+> 然后 `.\run-dev.ps1` 启动——脚本会逐条注入环境变量，并在首次运行时自动生成并固定 `JWT_SECRET`。
 
 首次启动会自动完成：
 - 建表（JPA ddl-auto）
@@ -193,6 +198,13 @@ POST   /api/agent/undo            # 撤销上一次修改
 
 GET    /api/trips/{tripId}/expenses   POST /api/trips/{tripId}/expenses
 GET    /api/expenses/overview         DELETE /api/expenses/{id}
+
+POST   /api/trips/{tripId}/photos     # 上传行程照片（multipart，≤10MB）
+GET    /api/trips/{tripId}/photos
+GET    /api/photos/{id}/raw           # 原图（<img> 用，token 走查询参数）
+DELETE /api/photos/{id}
+
+GET    /api/system/status             # 运行能力自检：模型/定位/时区（不返回密钥）
 
 GET    /api/memos                 POST /api/memos
 POST   /api/memos/{id}/toggle     DELETE /api/memos/{id}

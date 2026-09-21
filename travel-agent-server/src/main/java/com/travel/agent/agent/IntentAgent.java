@@ -39,11 +39,25 @@ public class IntentAgent {
         String message = ctx.getMessage() == null ? "" : ctx.getMessage();
         if (llmClient.available()) {
             IntentResult result = llmDetect(ctx, trip, message);
-            if (result != null) {
+            if (result != null && plausible(result, message)) {
                 return result;
             }
         }
         return ruleDetect(ctx, trip, message);
+    }
+
+    /**
+     * 模型越界分类的兜底：例如把「总结我在上海的旅行」判成「生成今日日报」。
+     * 日报只应在用户明确提到日报/今天/今日时触发，否则交回规则引擎重新判断
+     * （这类问题更适合走预算/知识问答，并带上行程上下文）。
+     */
+    private boolean plausible(IntentResult result, String message) {
+        if (IntentResult.GEN_DAILY_REPORT.equals(result.getIntent())
+                && !MessageParser.mentions(message, "日报", "今天", "今日")) {
+            log.info("模型把「{}」判成日报，交回规则引擎", message);
+            return false;
+        }
+        return true;
     }
 
     private IntentResult llmDetect(AgentContext ctx, Trip trip, String message) {
@@ -54,7 +68,9 @@ public class IntentAgent {
                     QUERY_KNOWLEDGE（旅游知识问答，如攻略/推荐/介绍）、RECORD_EXPENSE（记账：记录一笔实际花费，如「记一笔午餐45元」）、
                     ADD_MEMO（添加个人备忘/待办，如「记一下明天办签证」）、QUERY_MEMO（查看备忘/待办列表）、
                     ADD_SCHEDULE（添加日程，如「明天下午3点开评审会」）、QUERY_SCHEDULE（查看日程安排）、
-                    GEN_DAILY_REPORT（生成今日日报）、QUERY_HEALTH（查询健康数据，如步数/睡眠/心率/手环）、
+                    GEN_DAILY_REPORT（生成"今天"的个人日报；只有用户明确说要日报或回顾今天时才用，
+                    说「总结我在上海的旅行」「回顾某次旅行」属于 QUERY_KNOWLEDGE 或 QUERY_BUDGET，不要判成日报）、
+                    QUERY_HEALTH（查询健康数据，如步数/睡眠/心率/手环）、
                     CHITCHAT（其他闲聊）。
                     target 为操作目标：OUTDOOR_ACTIVITY / SELECTED_ITEM / NONE。
                     destination 为用户想去的城市名（仅中文城市名本身，如 "石家庄"、"洛阳"），无法确定时填 null。

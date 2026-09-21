@@ -1,3 +1,4 @@
+import { createContext, useContext } from 'react';
 import { Button } from 'antd';
 import { LogoutOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
@@ -19,25 +20,33 @@ const GROUPS: { section: string; items: { key: string; label: string; path: stri
     section: 'AI 工作台',
     items: [
       { key: 'assistant', label: 'AI 助理', path: '/assistant', icon: '🤖' },
-      { key: 'office', label: '自动化', path: '/office', icon: '⚡' },
-      { key: 'learning', label: '学习', path: '/learning', icon: '📚' },
+      { key: 'workbench', label: '工作台', path: '/workbench', icon: '🧰' },
     ],
   },
 ];
 
 export type NavModule =
   | 'home' | 'schedule' | 'travel' | 'footprint' | 'expenses' | 'memos' | 'health'
-  | 'assistant' | 'office' | 'learning' | 'profile';
+  | 'assistant' | 'office' | 'learning' | 'workbench' | 'profile';
+
+/** 嵌套在已有外壳内时不再重复渲染侧栏（例如工作台用 Tabs 复用办公/学习页） */
+const InsideShell = createContext(false);
 
 /** 个人助理应用外壳：左侧悬浮玻璃边栏 + 右侧内容区 */
 export default function AppShell({ active, children }: { active: NavModule; children: React.ReactNode }) {
+  const insideShell = useContext(InsideShell);
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
 
+  if (insideShell) {
+    return <>{children}</>;
+  }
+
   return (
-    <div className="app-shell">
-      <aside className="app-sidebar">
+    <InsideShell.Provider value={true}>
+      <div className="app-shell">
+        <aside className="app-sidebar">
         <div className="sb-brand" onClick={() => navigate('/')} style={{ cursor: 'pointer' }}>
           <span className="hn-logo">🧠</span> AI 个人助理
         </div>
@@ -79,8 +88,9 @@ export default function AppShell({ active, children }: { active: NavModule; chil
             />
           </div>
         </div>
-      </aside>
-      <main className="app-content">{children}</main>
-    </div>
+        </aside>
+        <main className="app-content">{children}</main>
+      </div>
+    </InsideShell.Provider>
   );
 }
