@@ -2,45 +2,70 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { TripMapPoint } from '../../types/trip';
-import { footprintColor, orderedFootprints, routeGeoJson, tripDays, tripRangeLabel } from './footprintData';
+import {
+  cityFootprints,
+  footprintColor,
+  orderedFootprints,
+  routeCoordinates,
+  tripDays,
+  tripRangeLabel,
+} from './footprintData';
 
 const CHINA_OVERVIEW: [number, number] = [110.5, 34.5];
 
 /** 低于该缩放级别时隐藏城市标签：视野内多个城市时标签会互相压住，悬停仍会显示 */
 const LABEL_MIN_ZOOM = 5.2;
 
-const MAP_STYLE: maplibregl.StyleSpecification = {
-  version: 8,
-  sources: {
-    osm: {
-      type: 'raster',
-      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-      tileSize: 256,
-      attribution: '© OpenStreetMap contributors',
-    },
-  },
-  layers: [
-    {
-      id: 'osm',
-      type: 'raster',
-      source: 'osm',
-      paint: {
-        'raster-saturation': -0.18,
-        'raster-brightness-max': 0.99,
-        'raster-contrast': 0.04,
+export type FootprintTheme = 'light' | 'dark';
+export type FootprintMode = 'trip' | 'city';
+
+/** 免 Key 的深色矢量底图（OpenFreeMap）；不可达时会自动退回「压暗的 OSM 栅格」 */
+const DARK_STYLE_URL = 'https://tiles.openfreemap.org/styles/dark';
+
+function buildRasterStyle(theme: FootprintTheme): maplibregl.StyleSpecification {
+  const dark = theme === 'dark';
+  return {
+    version: 8,
+    sources: {
+      base: {
+        type: 'raster',
+        tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+        tileSize: 256,
+        attribution: '© OpenStreetMap contributors',
       },
     },
-  ],
-};
+    layers: [
+      {
+        id: 'base',
+        type: 'raster',
+        source: 'base',
+        paint: dark
+          ? {
+              // 深色兜底：不做反转，只压暗并降饱和，配合深色面板形成 20% 的深色块
+              'raster-saturation': -0.4,
+              'raster-brightness-min': 0.02,
+              'raster-brightness-max': 0.42,
+              'raster-contrast': 0.18,
+            }
+          : { 'raster-saturation': -0.18, 'raster-brightness-max': 0.99, 'raster-contrast': 0.04 },
+      },
+    ],
+  };
+}
 
 interface Props {
   points: TripMapPoint[];
-  /** 点击足迹标记：进入对应行程 */
+  /** trip：每个行程一个节点；city：按城市聚合，节点上显示到访次数 */
+  mode?: FootprintMode;
+  theme?: FootprintTheme;
+  /** trip 模式点击节点：进入对应行程 */
   onSelect?: (tripId: number) => void;
+  /** city 模式点击节点：打开该城市详情 */
+  onCityClick?: (city: string) => void;
   showControls?: boolean;
   /** 飞入足迹后自动环绕地球（首页缩略图建议关闭） */
   autoSpin?: boolean;
-  /** 外部指定要聚焦的行程（例如从行程列表点击） */
+  /** 外部指定要聚焦的行程（例如从列表点击） */
   focusTripId?: number | null;
   /** 自增信号：每次变化触发一次足迹回放 */
   playSignal?: number;
@@ -55,7 +80,10 @@ interface Props {
  */
 export default function FootprintMap({
   points,
+  mode = 'trip',
+  theme = 'light',
   onSelect,
+  onCityClick,
   showControls = true,
   autoSpin = false,
   focusTripId = null,
@@ -71,10 +99,14 @@ export default function FootprintMap({
   const introDoneRef = useRef(false);
 
   const pointsRef = useRef(points);
+  const modeRef = useRef(mode);
   const selectRef = useRef(onSelect);
+  const cityClickRef = useRef(onCityClick);
   const tourStateRef = useRef(onTourStateChange);
   pointsRef.current = points;
+  modeRef.current = mode;
   selectRef.current = onSelect;
+  cityClickRef.current = onCityClick;
   tourStateRef.current = onTourStateChange;
 
   const [engine, setEngine] = useState<'3d' | '2d'>('3d');
@@ -90,8 +122,14 @@ export default function FootprintMap({
     tourStateRef.current?.(value);
   }, []);
 
-  /** 气泡内容：用真实 DOM 构建，文本一律 textContent 写入 */
-  const buildPopup = useCallback((point: TripMapPoint, color: string): HTMLElement => {
+  /** 一行元信息（都是纯文本，安全写入） */
+  const metaLine = (text: string) => {
+    const line = document.createElement('span');
+    line.textContent = text;
+    return line;
+  };
+
+  const popupShell = (titleText: string, badgeText: string, color: string) => {
     const root = document.createElement('div');
     root.className = 'fp-popup-card';
     root.style.setProperty('--mc', color);
@@ -99,34 +137,55 @@ export default function FootprintMap({
     const head = document.createElement('div');
     head.className = 'fp-popup-head';
     const title = document.createElement('b');
-    title.textContent = point.name || point.destination || '未命名行程';
-    const status = document.createElement('span');
-    status.className = 'fp-popup-status';
-    status.textContent = point.status === 'CONFIRMED' ? '已确认' : '规划中';
-    head.append(title, status);
+    title.textContent = titleText;
+    const badge = document.createElement('span');
+    badge.className = 'fp-popup-status';
+    badge.textContent = badgeText;
+    head.append(title, badge);
 
     const meta = document.createElement('div');
     meta.className = 'fp-popup-meta';
-    [
-      `📍 ${point.destination ?? '未设置目的地'}`,
-      `🗓 ${tripRangeLabel(point)} · ${tripDays(point)} 天`,
-      `💰 预算 ¥${(point.budget ?? 0).toFixed(0)}`,
-    ].forEach((text) => {
-      const line = document.createElement('span');
-      line.textContent = text;
-      meta.append(line);
-    });
+    root.append(head, meta);
+    return { root, meta };
+  };
 
+  const tripPopup = useCallback((point: TripMapPoint, color: string): HTMLElement => {
+    const { root, meta } = popupShell(
+      point.name || point.destination || '未命名行程',
+      point.status === 'CONFIRMED' ? '已确认' : '规划中',
+      color,
+    );
+    meta.append(
+      metaLine(`📍 ${point.destination ?? '未设置目的地'}`),
+      metaLine(`🗓 ${tripRangeLabel(point)} · ${tripDays(point)} 天`),
+      metaLine(`💰 预算 ¥${(point.budget ?? 0).toFixed(0)}`),
+    );
     const hint = document.createElement('div');
     hint.className = 'fp-popup-hint';
     hint.textContent = '点击标记进入行程 →';
-
-    root.append(head, meta, hint);
+    root.append(hint);
     return root;
   }, []);
 
-  const showPopup = useCallback(
-    (point: TripMapPoint, color: string, map: maplibregl.Map) => {
+  const cityPopup = useCallback((city: string, trips: TripMapPoint[], color: string): HTMLElement => {
+    const visits = trips.length;
+    const days = trips.reduce((sum, point) => sum + tripDays(point), 0);
+    const budget = trips.reduce((sum, point) => sum + (point.budget ?? 0), 0);
+    const { root, meta } = popupShell(city, `${visits} 次到访`, color);
+    meta.append(
+      metaLine(`🗓 累计 ${days} 天`),
+      metaLine(`💰 预算合计 ¥${budget.toFixed(0)}`),
+      metaLine(`🕒 最近 ${trips.map((t) => t.startDate).filter(Boolean).sort().reverse()[0] ?? '—'}`),
+    );
+    const hint = document.createElement('div');
+    hint.className = 'fp-popup-hint';
+    hint.textContent = '点击查看该城市足迹 →';
+    root.append(hint);
+    return root;
+  }, []);
+
+  const showPopupAt = useCallback(
+    (content: HTMLElement, lng: number, lat: number, map: maplibregl.Map) => {
       popupRef.current?.remove();
       popupRef.current = new maplibregl.Popup({
         offset: 26,
@@ -134,56 +193,111 @@ export default function FootprintMap({
         className: 'fp-popup',
         maxWidth: '260px',
       })
-        .setLngLat([point.lng as number, point.lat as number])
-        .setDOMContent(buildPopup(point, color))
+        .setLngLat([lng, lat])
+        .setDOMContent(content)
         .addTo(map);
     },
-    [buildPopup],
+    [],
   );
+
+  /** 标记元素：城市节点 / 行程节点共用，city 模式额外显示到访次数 */
+  const markerElement = (label: string, initial: string, color: string, visits?: number) => {
+    const el = document.createElement('button');
+    el.type = 'button';
+    el.className = `fp-marker ${theme === 'dark' ? 'fp-dark' : ''}`;
+    el.style.setProperty('--mc', color);
+    el.setAttribute('aria-label', visits && visits > 1 ? `${label}，${visits} 次到访` : label);
+
+    const ring = document.createElement('span');
+    ring.className = 'fp-ring';
+    const dot = document.createElement('span');
+    dot.className = 'fp-dot';
+    dot.textContent = initial;
+    const text = document.createElement('span');
+    text.className = 'fp-label';
+    text.textContent = label;
+    el.append(ring, dot, text);
+    if (visits && visits > 1) {
+      const badge = document.createElement('span');
+      badge.className = 'fp-visits';
+      badge.textContent = `×${visits}`;
+      el.append(badge);
+    }
+    return el;
+  };
+
+  /** 航线坐标：city 模式按首次到访顺序串城市，trip 模式按行程时间顺序 */
+  const routeOf = useCallback((located: TripMapPoint[]): [number, number][] => {
+    if (modeRef.current !== 'city') {
+      return routeCoordinates(pointsRef.current);
+    }
+    return cityFootprints(pointsRef.current)
+      .slice()
+      .sort((a, b) => (a.firstVisit ?? '').localeCompare(b.firstVisit ?? ''))
+      .map((c) => [c.lng, c.lat] as [number, number]);
+  }, []);
 
   const draw = useCallback(() => {
     const map = mapRef.current;
-    if (!map) return [];
+    if (!map) return [] as TripMapPoint[];
 
     markersRef.current.forEach((marker) => marker.remove());
     markersRef.current = [];
 
+    const cityMode = modeRef.current === 'city';
     const located = orderedFootprints(pointsRef.current);
-    const colorOf = new Map<number, string>();
-    located.forEach((point, index) => colorOf.set(point.tripId, footprintColor(index)));
 
-    // 航线：按时间顺序连线，再叠一层虚线形成「飞行轨迹」质感
-    const route = routeGeoJson(pointsRef.current);
+    // 航线：先按时间顺序连线，再叠加一层虚线形成「飞行轨迹」质感
+    const coordinates = routeOf(located);
     const source = map.getSource('fp-route') as maplibregl.GeoJSONSource | undefined;
     source?.setData(
-      route
-        ? { type: 'FeatureCollection', features: [route] }
+      coordinates.length > 1
+        ? {
+            type: 'FeatureCollection',
+            features: [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates } }],
+          }
         : { type: 'FeatureCollection', features: [] },
     );
 
-    located.forEach((point) => {
-      const color = colorOf.get(point.tripId) ?? footprintColor(0);
-      const el = document.createElement('button');
-      el.type = 'button';
-      el.className = 'fp-marker';
-      el.style.setProperty('--mc', color);
-      el.setAttribute('aria-label', `${point.name ?? point.destination ?? '行程'}，点击进入`);
+    if (cityMode) {
+      const cities = cityFootprints(pointsRef.current)
+        .slice()
+        .sort((a, b) => (a.firstVisit ?? '').localeCompare(b.firstVisit ?? ''));
+      cities.forEach((city, index) => {
+        const color = footprintColor(index);
+        const el = markerElement(city.city, city.city.slice(0, 1), color, city.visits);
+        el.addEventListener('mouseenter', () =>
+          showPopupAt(cityPopup(city.city, city.trips, color), city.lng, city.lat, map),
+        );
+        el.addEventListener('focus', () =>
+          showPopupAt(cityPopup(city.city, city.trips, color), city.lng, city.lat, map),
+        );
+        el.addEventListener('mouseleave', () => popupRef.current?.remove());
+        el.addEventListener('click', () => cityClickRef.current?.(city.city));
+        markersRef.current.push(
+          new maplibregl.Marker({ element: el, anchor: 'center' })
+            .setLngLat([city.lng, city.lat])
+            .addTo(map),
+        );
+      });
+      return located;
+    }
 
-      const ring = document.createElement('span');
-      ring.className = 'fp-ring';
-      const dot = document.createElement('span');
-      dot.className = 'fp-dot';
-      dot.textContent = (point.destination || point.name || '旅').slice(0, 1);
-      const label = document.createElement('span');
-      label.className = 'fp-label';
-      label.textContent = point.destination || point.name || '未命名';
-      el.append(ring, dot, label);
-
-      el.addEventListener('mouseenter', () => showPopup(point, color, map));
-      el.addEventListener('focus', () => showPopup(point, color, map));
+    located.forEach((point, index) => {
+      const color = footprintColor(index);
+      const el = markerElement(
+        point.destination || point.name || '未命名',
+        (point.destination || point.name || '旅').slice(0, 1),
+        color,
+      );
+      el.addEventListener('mouseenter', () =>
+        showPopupAt(tripPopup(point, color), point.lng as number, point.lat as number, map),
+      );
+      el.addEventListener('focus', () =>
+        showPopupAt(tripPopup(point, color), point.lng as number, point.lat as number, map),
+      );
       el.addEventListener('mouseleave', () => popupRef.current?.remove());
       el.addEventListener('click', () => selectRef.current?.(point.tripId));
-
       markersRef.current.push(
         new maplibregl.Marker({ element: el, anchor: 'center' })
           .setLngLat([point.lng as number, point.lat as number])
@@ -192,7 +306,7 @@ export default function FootprintMap({
     });
 
     return located;
-  }, [showPopup]);
+  }, [cityPopup, routeOf, showPopupAt, theme, tripPopup]);
 
   const fitAll = useCallback((duration = 2200) => {
     const map = mapRef.current;
@@ -236,9 +350,9 @@ export default function FootprintMap({
         curve: 1.6,
         essential: true,
       });
-      showPopup(point, footprintColor(index), map);
+      showPopupAt(tripPopup(point, footprintColor(index)), point.lng as number, point.lat as number, map);
     },
-    [showPopup],
+    [showPopupAt, tripPopup],
   );
 
   const stopTour = useCallback(() => {
@@ -249,32 +363,53 @@ export default function FootprintMap({
     setTour(false);
   }, [setTour]);
 
+  /** 回放站点：city 模式按城市，trip 模式按行程 */
+  const tourStops = useCallback(() => {
+    if (modeRef.current === 'city') {
+      const cities = cityFootprints(pointsRef.current)
+        .slice()
+        .sort((a, b) => (a.firstVisit ?? '').localeCompare(b.firstVisit ?? ''));
+      return cities.map((city, index) => ({
+        lng: city.lng,
+        lat: city.lat,
+        color: footprintColor(index),
+        popup: () => cityPopup(city.city, city.trips, footprintColor(index)),
+      }));
+    }
+    return orderedFootprints(pointsRef.current).map((point, index) => ({
+      lng: point.lng as number,
+      lat: point.lat as number,
+      color: footprintColor(index),
+      popup: () => tripPopup(point, footprintColor(index)),
+    }));
+  }, [cityPopup, tripPopup]);
+
   const startTour = useCallback(() => {
     const map = mapRef.current;
-    const located = orderedFootprints(pointsRef.current);
-    if (!map || located.length === 0) return;
+    const stops = tourStops();
+    if (!map || stops.length === 0) return;
 
     stopTour();
-    setTourTotal(located.length);
+    setTourTotal(stops.length);
     setTourIndex(0);
     setTour(true);
 
     let index = 0;
     const step = () => {
-      const point = located[index];
+      const stop = stops[index];
       map.flyTo({
-        center: [point.lng as number, point.lat as number],
-        zoom: 8.8,
-        pitch: 60,
+        center: [stop.lng, stop.lat],
+        zoom: modeRef.current === 'city' ? 4.6 : 8.8,
+        pitch: modeRef.current === 'city' ? 45 : 60,
         bearing: index % 2 === 0 ? -22 : 26,
         duration: 2200,
         curve: 1.5,
         essential: true,
       });
-      showPopup(point, footprintColor(index), map);
+      showPopupAt(stop.popup(), stop.lng, stop.lat, map);
       setTourIndex(index);
       index += 1;
-      if (index < located.length) {
+      if (index < stops.length) {
         tourTimerRef.current = window.setTimeout(step, 3000);
       } else {
         tourTimerRef.current = window.setTimeout(() => {
@@ -284,7 +419,7 @@ export default function FootprintMap({
       }
     };
     step();
-  }, [fitAll, setTour, showPopup, stopTour]);
+  }, [fitAll, setTour, showPopupAt, stopTour, tourStops]);
 
   const stopSpin = useCallback(() => {
     if (spinTimerRef.current != null) {
@@ -309,7 +444,7 @@ export default function FootprintMap({
     mapRef.current?.easeTo({ pitch: pitched ? 55 : 0, bearing: pitched ? -16 : 0, duration: 900 });
   }, []);
 
-  // 初始化地图（只执行一次）
+  // 初始化地图（主题变化时重建）
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -319,7 +454,8 @@ export default function FootprintMap({
 
     const map = new maplibregl.Map({
       container,
-      style: MAP_STYLE,
+      // 深色主题优先用免 Key 的矢量样式；加载失败会退回压暗的 OSM 栅格
+      style: theme === 'dark' ? DARK_STYLE_URL : buildRasterStyle('light'),
       center: CHINA_OVERVIEW,
       zoom: 2.4,
       pitch: 0,
@@ -337,24 +473,43 @@ export default function FootprintMap({
     map.on('zoom', syncLabels);
     syncLabels();
 
-    map.on('load', () => {
+    let styleFallbackApplied = false;
+    map.on('error', (event) => {
+      if (theme !== 'dark' || styleFallbackApplied) {
+        return;
+      }
+      const message = String((event as unknown as { error?: { message?: string } })?.error?.message ?? '');
+      if (/style|fetch|load|network/i.test(message)) {
+        styleFallbackApplied = true;
+        console.warn('[footprint] 深色底图加载失败，已退回压暗的 OSM 栅格底图');
+        map.setStyle(buildRasterStyle('dark'));
+      }
+    });
+
+    // style.load 在每次样式加载完成后都会触发（含上面的兜底切换），因此图层在这里注册
+    map.on('style.load', () => {
+      if (map.getSource('fp-route')) {
+        draw();
+        return;
+      }
       map.addSource('fp-route', {
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] },
       });
+      const routeColor = theme === 'dark' ? '#4da3ff' : '#007aff';
       map.addLayer({
         id: 'fp-route-glow',
         type: 'line',
         source: 'fp-route',
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': '#007aff', 'line-width': 14, 'line-blur': 12, 'line-opacity': 0.24 },
+        paint: { 'line-color': routeColor, 'line-width': 14, 'line-blur': 12, 'line-opacity': 0.26 },
       });
       map.addLayer({
         id: 'fp-route-core',
         type: 'line',
         source: 'fp-route',
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': '#007aff', 'line-width': 2.6, 'line-opacity': 0.72 },
+        paint: { 'line-color': routeColor, 'line-width': 2.6, 'line-opacity': 0.75 },
       });
       map.addLayer({
         id: 'fp-route-dash',
@@ -399,9 +554,9 @@ export default function FootprintMap({
       mapRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [theme]);
 
-  // 数据变化时重绘
+  // 数据或模式变化时重绘
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -411,7 +566,7 @@ export default function FootprintMap({
       map.once('load', () => draw());
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [points]);
+  }, [points, mode]);
 
   // 外部指定聚焦行程
   useEffect(() => {
@@ -430,7 +585,7 @@ export default function FootprintMap({
   }, [playSignal]);
 
   return (
-    <div className={`fp-canvas ${labelsOff ? 'labels-off' : ''}`}>
+    <div className={`fp-canvas ${labelsOff ? 'labels-off' : ''} ${theme === 'dark' ? 'fp-theme-dark' : ''}`}>
       <div ref={containerRef} className="fp-map" />
       {globe && <div className="fp-globe-hint">🌐 球体视角</div>}
       {showControls && (

@@ -6,12 +6,18 @@ import dayjs from 'dayjs';
 import { getTripsMap } from '../../api/trip';
 import { getExpenseOverview } from '../../api/expense';
 import { getMemos, toggleMemo } from '../../api/memo';
-import { healthSummary, listSchedule, type ScheduleItem } from '../../api/assistant';
-import { listMinutes, listReports } from '../../api/assistant';
-import { listArtifacts } from '../../api/assistant';
+import { healthSummary, listArtifacts, listMinutes, listReports, listSchedule, type ScheduleItem } from '../../api/assistant';
 import { useAuthStore } from '../../store/authStore';
 import AppShell from '../../components/AppShell';
+import CityDrawer from '../../components/CityDrawer';
 import VoiceButton from '../../components/VoiceButton';
+import {
+  filterByPeriod,
+  footprintMonths,
+  footprintStats,
+  footprintYears,
+  tripDays,
+} from '../../components/FootprintMap/footprintData';
 import type { ExpenseOverview } from '../../types/expense';
 import type { Memo } from '../../types/memo';
 import type { TripMapPoint } from '../../types/trip';
@@ -21,14 +27,8 @@ import type { HealthSummary } from '../../types/assistant';
 const FootprintMap = lazy(() => import('../../components/FootprintMap'));
 
 const EXAMPLE_PROMPT = '帮我规划周末上海两日游';
-const QUICK_MODULES = [
-  { icon: '📅', label: '行程', path: '/schedule' },
-  { icon: '💰', label: '记账', path: '/expenses' },
-  { icon: '📝', label: '待办', path: '/memos' },
-  { icon: '✨', label: '更多', path: '/office' },
-];
 
-/** 总览：个人助理 Dashboard */
+/** 总览：3D 足迹为核心视觉的个人助理 Dashboard */
 export default function Home() {
   const { message } = App.useApp();
   const navigate = useNavigate();
@@ -42,13 +42,11 @@ export default function Home() {
   const [aiCount, setAiCount] = useState(0);
   const [health, setHealth] = useState<HealthSummary | null>(null);
 
-  const loadOverview = async () => {
-    try {
-      setOverview(await getExpenseOverview());
-    } catch {
-      // 忽略
-    }
-  };
+  // 时间轴：年份/月份驱动地图
+  const [periodYear, setPeriodYear] = useState<string | null>(null);
+  const [periodMonth, setPeriodMonth] = useState<string | null>(null);
+  const [playSignal, setPlaySignal] = useState(0);
+  const [selectedCity, setSelectedCity] = useState<string | null>(null);
 
   useEffect(() => {
     const safe = (p: Promise<any>, fallback: any) => p.catch(() => fallback);
@@ -79,7 +77,25 @@ export default function Home() {
     .filter((s) => !s.done && s.date >= today)
     .sort((a, b) => (a.date + (a.time ?? '')).localeCompare(b.date + (b.time ?? '')))
     .slice(0, 4);
-  const healthSteps = health?.latest?.steps ?? 0;
+
+  const allPoints = mapPoints ?? [];
+  const years = footprintYears(allPoints);
+  const pointsInYear = periodYear ? filterByPeriod(allPoints, periodYear, null) : allPoints;
+  const months = footprintMonths(pointsInYear);
+  const visiblePoints = filterByPeriod(allPoints, periodYear, periodMonth);
+  const stats = footprintStats(visiblePoints);
+
+  /** tripId -> 实际记账金额，用于城市详情里的「计划 vs 实际」 */
+  const spendByTrip: Record<number, number> = {};
+  (overview?.byTrip ?? []).forEach((t) => {
+    if (t.tripId > 0) spendByTrip[t.tripId] = Number(t.total ?? 0);
+  });
+
+  const recentTrips = allPoints
+    .filter((p) => p.startDate)
+    .slice()
+    .sort((a, b) => (b.startDate ?? '').localeCompare(a.startDate ?? ''))
+    .slice(0, 4);
 
   const send = (value?: string) => {
     const p = (value ?? prompt).trim();
@@ -91,10 +107,10 @@ export default function Home() {
     setPrompt('');
   };
 
-  const stats = [
+  const todayStats = [
     { icon: '📅', cls: 'blue', label: '今日安排', num: String(todaySchedule.length), sub: '项', path: '/schedule' },
     { icon: '💰', cls: 'orange', label: '本月支出', num: `¥${(overview?.monthSpent ?? 0).toFixed(0)}`, path: '/expenses' },
-    { icon: '🤖', cls: 'green', label: 'AI 任务', num: String(aiCount), sub: '项', path: '/learning' },
+    { icon: '🤖', cls: 'green', label: 'AI 任务', num: String(aiCount), sub: '项', path: '/office' },
     { icon: '⏰', cls: 'purple', label: '待提醒', num: String(openMemos.length), sub: '项', path: '/memos' },
   ];
 
@@ -105,6 +121,7 @@ export default function Home() {
   const monthSpent = overview?.monthSpent ?? 0;
   if (monthSpent > 0) suggestions.push(`本月已支出 ¥${monthSpent.toFixed(0)}，可在记账模块查看渠道分布`);
   if ((health?.avgSteps ?? 99999) < 6000) suggestions.push('最近步数偏少，建议每天散步 30 分钟');
+  if (allPoints.length > 1 && stats.cities > 1) suggestions.push(`足迹已覆盖 ${stats.cities} 座城市，点击地图节点可查看单一城市详情`);
   if (suggestions.length === 0) suggestions.push('一切井然有序，去规划下一场旅行吧！');
 
   return (
@@ -113,50 +130,52 @@ export default function Home() {
         <div className="dash-greeting">
           <div>
             <h1>
-              {dayjs().hour() < 12 ? '早上好' : dayjs().hour() < 18 ? '下午好' : '晚上好'}，{user?.nickname ?? user?.username ?? '朋友'} 👋
+              {dayjs().hour() < 12 ? '早上好' : dayjs().hour() < 18 ? '下午好' : '晚上好'}，
+              {user?.nickname ?? user?.username ?? '朋友'} 👋
             </h1>
-            <div className="dg-date">今天想让我帮你完成什么？</div>
+            <div className="dg-date">告诉我你想完成什么？</div>
           </div>
         </div>
 
         {/* ✨ 助手输入 */}
         <div className="assistant-quick lg-sweep fade-up">
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', position: 'relative', zIndex: 1 }}>
-            <span style={{ fontSize: 20 }}>✨</span>
+          <div className="aq-row">
+            <span className="aq-icon">✨</span>
             <Input
               size="large"
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               placeholder="告诉我你想完成什么……"
               onPressEnter={() => send()}
-              style={{ border: 'none', boxShadow: 'none', background: 'transparent', fontSize: 15 }}
+              variant="borderless"
+              className="aq-input"
             />
             <VoiceButton onText={(t) => setPrompt(t)} />
             <Button
               type="primary"
               size="large"
+              shape="circle"
               icon={<SendOutlined />}
               onClick={() => send()}
               disabled={!prompt.trim()}
-            >
-              发送
-            </Button>
+            />
           </div>
           <div className="aq-hint">
             <span className="suggest-chip" onClick={() => setPrompt(EXAMPLE_PROMPT)}>
               {EXAMPLE_PROMPT}
             </span>
-            {QUICK_MODULES.map((m) => (
-              <span key={m.label} className="suggest-chip" onClick={() => navigate(m.path)}>
-                {m.icon} {m.label}
-              </span>
-            ))}
+            <span className="suggest-chip" onClick={() => navigate('/travel')}>
+              🗺️ 去规划
+            </span>
+            <span className="suggest-chip" onClick={() => navigate('/memos')}>
+              📝 我的待办
+            </span>
           </div>
         </div>
 
-        {/* 四模块统计 */}
+        {/* 今日概览 */}
         <div className="stat-row">
-          {stats.map((s) => (
+          {todayStats.map((s) => (
             <div key={s.label} className="stat-card lg-sweep" onClick={() => navigate(s.path)}>
               <div className={`sc-icon ${s.cls}`}>{s.icon}</div>
               <div className="sc-num">{s.num}</div>
@@ -168,77 +187,191 @@ export default function Home() {
           ))}
         </div>
 
-        {/* AI 建议 + 今日日程 */}
-        <div className="dash-grid">
-          <div className="dash-card lg-sweep">
-            <div className="dc-head">
-              <b>✨ AI 今日建议</b>
-            </div>
-            {suggestions.slice(0, 3).map((s, i) => (
-              <div key={i} className="recent-expense-row" style={{ padding: '8px 4px', cursor: 'default' }}>
-                <span style={{ color: 'var(--blue)', flexShrink: 0 }}>✦</span>
-                <span style={{ fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.6 }}>{s}</span>
-              </div>
-            ))}
-          </div>
-
-          <div className="dash-card lg-sweep">
-            <div className="dc-head">
-              <b>📅 今日与即将到来</b>
-              <button className="dc-link" onClick={() => navigate('/schedule')}>
-                日程模块 →
-              </button>
-            </div>
-            {upcoming.length === 0 ? (
-              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无日程，说「明天下午3点开会」即可添加" />
-            ) : (
-              upcoming.map((s) => (
-                <div key={s.id} className="recent-expense-row" style={{ padding: '7px 4px', cursor: 'default' }}>
-                  <span className="mini-tag" style={{ flexShrink: 0 }}>
-                    {s.date === today ? '今天' : s.date.slice(5)}
-                  </span>
-                  <span style={{ flex: 1, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {s.time ? `${s.time.slice(0, 5)} ` : ''}
-                    {s.title}
-                  </span>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        {/* 足迹地图 */}
-        <div className="dash-card span2 lg-sweep" style={{ marginTop: 2 }}>
-          <div className="dc-head">
-            <b>🗺️ 我的足迹 · 3D</b>
-            <span className="dc-head-right">
-              <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
-                {mapPoints
-                  ? `${mapPoints.filter((p) => p.lat != null).length}/${mapPoints.length} 个行程已定位`
-                  : '定位中…'}
+        {/* 核心视觉：3D 足迹（深色块） + 右侧信息栏 */}
+        <div className="hero-grid">
+          <section className="hero-globe lg-sweep">
+            <div className="hg-head">
+              <b>🌍 我的足迹</b>
+              <span>
+                {periodYear ? `${periodYear} 年 · ` : ''}
+                {stats.cities} 城 · {stats.trips} 次出行 · {stats.days} 天
               </span>
-              <button className="dc-link" onClick={() => navigate('/footprint')}>
-                查看 3D 足迹 →
+            </div>
+            <div className="hg-map">
+              {mapPoints === null ? (
+                <div className="footprint-loading">正在定位目的地…</div>
+              ) : stats.located === 0 ? (
+                <div className="footprint-loading">
+                  {periodYear ? '这个时间段还没有足迹，换个年份看看' : '还没有行程，去「旅行」创建一个吧'}
+                </div>
+              ) : (
+                <Suspense fallback={<div className="footprint-loading">地图加载中…</div>}>
+                  <FootprintMap
+                    points={visiblePoints}
+                    mode="city"
+                    theme="dark"
+                    autoSpin
+                    showControls={false}
+                    playSignal={playSignal}
+                    onCityClick={setSelectedCity}
+                  />
+                </Suspense>
+              )}
+            </div>
+            <div className="hg-timeline">
+              <button
+                type="button"
+                className={`tl-chip ${!periodYear ? 'active' : ''}`}
+                onClick={() => {
+                  setPeriodYear(null);
+                  setPeriodMonth(null);
+                }}
+              >
+                全部年份
               </button>
-            </span>
-          </div>
-          <div className="footprint-map-wrap" style={{ height: 340 }}>
-            {mapPoints === null ? (
-              <div className="footprint-loading">正在定位目的地…</div>
-            ) : mapPoints.length === 0 ? (
-              <div className="footprint-loading">还没有行程，去「旅行规划」创建一个吧</div>
-            ) : (
-              <Suspense fallback={<div className="footprint-loading">地图加载中…</div>}>
-                <FootprintMap
-                  points={mapPoints}
-                  showControls={false}
-                  onSelect={(id) => navigate(`/trip/${id}`)}
-                />
-              </Suspense>
+              {years.map((year) => (
+                <button
+                  type="button"
+                  key={year}
+                  className={`tl-chip ${periodYear === year ? 'active' : ''}`}
+                  onClick={() => {
+                    setPeriodYear(periodYear === year ? null : year);
+                    setPeriodMonth(null);
+                  }}
+                >
+                  {year}
+                </button>
+              ))}
+              {periodYear &&
+                months.map((month) => (
+                  <button
+                    type="button"
+                    key={month}
+                    className={`tl-chip small ${periodMonth === month ? 'active' : ''}`}
+                    onClick={() => setPeriodMonth(periodMonth === month ? null : month)}
+                  >
+                    {Number(month)}月
+                  </button>
+                ))}
+              <span className="tl-spacer" />
+              <button type="button" className="tl-chip action" onClick={() => setPlaySignal((v) => v + 1)}>
+                ▶ 回放足迹
+              </button>
+              <button type="button" className="tl-chip action" onClick={() => navigate('/footprint')}>
+                全屏 →
+              </button>
+            </div>
+          </section>
+
+          <aside className="hero-side">
+            <div className="dash-card lg-sweep">
+              <div className="dc-head">
+                <b>📊 足迹数据</b>
+                <button className="dc-link" onClick={() => navigate('/footprint')}>
+                  足迹页 →
+                </button>
+              </div>
+              <div className="hero-side-stats">
+                <div className="hss-item">
+                  <span className="hss-num">{stats.cities}</span>
+                  <span className="hss-label">城市</span>
+                </div>
+                <div className="hss-item">
+                  <span className="hss-num">{stats.trips}</span>
+                  <span className="hss-label">出行</span>
+                </div>
+                <div className="hss-item">
+                  <span className="hss-num">{stats.days}</span>
+                  <span className="hss-label">天数</span>
+                </div>
+                <div className="hss-item">
+                  <span className="hss-num">¥{(stats.budget / 1000).toFixed(1)}k</span>
+                  <span className="hss-label">预算</span>
+                </div>
+              </div>
+              {stats.located < stats.trips && (
+                <div className="hss-note">{stats.trips - stats.located} 个行程未定位到坐标</div>
+              )}
+            </div>
+
+            <div className="dash-card lg-sweep">
+              <div className="dc-head">
+                <b>✨ AI 今日建议</b>
+              </div>
+              {suggestions.slice(0, 3).map((s, i) => (
+                <div key={i} className="recent-expense-row" style={{ padding: '8px 4px', cursor: 'default' }}>
+                  <span style={{ color: 'var(--blue)', flexShrink: 0 }}>✦</span>
+                  <span style={{ fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.6 }}>{s}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="dash-card lg-sweep">
+              <div className="dc-head">
+                <b>🧭 最近行程</b>
+                <button className="dc-link" onClick={() => navigate('/travel')}>
+                  全部 →
+                </button>
+              </div>
+              {recentTrips.length === 0 ? (
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有行程" />
+              ) : (
+                recentTrips.map((trip) => (
+                  <button
+                    type="button"
+                    key={trip.tripId}
+                    className="recent-trip"
+                    onClick={() => trip.destination && setSelectedCity(trip.destination)}
+                  >
+                    <span className="rt-dot" />
+                    <span className="rt-city">{trip.destination ?? trip.name ?? '未命名'}</span>
+                    <span className="rt-meta">
+                      {trip.startDate ?? '日期待定'} · {tripDays(trip)} 天
+                    </span>
+                  </button>
+                ))
+              )}
+              <div className="hss-note" style={{ marginTop: 6 }}>
+                点击地图上的城市节点或这里的城市，查看该城市足迹
+              </div>
+            </div>
+
+            {upcoming.length > 0 && (
+              <div className="dash-card lg-sweep">
+                <div className="dc-head">
+                  <b>📅 即将到来</b>
+                  <button className="dc-link" onClick={() => navigate('/schedule')}>
+                    日程 →
+                  </button>
+                </div>
+                {upcoming.map((s) => (
+                  <div key={s.id} className="recent-expense-row" style={{ padding: '7px 4px', cursor: 'default' }}>
+                    <span className="mini-tag" style={{ flexShrink: 0 }}>
+                      {s.date === today ? '今天' : s.date.slice(5)}
+                    </span>
+                    <span className="rt-meta" style={{ flex: 1, textAlign: 'left' }}>
+                      {s.time ? `${s.time.slice(0, 5)} ` : ''}
+                      {s.title}
+                    </span>
+                  </div>
+                ))}
+              </div>
             )}
-          </div>
+          </aside>
         </div>
       </div>
+
+      <CityDrawer
+        city={selectedCity}
+        points={allPoints}
+        spendByTrip={spendByTrip}
+        onClose={() => setSelectedCity(null)}
+        onOpenTrip={(tripId) => navigate(`/trip/${tripId}`)}
+        onAskAi={(question) => {
+          setSelectedCity(null);
+          navigate(`/assistant?q=${encodeURIComponent(question)}`);
+        }}
+      />
     </AppShell>
   );
 }

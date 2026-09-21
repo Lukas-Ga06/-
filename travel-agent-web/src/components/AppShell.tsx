@@ -1,5 +1,5 @@
 import { Button } from 'antd';
-import { LogoutOutlined, SettingOutlined, UserOutlined } from '@ant-design/icons';
+import { LogoutOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 
@@ -8,9 +8,8 @@ const GROUPS: { section: string; items: { key: string; label: string; path: stri
     section: '生活',
     items: [
       { key: 'home', label: '总览', path: '/', icon: '🏠' },
-      { key: 'schedule', label: '日程', path: '/schedule', icon: '📅' },
       { key: 'travel', label: '旅行', path: '/travel', icon: '🗺️' },
-      { key: 'footprint', label: '足迹', path: '/footprint', icon: '🌍' },
+      { key: 'schedule', label: '日程', path: '/schedule', icon: '📅' },
       { key: 'expenses', label: '记账', path: '/expenses', icon: '💰' },
       { key: 'memos', label: '备忘', path: '/memos', icon: '📝' },
       { key: 'health', label: '健康', path: '/health', icon: '❤️' },
@@ -67,14 +66,12 @@ export default function AppShell({ active, children }: { active: NavModule; chil
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {user?.nickname ?? user?.username}
             </span>
-          </div>
-          <div className="sb-actions">
-            <Button type="text" size="small" icon={<UserOutlined />} onClick={() => navigate('/profile')} />
             <Button
               type="text"
               size="small"
               danger
               icon={<LogoutOutlined />}
+              title="退出登录"
               onClick={() => {
                 logout();
                 navigate('/login');

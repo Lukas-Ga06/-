@@ -87,3 +87,94 @@ export function footprintStats(points: TripMapPoint[]): FootprintStats {
     budget: points.reduce((sum, p) => sum + (p.budget ?? 0), 0),
   };
 }
+
+/** 城市足迹：同一个城市的多次到访聚合成一个节点 */
+export interface CityFootprint {
+  city: string;
+  visits: number;
+  trips: TripMapPoint[];
+  firstVisit: string | null;
+  lastVisit: string | null;
+  days: number;
+  budget: number;
+  lat: number;
+  lng: number;
+}
+
+/** 按城市聚合足迹（只统计已定位的行程），按到访次数降序；同次数按最近到访排前 */
+export function cityFootprints(points: TripMapPoint[]): CityFootprint[] {
+  const byCity = new Map<string, CityFootprint>();
+  locatedPoints(points).forEach((point) => {
+    const city = (point.destination ?? point.name ?? '未命名').trim() || '未命名';
+    const existing = byCity.get(city) ?? {
+      city,
+      visits: 0,
+      trips: [],
+      firstVisit: null,
+      lastVisit: null,
+      days: 0,
+      budget: 0,
+      lat: point.lat as number,
+      lng: point.lng as number,
+    };
+    existing.visits += 1;
+    existing.trips.push(point);
+    existing.days += tripDays(point);
+    existing.budget += point.budget ?? 0;
+    const start = point.startDate;
+    if (start) {
+      if (!existing.firstVisit || start < existing.firstVisit) existing.firstVisit = start;
+      if (!existing.lastVisit || start > existing.lastVisit) existing.lastVisit = start;
+    }
+    byCity.set(city, existing);
+  });
+  return Array.from(byCity.values()).sort((a, b) => {
+    if (b.visits !== a.visits) return b.visits - a.visits;
+    return (b.lastVisit ?? '').localeCompare(a.lastVisit ?? '');
+  });
+}
+
+/** 行程的起始年份（无日期返回 null） */
+export function tripYear(point: TripMapPoint): string | null {
+  return point.startDate ? point.startDate.slice(0, 4) : null;
+}
+
+/** 有行程数据的年份（升序） */
+export function footprintYears(points: TripMapPoint[]): string[] {
+  const years = new Set<string>();
+  points.forEach((point) => {
+    const year = tripYear(point);
+    if (year) years.add(year);
+  });
+  return Array.from(years).sort();
+}
+
+/** 有行程数据的月份「01」..「12」（升序） */
+export function footprintMonths(points: TripMapPoint[]): string[] {
+  const months = new Set<string>();
+  points.forEach((point) => {
+    if (point.startDate && point.startDate.length >= 7) {
+      months.add(point.startDate.slice(5, 7));
+    }
+  });
+  return Array.from(months).sort();
+}
+
+/**
+ * 按时间窗口过滤行程：year 为 null 表示不限年份，month 为 null 表示该年全部月份。
+ * 没有日期的行程在「不限年份」时保留，选定年份后排除（无法判断年份）。
+ */
+export function filterByPeriod(points: TripMapPoint[], year: string | null, month: string | null): TripMapPoint[] {
+  if (!year) {
+    return points;
+  }
+  return points.filter((point) => {
+    if (!point.startDate || point.startDate.length < 7) {
+      return false;
+    }
+    if (point.startDate.slice(0, 4) !== year) {
+      return false;
+    }
+    return !month || point.startDate.slice(5, 7) === month;
+  });
+}

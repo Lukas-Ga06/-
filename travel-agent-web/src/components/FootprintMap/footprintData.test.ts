@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  cityFootprints,
+  filterByPeriod,
   footprintColor,
+  footprintMonths,
   footprintStats,
+  footprintYears,
   locatedPoints,
   orderedFootprints,
   routeCoordinates,
@@ -97,5 +101,53 @@ describe('footprintData', () => {
   it('配色循环使用', () => {
     expect(footprintColor(0)).toBe(footprintColor(6));
     expect(footprintColor(0)).not.toBe(footprintColor(1));
+  });
+
+  it('按城市聚合：到访次数、天数、预算与首末到访时间', () => {
+    const cities = cityFootprints([
+      point({ tripId: 1, destination: '上海', startDate: '2025-01-01', endDate: '2025-01-03', budget: 3000 }),
+      point({ tripId: 2, destination: '上海', startDate: '2026-02-01', endDate: '2026-02-02', budget: 1000 }),
+      point({ tripId: 3, destination: '杭州', startDate: '2025-06-01', endDate: '2025-06-01', budget: 500 }),
+    ]);
+
+    expect(cities.map((c) => c.city)).toEqual(['上海', '杭州']);
+    expect(cities[0]).toMatchObject({
+      visits: 2,
+      days: 5,
+      budget: 4000,
+      firstVisit: '2025-01-01',
+      lastVisit: '2026-02-01',
+    });
+    expect(cities[1].visits).toBe(1);
+  });
+
+  it('按城市聚合时忽略没有坐标的行程', () => {
+    expect(cityFootprints([point({ tripId: 1, lat: null, lng: null })])).toHaveLength(0);
+  });
+
+  it('年份/月份取值来自行程日期', () => {
+    const points = [
+      point({ tripId: 1, startDate: '2025-03-01' }),
+      point({ tripId: 2, startDate: '2026-11-05' }),
+      point({ tripId: 3, startDate: '2025-08-09' }),
+      point({ tripId: 4, startDate: null }),
+    ];
+    expect(footprintYears(points)).toEqual(['2025', '2026']);
+    expect(footprintMonths(points)).toEqual(['03', '08', '11']);
+  });
+
+  it('时间轴过滤：不限年份保留全部（含无日期），选定年份按年/月过滤', () => {
+    const points = [
+      point({ tripId: 1, startDate: '2025-03-01' }),
+      point({ tripId: 2, startDate: '2025-08-09' }),
+      point({ tripId: 3, startDate: '2026-11-05' }),
+      point({ tripId: 4, startDate: null }),
+    ];
+
+    expect(filterByPeriod(points, null, null)).toHaveLength(4);
+    expect(filterByPeriod(points, '2025', null).map((p) => p.tripId)).toEqual([1, 2]);
+    expect(filterByPeriod(points, '2025', '08').map((p) => p.tripId)).toEqual([2]);
+    // 选定年份后，无日期的行程无法归入该年
+    expect(filterByPeriod(points, '2026', null).map((p) => p.tripId)).toEqual([3]);
   });
 });

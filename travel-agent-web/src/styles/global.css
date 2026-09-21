@@ -2204,3 +2204,374 @@ body {
     animation: none;
   }
 }
+
+/* ============================================================
+   首页 3D 足迹核心视觉 + 城市详情（v6）
+   配色比例：70% 白/灰 · 20% 深色 3D 地图 · 8% Apple Blue · 2% 状态色
+   材质：无分割线，靠 1px 明暗边框与上下灰阶渐变做出立体感
+   ============================================================ */
+
+.aq-row {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.aq-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.aq-input {
+  flex: 1;
+  background: transparent;
+  font-size: 15px;
+}
+
+.hero-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.85fr) minmax(300px, 1fr);
+  gap: 14px;
+  align-items: stretch;
+  margin-top: 4px;
+}
+
+/* 深色 3D 地图块：整体轻微上浮，靠明暗边缘而不是描边分隔 */
+.hero-globe {
+  display: flex;
+  flex-direction: column;
+  min-height: 470px;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: linear-gradient(180deg, #1e1f24 0%, #131418 100%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 26px 60px rgba(16, 18, 28, 0.26),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  transform: translate3d(0, -2px, 0);
+}
+
+.hg-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 15px 18px 6px;
+  color: #fff;
+}
+
+.hg-head b {
+  font-size: 15px;
+  letter-spacing: 0.2px;
+}
+
+.hg-head span {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.hg-map {
+  position: relative;
+  flex: 1;
+  min-height: 300px;
+}
+
+.hg-timeline {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 14px 14px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.06));
+}
+
+.tl-chip {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.18s ease, transform 0.18s ease, color 0.18s ease;
+}
+
+.tl-chip:hover {
+  background: rgba(255, 255, 255, 0.15);
+  transform: translateY(-1px);
+}
+
+.tl-chip.active {
+  background: var(--primary);
+  border-color: rgba(255, 255, 255, 0.4);
+  color: #fff;
+}
+
+.tl-chip.small {
+  padding: 4px 9px;
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.tl-chip.action {
+  background: rgba(0, 122, 255, 0.92);
+  border-color: rgba(255, 255, 255, 0.32);
+  color: #fff;
+}
+
+.tl-spacer {
+  flex: 1;
+}
+
+.hero-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.hero-side-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.hss-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 10px 4px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(242, 242, 247, 0.7));
+  border: 1px solid rgba(255, 255, 255, 0.8);
+}
+
+.hss-num {
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.hss-label {
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+.hss-note {
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+.recent-trip {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 8px 6px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  border-radius: 12px;
+  transition: background 0.18s ease;
+}
+
+.recent-trip:hover {
+  background: rgba(0, 122, 255, 0.06);
+}
+
+.rt-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--grad-primary);
+  flex-shrink: 0;
+}
+
+.rt-city {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.rt-meta {
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+/* 城市详情抽屉 */
+.city-stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.city-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(242, 242, 247, 0.72));
+  border: 1px solid rgba(255, 255, 255, 0.84);
+}
+
+.cs-num {
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.cs-num.over {
+  color: var(--danger);
+}
+
+.cs-label {
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+.cs-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-3);
+  margin-bottom: 6px;
+}
+
+.city-summary {
+  padding: 14px;
+  border-radius: 16px;
+  margin-bottom: 16px;
+  background: linear-gradient(180deg, rgba(0, 122, 255, 0.09), rgba(0, 122, 255, 0.03));
+  border: 1px solid rgba(0, 122, 255, 0.16);
+}
+
+.city-summary p {
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--ink-2);
+}
+
+.city-trips {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.city-trip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.72);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.18s ease, border-color 0.18s ease;
+}
+
+.city-trip:hover {
+  background: #fff;
+  border-color: rgba(0, 122, 255, 0.26);
+}
+
+.ct-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.ct-main b {
+  font-size: 13.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ct-main span {
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+.ct-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.ct-budget {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.ct-spend {
+  font-size: 11px;
+  color: var(--blue);
+}
+
+/* 到访次数徽标（城市节点） */
+.fp-visits {
+  position: absolute;
+  top: -2px;
+  right: -8px;
+  z-index: 3;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 800;
+  color: #fff;
+  background: var(--mc, var(--primary));
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
+}
+
+/* 深色地图适配：标签、光点与说明文字改用浅色描边 */
+.fp-theme-dark .fp-label {
+  color: #fff;
+  background: rgba(28, 29, 33, 0.86);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.fp-theme-dark .fp-marker .fp-dot {
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5), 0 0 0 3px rgba(255, 255, 255, 0.22);
+}
+
+.fp-theme-dark .fp-globe-hint {
+  color: rgba(255, 255, 255, 0.8);
+  background: rgba(28, 29, 33, 0.66);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.fp-theme-dark .maplibregl-ctrl-attrib {
+  background: rgba(28, 29, 33, 0.6);
+  color: rgba(255, 255, 255, 0.7);
+}
+
+@media (max-width: 1100px) {
+  .hero-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 900px) {
+  .hero-globe {
+    min-height: 400px;
+  }
+
+  .hero-side-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}

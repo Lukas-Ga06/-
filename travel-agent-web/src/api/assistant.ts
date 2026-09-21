@@ -94,6 +94,18 @@ export const searchKnowledge = (query: string) =>
   });
 
 // ---------- 健康 ----------
+export interface SystemStatus {
+  llmConfigured: boolean;
+  llmModel?: string | null;
+  llmHint: string;
+  amapConfigured: boolean;
+  geoProvider: string;
+  geoHint: string;
+  timezone: string;
+}
+
+export const systemStatus = () => request<SystemStatus>({ url: '/system/status' });
+
 export interface HealthRecord {
   id?: number;
   date: string;

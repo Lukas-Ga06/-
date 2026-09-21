@@ -1,7 +1,8 @@
-import { useEffect } from 'react';
-import { App, Button } from 'antd';
+import { useEffect, useState } from 'react';
+import { App, Button, Tag } from 'antd';
 import { LogoutOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
+import { systemStatus, type SystemStatus } from '../../api/assistant';
 import { useAuthStore } from '../../store/authStore';
 import { useTripStore } from '../../store/tripStore';
 
@@ -12,9 +13,13 @@ export default function Profile() {
   const logout = useAuthStore((s) => s.logout);
   const trips = useTripStore((s) => s.trips);
   const loadTrips = useTripStore((s) => s.loadTrips);
+  const [status, setStatus] = useState<SystemStatus | null>(null);
 
   useEffect(() => {
     loadTrips().catch(() => undefined);
+    systemStatus()
+      .then(setStatus)
+      .catch(() => undefined);
   }, []);
 
   const confirmed = trips.filter((t) => t.status === 'CONFIRMED').length;
@@ -39,6 +44,38 @@ export default function Profile() {
             <div className="sb-num" style={{ color: 'var(--success)' }}>{confirmed}</div>
             <div className="sb-label">已确认行程</div>
           </div>
+        </div>
+
+        <div
+          style={{
+            background: 'var(--grad-card)',
+            border: '1px solid var(--line)',
+            borderRadius: 'var(--radius-md)',
+            padding: 16,
+            marginBottom: 16,
+            fontSize: 12.5,
+            color: 'var(--ink-2)',
+            lineHeight: 1.9,
+          }}
+        >
+          <b style={{ color: 'var(--ink)' }}>运行能力</b>
+          {status ? (
+            <>
+              <br />
+              大模型：{status.llmConfigured ? <Tag color="green">已接入 {status.llmModel}</Tag> : <Tag>规则引擎</Tag>}
+              {status.llmHint}
+              <br />
+              地图定位：{status.amapConfigured ? <Tag color="green">高德</Tag> : <Tag>OSM</Tag>}
+              {status.geoHint}
+              <br />
+              时区：{status.timezone}
+            </>
+          ) : (
+            <>
+              <br />
+              正在检测…
+            </>
+          )}
         </div>
 
         <div
