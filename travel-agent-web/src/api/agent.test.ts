@@ -98,6 +98,32 @@ describe('streamAgentChat', () => {
     expect(onError).toHaveBeenCalledWith('规划失败');
   });
 
+  it('连接中断（没收到 complete）也会回调 onError 并关闭连接', () => {
+    const onError = vi.fn();
+    const onComplete = vi.fn();
+    streamAgentChat({ message: '你好' }, { onError, onComplete });
+
+    const es = FakeEventSource.last();
+    es.readyState = 0; // CONNECTING：旧实现下这里不会回调，前端会一直停在“生成中”
+    es.onerror?.();
+
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError.mock.calls[0][0]).toContain('连接已中断');
+    expect(onComplete).not.toHaveBeenCalled();
+    expect(es.readyState).toBe(FakeEventSource.CLOSED);
+  });
+
+  it('complete 之后连接报错不会重复回调', () => {
+    const onError = vi.fn();
+    streamAgentChat({ message: '你好' }, { onError });
+
+    const es = FakeEventSource.last();
+    es.emit('complete', { status: 'COMPLETED', message: '好的' });
+    es.onerror?.();
+
+    expect(onError).not.toHaveBeenCalled();
+  });
+
   it('返回的关闭函数会断开连接', () => {
     const close = streamAgentChat({ message: '你好' }, {});
     close();

@@ -28,6 +28,9 @@ public class InMemoryVectorStore implements VectorStore {
 
     private record Entry(RagChunk chunk, RagDocument document, float[] vector) {}
 
+    /** 与城市无关的通用文档：任何目的地的问答都应能检索到 */
+    private static final java.util.Set<String> CITY_AGNOSTIC = java.util.Set.of("通用", "全部", "通用知识");
+
     private final List<Entry> entries = new CopyOnWriteArrayList<>();
 
     @EventListener(ApplicationReadyEvent.class)
@@ -51,7 +54,7 @@ public class InMemoryVectorStore implements VectorStore {
     public List<VectorSearchResult> search(float[] queryVector, String city, int topK) {
         List<VectorSearchResult> results = new ArrayList<>();
         for (Entry entry : entries) {
-            if (city != null && !city.isBlank() && !city.equals(entry.document().getCity())) {
+            if (!matchesCity(entry.document().getCity(), city)) {
                 continue;
             }
             double score = cosine(queryVector, entry.vector());
@@ -61,6 +64,24 @@ public class InMemoryVectorStore implements VectorStore {
                 .sorted(Comparator.comparingDouble(VectorSearchResult::getScore).reversed())
                 .limit(topK)
                 .toList();
+    }
+
+    /**
+     * 城市过滤：指定城市时，保留「该城市文档 + 通用文档（city 为空或标记为通用）」，
+     * 而不是只保留城市完全相等的文档——否则「注意事项」这类通用知识在有行程时永远查不到，
+     * 且目录外城市（无城市级文档）会得到空结果。
+     */
+    static boolean matchesCity(String docCity, String queryCity) {
+        if (queryCity == null || queryCity.isBlank()) {
+            return true;
+        }
+        if (docCity == null || docCity.isBlank()) {
+            return true;
+        }
+        if (CITY_AGNOSTIC.contains(docCity.trim())) {
+            return true;
+        }
+        return queryCity.trim().equals(docCity.trim());
     }
 
     private double cosine(float[] a, float[] b) {

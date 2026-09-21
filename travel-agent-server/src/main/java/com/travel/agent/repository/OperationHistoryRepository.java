@@ -7,4 +7,6 @@ import java.util.Optional;
 
 public interface OperationHistoryRepository extends JpaRepository<OperationHistory, Long> {
     Optional<OperationHistory> findFirstByTripIdAndStatusOrderByIdDesc(Long tripId, String status);
+
+    void deleteByTripId(Long tripId);
 }

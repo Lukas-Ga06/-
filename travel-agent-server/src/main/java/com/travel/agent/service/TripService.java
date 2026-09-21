@@ -5,7 +5,9 @@ import com.travel.agent.dto.TripDtos;
 import com.travel.agent.entity.ItineraryItem;
 import com.travel.agent.entity.Trip;
 import com.travel.agent.exception.BusinessException;
+import com.travel.agent.repository.ExpenseRepository;
 import com.travel.agent.repository.ItineraryItemRepository;
+import com.travel.agent.repository.OperationHistoryRepository;
 import com.travel.agent.repository.TripRepository;
 import com.travel.agent.util.Dates;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +24,8 @@ public class TripService {
 
     private final TripRepository tripRepository;
     private final ItineraryItemRepository itineraryItemRepository;
+    private final ExpenseRepository expenseRepository;
+    private final OperationHistoryRepository operationHistoryRepository;
 
     public List<TripDtos.TripResponse> list(Long userId) {
         return tripRepository.findByUserIdOrderByCreatedAtDesc(userId).stream()
@@ -75,6 +79,9 @@ public class TripService {
     @Transactional
     public void delete(Long tripId, Long userId) {
         Trip trip = getOwned(tripId, userId);
+        // 级联清理：条目、账单、操作历史。否则账单会变成孤儿——既计入总支出又无法在界面删除
+        expenseRepository.deleteByTripId(trip.getId());
+        operationHistoryRepository.deleteByTripId(trip.getId());
         itineraryItemRepository.deleteByTripId(trip.getId());
         tripRepository.delete(trip);
     }

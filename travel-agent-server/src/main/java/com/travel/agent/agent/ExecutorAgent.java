@@ -120,7 +120,7 @@ public class ExecutorAgent {
                     .map(PlanOperation::getDraft)
                     .toList();
             Trip trip = tripService.createFromAgent(userId, plan.getTripDraft(), items);
-            historyService.recordCommit(trip, userId, List.of(),
+            historyService.recordTripCreate(trip, userId,
                     itineraryService.listEntities(trip.getId()), plan.getReasoning());
             AgentDtos.BudgetSummary budget = budgetService.summarize(items);
             ItineraryDtos.ItineraryItemDTO first = itineraryService.listByTrip(trip.getId()).stream()

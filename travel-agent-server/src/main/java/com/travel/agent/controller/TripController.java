@@ -7,6 +7,7 @@ import com.travel.agent.entity.Trip;
 import com.travel.agent.entity.User;
 import com.travel.agent.service.AuthService;
 import com.travel.agent.service.ItineraryService;
+import com.travel.agent.service.OperationHistoryService;
 import com.travel.agent.service.TripMapService;
 import com.travel.agent.service.TripService;
 import jakarta.validation.Valid;
@@ -25,6 +26,7 @@ public class TripController {
     private final ItineraryService itineraryService;
     private final AuthService authService;
     private final TripMapService tripMapService;
+    private final OperationHistoryService historyService;
 
     @GetMapping
     public ApiResponse<List<TripDtos.TripResponse>> list(Authentication authentication) {
@@ -78,6 +80,8 @@ public class TripController {
                                                                Authentication authentication) {
         User user = authService.requireUser(authentication.getName());
         Trip trip = tripService.getOwned(id, user.getId());
-        return ApiResponse.ok(ItineraryDtos.ItineraryItemDTO.from(itineraryService.addItem(trip, request)));
+        var saved = historyService.withHistory(trip, user.getId(), "手动新增行程项：" + request.getTitle(),
+                () -> itineraryService.addItem(trip, request));
+        return ApiResponse.ok(ItineraryDtos.ItineraryItemDTO.from(saved));
     }
 }

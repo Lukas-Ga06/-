@@ -21,6 +21,10 @@ public class OperationHistory {
     public static final String STATUS_UNDONE = "UNDONE";
 
     public static final String OP_AGENT_COMMIT = "AGENT_COMMIT";
+    /** Agent 新建行程：撤销时应整体删除行程，而不是只清空条目 */
+    public static final String OP_TRIP_CREATE = "TRIP_CREATE";
+    /** 用户在界面上手工增删改行程项：同样进入撤销链 */
+    public static final String OP_MANUAL_EDIT = "MANUAL_EDIT";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

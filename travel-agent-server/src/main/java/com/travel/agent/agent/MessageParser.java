@@ -214,6 +214,79 @@ public final class MessageParser {
         return LocalDate.now().plusDays(1);
     }
 
+    /** 未提及相对日期时的哨兵值 */
+    public static final int NO_RELATIVE_DATE = Integer.MIN_VALUE;
+
+    /** 今天=0 / 明天=1 / 后天=2；未提及返回 NO_RELATIVE_DATE */
+    public static int relativeDayOffset(String text) {
+        if (text == null) {
+            return NO_RELATIVE_DATE;
+        }
+        if (text.contains("后天")) {
+            return 2;
+        }
+        if (text.contains("明天")) {
+            return 1;
+        }
+        if (text.contains("今天") || text.contains("今晚")) {
+            return 0;
+        }
+        return NO_RELATIVE_DATE;
+    }
+
+    /** 日期到行程天的映射结果：outsideTrip=true 表示用户提到的日期并不在行程区间内 */
+    public record TripDay(int dayIndex, boolean outsideTrip, LocalDate date) {}
+
+    /**
+     * 把「今天/明天/后天」映射到行程内的某一天。
+     *
+     * 旧实现直接用绝对日期做 dayIndex 再 clamp，导致行程日期与今天不重合时会「说改明天、实际改最后一天」。
+     * 现在的规则：
+     * 1) 提到的日期落在行程区间内 → 用该天；
+     * 2) 落在区间外（行程未开始/已结束）→ 按「当前天 + 偏移」在行程内顺推，并标记 outsideTrip 供上层提示。
+     */
+    public static TripDay resolveTripDay(Trip trip, Integer currentDay, String text) {
+        int offset = relativeDayOffset(text);
+        int base = currentDay == null || currentDay < 1 ? 1 : currentDay;
+        if (trip == null || trip.getStartDate() == null) {
+            LocalDate day = offset == NO_RELATIVE_DATE ? LocalDate.now() : LocalDate.now().plusDays(offset);
+            return new TripDay(1, false, day);
+        }
+        int totalDays = tripDays(trip);
+        if (offset == NO_RELATIVE_DATE) {
+            int idx = clampDay(base, totalDays);
+            return new TripDay(idx, false, tripDayDate(trip, idx));
+        }
+        LocalDate mentioned = LocalDate.now().plusDays(offset);
+        boolean inRange = !mentioned.isBefore(trip.getStartDate())
+                && (trip.getEndDate() == null || !mentioned.isAfter(trip.getEndDate()));
+        if (inRange) {
+            int idx = dayIndexOf(trip, mentioned);
+            return new TripDay(idx, false, tripDayDate(trip, idx));
+        }
+        int idx = clampDay(base + offset, totalDays);
+        return new TripDay(idx, true, tripDayDate(trip, idx));
+    }
+
+    public static int tripDays(Trip trip) {
+        if (trip == null || trip.getStartDate() == null) {
+            return 1;
+        }
+        if (trip.getEndDate() == null) {
+            return 3;
+        }
+        return (int) Math.max(ChronoUnit.DAYS.between(trip.getStartDate(), trip.getEndDate()) + 1, 1);
+    }
+
+    public static LocalDate tripDayDate(Trip trip, int dayIndex) {
+        LocalDate start = trip != null && trip.getStartDate() != null ? trip.getStartDate() : LocalDate.now();
+        return start.plusDays(Math.max(dayIndex, 1) - 1L);
+    }
+
+    private static int clampDay(int day, int totalDays) {
+        return Math.min(Math.max(day, 1), Math.max(totalDays, 1));
+    }
+
     /** 日期 → 行程中的 dayIndex（1-based） */
     public static int dayIndexOf(Trip trip, LocalDate date) {
         if (trip == null || trip.getStartDate() == null) {

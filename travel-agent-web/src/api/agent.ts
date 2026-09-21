@@ -43,6 +43,17 @@ export function streamAgentChat(params: AgentStreamParams, handlers: AgentStream
   if (token) qs.set('token', token);
 
   const es = new EventSource(`/api/agent/stream?${qs.toString()}`);
+  let finished = false;
+
+  /** 终止一次流：保证 onComplete / onError 只回调一次，并关闭连接 */
+  const finish = (callback?: () => void) => {
+    if (finished) {
+      return;
+    }
+    finished = true;
+    es.close();
+    callback?.();
+  };
 
   EVENT_NAMES.forEach((name) => {
     es.addEventListener(name, (e: MessageEvent) => {
@@ -53,9 +64,9 @@ export function streamAgentChat(params: AgentStreamParams, handlers: AgentStream
         data = e.data;
       }
       if (name === 'complete') {
-        es.close();
-        handlers.onComplete?.(data as AgentResult);
+        finish(() => handlers.onComplete?.(data as AgentResult));
       } else if (name === 'error') {
+        // 服务端主动报错：Agent 随后还会发一条 complete，这里只提示、不终止
         handlers.onError?.(data?.message || 'Agent 执行出错');
       } else {
         handlers.onEvent?.(name, data);
@@ -63,14 +74,16 @@ export function streamAgentChat(params: AgentStreamParams, handlers: AgentStream
     });
   });
 
+  /**
+   * 连接层错误：服务端 180s 超时、网络中断等情况下浏览器只会触发 onerror。
+   * 旧实现只在 readyState === CLOSED 时才回调，导致既不 complete 也不 error，
+   * 调用方的 streaming 状态永远停在 true（输入框被永久禁用）。
+   */
   es.onerror = () => {
-    if (es.readyState === EventSource.CLOSED) {
-      handlers.onError?.('与 Agent 的连接已中断');
-    }
-    es.close();
+    finish(() => handlers.onError?.('与 Agent 的连接已中断，请重试'));
   };
 
-  return () => es.close();
+  return () => finish();
 }
 
 export function confirmPlan(planId: string): Promise<AgentResult> {

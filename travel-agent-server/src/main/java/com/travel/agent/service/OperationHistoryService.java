@@ -28,15 +28,41 @@ public class OperationHistoryService {
     private final OperationHistoryRepository repository;
     private final ItineraryItemRepository itemRepository;
     private final ItineraryService itineraryService;
+    private final TripService tripService;
     private final ObjectMapper objectMapper;
 
     @Transactional
     public void recordCommit(Trip trip, Long userId, List<ItineraryItem> before, List<ItineraryItem> after, String reason) {
+        save(trip, userId, OperationHistory.OP_AGENT_COMMIT, before, after, reason);
+    }
+
+    /** Agent 新建行程（撤销时整体删除行程） */
+    @Transactional
+    public void recordTripCreate(Trip trip, Long userId, List<ItineraryItem> after, String reason) {
+        save(trip, userId, OperationHistory.OP_TRIP_CREATE, List.of(), after, reason);
+    }
+
+    /**
+     * 在「同一个事务」里执行一次行程变更并记录前后快照。
+     *
+     * 用于界面上手动的增/删/改：否则手工改动不进历史，用户点「撤销」会回滚到上一次 Agent 提交前的快照，
+     * 把手工改动一并冲掉；同时保证「改动成功但历史写失败」时整体回滚。
+     */
+    @Transactional
+    public <T> T withHistory(Trip trip, Long userId, String reason, java.util.function.Supplier<T> change) {
+        List<ItineraryItem> before = itineraryService.listEntities(trip.getId());
+        T result = change.get();
+        save(trip, userId, OperationHistory.OP_MANUAL_EDIT, before, itineraryService.listEntities(trip.getId()), reason);
+        return result;
+    }
+
+    private void save(Trip trip, Long userId, String operationType, List<ItineraryItem> before,
+                      List<ItineraryItem> after, String reason) {
         try {
             repository.save(OperationHistory.builder()
                     .tripId(trip.getId())
                     .userId(userId)
-                    .operationType(OperationHistory.OP_AGENT_COMMIT)
+                    .operationType(operationType)
                     .beforeState(objectMapper.writeValueAsString(toDtoList(before)))
                     .afterState(objectMapper.writeValueAsString(toDtoList(after)))
                     .agentReason(reason)
@@ -52,6 +78,14 @@ public class OperationHistoryService {
     public String undoLatest(Trip trip, Long userId) {
         OperationHistory history = repository.findFirstByTripIdAndStatusOrderByIdDesc(trip.getId(), OperationHistory.STATUS_ACTIVE)
                 .orElseThrow(() -> new BusinessException("没有可撤销的操作"));
+        if (history.getUserId() != null && userId != null && !history.getUserId().equals(userId)) {
+            throw new BusinessException(404, "没有可撤销的操作");
+        }
+        // 撤销「新建行程」= 删除行程本体，而不是留下一个没有任何安排的空壳
+        if (OperationHistory.OP_TRIP_CREATE.equals(history.getOperationType())) {
+            tripService.delete(trip.getId(), history.getUserId() == null ? userId : history.getUserId());
+            return "已撤销新建行程：该行程及其安排、账单已一并删除";
+        }
         try {
             List<ItineraryDtos.ItineraryItemDTO> before = objectMapper.readValue(
                     history.getBeforeState(), new TypeReference<List<ItineraryDtos.ItineraryItemDTO>>() {});

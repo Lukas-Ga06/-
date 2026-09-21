@@ -239,14 +239,20 @@ public class PlannerAgent {
         List<ItineraryDtos.ItineraryItemDTO> fetched =
                 (List<ItineraryDtos.ItineraryItemDTO>) tools.invoke(ctx, "get_itinerary", Map.of("tripId", trip.getId()));
         final List<ItineraryDtos.ItineraryItemDTO> items = fetched == null ? List.of() : fetched;
-        LocalDate targetDate = MessageParser.resolveDate(message, trip, ctx.getCurrentDay());
-        int scopeDay = MessageParser.dayIndexOf(trip, targetDate);
+        // 日期 → 行程第几天：不在行程区间内时按「当前天 + 偏移」顺推，并把这件事告诉用户
+        MessageParser.TripDay tripDay = MessageParser.resolveTripDay(trip, ctx.getCurrentDay(), message);
+        int scopeDay = tripDay.dayIndex();
+        LocalDate targetDate = tripDay.date();
+        String dateNote = tripDay.outsideTrip()
+                ? "（你提到的日期不在行程 " + trip.getStartDate() + " ~ " + trip.getEndDate()
+                        + " 内，已按 Day " + scopeDay + " 处理）"
+                : "";
         boolean mentionRain = MessageParser.mentions(message, "雨");
         WeatherInfo weather = (WeatherInfo) tools.invoke(ctx, "query_weather",
                 buildArgs(new HashMap<>(), "city", city.name(), "date", targetDate.toString(), "mentionRain", mentionRain));
 
         List<ItineraryDtos.ItineraryItemDTO> targets = new ArrayList<>();
-        Integer dayFilter = MessageParser.mentions(message, "明天", "后天", "今天") ? scopeDay
+        Integer dayFilter = MessageParser.relativeDayOffset(message) != MessageParser.NO_RELATIVE_DATE ? scopeDay
                 : (ctx.getCurrentDay() != null ? ctx.getCurrentDay() : null);
 
         if (IntentResult.TARGET_SELECTED.equals(intent.getTarget()) && ctx.getSelectedElement() != null) {
@@ -265,12 +271,16 @@ public class PlannerAgent {
 
         if (targets.isEmpty()) {
             return emptyPlan(intent, city, trip,
-                    "在 Day " + scopeDay + " 没有找到需要替换的户外景点。你可以在时间轴上点选一个安排，然后说「这个换成类似的」。");
+                    "在 Day " + scopeDay + " 没有找到需要替换的户外景点。" + dateNote
+                            + "你可以在时间轴上点选一个安排，然后说「这个换成类似的」。");
         }
 
         List<PlanOperation> ops = new ArrayList<>();
         List<String> exclude = new ArrayList<>(items.stream().map(ItineraryDtos.ItineraryItemDTO::getTitle).toList());
         List<String> replacements = new ArrayList<>();
+        if (!dateNote.isEmpty()) {
+            replacements.add(dateNote);
+        }
         ItineraryDtos.ItineraryItemDTO lastTarget = null;
         int firstDay = targets.get(0).getDayIndex();
 
