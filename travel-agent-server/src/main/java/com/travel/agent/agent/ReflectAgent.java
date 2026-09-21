@@ -7,18 +7,28 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
- * Reflect Agent：对计划做事后校验——
- * 时间冲突？预算超限？路线合理？发现问题输出警告，必要时触发 REPLAN。
+ * Reflect Agent：对计划做事后校验——时间冲突？预算超限？发现问题输出警告。
+ *
+ * 时间冲突基于「应用计划之后」的行程视图判断：
+ * 原条目去掉被 REMOVE 的、被 MODIFY 的换成新时间、再加上 ADD 的条目。
+ * （旧实现只看 ADD，因此"把某个安排改到与另一个重叠"永远不会被发现；也只比较相邻两项。）
  */
 @Component
 @RequiredArgsConstructor
 public class ReflectAgent {
+
+    /** 单次最多返回几条时间冲突提示，避免刷屏 */
+    private static final int MAX_TIME_WARNINGS = 5;
 
     private final ItineraryService itineraryService;
 
@@ -35,41 +45,99 @@ public class ReflectAgent {
             }
         }
 
-        // 2. 时间冲突检查（模拟应用操作后的行程）
-        Map<Integer, List<ItineraryItem>> byDay = new HashMap<>();
-        if (trip != null && plan.getTripDraft() == null) {
-            List<Long> removedIds = plan.getOperations().stream()
-                    .filter(op -> PlanOperation.REMOVE.equals(op.getType()))
-                    .map(PlanOperation::getTargetItemId).toList();
-            for (ItineraryItem item : itineraryService.listEntities(trip.getId())) {
-                if (!removedIds.contains(item.getId())) {
-                    byDay.computeIfAbsent(item.getDayIndex(), k -> new ArrayList<>()).add(item);
-                }
-            }
-        }
-        for (PlanOperation op : plan.getOperations()) {
-            if (PlanOperation.ADD.equals(op.getType()) && op.getDraft().getStartTime() != null) {
-                byDay.computeIfAbsent(op.getDraft().getDayIndex(), k -> new ArrayList<>()).add(op.getDraft());
-            }
-        }
-        for (Map.Entry<Integer, List<ItineraryItem>> entry : byDay.entrySet()) {
+        // 2. 时间冲突检查（应用计划后的行程，逐天两两比对）
+        int conflicts = 0;
+        for (Map.Entry<Integer, List<ItineraryItem>> entry : effectiveItemsByDay(plan, trip).entrySet()) {
             List<ItineraryItem> items = entry.getValue().stream()
-                    .filter(i -> i.getStartTime() != null && i.getEndTime() != null)
-                    .sorted(java.util.Comparator.comparing(ItineraryItem::getStartTime))
+                    .filter(i -> i.getStartTime() != null)
+                    .sorted(Comparator.comparing(ItineraryItem::getStartTime))
                     .toList();
-            for (int i = 1; i < items.size(); i++) {
-                ItineraryItem prev = items.get(i - 1);
-                ItineraryItem curr = items.get(i);
-                if (curr.getStartTime().isBefore(prev.getEndTime())) {
-                    warnings.add("Day " + entry.getKey() + " 的「" + prev.getTitle() + "」与「"
-                            + curr.getTitle() + "」时间冲突，建议手动微调");
-                    break;
+            for (int i = 0; i < items.size() && conflicts < MAX_TIME_WARNINGS; i++) {
+                for (int j = i + 1; j < items.size() && conflicts < MAX_TIME_WARNINGS; j++) {
+                    ItineraryItem earlier = items.get(i);
+                    ItineraryItem later = items.get(j);
+                    if (later.getStartTime().isBefore(endOf(earlier))) {
+                        warnings.add("Day " + entry.getKey() + " 的「" + earlier.getTitle() + "」与「"
+                                + later.getTitle() + "」时间重叠，建议手动微调");
+                        conflicts++;
+                    }
                 }
             }
-            if (warnings.size() >= 3) {
+            if (conflicts >= MAX_TIME_WARNINGS) {
                 break;
             }
         }
         return warnings;
+    }
+
+    /** 应用计划之后的行程视图：按天分组，含 REMOVE / MODIFY / ADD 三种操作的最终效果 */
+    private Map<Integer, List<ItineraryItem>> effectiveItemsByDay(AgentPlan plan, Trip trip) {
+        Map<Integer, List<ItineraryItem>> byDay = new HashMap<>();
+        Set<Long> removed = new HashSet<>();
+        Map<Long, ItineraryItem> modified = new HashMap<>();
+        List<ItineraryItem> added = new ArrayList<>();
+
+        for (PlanOperation op : plan.getOperations()) {
+            switch (op.getType()) {
+                case PlanOperation.REMOVE -> {
+                    if (op.getTargetItemId() != null) {
+                        removed.add(op.getTargetItemId());
+                    }
+                }
+                case PlanOperation.MODIFY -> {
+                    if (op.getTargetItemId() != null && op.getDraft() != null) {
+                        modified.put(op.getTargetItemId(), op.getDraft());
+                    }
+                }
+                case PlanOperation.ADD -> {
+                    if (op.getDraft() != null) {
+                        added.add(op.getDraft());
+                    }
+                }
+                default -> {
+                    // 未知操作类型会在 Executor 阶段被拒绝，这里忽略即可
+                }
+            }
+        }
+
+        if (trip != null && plan.getTripDraft() == null) {
+            for (ItineraryItem item : itineraryService.listEntities(trip.getId())) {
+                if (removed.contains(item.getId())) {
+                    continue;
+                }
+                ItineraryItem draft = modified.get(item.getId());
+                ItineraryItem effective = draft == null ? item : merge(item, draft);
+                if (effective.getStartTime() != null) {
+                    byDay.computeIfAbsent(effective.getDayIndex(), k -> new ArrayList<>()).add(effective);
+                }
+            }
+        }
+        for (ItineraryItem draft : added) {
+            if (draft.getStartTime() != null) {
+                byDay.computeIfAbsent(draft.getDayIndex(), k -> new ArrayList<>()).add(draft);
+            }
+        }
+        return byDay;
+    }
+
+    /** MODIFY 的草稿可能只填了部分字段：以原条目为底、用非空字段覆盖，避免误判 */
+    private static ItineraryItem merge(ItineraryItem base, ItineraryItem patch) {
+        return ItineraryItem.builder()
+                .id(base.getId())
+                .tripId(base.getTripId())
+                .dayIndex(patch.getDayIndex() == null ? base.getDayIndex() : patch.getDayIndex())
+                .itemType(patch.getItemType() == null ? base.getItemType() : patch.getItemType())
+                .title(patch.getTitle() == null ? base.getTitle() : patch.getTitle())
+                .startTime(patch.getStartTime() == null ? base.getStartTime() : patch.getStartTime())
+                .endTime(patch.getEndTime() == null ? base.getEndTime() : patch.getEndTime())
+                .build();
+    }
+
+    /** 结束时间缺失时按 1 小时估算，否则"只有开始时间"的条目永远不会参与冲突判断 */
+    private static LocalDateTime endOf(ItineraryItem item) {
+        if (item.getEndTime() != null) {
+            return item.getEndTime();
+        }
+        return item.getStartTime() == null ? LocalDateTime.MAX : item.getStartTime().plusHours(1);
     }
 }

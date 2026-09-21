@@ -13,12 +13,17 @@ import org.springframework.stereotype.Component;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /** Intent Agent：理解「用户到底想干什么」。LLM 优先，规则兜底。 */
 @Component
 @RequiredArgsConstructor
 @Slf4j
 public class IntentAgent {
+
+    /** 明确的时间点，例如「下午3点」「9:30」——用于区分"排日程"与随口提到的会议 */
+    private static final Pattern EXPLICIT_TIME =
+            Pattern.compile("(上午|下午|中午|晚上|早上)?\\s*\\d{1,2}\\s*[点时:：]");
 
     private static final List<String> INTENTS = List.of(
             IntentResult.PLAN_TRIP, IntentResult.MODIFY_ITINERARY, IntentResult.QUERY_BUDGET,
@@ -152,9 +157,15 @@ public class IntentAgent {
                     .intent(IntentResult.QUERY_HEALTH).target(IntentResult.TARGET_NONE).constraints(constraints).build();
         }
         boolean scheduleQuery = MessageParser.mentions(message, "我的日程", "日程表", "日程安排", "有哪些安排", "日程有哪些");
-        boolean scheduleAdd = MessageParser.mentions(message, "日程", "排期", "会议", "开会", "预约", "排个", "排进")
-                && !scheduleQuery
-                && MessageParser.parseScheduleRequest(message) != null;
+        // 必须有明确时间点或排期动词才算"添加日程"。
+        // 旧实现只要求关键词 + parseScheduleRequest 非 null，而后者对任何文本都返回非 null，
+        // 于是"今天开会好累"这类陈述句会被真的写成一条日程。
+        boolean hasExplicitTime = EXPLICIT_TIME.matcher(message).find();
+        boolean hasSchedulingVerb = MessageParser.mentions(message,
+                "排个", "排进", "安排个", "约个", "加入日程", "加到日程", "预约");
+        boolean scheduleNoun = MessageParser.mentions(message,
+                "日程", "排期", "会议", "开会", "评审会", "例会", "晨会", "周会", "预约", "排个", "排进");
+        boolean scheduleAdd = !scheduleQuery && scheduleNoun && (hasExplicitTime || hasSchedulingVerb);
         if (scheduleAdd) {
             return IntentResult.builder()
                     .intent(IntentResult.ADD_SCHEDULE).target(IntentResult.TARGET_NONE).constraints(constraints).build();
@@ -173,7 +184,7 @@ public class IntentAgent {
                     .intent(IntentResult.PLAN_TRIP).target(IntentResult.TARGET_NONE).constraints(constraints).build();
         }
 
-        // 6. 疑问句 → 预算 / 知识问答
+        // 7. 疑问句 → 预算 / 知识问答
         boolean money = MessageParser.mentions(message, "预算", "花费", "花多少", "多少钱", "贵不贵", "超支");
         boolean question = MessageParser.mentions(message,
                 "什么", "哪些", "为什么", "怎么", "攻略", "介绍", "注意", "值得", "推荐", "适合", "吗", "？", "?");
@@ -194,8 +205,9 @@ public class IntentAgent {
                     .intent(IntentResult.QUERY_KNOWLEDGE).target(IntentResult.TARGET_NONE).constraints(constraints).build();
         }
 
+        // 兜底：没有识别出明确意图时不要贸然开始规划（会走到"暂不支持该目的地"），先给出能力提示
         return IntentResult.builder()
-                .intent(trip == null ? IntentResult.PLAN_TRIP : IntentResult.CHITCHAT)
+                .intent(IntentResult.CHITCHAT)
                 .target(IntentResult.TARGET_NONE).constraints(constraints).build();
     }
 }

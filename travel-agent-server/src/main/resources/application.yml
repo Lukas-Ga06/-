@@ -23,6 +23,8 @@ spring:
     time-zone: Asia/Shanghai
 
 travel:
+  # 应用时区：代码里的“今天/明天”都基于它（默认 Asia/Shanghai，避免容器 UTC 导致日期偏移一天）
+  timezone: ${APP_TIMEZONE:Asia/Shanghai}
   amap:
     # 高德开放平台 Web服务 Key（lbs.amap.com 免费申请，类型选"Web服务"）。
     # 配置后启用快速路径：大模型精简生成(~2-3s) + 高德批量定位(~1s，国内可达)。

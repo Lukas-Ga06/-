@@ -84,8 +84,9 @@ export default function Expenses() {
                   <div
                     key={t.tripId}
                     className="recent-expense-row"
-                    style={{ padding: '8px 4px' }}
-                    onClick={() => navigate(`/trip/${t.tripId}`)}
+                    style={{ padding: '8px 4px', cursor: t.tripId > 0 ? 'pointer' : 'default' }}
+                    // tripId = 0 表示行程已被删除的遗留账单分组，没有可跳转的行程页
+                    onClick={() => t.tripId > 0 && navigate(`/trip/${t.tripId}`)}
                   >
                     <span
                       style={{

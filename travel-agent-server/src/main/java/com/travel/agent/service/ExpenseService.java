@@ -25,6 +25,10 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class ExpenseService {
 
+    /** 行程已被删除的账单归到这个分组，保证「分项之和 == 总支出」 */
+    private static final Long ORPHAN_TRIP_ID = 0L;
+    private static final String ORPHAN_TRIP_NAME = "已删除的行程";
+
     private static final Set<String> CATEGORIES = Set.of(
             Expense.CAT_FOOD, Expense.CAT_TRANSPORT, Expense.CAT_HOTEL,
             Expense.CAT_TICKET, Expense.CAT_SHOPPING, Expense.CAT_OTHER);
@@ -105,15 +109,17 @@ public class ExpenseService {
             }
             byPayment.merge(e.getPaymentMethod() == null ? "现金" : e.getPaymentMethod(), amount, BigDecimal::add);
             byCategory.merge(e.getCategory(), amount, BigDecimal::add);
-            if (tripMap.containsKey(e.getTripId())) {
-                byTrip.merge(e.getTripId(), amount, BigDecimal::add);
-            }
+            // 关键：即使行程已被删除，也要计入分组，否则分项加起来对不上 totalSpent
+            Long tripKey = e.getTripId() != null && tripMap.containsKey(e.getTripId())
+                    ? e.getTripId() : ORPHAN_TRIP_ID;
+            byTrip.merge(tripKey, amount, BigDecimal::add);
         }
 
         List<ExpenseDtos.TripSpend> tripSpends = byTrip.entrySet().stream()
                 .map(en -> ExpenseDtos.TripSpend.builder()
                         .tripId(en.getKey())
-                        .tripName(tripMap.get(en.getKey()).getName())
+                        .tripName(tripMap.containsKey(en.getKey())
+                                ? tripMap.get(en.getKey()).getName() : ORPHAN_TRIP_NAME)
                         .total(en.getValue())
                         .build())
                 .sorted((a, b) -> b.getTotal().compareTo(a.getTotal()))
