@@ -1,0 +1,55 @@
+package com.travel.agent.entity;
+
+import jakarta.persistence.*;
+import lombok.*;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+
+/** 发票整理（粘贴发票文本 → LLM 提取结构化字段） */
+@Entity
+@Table(name = "invoice")
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class Invoice {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "user_id", nullable = false)
+    private Long userId;
+
+    @Column(length = 200)
+    private String title;       // 发票抬头
+
+    @Column(length = 200)
+    private String vendor;      // 销售方/开票方
+
+    /** 交通 / 餐饮 / 办公 / 住宿 / 其他 */
+    @Column(length = 20)
+    private String category;
+
+    @Column(precision = 10, scale = 2)
+    private BigDecimal amount;
+
+    @Column(name = "invoice_date")
+    private LocalDate invoiceDate;
+
+    @Column(name = "raw_text", columnDefinition = "TEXT")
+    private String rawText;
+
+    @Column(name = "created_at")
+    private LocalDateTime createdAt;
+
+    @PrePersist
+    public void prePersist() {
+        if (createdAt == null) {
+            createdAt = LocalDateTime.now();
+        }
+    }
+}

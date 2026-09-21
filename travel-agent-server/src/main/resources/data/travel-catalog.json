@@ -1,0 +1,97 @@
+{
+  "cities": [
+    {
+      "name": "上海",
+      "attractions": [
+        {"id": "SH-A1", "name": "外滩", "venue": "outdoor", "tags": ["地标", "夜景", "漫步"], "lat": 31.2397, "lng": 121.4906, "ticket": 0, "durationHours": 2.0, "rating": 4.8, "description": "黄浦江畔的万国建筑博览群，夜景尤为壮观，适合傍晚漫步。"},
+        {"id": "SH-A2", "name": "上海博物馆", "venue": "indoor", "tags": ["文化", "历史", "亲子", "室内"], "lat": 31.2286, "lng": 121.4747, "ticket": 0, "durationHours": 2.5, "rating": 4.8, "description": "收藏青铜器、陶瓷、书画的国宝级博物馆，免费开放，需提前预约。"},
+        {"id": "SH-A3", "name": "豫园", "venue": "outdoor", "tags": ["园林", "历史", "美食"], "lat": 31.2270, "lng": 121.4921, "ticket": 40, "durationHours": 2.0, "rating": 4.6, "description": "明代江南古典园林，毗邻城隍庙商圈，九曲桥与南翔小笼不可错过。"},
+        {"id": "SH-A4", "name": "东方明珠", "venue": "indoor", "tags": ["地标", "观景", "亲子"], "lat": 31.2397, "lng": 121.4997, "ticket": 199, "durationHours": 2.0, "rating": 4.5, "description": "陆家嘴地标电视塔，259米全透明悬空观光廊可俯瞰浦江两岸。"},
+        {"id": "SH-A5", "name": "上海科技馆", "venue": "indoor", "tags": ["科普", "亲子", "室内"], "lat": 31.2169, "lng": 121.5431, "ticket": 60, "durationHours": 3.0, "rating": 4.7, "description": "适合亲子的高科技互动展馆，有机器人、生物万象等主题展区。"},
+        {"id": "SH-A6", "name": "田子坊", "venue": "outdoor", "tags": ["文艺", "街拍", "购物"], "lat": 31.2104, "lng": 121.4654, "ticket": 0, "durationHours": 1.5, "rating": 4.4, "description": "石库门弄堂改造的文创街区，小店、咖啡馆与手作聚集地。"},
+        {"id": "SH-A7", "name": "南京路步行街", "venue": "outdoor", "tags": ["购物", "地标", "美食"], "lat": 31.2359, "lng": 121.4802, "ticket": 0, "durationHours": 1.5, "rating": 4.4, "description": "中华商业第一街，从人民广场延伸至外滩，可乘百年铛铛车。"},
+        {"id": "SH-A8", "name": "中华艺术宫", "venue": "indoor", "tags": ["艺术", "文化", "室内", "亲子"], "lat": 31.1868, "lng": 121.4817, "ticket": 0, "durationHours": 2.0, "rating": 4.5, "description": "原世博会中国馆，馆藏近现代艺术，多媒体版《清明上河图》必看。"}
+      ],
+      "hotels": [
+        {"id": "SH-H1", "name": "人民广场亚朵酒店", "nearSubway": true, "pricePerNight": 460, "rating": 4.7, "lat": 31.2300, "lng": 121.4750, "description": "位于人民广场商圈，地铁站步行3分钟，前往各景点交通便利。"},
+        {"id": "SH-H2", "name": "全季酒店（南京路店）", "nearSubway": true, "pricePerNight": 390, "rating": 4.6, "lat": 31.2360, "lng": 121.4790, "description": "南京路步行街旁，性价比高，步行可达外滩。"},
+        {"id": "SH-H3", "name": "汉庭酒店（徐家汇店）", "nearSubway": true, "pricePerNight": 320, "rating": 4.4, "lat": 31.1930, "lng": 121.4370, "description": "徐家汇商圈，地铁1号线沿线，价格实惠。"},
+        {"id": "SH-H4", "name": "外滩华尔道夫酒店", "nearSubway": false, "pricePerNight": 1680, "rating": 4.9, "lat": 31.2365, "lng": 121.4890, "description": "外滩地标级奢华酒店，百年历史建筑。"}
+      ],
+      "restaurants": [
+        {"id": "SH-R1", "name": "老正兴菜馆", "cuisine": "本帮菜", "avgCost": 95, "rating": 4.5, "lat": 31.2330, "lng": 121.4820, "description": "百年本帮菜老字号，油爆虾、草头圈子是招牌。"},
+        {"id": "SH-R2", "name": "南翔馒头店", "cuisine": "小笼包", "avgCost": 60, "rating": 4.4, "lat": 31.2271, "lng": 121.4925, "description": "城隍庙南翔小笼鼻祖，蟹粉小笼一绝。"},
+        {"id": "SH-R3", "name": "沈大成", "cuisine": "本帮点心", "avgCost": 40, "rating": 4.3, "lat": 31.2340, "lng": 121.4830, "description": "老字号点心店，条头糕、青团、蟹粉小笼都很受欢迎。"},
+        {"id": "SH-R4", "name": "绿波廊", "cuisine": "本帮菜", "avgCost": 130, "rating": 4.6, "lat": 31.2266, "lng": 121.4918, "description": "豫园九曲桥畔的名店，曾接待多国政要。"}
+      ]
+    },
+    {
+      "name": "北京",
+      "attractions": [
+        {"id": "BJ-A1", "name": "故宫博物院", "venue": "outdoor", "tags": ["历史", "文化", "地标", "亲子"], "lat": 39.9163, "lng": 116.3972, "ticket": 60, "durationHours": 3.5, "rating": 4.9, "description": "明清两代皇宫，世界文化遗产，周一闭馆，需提前7天预约。"},
+        {"id": "BJ-A2", "name": "中国国家博物馆", "venue": "indoor", "tags": ["历史", "文化", "室内", "亲子"], "lat": 39.9053, "lng": 116.3976, "ticket": 0, "durationHours": 3.0, "rating": 4.8, "description": "天安门广场东侧，古代中国、复兴之路等常设展值得细看。"},
+        {"id": "BJ-A3", "name": "天坛公园", "venue": "outdoor", "tags": ["历史", "园林"], "lat": 39.8822, "lng": 116.4066, "ticket": 35, "durationHours": 2.0, "rating": 4.7, "description": "明清皇帝祭天场所，祈年殿是北京地标之一。"},
+        {"id": "BJ-A4", "name": "颐和园", "venue": "outdoor", "tags": ["园林", "历史", "亲子"], "lat": 39.9999, "lng": 116.2755, "ticket": 30, "durationHours": 3.0, "rating": 4.8, "description": "皇家园林博物馆，昆明湖泛舟、长廊漫步都很惬意。"},
+        {"id": "BJ-A5", "name": "中国科学技术馆", "venue": "indoor", "tags": ["科普", "亲子", "室内"], "lat": 40.0035, "lng": 116.3970, "ticket": 30, "durationHours": 3.0, "rating": 4.7, "description": "儿童科学乐园与巨幕影院深受亲子家庭喜爱。"},
+        {"id": "BJ-A6", "name": "南锣鼓巷", "venue": "outdoor", "tags": ["胡同", "美食", "购物"], "lat": 39.9390, "lng": 116.4030, "ticket": 0, "durationHours": 1.5, "rating": 4.3, "description": "保存最完整的元代胡同院落区，小吃与文创小店聚集。"}
+      ],
+      "hotels": [
+        {"id": "BJ-H1", "name": "王府井亚朵酒店", "nearSubway": true, "pricePerNight": 520, "rating": 4.7, "lat": 39.9100, "lng": 116.4110, "description": "王府井商圈，步行可达故宫东门，地铁口近在咫尺。"},
+        {"id": "BJ-H2", "name": "前门全季酒店", "nearSubway": true, "pricePerNight": 430, "rating": 4.6, "lat": 39.8990, "lng": 116.3980, "description": "前门大街旁，去天安门、天坛都很方便。"},
+        {"id": "BJ-H3", "name": "汉庭酒店（五道口店）", "nearSubway": true, "pricePerNight": 310, "rating": 4.3, "lat": 39.9920, "lng": 116.3380, "description": "五道口地铁站旁，适合学生党与预算有限的旅行者。"}
+      ],
+      "restaurants": [
+        {"id": "BJ-R1", "name": "四季民福烤鸭店", "cuisine": "北京烤鸭", "avgCost": 150, "rating": 4.8, "lat": 39.9130, "lng": 116.4020, "description": "性价比最高的烤鸭店之一，故宫店可边吃边看角楼。"},
+        {"id": "BJ-R2", "name": "东来顺", "cuisine": "涮羊肉", "avgCost": 110, "rating": 4.5, "lat": 39.9080, "lng": 116.4120, "description": "百年老字号铜锅涮肉，手切鲜羊肉必点。"},
+        {"id": "BJ-R3", "name": "护国寺小吃", "cuisine": "北京小吃", "avgCost": 35, "rating": 4.2, "lat": 39.9330, "lng": 116.3790, "description": "豆汁儿、焦圈、驴打滚，体验地道京味早点。"},
+        {"id": "BJ-R4", "name": "海碗居", "cuisine": "炸酱面", "avgCost": 60, "rating": 4.4, "lat": 39.9480, "lng": 116.3830, "description": "老北京炸酱面代表，京剧主题装修别有风味。"}
+      ]
+    },
+    {
+      "name": "杭州",
+      "attractions": [
+        {"id": "HZ-A1", "name": "西湖风景区", "venue": "outdoor", "tags": ["湖泊", "地标", "亲子", "漫步"], "lat": 30.2431, "lng": 120.1490, "ticket": 0, "durationHours": 3.0, "rating": 4.9, "description": "世界文化遗产，苏堤春晓、断桥残雪等十景闻名天下。"},
+        {"id": "HZ-A2", "name": "灵隐寺", "venue": "outdoor", "tags": ["禅意", "历史", "文化"], "lat": 30.2408, "lng": 120.0972, "ticket": 75, "durationHours": 2.5, "rating": 4.7, "description": "东晋古刹，飞来峰石窟造像与济公传说闻名。"},
+        {"id": "HZ-A3", "name": "中国茶叶博物馆", "venue": "indoor", "tags": ["文化", "室内", "亲子"], "lat": 30.2258, "lng": 120.1080, "ticket": 0, "durationHours": 1.5, "rating": 4.5, "description": "龙井茶园中的博物馆，可以体验茶艺与炒茶。"},
+        {"id": "HZ-A4", "name": "浙江省博物馆", "venue": "indoor", "tags": ["历史", "文化", "室内", "亲子"], "lat": 30.2590, "lng": 120.1410, "ticket": 0, "durationHours": 2.0, "rating": 4.6, "description": "河姆渡文化与良渚玉琮，《富春山居图》真本曾藏于此。"},
+        {"id": "HZ-A5", "name": "西溪国家湿地公园", "venue": "outdoor", "tags": ["湿地", "自然", "亲子"], "lat": 30.2609, "lng": 120.0620, "ticket": 80, "durationHours": 3.0, "rating": 4.6, "description": "城市绿肺，摇橹船穿行芦苇荡，《非诚勿扰》取景地。"},
+        {"id": "HZ-A6", "name": "清河坊历史街区", "venue": "outdoor", "tags": ["美食", "购物", "历史"], "lat": 30.2435, "lng": 120.1650, "ticket": 0, "durationHours": 1.5, "rating": 4.3, "description": "南宋古街，胡庆余堂、方回春堂等百年老店林立。"}
+      ],
+      "hotels": [
+        {"id": "HZ-H1", "name": "西湖边全季酒店", "nearSubway": true, "pricePerNight": 480, "rating": 4.7, "lat": 30.2460, "lng": 120.1560, "description": "步行可达西湖断桥，地铁1号线沿线。"},
+        {"id": "HZ-H2", "name": "武林广场亚朵酒店", "nearSubway": true, "pricePerNight": 420, "rating": 4.6, "lat": 30.2740, "lng": 120.1610, "description": "市中心武林商圈，地铁口步行2分钟。"},
+        {"id": "HZ-H3", "name": "滨江汉庭酒店", "nearSubway": true, "pricePerNight": 300, "rating": 4.3, "lat": 30.2080, "lng": 120.2110, "description": "滨江区地铁站旁，价格实惠，过江即到西湖。"}
+      ],
+      "restaurants": [
+        {"id": "HZ-R1", "name": "楼外楼", "cuisine": "杭帮菜", "avgCost": 140, "rating": 4.5, "lat": 30.2500, "lng": 120.1450, "description": "孤山脚下的百年老店，西湖醋鱼、叫花鸡是招牌。"},
+        {"id": "HZ-R2", "name": "知味观", "cuisine": "杭州小吃", "avgCost": 70, "rating": 4.4, "lat": 30.2610, "lng": 120.1640, "description": "猫耳朵、小笼包、虾爆鳝面，杭州味道一站式打卡。"},
+        {"id": "HZ-R3", "name": "外婆家", "cuisine": "杭帮菜", "avgCost": 65, "rating": 4.3, "lat": 30.2560, "lng": 120.2100, "description": "性价比杭帮菜连锁，茶香鸡与麻婆豆腐必点。"},
+        {"id": "HZ-R4", "name": "新白鹿餐厅", "cuisine": "杭帮菜", "avgCost": 60, "rating": 4.4, "lat": 30.2680, "lng": 120.1580, "description": "本地人气餐厅，蛋黄鸡翅、酸汤鱼深受欢迎。"}
+      ]
+    },
+    {
+      "name": "石家庄",
+      "attractions": [
+        {"id": "SJZ-A1", "name": "河北博物院", "venue": "indoor", "tags": ["文化", "历史", "亲子", "室内"], "lat": 38.0355, "lng": 114.5548, "ticket": 0, "durationHours": 2.5, "rating": 4.8, "description": "馆藏长信宫灯、金缕玉衣等国宝级文物，免费开放，需提前预约。"},
+        {"id": "SJZ-A2", "name": "正定隆兴寺", "venue": "outdoor", "tags": ["历史", "文化", "古建"], "lat": 38.1420, "lng": 114.5714, "ticket": 50, "durationHours": 2.5, "rating": 4.7, "description": "始建于隋代的千年古刹，宋代铜铸大悲菩萨像闻名全国。"},
+        {"id": "SJZ-A3", "name": "河北省科学技术馆", "venue": "indoor", "tags": ["科普", "亲子", "室内"], "lat": 38.0350, "lng": 114.5180, "ticket": 0, "durationHours": 2.5, "rating": 4.6, "description": "常设展览免费，互动展品丰富，适合带孩子的家庭。"},
+        {"id": "SJZ-A4", "name": "赵州桥", "venue": "outdoor", "tags": ["历史", "地标", "亲子"], "lat": 37.7735, "lng": 114.7835, "ticket": 35, "durationHours": 2.0, "rating": 4.6, "description": "世界上现存最古老的石拱桥，距市区约40公里，适合安排半天。"},
+        {"id": "SJZ-A5", "name": "正定荣国府", "venue": "outdoor", "tags": ["文化", "古建", "影视"], "lat": 38.1440, "lng": 114.5760, "ticket": 40, "durationHours": 1.5, "rating": 4.4, "description": "87版《红楼梦》拍摄地，明清风格府邸园林。"},
+        {"id": "SJZ-A6", "name": "石家庄植物园", "venue": "outdoor", "tags": ["自然", "亲子", "花卉"], "lat": 38.0900, "lng": 114.3800, "ticket": 30, "durationHours": 2.5, "rating": 4.5, "description": "市区西北的大型植物园，四季花展不断，适合休闲漫步。"},
+        {"id": "SJZ-A7", "name": "天山海世界", "venue": "indoor", "tags": ["亲子", "水上乐园", "室内"], "lat": 38.0480, "lng": 114.5820, "ticket": 128, "durationHours": 3.0, "rating": 4.4, "description": "室内恒温水上乐园，四季皆可玩水，亲子出游热门选择。"},
+        {"id": "SJZ-A8", "name": "湾里庙步行街", "venue": "outdoor", "tags": ["购物", "美食", "夜景"], "lat": 38.0430, "lng": 114.4910, "ticket": 0, "durationHours": 1.5, "rating": 4.2, "description": "石家庄最热闹的商业步行街，夜市小吃聚集。"}
+      ],
+      "hotels": [
+        {"id": "SJZ-H1", "name": "亚朵酒店（北国商城店）", "nearSubway": true, "pricePerNight": 380, "rating": 4.7, "lat": 38.0430, "lng": 114.5090, "description": "地铁1号线沿线，北国商圈核心，购物出行便利。"},
+        {"id": "SJZ-H2", "name": "全季酒店（勒泰中心店）", "nearSubway": true, "pricePerNight": 350, "rating": 4.6, "lat": 38.0455, "lng": 114.4925, "description": "勒泰中心旁，步行可达湾里庙步行街。"},
+        {"id": "SJZ-H3", "name": "汉庭酒店（火车站东广场店）", "nearSubway": true, "pricePerNight": 280, "rating": 4.3, "lat": 38.0140, "lng": 114.4870, "description": "石家庄站东广场旁，地铁3号线沿线，价格实惠。"}
+      ],
+      "restaurants": [
+        {"id": "SJZ-R1", "name": "小放牛餐厅", "cuisine": "河北菜", "avgCost": 65, "rating": 4.5, "lat": 38.0420, "lng": 114.5045, "description": "发源于石家庄的河北菜连锁，驴肉焖子、大锅菜有特色。"},
+        {"id": "SJZ-R2", "name": "保定会馆", "cuisine": "直隶官府菜", "avgCost": 110, "rating": 4.5, "lat": 38.0350, "lng": 114.5350, "description": "直隶官府菜代表，锅包肘子是必点招牌。"},
+        {"id": "SJZ-R3", "name": "燕风楼", "cuisine": "冀菜/烤鸭", "avgCost": 90, "rating": 4.4, "lat": 38.0430, "lng": 114.5060, "description": "石家庄老字号，烤鸭与传统冀菜深受本地人喜爱。"},
+        {"id": "SJZ-R4", "name": "北斗星餐厅", "cuisine": "家常菜", "avgCost": 55, "rating": 4.3, "lat": 38.0460, "lng": 114.4880, "description": "本地人气家常菜连锁，性价比高。"}
+      ]
+    }
+  ]
+}

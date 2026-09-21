@@ -1,0 +1,25 @@
+# ---- Java / Maven ----
+target/
+*.class
+*.jar
+!.mvn/wrapper/maven-wrapper.jar
+
+# ---- Node / 前端 ----
+node_modules/
+dist/
+*.local
+
+# ---- IDE ----
+.idea/
+.vscode/
+*.iml
+
+# ---- 运行时数据 ----
+travel-agent-server/data/
+*.log
+*.mv.db
+*.trace.db
+
+# ---- 系统 ----
+.DS_Store
+Thumbs.db

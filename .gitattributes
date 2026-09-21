@@ -1,0 +1,21 @@
+# 统一换行符处理：仓库内以 LF 存储，避免 Windows / Linux 之间反复产生无意义的 diff
+* text=auto
+
+# Shell 脚本必须保持 LF，否则在 Linux / macOS / CI 中无法执行
+*.sh text eol=lf
+*.mjs text eol=lf
+
+# Windows 脚本保持 CRLF
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 二进制资源不做换行符转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.jar binary
