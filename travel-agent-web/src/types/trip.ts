@@ -52,14 +52,15 @@ export interface AddItemPayload {
   description?: string;
 }
 
+/** 首页/足迹地图点位。目的地未定位、行程未填日期或预算时，后端会返回 null */
 export interface TripMapPoint {
   tripId: number;
-  name: string;
-  destination: string;
-  status: string;
-  startDate: string;
-  endDate: string;
-  budget: number;
+  name: string | null;
+  destination: string | null;
+  status: string | null;
+  startDate: string | null;
+  endDate: string | null;
+  budget: number | null;
   lat: number | null;
   lng: number | null;
 }

@@ -10,6 +10,7 @@ const GROUPS: { section: string; items: { key: string; label: string; path: stri
       { key: 'home', label: '总览', path: '/', icon: '🏠' },
       { key: 'schedule', label: '日程', path: '/schedule', icon: '📅' },
       { key: 'travel', label: '旅行', path: '/travel', icon: '🗺️' },
+      { key: 'footprint', label: '足迹', path: '/footprint', icon: '🌍' },
       { key: 'expenses', label: '记账', path: '/expenses', icon: '💰' },
       { key: 'memos', label: '备忘', path: '/memos', icon: '📝' },
       { key: 'health', label: '健康', path: '/health', icon: '❤️' },
@@ -26,7 +27,7 @@ const GROUPS: { section: string; items: { key: string; label: string; path: stri
 ];
 
 export type NavModule =
-  | 'home' | 'schedule' | 'travel' | 'expenses' | 'memos' | 'health'
+  | 'home' | 'schedule' | 'travel' | 'footprint' | 'expenses' | 'memos' | 'health'
   | 'assistant' | 'office' | 'learning' | 'profile';
 
 /** 个人助理应用外壳：左侧悬浮玻璃边栏 + 右侧内容区 */

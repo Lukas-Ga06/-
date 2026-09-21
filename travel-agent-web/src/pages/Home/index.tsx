@@ -3,7 +3,7 @@ import { App, Button, Empty, Input } from 'antd';
 import { SendOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
-import { getTripsMap, listTrips } from '../../api/trip';
+import { getTripsMap } from '../../api/trip';
 import { getExpenseOverview } from '../../api/expense';
 import { getMemos, toggleMemo } from '../../api/memo';
 import { healthSummary, listSchedule, type ScheduleItem } from '../../api/assistant';
@@ -14,8 +14,11 @@ import AppShell from '../../components/AppShell';
 import VoiceButton from '../../components/VoiceButton';
 import type { ExpenseOverview } from '../../types/expense';
 import type { Memo } from '../../types/memo';
-import type { Trip, TripMapPoint } from '../../types/trip';
+import type { TripMapPoint } from '../../types/trip';
 import type { HealthSummary } from '../../types/assistant';
+
+// 首页足迹地图依赖 maplibre-gl（约 1MB），懒加载避免拖慢首屏
+const FootprintMap = lazy(() => import('../../components/FootprintMap'));
 
 const EXAMPLE_PROMPT = '帮我规划周末上海两日游';
 const QUICK_MODULES = [
@@ -32,7 +35,6 @@ export default function Home() {
   const user = useAuthStore((s) => s.user);
 
   const [prompt, setPrompt] = useState('');
-  const [trips, setTrips] = useState<Trip[]>([]);
   const [mapPoints, setMapPoints] = useState<TripMapPoint[] | null>(null);
   const [overview, setOverview] = useState<ExpenseOverview | null>(null);
   const [memos, setMemos] = useState<Memo[]>([]);
@@ -51,7 +53,6 @@ export default function Home() {
   useEffect(() => {
     const safe = (p: Promise<any>, fallback: any) => p.catch(() => fallback);
     Promise.all([
-      safe(listTrips(), []),
       safe(getTripsMap(), []),
       safe(getExpenseOverview(), null),
       safe(getMemos(), []),
@@ -60,8 +61,7 @@ export default function Home() {
       safe(listMinutes(), []),
       safe(listReports(), []),
       safe(listArtifacts(), []),
-    ]).then(([tr, mp, ov, mm, sc, hl, min, rp, art]) => {
-      setTrips(tr);
+    ]).then(([mp, ov, mm, sc, hl, min, rp, art]) => {
       setMapPoints(mp);
       setOverview(ov);
       setMemos(mm);
@@ -210,9 +210,16 @@ export default function Home() {
         {/* 足迹地图 */}
         <div className="dash-card span2 lg-sweep" style={{ marginTop: 2 }}>
           <div className="dc-head">
-            <b>🗺️ 我的足迹</b>
-            <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
-              {mapPoints ? `${mapPoints.filter((p) => p.lat != null).length}/${mapPoints.length} 个行程已定位 · 点击标记进入` : '定位中…'}
+            <b>🗺️ 我的足迹 · 3D</b>
+            <span className="dc-head-right">
+              <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
+                {mapPoints
+                  ? `${mapPoints.filter((p) => p.lat != null).length}/${mapPoints.length} 个行程已定位`
+                  : '定位中…'}
+              </span>
+              <button className="dc-link" onClick={() => navigate('/footprint')}>
+                查看 3D 足迹 →
+              </button>
             </span>
           </div>
           <div className="footprint-map-wrap" style={{ height: 340 }}>
@@ -222,7 +229,11 @@ export default function Home() {
               <div className="footprint-loading">还没有行程，去「旅行规划」创建一个吧</div>
             ) : (
               <Suspense fallback={<div className="footprint-loading">地图加载中…</div>}>
-                <FootprintMap points={mapPoints} onSelect={(id) => navigate(`/trip/${id}`)} />
+                <FootprintMap
+                  points={mapPoints}
+                  showControls={false}
+                  onSelect={(id) => navigate(`/trip/${id}`)}
+                />
               </Suspense>
             )}
           </div>
@@ -231,5 +242,3 @@ export default function Home() {
     </AppShell>
   );
 }
-// 首页足迹地图依赖 maplibre-gl（约 1MB），懒加载避免拖慢首屏
-const FootprintMap = lazy(() => import('../../components/FootprintMap'));

@@ -89,6 +89,10 @@ node .e2e/e2e.mjs
 **前端分包**：路由全部懒加载（`React.lazy`），重依赖（echarts / maplibre / leaflet / antd）在 `vite.config.ts` 中显式分 chunk。
 页面上新增重型组件时请用 `lazy` + `Suspense`，避免回到单包 3MB。
 
+**地图组件**：`.fp-map` / `.maplibregl-map` 是 maplibre 的容器，maplibre 会给它加 `position: relative`，
+其样式在懒加载后才注入且优先级不低——给容器设尺寸时不要用 `absolute + inset`，**必须显式写 height**，否则容器塌成 0 高、地图完全不渲染（已踩过一次）。
+足迹地图的球体投影依赖 maplibre v5+，代码里做了运行时探测，旧版本自动退回平面 3D。
+
 ## 部署注意事项
 
 1. 必须配置 `JWT_SECRET`，否则每次重启都会让全体用户掉线；

@@ -36,7 +36,7 @@ travel-agent/
     ├── vitest.config.ts                # 前端单元测试配置
     └── src/
         ├── components/                 # ChatPanel / MapView(MapProvider) / Timeline / ItineraryCard / BudgetChart / PlanDiff / VoiceButton
-        ├── pages/                      # Home / Planner / Trip / Travel / Expenses / Memos / Schedule / Office / Learning / Health / Assistant / Profile / Login
+        ├── pages/                      # Home / Planner / Trip / Travel / Footprint(3D 足迹) / Expenses / Memos / Schedule / Office / Learning / Health / Assistant / Profile / Login
         ├── store/                      # zustand：auth / trip / agent / ui
         ├── api/                        # axios 封装 + SSE EventSource 客户端
         └── types/                      # 与后端 AgentResult / PlanDiff 对齐的 TS 类型
