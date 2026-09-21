@@ -17,7 +17,8 @@ travel-agent/
 ├── sql/init.sql                        # MySQL 初始化脚本（H2 模式无需执行）
 ├── docker-compose.yml                  # 可选：MySQL + Redis 基础设施
 ├── .github/workflows/ci.yml            # CI：后端 mvn verify + 前端 typecheck/test/build
-├── docs/DEVELOPMENT.md                 # 环境变量、测试、部署与后续规划
+├── docs/DEVELOPMENT.md                 # 环境变量、测试、约定、部署与后续规划
+├── docs/CHANGELOG.md                   # 行为变化记录（含影响使用习惯的调整）
 ├── .e2e/                               # 手工端到端验证脚本（需本地先启动后端）
 ├── travel-agent-server/                # 后端（Spring Boot 3 / Java 17）
 │   ├── src/main/java/com/travel/agent/
@@ -109,10 +110,10 @@ RECEIVE → UNDERSTAND → PLAN → EXECUTE → REFLECT → PRESENT → CONFIRM 
                                       ↘ ERROR（反馈用户）
 ```
 
-- **IntentAgent**：LLM 优先 + 规则兜底，输出 `{intent, target, constraints}`；
+- **IntentAgent**：LLM 优先 + 规则兜底，输出 `{intent, target, constraints}`（规则边界见 4.7）；
 - **PlannerAgent**：结合行程/预算/偏好/天气/交通生成 `AgentPlan`（操作列表，不直接落库）；
 - **ExecutorAgent**：preview（生成 Diff + 确认请求）→ 用户确认 → commit（单事务内 Service → Repository + 操作历史）；
-- **ReflectAgent**：时间冲突、预算超限校验，输出警告。
+- **ReflectAgent**：基于「应用计划之后」的行程做时间冲突检查（覆盖 ADD 与 MODIFY 造成的重叠）与预算超限校验，输出警告。
 
 ### 4.2 Human-in-the-loop 三级风险
 
@@ -129,7 +130,8 @@ RECEIVE → UNDERSTAND → PLAN → EXECUTE → REFLECT → PRESENT → CONFIRM 
 
 ### 4.3 静态知识 / 实时信息分离
 
-- **RAG**：旅游知识、景点介绍、城市攻略、注意事项（内置 10 篇文档，内存向量库 Top-K 检索）；
+- **RAG**：旅游知识、景点介绍、城市攻略、注意事项（内置 10 篇文档，内存向量库 Top-K 检索）。
+  检索按目的地城市过滤，但**标记为「通用」或未标注城市的文档始终参与**，因此"注意事项"这类通用知识在任何行程里都查得到；
 - **Tools**：天气 / 路线 / 酒店价格等实时信息（MVP 为确定性模拟数据，接口与真实服务一致）。
 
 > 当前 Embedding 为本地字符 bigram 哈希（`LocalHashEmbeddingService`），属于词面匹配而非语义向量；
@@ -147,6 +149,30 @@ Agent 通过 **GUI Focus 协议** 返回 focus（day/itemId/坐标），前端�
 
 > 写操作（新增/修改/删除行程项、撤销）不是工具，而是 `AgentPlan` 的操作项，统一经
 > preview → Diff → 用户确认 → `ExecutorAgent.commit` 落地，并写入操作历史以便撤销。
+
+### 4.6 撤销与操作历史
+
+所有会改变行程的入口都会写一条 `operation_history`（before / after 快照），点「撤销」即把行程整体还原到上一步之前：
+
+| 操作来源 | 记录类型 | 撤销效果 |
+| --- | --- | --- |
+| Agent 方案确认 | `AGENT_COMMIT` | 还原到确认前的行程 |
+| 界面手工增/删/改行程项 | `MANUAL_EDIT` | 还原到手工操作前（不会连带冲掉别的手工改动） |
+| Agent 新建行程 | `TRIP_CREATE` | **删除整个行程**（含行程项与账单），而不是留下一条空壳行程 |
+
+删除行程时会级联清理它的行程项、账单与操作历史，避免出现"计入总支出却无法删除"的孤儿账单。
+
+### 4.7 自然语言理解的当前边界（规则路径）
+
+没有配置 `LLM_API_KEY` 时全部走规则引擎，以下是可预期的行为：
+
+| 说法 | 结果 |
+| --- | --- |
+| 「明天下雨，把户外景点换掉」 | 按行程天数映射到某一天；**若"明天"不在行程区间内**（行程尚未开始或已结束），按「当前天 + 1」顺推并在回复里说明"已按 Day N 处理" |
+| 「明天下午3点开评审会」 | 创建日程（需要**明确时间点**或"排个/预约/加入日程"这类排期动词） |
+| 「今天开会好累」 | 不会创建日程，按闲聊处理并返回能力提示 |
+| 「记一笔午餐 45 元」/「记一下明天办签证」 | 分别识别为记账与备忘（区分依据是能否解析出金额 + 记账动词） |
+| 其它无法归类的话 | 返回能力提示，不会贸然开始规划 |
 
 ## 5. REST API 一览
 
@@ -236,15 +262,22 @@ cd travel-agent-server && mvn test
 cd travel-agent-web && npm run typecheck && npm test && npm run build
 ```
 
-当前覆盖：认证与授权（401 契约、跨用户越权）、Agent 计划落地（ADD/MODIFY/REMOVE、跨行程守卫）、确认提交与撤销链路、
-错误语义（400/401/404/409）、前端流式状态机与 SSE 客户端参数编码。
+当前覆盖（后端 49 个 / 前端 28 个）：
+
+- 认证与授权：401 契约、跨用户读写与删除行程；
+- Agent 计划落地：ADD/MODIFY/REMOVE、跨行程操作守卫、确认提交与撤销（含撤销新建行程）；
+- 工具层契约：只读工具才允许注册、风险评估等级、业务错误原样透出；
+- 理解精度：日期→行程天映射、意图路由（闲聊不被误写成日程）、时间冲突检查（含 MODIFY）；
+- 数据一致性：删除行程的级联清理、记账分项与总支出对账；
+- 运行环境：应用时区固定；前端流式状态机与 SSE 中断路径。
 
 CI（[.github/workflows/ci.yml](.github/workflows/ci.yml)）在 push / PR 时执行 `mvn -B verify` 与
 `npm ci && npm run typecheck && npm test && npm run build`。
 
 ## 8. 后续规划
 
-已完成的工程化改造：密钥外置、版本控制、测试与 CI、原子化提交、参数校验、错误语义对齐、前端路由懒加载与分包。
+已完成的工程化改造：密钥外置、版本控制、测试与 CI、原子化提交、参数校验、错误语义对齐、前端路由懒加载与分包、
+3D 足迹地图，以及一轮逻辑缺陷修复（详见 [docs/CHANGELOG.md](docs/CHANGELOG.md)）。
 
 继续推进的方向：
 - 真实数据源：高德/百度 POI 与路径规划、和风天气、酒店/餐厅开放平台；
@@ -254,4 +287,7 @@ CI（[.github/workflows/ci.yml](.github/workflows/ci.yml)）在 push / PR 时执
 - 数据库：Flyway/Liquibase 管理 schema（当前 `ddl-auto: update`）、补 `trip_id`/`user_id` 索引与列表分页；
 - 可观测性：Actuator 健康检查、指标与 traceId、LLM 调用失败率监控；
 - 前端：依赖漏洞升级（`npm audit` 中的 echarts / maplibre-gl / vite / react-router）、ECharts 按需引入、地图引擎收敛为一套；
+- 会话与预算：多轮上下文（当前 `sessionId` 每次请求重建，只能靠 selectedElement 指代）、"计划成本 vs 实际支出"对比视图；
+- 知识库运营：`RagBootstrap` 目前"有文档就跳过"，更新 `knowledge.json` 需手工清库；在线城市缓存的模糊匹配可能串城市；
+- 前端体验：待确认方案刷新后丢失（后端已有 30 分钟 TTL，但缺按 planId 取回的接口）；
 - 二期工具：compare_hotel / check_opening_hours / search_ticket / generate_trip_summary。

@@ -37,6 +37,10 @@ cd travel-agent-server && mvn spring-boot:run
 cd travel-agent-web && npm run dev
 ```
 
+> Windows 提示：如果 `npm` 报 `Cannot run a document in the middle of a pipeline`，说明 PATH 里
+> 有同名残留文件遮蔽了真正的 npm（例如 `D:\npm` 是 Node 安装包里的 bash 脚本）。
+> 临时用 `npm.cmd run dev`，彻底解决就删掉那个残留文件并重开终端。
+
 数据库默认使用 H2 文件库 `travel-agent-server/data/travel-agent.mv.db`（已在 .gitignore 中，不会提交）。
 需要重置本地数据时删除该文件即可，重启会重新建表并写入演示数据。
 
@@ -47,6 +51,9 @@ cd travel-agent-server && mvn test          # 后端集成测试
 cd travel-agent-web && npm test             # 前端单元测试
 cd travel-agent-web && npm run typecheck    # 仅类型检查
 ```
+
+当前规模：后端 49 个用例（认证/越权、Agent 计划与撤销、工具层契约、RAG 过滤、日期映射、意图路由、
+冲突检查、记账对账、时区），前端 28 个用例（agent store、SSE 客户端、axios 401 分流、足迹数据）。
 
 约定：
 
@@ -85,7 +92,29 @@ HIGH 风险只表示"方案需要显式确认"（超预算），不是"抛异常
 
 **事务边界**：`ExecutorAgent.commit` 是唯一落库入口，标注 `@Transactional`；
 行程变更与操作历史必须同生共死，否则用户会「改成功但撤不回来」。
-`OperationHistoryService.recordCommit` 不允许吞异常。
+`OperationHistoryService` 不允许吞异常；界面上的手工增删改通过 `withHistory(...)` 把"变更 + 记录快照"放进同一事务。
+
+**撤销语义**：历史分三类——`AGENT_COMMIT`（方案确认）、`MANUAL_EDIT`（手工增删改）、`TRIP_CREATE`（Agent 新建行程）。
+`undoLatest` 遇到 `TRIP_CREATE` 会删除整个行程（级联清理行程项与账单），而不是只清空条目。
+新增会改变行程的入口时，必须同时写历史，否则"撤销"会跨过这次改动回滚到更早的快照。
+
+**日期映射**：用户说「今天/明天/后天」时用 `MessageParser.resolveTripDay` 映射到行程天——
+落在行程区间内直接用；落在区间外按「当前天 + 偏移」顺推并返回 `outsideTrip=true`，
+由 PlannerAgent 在回复里说明「已按 Day N 处理」。**不要再用绝对日期 + clamp**（会出现"说明天却改了最后一天"）。
+天气查询使用映射后那一天的日期，保证"看到什么天气"与"改了哪一天"一致。
+
+**RAG 城市过滤**：指定城市检索时保留「该城市文档 + 通用/未标注城市文档」（`InMemoryVectorStore.matchesCity`）。
+否则"注意事项"这类通用知识在有行程时会被全部过滤掉，目录外城市更是直接空结果。
+
+**记账对账**：`ExpenseService.overview` 必须满足「各分项之和 == totalSpent」，
+行程已删除的遗留账单归入 `tripId=0 / 已删除的行程` 分组（前端该分组不可点击跳转）。
+
+**意图路由**：添加日程要求「排期名词 + 明确时间点（或排期动词）」同时成立，
+不能只靠关键词（`parseScheduleRequest` 对任何非空文本都返回非 null）。
+兜底意图是 `CHITCHAT`（返回能力提示），不要贸然返回 `PLAN_TRIP`，否则"没听懂"会变成"暂不支持该目的地"。
+
+**时区**：`TimeZoneConfig` 在启动时把 JVM 默认时区固定为 `travel.timezone`（默认 `Asia/Shanghai`）。
+`LocalDate.now()` 依赖它，新增时间相关逻辑时不要绕开。
 
 **越权保护**：所有行程相关接口先做 `tripService.getOwned(tripId, userId)`；
 批量操作（`applyOperations`）还会校验每个条目确实属于该行程。
@@ -113,7 +142,13 @@ HIGH 风险只表示"方案需要显式确认"（超预算），不是"抛异常
 1. SSE 的 token 走 query 参数（受 EventSource 限制），会进入访问日志；改为一次性短时 ticket；
 2. 接口限流与每用户 LLM 配额（注册开放 + 单次对话可触发多轮模型调用）；
 3. `npm audit` 中的依赖漏洞：maplibre-gl(critical)、vite/esbuild(high)、echarts、react-router(moderate)；
-4. 列表接口分页（trips / expenses 当前全量返回）；
-5. DB 索引：`trip_id`、`user_id`、`(user_id, date)` 等高频查询字段；
-6. 可观测性：Actuator、指标、traceId、LLM 失败率；
-7. RAG 从「字符 bigram 哈希」升级为真实 Embedding，并明确文档表述。
+4. 会话记忆：`sessionId` 每次请求重建，多轮指代只能靠 `selectedElement`；需要会话级上下文存储；
+5. 预算对比：目前只有"计划成本"与"实际支出"两套数，缺"计划 vs 实际"偏差视图；
+6. 知识库运营：`RagBootstrap` "有文档就跳过"，更新 `knowledge.json` 需手工清库（缺版本/指纹机制）；
+7. 在线城市缓存用 `contains` 做模糊匹配，可能串城市（如"洛阳"命中"阳"）；
+8. 前端待确认方案刷新即丢（后端 TTL 30 分钟，缺按 planId 取回的接口）；
+9. 列表接口分页（trips / expenses 当前全量返回）；
+10. DB 索引：`trip_id`、`user_id`、`(user_id, date)` 等高频查询字段；
+11. 可观测性：Actuator、指标、traceId、LLM 失败率；
+12. RAG 从「字符 bigram 哈希」升级为真实 Embedding；
+13. 前端体验：移动端布局（窄视口下侧栏会占掉大部分宽度）、暗色模式、PWA 离线查看行程。
