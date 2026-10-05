@@ -5,7 +5,7 @@ import com.travel.agent.entity.TripPhoto;
 import com.travel.agent.exception.BusinessException;
 import com.travel.agent.repository.TripPhotoRepository;
 import com.travel.agent.util.ImageSignatures;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -22,7 +22,6 @@ import java.util.UUID;
  * 库里只存元数据，原始文件名不外露；读取/删除都要先校验行程归属。
  */
 @Service
-@RequiredArgsConstructor
 public class PhotoService {
 
     private static final long MAX_BYTES = 10L * 1024 * 1024;
@@ -39,6 +38,20 @@ public class PhotoService {
     private final TripPhotoRepository repository;
     private final TripService tripService;
     private final PhotoStorage storage;
+    private final int maxPhotosPerTrip;
+    private final long maxBytesPerUser;
+
+    public PhotoService(TripPhotoRepository repository,
+                        TripService tripService,
+                        PhotoStorage storage,
+                        @Value("${travel.photos.max-per-trip:200}") int maxPhotosPerTrip,
+                        @Value("${travel.photos.max-bytes-per-user:524288000}") long maxBytesPerUser) {
+        this.repository = repository;
+        this.tripService = tripService;
+        this.storage = storage;
+        this.maxPhotosPerTrip = maxPhotosPerTrip;
+        this.maxBytesPerUser = maxBytesPerUser;
+    }
 
     /** 照片 + 它在磁盘上的位置 */
     public record StoredPhoto(TripPhoto photo, Path path) {}
@@ -51,6 +64,14 @@ public class PhotoService {
         }
         if (file.getSize() > MAX_BYTES) {
             throw new BusinessException(400, "单张照片不能超过 10MB");
+        }
+        if (repository.countByTripId(trip.getId()) >= maxPhotosPerTrip) {
+            throw new BusinessException(400, "该行程照片已达上限（" + maxPhotosPerTrip + " 张），请先清理一些");
+        }
+        long usedBytes = repository.totalBytesOfUser(userId);
+        if (usedBytes + file.getSize() > maxBytesPerUser) {
+            throw new BusinessException(400, "照片存储空间已满（上限 "
+                    + (maxBytesPerUser / 1024 / 1024) + "MB），请先删除一些照片");
         }
 
         String declaredType = normalizeMime(file.getContentType());
@@ -70,8 +91,10 @@ public class PhotoService {
         // 存储扩展名与响应类型都由服务端推导，不回显客户端声明
         String storedExt = ImageSignatures.extensionOf(detectedType);
         String storedName = UUID.randomUUID().toString().replace("-", "") + storedExt;
-        storage.store(file, storedName);
-        return repository.save(TripPhoto.builder()
+
+        // 先写元数据、再落盘：先落盘的话，插入失败会留下永远回收不到的孤儿文件；
+        // 落盘失败则抛出异常回滚事务，并清理可能写了一半的文件。
+        TripPhoto photo = repository.save(TripPhoto.builder()
                 .tripId(trip.getId())
                 .userId(userId)
                 .storedName(storedName)
@@ -79,6 +102,13 @@ public class PhotoService {
                 .contentType(detectedType)
                 .sizeBytes(file.getSize())
                 .build());
+        try {
+            storage.store(file, storedName);
+        } catch (RuntimeException e) {
+            storage.deleteQuietly(storedName);
+            throw e;
+        }
+        return photo;
     }
 
     public List<TripPhoto> list(Long tripId, Long userId) {

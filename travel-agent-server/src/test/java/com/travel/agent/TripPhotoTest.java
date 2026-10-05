@@ -52,6 +52,14 @@ class TripPhotoTest extends IntegrationTestSupport {
         return new byte[]{(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13};
     }
 
+    /** 指定大小的合法 PNG 头文件（用于触发容量配额） */
+    private static byte[] pngBytesOfSize(int size) {
+        byte[] bytes = new byte[size];
+        byte[] header = pngBytes();
+        System.arraycopy(header, 0, bytes, 0, header.length);
+        return bytes;
+    }
+
     @Test
     @DisplayName("上传照片后可在列表看到，并能取回原图；删除后文件也被清理")
     void uploadListFetchAndDelete() throws Exception {
@@ -184,5 +192,43 @@ class TripPhotoTest extends IntegrationTestSupport {
 
         mockMvc.perform(get("/api/photos/" + photoId + "/raw").header("Authorization", account.bearer()))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("单行程照片张数达到上限后拒绝上传")
+    void rejectsWhenTripPhotoCountExceeded() throws Exception {
+        Account account = registerNew();
+        Trip trip = newTrip(account.id());
+        // 测试配置里 max-per-trip = 10
+        for (int i = 0; i < 10; i++) {
+            photoService.upload(trip.getId(), account.id(),
+                    new MockMultipartFile("file", "p" + i + ".png", "image/png", pngBytes()));
+        }
+
+        assertThatThrownBy(() -> photoService.upload(trip.getId(), account.id(),
+                new MockMultipartFile("file", "overflow.png", "image/png", pngBytes())))
+                .isInstanceOf(com.travel.agent.exception.BusinessException.class)
+                .hasMessageContaining("上限");
+
+        assertThat(photoService.list(trip.getId(), account.id())).hasSize(10);
+    }
+
+    @Test
+    @DisplayName("单用户照片容量达到上限后拒绝上传")
+    void rejectsWhenUserQuotaExceeded() throws Exception {
+        Account account = registerNew();
+        Trip trip = newTrip(account.id());
+        // 测试配置里 max-bytes-per-user = 4096
+        photoService.upload(trip.getId(), account.id(),
+                new MockMultipartFile("file", "big1.png", "image/png", pngBytesOfSize(2000)));
+        photoService.upload(trip.getId(), account.id(),
+                new MockMultipartFile("file", "big2.png", "image/png", pngBytesOfSize(2000)));
+
+        assertThatThrownBy(() -> photoService.upload(trip.getId(), account.id(),
+                new MockMultipartFile("file", "big3.png", "image/png", pngBytesOfSize(2000))))
+                .isInstanceOf(com.travel.agent.exception.BusinessException.class)
+                .hasMessageContaining("空间已满");
+
+        assertThat(photoService.list(trip.getId(), account.id())).hasSize(2);
     }
 }

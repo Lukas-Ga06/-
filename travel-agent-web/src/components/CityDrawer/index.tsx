@@ -28,6 +28,8 @@ export default function CityDrawer({ city, points, spendByTrip, onClose, onOpenT
   const [photos, setPhotos] = useState<TripPhoto[]>([]);
   const [loadingPhotos, setLoadingPhotos] = useState(false);
   const [uploading, setUploading] = useState(false);
+  /** 浏览器解不了的格式（如 HEIC）：给占位提示而不是空白破图 */
+  const [brokenPhotos, setBrokenPhotos] = useState<Set<number>>(new Set());
   /** <img> 不能带请求头，原图靠短期只读票据鉴权 */
   const ticket = useAccessTicket();
 
@@ -218,11 +220,27 @@ export default function CityDrawer({ city, points, spendByTrip, onClose, onOpenT
               <div className="photo-grid">
                 {photos.map((photo) => (
                   <div className="photo-item" key={photo.id}>
-                    <img
-                      src={ticket ? photoSrc(photo, ticket) : undefined}
-                      alt={photo.originalName ?? '旅行照片'}
-                      loading="lazy"
-                    />
+                    {brokenPhotos.has(photo.id) ? (
+                      <a
+                        className="photo-broken"
+                        href={ticket ? photoSrc(photo, ticket) : undefined}
+                        target="_blank"
+                        rel="noreferrer"
+                        title={photo.originalName ?? '旅行照片'}
+                      >
+                        <span>此格式浏览器无法预览</span>
+                        <span className="photo-broken-hint">点此打开原图</span>
+                      </a>
+                    ) : (
+                      <img
+                        src={ticket ? photoSrc(photo, ticket) : undefined}
+                        alt={photo.originalName ?? '旅行照片'}
+                        loading="lazy"
+                        onError={() =>
+                          setBrokenPhotos((prev) => new Set(prev).add(photo.id))
+                        }
+                      />
+                    )}
                     <button
                       type="button"
                       className="photo-del"
