@@ -52,6 +52,11 @@ public class PhotoController {
                 : MediaType.parseMediaType(stored.photo().getContentType());
         return ResponseEntity.ok()
                 .contentType(type)
+                // 纵深防御：类型已由文件头推导（不会出现 svg），再用 nosniff + CSP 兜住
+                // "直接把原图链接当页面打开" 的场景，避免任何脚本在该源上执行。
+                .header("X-Content-Type-Options", "nosniff")
+                .header("Content-Security-Policy", "default-src 'none'; sandbox")
+                .header("Content-Disposition", "inline")
                 .header("Cache-Control", "private, max-age=86400")
                 .body(new FileSystemResource(stored.path()));
     }

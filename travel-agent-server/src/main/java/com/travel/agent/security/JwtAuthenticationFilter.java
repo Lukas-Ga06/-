@@ -19,28 +19,28 @@ import java.util.List;
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
+    private final AccessTicketService accessTicketService;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
-        String token = resolveToken(request);
-        if (token != null) {
-            String username = jwtService.validate(token);
-            if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-                UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
-                        username, null, List.of(new SimpleGrantedAuthority("ROLE_USER")));
-                SecurityContextHolder.getContext().setAuthentication(authentication);
-            }
+        String username = resolveUsername(request);
+        if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+            UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
+                    username, null, List.of(new SimpleGrantedAuthority("ROLE_USER")));
+            SecurityContextHolder.getContext().setAuthentication(authentication);
         }
         filterChain.doFilter(request, response);
     }
 
-    private String resolveToken(HttpServletRequest request) {
+    private String resolveUsername(HttpServletRequest request) {
         String header = request.getHeader("Authorization");
         if (header != null && header.startsWith("Bearer ")) {
-            return header.substring(7);
+            return jwtService.validate(header.substring(7));
         }
-        // SSE EventSource 不支持自定义 Header，允许通过查询参数传递
-        return request.getParameter("token");
+        // EventSource / <img> 不支持自定义 Header，只能走查询参数。
+        // 这里只接受短期只读票据：登录 JWT 一旦出现在 URL 里就会进日志与浏览器历史。
+        String ticket = request.getParameter("ticket");
+        return ticket == null ? null : accessTicketService.validate(ticket);
     }
 }

@@ -9,6 +9,8 @@ import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.Base64;
 import java.util.Date;
@@ -75,6 +77,21 @@ public class JwtService {
             return claims.getSubject();
         } catch (Exception e) {
             return null;
+        }
+    }
+
+    /**
+     * 从签名密钥派生用途隔离的子密钥（例如短期只读票据）。
+     * 分离后，票据无法被当作登录凭证使用，登录态泄露也不会连带影响票据。
+     */
+    public SecretKey deriveKey(String purpose) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            digest.update(key.getEncoded());
+            digest.update(purpose.getBytes(StandardCharsets.UTF_8));
+            return Keys.hmacShaKeyFor(digest.digest());
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("无法派生票据密钥", e);
         }
     }
 }

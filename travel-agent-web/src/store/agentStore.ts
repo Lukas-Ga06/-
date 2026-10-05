@@ -28,6 +28,8 @@ interface AgentState {
 
 let closeFn: (() => void) | null = null;
 let msgSeq = 0;
+/** 流式请求序号：票据获取是异步的，用序号丢弃"已被 reset/新请求取代"的回调 */
+let streamSeq = 0;
 
 function nextId(): string {
   msgSeq += 1;
@@ -65,6 +67,8 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       return;
     }
     closeFn?.();
+    closeFn = null;
+    const seq = ++streamSeq;
     const userMsg: ChatMessage = {
       id: nextId(),
       role: 'user',
@@ -78,41 +82,60 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       pendingConfirm: null,
     });
 
-    closeFn = streamAgentChat(payload, {
-      onEvent: (event, data) => {
-        const text = STAGE_TEXT[event]?.(data);
-        if (text) set({ stage: text });
-        if (event === 'focus' && data) {
-          set({ lastFocus: data as AgentFocus });
+    streamAgentChat(payload, {
+        onEvent: (event, data) => {
+          const text = STAGE_TEXT[event]?.(data);
+          if (text) set({ stage: text });
+          if (event === 'focus' && data) {
+            set({ lastFocus: data as AgentFocus });
+          }
+        },
+        onComplete: (result) => {
+          const assistantMsg: ChatMessage = {
+            id: nextId(),
+            role: 'assistant',
+            content: result.message || '（无返回内容）',
+            time: new Date().toISOString(),
+          };
+          set({
+            messages: pushMessage(get().messages, assistantMsg),
+            streaming: false,
+            stage: null,
+            pendingConfirm: result.status === 'NEED_CONFIRMATION' ? result : null,
+            lastFocus: result.focus ?? get().lastFocus,
+            committedTripId:
+              result.status === 'COMPLETED' && result.tripId && !payload.tripId ? result.tripId : get().committedTripId,
+          });
+        },
+        onError: (errorText) => {
+          if (seq !== streamSeq) return;
+          const errMsg: ChatMessage = {
+            id: nextId(),
+            role: 'assistant',
+            content: `⚠ ${errorText}`,
+            time: new Date().toISOString(),
+          };
+          set({ messages: pushMessage(get().messages, errMsg), streaming: false, stage: null });
+        },
+      })
+      .then((close) => {
+        // reset / 新请求已经发生：直接关掉这条迟到的连接
+        if (seq !== streamSeq) {
+          close();
+          return;
         }
-      },
-      onComplete: (result) => {
-        const assistantMsg: ChatMessage = {
-          id: nextId(),
-          role: 'assistant',
-          content: result.message || '（无返回内容）',
-          time: new Date().toISOString(),
-        };
-        set({
-          messages: pushMessage(get().messages, assistantMsg),
-          streaming: false,
-          stage: null,
-          pendingConfirm: result.status === 'NEED_CONFIRMATION' ? result : null,
-          lastFocus: result.focus ?? get().lastFocus,
-          committedTripId:
-            result.status === 'COMPLETED' && result.tripId && !payload.tripId ? result.tripId : get().committedTripId,
-        });
-      },
-      onError: (message) => {
+        closeFn = close;
+      })
+      .catch((e: any) => {
+        if (seq !== streamSeq) return;
         const errMsg: ChatMessage = {
           id: nextId(),
           role: 'assistant',
-          content: `⚠ ${message}`,
+          content: `⚠ ${e?.message || '无法建立与 Agent 的连接'}`,
           time: new Date().toISOString(),
         };
         set({ messages: pushMessage(get().messages, errMsg), streaming: false, stage: null });
-      },
-    });
+      });
   },
 
   confirm: async () => {
@@ -172,6 +195,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
   },
 
   reset: () => {
+    streamSeq += 1;
     closeFn?.();
     closeFn = null;
     set({ messages: [], streaming: false, stage: null, pendingConfirm: null, lastFocus: null, committedTripId: null });

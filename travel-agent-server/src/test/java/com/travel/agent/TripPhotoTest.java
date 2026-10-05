@@ -47,6 +47,11 @@ class TripPhotoTest extends IntegrationTestSupport {
         return new MockMultipartFile("file", "外滩.png", "image/png", bytes);
     }
 
+    /** 完整 PNG 文件头（服务端按文件头判类型，测试桩也必须是真的 PNG 头） */
+    private static byte[] pngBytes() {
+        return new byte[]{(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13};
+    }
+
     @Test
     @DisplayName("上传照片后可在列表看到，并能取回原图；删除后文件也被清理")
     void uploadListFetchAndDelete() throws Exception {
@@ -83,7 +88,7 @@ class TripPhotoTest extends IntegrationTestSupport {
 
         assertThatThrownBy(() -> photoService.upload(trip.getId(), account.id(), text))
                 .isInstanceOf(com.travel.agent.exception.BusinessException.class)
-                .hasMessageContaining("只支持图片");
+                .hasMessageContaining("只支持");
     }
 
     @Test
@@ -92,12 +97,58 @@ class TripPhotoTest extends IntegrationTestSupport {
         Account account = registerNew();
         Trip trip = newTrip(account.id());
         MockMultipartFile octet = new MockMultipartFile("file", "风景.png", "application/octet-stream",
-                new byte[]{(byte) 0x89, 'P', 'N', 'G'});
+                pngBytes());
 
         TripPhoto saved = photoService.upload(trip.getId(), account.id(), octet);
 
         assertThat(saved.getContentType()).isEqualTo("image/png");
         assertThat(saved.getStoredName()).endsWith(".png");
+    }
+
+    @Test
+    @DisplayName("SVG 会被拒绝（否则可用 <script> 构造存储型 XSS）")
+    void rejectsSvgUpload() throws Exception {
+        Account account = registerNew();
+        Trip trip = newTrip(account.id());
+        String svg = "<svg xmlns=\"http://www.w3.org/2000/svg\"><script>alert(1)</script></svg>";
+        MockMultipartFile file = new MockMultipartFile("file", "evil.svg", "image/svg+xml",
+                svg.getBytes(StandardCharsets.UTF_8));
+
+        assertThatThrownBy(() -> photoService.upload(trip.getId(), account.id(), file))
+                .isInstanceOf(com.travel.agent.exception.BusinessException.class)
+                .hasMessageContaining("svg");
+
+        // 换成 .png 文件名也逃不掉：内容不是图片同样拒绝
+        MockMultipartFile disguised = new MockMultipartFile("file", "evil.png", "image/svg+xml",
+                svg.getBytes(StandardCharsets.UTF_8));
+        assertThatThrownBy(() -> photoService.upload(trip.getId(), account.id(), disguised))
+                .isInstanceOf(com.travel.agent.exception.BusinessException.class)
+                .hasMessageContaining("不是可识别的图片");
+
+        assertThat(photoService.list(trip.getId(), account.id())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("存储与响应类型由服务端推导，不回显客户端声明的 MIME")
+    void storedContentTypeIsServerDerived() throws Exception {
+        Account account = registerNew();
+        Trip trip = newTrip(account.id());
+        // 内容是真正的 PNG，但客户端把类型声明成 svg、文件名也伪装成 .png
+        MockMultipartFile file = new MockMultipartFile("file", "photo.png", "image/svg+xml", pngBytes());
+
+        TripPhoto saved = photoService.upload(trip.getId(), account.id(), file);
+        assertThat(saved.getContentType()).isEqualTo("image/png");
+        assertThat(saved.getStoredName()).endsWith(".png");
+
+        MvcResult raw = mockMvc.perform(get("/api/photos/" + saved.getId() + "/raw")
+                        .header("Authorization", account.bearer()))
+                .andExpect(status().isOk())
+                .andReturn();
+        // 关键断言：响应头不能带上客户端声明的 image/svg+xml
+        assertThat(raw.getResponse().getContentType()).contains("image/png");
+        assertThat(raw.getResponse().getContentType()).doesNotContain("svg");
+        assertThat(raw.getResponse().getHeader("X-Content-Type-Options")).isEqualTo("nosniff");
+        assertThat(raw.getResponse().getHeader("Content-Security-Policy")).isNotNull();
     }
 
     @Test

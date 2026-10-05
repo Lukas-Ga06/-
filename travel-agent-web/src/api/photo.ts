@@ -1,5 +1,4 @@
 import { request } from './client';
-import { useAuthStore } from '../store/authStore';
 
 export interface TripPhoto {
   id: number;
@@ -27,9 +26,8 @@ export function uploadPhoto(tripId: number, file: File) {
 
 /**
  * 原图地址。浏览器的 <img> 无法自定义 Authorization 头，
- * 因此沿用 SSE 的做法把 token 放进查询参数（后端 JwtAuthenticationFilter 支持）。
+ * 因此带上短期只读票据（见 api/ticket.ts），而不是登录 JWT。
  */
-export function photoSrc(photo: TripPhoto): string {
-  const token = useAuthStore.getState().token;
-  return token ? `${photo.url}?token=${encodeURIComponent(token)}` : photo.url;
+export function photoSrc(photo: TripPhoto, ticket: string | null): string {
+  return ticket ? `${photo.url}?ticket=${encodeURIComponent(ticket)}` : photo.url;
 }

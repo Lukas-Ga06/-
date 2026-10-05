@@ -4,6 +4,7 @@ import { CameraOutlined, CloseOutlined, RobotOutlined } from '@ant-design/icons'
 import type { TripMapPoint } from '../../types/trip';
 import { tripDays, tripRangeLabel } from '../FootprintMap/footprintData';
 import { deletePhoto, listPhotos, photoSrc, uploadPhoto, type TripPhoto } from '../../api/photo';
+import { useAccessTicket } from '../../api/ticket';
 
 interface Props {
   /** 打开的城市名，null 表示关闭 */
@@ -27,6 +28,8 @@ export default function CityDrawer({ city, points, spendByTrip, onClose, onOpenT
   const [photos, setPhotos] = useState<TripPhoto[]>([]);
   const [loadingPhotos, setLoadingPhotos] = useState(false);
   const [uploading, setUploading] = useState(false);
+  /** <img> 不能带请求头，原图靠短期只读票据鉴权 */
+  const ticket = useAccessTicket();
 
   const trips = (city
     ? points.filter((p) => ((p.destination ?? p.name ?? '未命名').trim() || '未命名') === city)
@@ -215,7 +218,11 @@ export default function CityDrawer({ city, points, spendByTrip, onClose, onOpenT
               <div className="photo-grid">
                 {photos.map((photo) => (
                   <div className="photo-item" key={photo.id}>
-                    <img src={photoSrc(photo)} alt={photo.originalName ?? '旅行照片'} loading="lazy" />
+                    <img
+                      src={ticket ? photoSrc(photo, ticket) : undefined}
+                      alt={photo.originalName ?? '旅行照片'}
+                      loading="lazy"
+                    />
                     <button
                       type="button"
                       className="photo-del"

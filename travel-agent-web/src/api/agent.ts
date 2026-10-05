@@ -1,5 +1,5 @@
 import { request } from './client';
-import { useAuthStore } from '../store/authStore';
+import { getAccessTicket } from './ticket';
 import type { AgentResult, SelectedElement } from '../types/agent';
 
 export interface AgentStreamParams {
@@ -22,11 +22,15 @@ const EVENT_NAMES = [
 ];
 
 /**
- * SSE 流式对话。EventSource 无法自定义 Header，token 走查询参数。
- * 返回关闭函数。
+ * SSE 流式对话。EventSource 无法自定义 Header，凭证走查询参数 ——
+ * 用的是短期只读票据（api/ticket.ts），不是登录 JWT。
+ * 返回关闭函数（票据获取是异步的，因此本函数返回 Promise）。
  */
-export function streamAgentChat(params: AgentStreamParams, handlers: AgentStreamHandlers): () => void {
-  const token = useAuthStore.getState().token;
+export async function streamAgentChat(
+  params: AgentStreamParams,
+  handlers: AgentStreamHandlers,
+): Promise<() => void> {
+  const ticket = await getAccessTicket();
   const qs = new URLSearchParams();
   qs.set('message', params.message);
   if (params.tripId) qs.set('tripId', String(params.tripId));
@@ -40,7 +44,7 @@ export function streamAgentChat(params: AgentStreamParams, handlers: AgentStream
     qs.set('lat', String(params.mapCenter.lat));
     qs.set('lng', String(params.mapCenter.lng));
   }
-  if (token) qs.set('token', token);
+  qs.set('ticket', ticket);
 
   const es = new EventSource(`/api/agent/stream?${qs.toString()}`);
   let finished = false;

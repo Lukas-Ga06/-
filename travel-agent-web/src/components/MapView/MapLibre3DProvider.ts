@@ -2,15 +2,9 @@ import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { ItineraryItem } from '../../types/trip';
 import type { MapProvider } from './MapProvider';
+import { buildMarkerElement } from './markerElement';
 
 export const DAY_COLORS = ['#007aff', '#34c759', '#ff9500', '#af52de', '#ff2d55'];
-
-const TYPE_ICON: Record<string, string> = {
-  hotel: '🏨',
-  attraction: '📍',
-  restaurant: '🍽',
-  transport: '🚗',
-};
 
 const DEFAULT_CENTER: [number, number] = [121.4737, 31.2304];
 
@@ -151,11 +145,7 @@ export class MapLibre3DProvider implements MapProvider {
     this.markers.forEach((m) => m.remove());
     this.markers = [];
     withGeo.forEach((item) => {
-      const el = document.createElement('div');
-      el.className = 'm3d-marker';
-      el.style.setProperty('--mc', DAY_COLORS[(item.dayIndex - 1) % DAY_COLORS.length]);
-      el.innerHTML = `<span class="m3d-ring"></span><span class="m3d-dot">${TYPE_ICON[item.itemType] ?? '📍'}</span><span class="m3d-label">${item.title}</span>`;
-      el.title = item.description || item.title;
+      const el = buildMarkerElement(item, DAY_COLORS[(item.dayIndex - 1) % DAY_COLORS.length]);
       const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
         .setLngLat([item.longitude as number, item.latitude as number])
         .addTo(this.map as maplibregl.Map);

@@ -10,7 +10,7 @@ const { handlersRef, closeSpy } = vi.hoisted(() => ({
 vi.mock('../api/agent', () => ({
   streamAgentChat: (_params: AgentStreamParams, handlers: AgentStreamHandlers) => {
     handlersRef.current = handlers;
-    return closeSpy;
+    return Promise.resolve(closeSpy);
   },
   confirmPlan: vi.fn(),
   cancelPlan: vi.fn(),
@@ -92,13 +92,14 @@ describe('agentStore', () => {
     expect(state.messages[1].content).toContain('⚠');
   });
 
-  it('reset 会清空会话状态并关闭连接', () => {
+  it('reset 会清空会话状态并关闭连接', async () => {
     useAgentStore.getState().send({ message: '安排上海三日游' });
     useAgentStore.getState().reset();
 
     const state = useAgentStore.getState();
     expect(state.messages).toHaveLength(0);
     expect(state.streaming).toBe(false);
-    expect(closeSpy).toHaveBeenCalled();
+    // 票据获取是异步的：连接建立后才发现已被 reset，此时应立刻关闭
+    await vi.waitFor(() => expect(closeSpy).toHaveBeenCalled());
   });
 });

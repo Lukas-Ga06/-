@@ -4,11 +4,14 @@ import com.travel.agent.entity.Trip;
 import com.travel.agent.entity.TripPhoto;
 import com.travel.agent.exception.BusinessException;
 import com.travel.agent.repository.TripPhotoRepository;
+import com.travel.agent.util.ImageSignatures;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
@@ -26,6 +29,12 @@ public class PhotoService {
     /** 允许的图片扩展名（有些客户端/系统不带 MIME 头，只能靠扩展名判断） */
     private static final Set<String> IMAGE_EXT = Set.of(
             ".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".heic", ".heif");
+    /**
+     * 允许的 MIME 白名单。必须是枚举而不是 "image/" 前缀判断：
+     * image/svg+xml 同样以 image/ 开头，但 SVG 可以内嵌脚本，存下来就成了存储型 XSS。
+     */
+    private static final Set<String> ALLOWED_MIME = Set.of(
+            "image/jpeg", "image/png", "image/webp", "image/gif", "image/bmp", "image/heic", "image/heif");
 
     private final TripPhotoRepository repository;
     private final TripService tripService;
@@ -40,19 +49,26 @@ public class PhotoService {
         if (file == null || file.isEmpty()) {
             throw new BusinessException(400, "请选择要上传的照片");
         }
-        String declaredType = file.getContentType() == null ? "" : file.getContentType().toLowerCase();
-        String ext = rawExtension(file.getOriginalFilename());
-        boolean imageByType = declaredType.startsWith("image/");
-        boolean imageByExt = ext != null && IMAGE_EXT.contains(ext);
-        if (!imageByType && !imageByExt) {
-            throw new BusinessException(400, "只支持图片文件（jpg/png/webp/heic 等）");
-        }
         if (file.getSize() > MAX_BYTES) {
             throw new BusinessException(400, "单张照片不能超过 10MB");
         }
-        // 存储用扩展名与 MIME：优先客户端声明，其次按扩展名推断
-        String storedExt = ext != null && IMAGE_EXT.contains(ext) ? ext : extensionFromMime(declaredType);
-        String effectiveType = imageByType ? declaredType : mimeOf(storedExt);
+
+        String declaredType = normalizeMime(file.getContentType());
+        String ext = rawExtension(file.getOriginalFilename());
+        boolean allowedByType = ALLOWED_MIME.contains(declaredType);
+        boolean allowedByExt = ext != null && IMAGE_EXT.contains(ext);
+        if (!allowedByType && !allowedByExt) {
+            throw new BusinessException(400, "只支持 jpg/png/webp/gif/bmp/heic 图片，不支持 svg 等矢量格式");
+        }
+
+        // 以文件头为准：声明成图片但内容不是图片（或声明成 svg）一律拒绝
+        String detectedType = detectType(file);
+        if (detectedType == null) {
+            throw new BusinessException(400, "文件内容不是可识别的图片，请重新选择");
+        }
+
+        // 存储扩展名与响应类型都由服务端推导，不回显客户端声明
+        String storedExt = ImageSignatures.extensionOf(detectedType);
         String storedName = UUID.randomUUID().toString().replace("-", "") + storedExt;
         storage.store(file, storedName);
         return repository.save(TripPhoto.builder()
@@ -60,7 +76,7 @@ public class PhotoService {
                 .userId(userId)
                 .storedName(storedName)
                 .originalName(file.getOriginalFilename())
-                .contentType(effectiveType)
+                .contentType(detectedType)
                 .sizeBytes(file.getSize())
                 .build());
     }
@@ -92,6 +108,23 @@ public class PhotoService {
         return new StoredPhoto(photo, storage.pathOf(photo.getStoredName()));
     }
 
+    private static String detectType(MultipartFile file) {
+        try (InputStream in = file.getInputStream()) {
+            return ImageSignatures.detect(in);
+        } catch (IOException e) {
+            throw new BusinessException(400, "无法读取上传文件，请重试");
+        }
+    }
+
+    /** 去掉 charset 等参数并归一化别名，避免 "image/jpg"、"IMAGE/PNG; charset=utf-8" 之类绕过白名单 */
+    private static String normalizeMime(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        String mime = raw.split(";")[0].trim().toLowerCase();
+        return "image/jpg".equals(mime) ? "image/jpeg" : mime;
+    }
+
     /** 原始扩展名；无法识别时返回 null（用于校验） */
     private static String rawExtension(String originalName) {
         if (originalName == null) {
@@ -105,23 +138,4 @@ public class PhotoService {
         return ext.matches("\\.[a-z0-9]{1,5}") ? ext : null;
     }
 
-    private static String extensionFromMime(String mime) {
-        if (mime.contains("png")) return ".png";
-        if (mime.contains("webp")) return ".webp";
-        if (mime.contains("gif")) return ".gif";
-        if (mime.contains("bmp")) return ".bmp";
-        if (mime.contains("heic") || mime.contains("heif")) return ".heic";
-        return ".jpg";
-    }
-
-    private static String mimeOf(String ext) {
-        return switch (ext) {
-            case ".png" -> "image/png";
-            case ".webp" -> "image/webp";
-            case ".gif" -> "image/gif";
-            case ".bmp" -> "image/bmp";
-            case ".heic", ".heif" -> "image/heic";
-            default -> "image/jpeg";
-        };
-    }
 }
