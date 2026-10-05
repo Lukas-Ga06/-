@@ -12,6 +12,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
@@ -54,6 +55,8 @@ public class OnlineCityService {
     private final LlmClient llmClient;
     private final ObjectMapper objectMapper;
     private final TravelCatalogService travelCatalogService;
+    /** 阻塞式模型/HTTP 调用统一走 Agent 专用池，不占用 ForkJoin commonPool */
+    private final ThreadPoolTaskExecutor agentTaskExecutor;
 
     @Value("${travel.amap.key:}")
     private String amapKey;
@@ -66,10 +69,12 @@ public class OnlineCityService {
     private volatile RestClient geoClient;
 
     public OnlineCityService(LlmClient llmClient, ObjectMapper objectMapper,
-                             TravelCatalogService travelCatalogService) {
+                             TravelCatalogService travelCatalogService,
+                             ThreadPoolTaskExecutor agentTaskExecutor) {
         this.llmClient = llmClient;
         this.objectMapper = objectMapper;
         this.travelCatalogService = travelCatalogService;
+        this.agentTaskExecutor = agentTaskExecutor;
     }
 
     /** 获取城市目录：内置目录未命中时联网生成（内存 24h + 本地文件 7 天） */
@@ -255,7 +260,8 @@ public class OnlineCityService {
 
     private CityCatalog loadViaLlmCoords(String name) {
         // 并行执行：联网定位（失败/超时不阻塞）+ 大模型生成目录（关键路径）
-        CompletableFuture<double[]> geoFuture = CompletableFuture.supplyAsync(() -> amapGeocode(name, null));
+        CompletableFuture<double[]> geoFuture = CompletableFuture.supplyAsync(
+                () -> amapGeocode(name, null), agentTaskExecutor);
         CompletableFuture<String> llmFuture = CompletableFuture.supplyAsync(() -> {
             if (!llmClient.available()) {
                 return null;
@@ -263,7 +269,7 @@ public class OnlineCityService {
             return llmClient.chat(List.of(
                     LlmMessage.system("你只输出 JSON，不要输出任何解释或其他内容。"),
                     LlmMessage.user(fullPrompt(name))), 0.4);
-        });
+        }, agentTaskExecutor);
 
         String raw;
         try {

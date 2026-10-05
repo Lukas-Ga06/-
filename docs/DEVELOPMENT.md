@@ -124,9 +124,19 @@ HIGH 风险只表示"方案需要显式确认"（超预算），不是"抛异常
 批量操作（`applyOperations`）还会校验每个条目确实属于该行程。
 
 **照片存储**：文件落在 `travel.photos.dir`（默认 `data/photos`），库里只存元数据（`trip_photo`）。
-读写都要先过行程归属校验；原图接口允许 token 走查询参数（`<img>` 无法自定义请求头，与 SSE 同一取舍）；
-上传同时接受 `image/*` MIME 与已知图片扩展名（部分客户端不带 MIME）。
-删除行程会级联清理照片记录与磁盘文件。
+读写都要先过行程归属校验；删除行程会级联清理照片记录与磁盘文件。
+配额：单张 ≤10MB、单行程 `travel.photos.max-per-trip`（默认 200 张）、单用户 `max-bytes-per-user`（默认 500MB）。
+
+**照片类型判定**：必须以文件头为准（`util/ImageSignatures`），只接受 jpg/png/webp/gif/bmp/heic 白名单。
+**不要**退回 `contentType.startsWith("image/")`：SVG 也满足该前缀，且 SVG 可内嵌脚本，
+存下来后直接打开原图链接就是同源存储型 XSS。存储扩展名与响应 `Content-Type` 一律由服务端推导，
+不回显客户端声明；原图响应额外带 `X-Content-Type-Options: nosniff` 与 `Content-Security-Policy`。
+落盘顺序同样是约定：**先写元数据再落盘**，否则插入失败会留下回收不到的孤儿文件。
+
+**URL 凭证**：EventSource 与 `<img>` 无法自定义请求头，只能把凭证放进查询串。
+这里传的是 `AccessTicketService` 签发的 10 分钟只读票据（scope `media-read`，密钥由 JWT 密钥派生），
+**不是登录 JWT**——登录凭证出现在 URL 里会进入访问日志与浏览器历史。
+前端 `api/ticket.ts` 负责缓存与并发合并，新增同类场景（又一个 `<img>` / EventSource 入口）请复用它。
 
 **校验**：DTO 使用 `jakarta.validation` 注解，控制器参数加 `@Valid`；
 「格式正确但值非法」的日期（如 2026-02-30）通过 `util/Dates` 统一转 400。
@@ -143,21 +153,30 @@ HIGH 风险只表示"方案需要显式确认"（超预算），不是"抛异常
 1. 必须配置 `JWT_SECRET`，否则每次重启都会让全体用户掉线；
 2. 将 `spring.jpa.hibernate.ddl-auto` 从 `update` 改为 `validate` 并引入 Flyway/Liquibase 管理 schema；
 3. `/h2-console/**` 在默认 profile 下是放行的，生产 profile（mysql）已关闭 H2 控制台，但建议同时从 `SecurityConfig` 的放行列表中移除；
-4. 多实例部署前需把 `PendingPlanStore` 从内存迁移到 Redis，否则用户确认时会打到没有该方案的实例上；
+4. `PendingPlanStore` 已落库（`pending_plan` 表，TTL 30 分钟），多实例与重启都不会丢待确认方案；
+   若换成 Redis，注意保持"归属校验 + 过期清理"这两条语义；
 5. 前端生产构建需自行提供 API base（当前 `baseURL` 为 `/api`，由网关或 nginx 反向代理到后端 8080）。
 
 ## 待办清单（按优先级）
 
-1. SSE 的 token 走 query 参数（受 EventSource 限制），会进入访问日志；改为一次性短时 ticket；
-2. 接口限流与每用户 LLM 配额（注册开放 + 单次对话可触发多轮模型调用）；
-3. `npm audit` 中的依赖漏洞：maplibre-gl(critical)、vite/esbuild(high)、echarts、react-router(moderate)；
-4. 会话记忆：`sessionId` 每次请求重建，多轮指代只能靠 `selectedElement`；需要会话级上下文存储；
-5. 预算对比：目前只有"计划成本"与"实际支出"两套数，缺"计划 vs 实际"偏差视图；
-6. 知识库运营：`RagBootstrap` "有文档就跳过"，更新 `knowledge.json` 需手工清库（缺版本/指纹机制）；
-7. 在线城市缓存用 `contains` 做模糊匹配，可能串城市（如"洛阳"命中"阳"）；
-8. 前端待确认方案刷新即丢（后端 TTL 30 分钟，缺按 planId 取回的接口）；
-9. 列表接口分页（trips / expenses 当前全量返回）；
-10. DB 索引：`trip_id`、`user_id`、`(user_id, date)` 等高频查询字段；
-11. 可观测性：Actuator、指标、traceId、LLM 失败率；
-12. RAG 从「字符 bigram 哈希」升级为真实 Embedding；
-13. 前端体验：移动端布局（窄视口下侧栏会占掉大部分宽度）、暗色模式、PWA 离线查看行程。
+1. `npm audit` 中的依赖漏洞：maplibre-gl(critical)、vite/esbuild(high)、echarts、react-router(moderate)；
+2. 每用户 LLM 配额：限流只按请求数计，还不能按天限制模型开销；
+3. 会话记忆：`sessionId` 每次请求重建，多轮指代只能靠 `selectedElement`；需要会话级上下文存储；
+4. 预算对比：目前只有"计划成本"与"实际支出"两套数，缺"计划 vs 实际"偏差视图；
+5. 知识库运营：`RagBootstrap` "有文档就跳过"，更新 `knowledge.json` 需手工清库（缺版本/指纹机制）；
+6. 在线城市缓存用 `contains` 做模糊匹配，可能串城市（如"洛阳"命中"阳"）；
+7. 前端待确认方案刷新即丢（后端已落库，但缺按 planId 取回的接口）；
+8. 可观测性：Actuator、指标、traceId、LLM 失败率；
+9. RAG 从「字符 bigram 哈希」升级为真实 Embedding；
+10. 前端体验：移动端布局（窄视口下侧栏会占掉大部分宽度）、暗色模式、PWA 离线查看行程。
+
+## 已完成的加固（2026-10 批次）
+
+1. **SSE / 照片凭证**：登录 JWT 不再出现在 URL，改为短期只读票据（`AccessTicketService` + `api/ticket.ts`）；
+2. **接口限流**：`RateLimitFilter`（登录注册按 IP、Agent 与上传按用户），超限 429 + Retry-After；
+3. **照片安全**：MIME 白名单 + 文件头嗅探 + 服务端推导响应类型，堵住 SVG 存储型 XSS；
+4. **照片运维**：张数与容量配额、先写库后落盘（消除孤儿文件）、HEIC 前端可读提示；
+5. **列表边界**：`Paging` 统一 limit/offset（默认 500、上限 1000），覆盖全部列表接口；
+6. **数据库索引**：trip / trip_photo / itinerary_item / expense / operation_history / health_record 等高频查询字段；
+7. **线程池**：Agent、联网城市生成、足迹定位统一走 `agentTaskExecutor`，不再占用 ForkJoin commonPool；
+8. **单机状态**：`PendingPlanStore` 从进程内 Map 改为 `pending_plan` 表，确认流程可跨实例、可重启。

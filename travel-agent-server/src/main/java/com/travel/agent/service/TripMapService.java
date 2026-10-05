@@ -6,6 +6,7 @@ import com.travel.agent.model.CityCatalog;
 import com.travel.agent.repository.TripRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -29,6 +30,8 @@ public class TripMapService {
     private final CityAtlas cityAtlas;
     private final TravelCatalogService catalogService;
     private final OnlineCityService onlineCityService;
+    /** 联网定位也走 Agent 专用池，避免拖慢公共池上的其它任务 */
+    private final ThreadPoolTaskExecutor agentTaskExecutor;
 
     /** 目的地坐标缓存（跨请求复用，避免重复联网） */
     private final Map<String, double[]> coordCache = new ConcurrentHashMap<>();
@@ -64,7 +67,7 @@ public class TripMapService {
                         synchronized (points) {
                             points.add(point(trip, c));
                         }
-                    }))
+                    }, agentTaskExecutor))
                     .toArray(CompletableFuture[]::new);
             try {
                 CompletableFuture.allOf(futures).get(8, java.util.concurrent.TimeUnit.SECONDS);

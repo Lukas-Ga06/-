@@ -13,11 +13,13 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.RejectedExecutionException;
 
 @RestController
 @RequestMapping("/api/agent")
@@ -28,6 +30,8 @@ public class AgentController {
     private final AgentEngine agentEngine;
     private final AuthService authService;
     private final ObjectMapper objectMapper;
+    /** Agent 专用线程池：避免阻塞调用挤占 ForkJoin commonPool */
+    private final ThreadPoolTaskExecutor agentTaskExecutor;
 
     /** 同步对话：POST /api/agent/chat */
     @PostMapping("/chat")
@@ -67,15 +71,22 @@ public class AgentController {
                 log.warn("SSE 事件发送失败: {}", e.getMessage());
             }
         });
-        CompletableFuture.runAsync(() -> {
-            try {
-                agentEngine.handle(ctx);
-                emitter.complete();
-            } catch (Exception e) {
-                log.error("SSE 处理异常", e);
-                emitter.completeWithError(e);
-            }
-        });
+        try {
+            CompletableFuture.runAsync(() -> {
+                try {
+                    agentEngine.handle(ctx);
+                    emitter.complete();
+                } catch (Exception e) {
+                    log.error("SSE 处理异常", e);
+                    emitter.completeWithError(e);
+                }
+            }, agentTaskExecutor);
+        } catch (RejectedExecutionException e) {
+            // 线程池已满：明确告诉用户，而不是让连接一直挂着
+            log.warn("Agent 线程池已满，拒绝请求: user={}", user.getUsername());
+            ctx.emit("error", java.util.Map.of("message", "服务器繁忙，请稍后重试"));
+            emitter.complete();
+        }
         return emitter;
     }
 

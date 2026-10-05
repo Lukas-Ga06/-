@@ -1,6 +1,7 @@
 package com.travel.agent.controller;
 
 import com.travel.agent.dto.ApiResponse;
+import com.travel.agent.config.RateLimitProperties;
 import com.travel.agent.llm.LlmProperties;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -24,6 +25,7 @@ import java.util.Map;
 public class SystemController {
 
     private final LlmProperties llmProperties;
+    private final RateLimitProperties rateLimitProperties;
 
     @Value("${travel.amap.key:}")
     private String amapKey;
@@ -47,6 +49,10 @@ public class SystemController {
                 : "未配置 AMAP_KEY：城市定位退回 OSM Nominatim，国内网络可能较慢或失败");
 
         status.put("timezone", ZoneId.systemDefault().getId());
+
+        // 运维可见性：待确认方案已落库（多实例可用），限流是否开启
+        status.put("pendingPlanStore", "database");
+        status.put("rateLimitEnabled", rateLimitProperties.isEnabled());
         return ApiResponse.ok(status);
     }
 }

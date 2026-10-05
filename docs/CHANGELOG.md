@@ -2,6 +2,45 @@
 
 按主题记录行为变化。**第四节是最需要注意的**：其中几项改变了原有的使用习惯。
 
+## 安全加固批次（2026-10-05）
+
+这一批以「堵漏 + 运维兜底」为主，行为上有 3 处需要留意（见下）。
+
+**照片上传（此前可被绕过）**
+
+- MIME 校验从 `image/` 前缀改成白名单枚举 + 文件头嗅探（`util/ImageSignatures`）。
+  此前把 SVG 声明成 `image/svg+xml` 就能上传，而原图接口会按该类型响应 ——
+  直接打开链接即可在站点源上执行脚本（存储型 XSS）。
+- 存储扩展名与响应 `Content-Type` 改为服务端推导，不再回显客户端声明；
+  原图响应补 `X-Content-Type-Options: nosniff` 与 `Content-Security-Policy`。
+- 前端地图标记不再用 `innerHTML` 拼行程标题（改为 `buildMarkerElement` 的 DOM 构造）。
+
+**URL 凭证**
+
+- 登录 JWT 不再出现在查询串：新增短期只读票据（10 分钟、scope `media-read`、HMAC 签名、密钥与 JWT 分离），
+  SSE 与照片原图共用；`?token=<登录JWT>` 已失效。
+- 前端 `api/ticket.ts` 缓存票据并合并并发签票，照片墙不会逐张签票。
+
+**存储与配额**
+
+- 照片：单行程张数上限（默认 200）、单用户容量上限（默认 500MB）；
+  落盘顺序改为「先写库、后落盘」，插入失败不再产生孤儿文件。
+- 列表接口统一 `limit`/`offset`（默认 500、上限 1000），不再全量返回。
+- 新增高频查询索引；`pending_plan`、`trip_photo` 等表随 `ddl-auto` 自动补建。
+
+**并发**
+
+- Agent 对话、联网城市生成、足迹定位改用独立线程池 `agentTaskExecutor`，
+  不再占用 ForkJoin commonPool；线程池满时返回「服务器繁忙」而不是挂住连接。
+- `PendingPlanStore` 从进程内 Map 改为 `pending_plan` 表：多实例与重启都不会丢待确认方案。
+
+**需要留意的行为变化**
+
+1. 照片上传只接受 jpg/png/webp/gif/bmp/heic，SVG 会被拒绝（如需矢量图请走其它存储）；
+2. 登录/注册默认限流 10 次/5 分钟（按 IP），Agent 对话 30 次/5 分钟（按用户），
+   超限返回 429 与 `Retry-After`；阈值可用 `travel.rate-limit.*` 调整；
+3. 照片上传会在超配额时返回 400（提示先清理），而不是静默写入。
+
 ## 一、新增功能
 
 ### 工作台（合并办公自动化 + 学习辅助）
