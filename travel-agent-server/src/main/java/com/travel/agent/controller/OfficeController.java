@@ -10,6 +10,7 @@ import com.travel.agent.repository.MailItemRepository;
 import com.travel.agent.repository.MeetingMinutesRepository;
 import com.travel.agent.service.AuthService;
 import com.travel.agent.service.LlmAssistantService;
+import com.travel.agent.util.Paging;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -56,9 +57,13 @@ public class OfficeController {
     }
 
     @GetMapping("/mail")
-    public ApiResponse<List<MailItem>> mailList(Authentication authentication) {
+    public ApiResponse<List<MailItem>> mailList(
+            @RequestParam(defaultValue = "" + Paging.DEFAULT_LIMIT) int limit,
+            @RequestParam(defaultValue = "0") int offset,
+            Authentication authentication) {
         User user = authService.requireUser(authentication.getName());
-        return ApiResponse.ok(mailItemRepository.findByUserIdOrderByCreatedAtDesc(user.getId()));
+        return ApiResponse.ok(Paging.slice(
+                mailItemRepository.findByUserIdOrderByCreatedAtDesc(user.getId()), offset, limit));
     }
 
     public record MinutesRequest(
@@ -80,9 +85,13 @@ public class OfficeController {
     }
 
     @GetMapping("/minutes")
-    public ApiResponse<List<MeetingMinutes>> minutesList(Authentication authentication) {
+    public ApiResponse<List<MeetingMinutes>> minutesList(
+            @RequestParam(defaultValue = "" + Paging.DEFAULT_LIMIT) int limit,
+            @RequestParam(defaultValue = "0") int offset,
+            Authentication authentication) {
         User user = authService.requireUser(authentication.getName());
-        return ApiResponse.ok(minutesRepository.findByUserIdOrderByCreatedAtDesc(user.getId()));
+        return ApiResponse.ok(Paging.slice(
+                minutesRepository.findByUserIdOrderByCreatedAtDesc(user.getId()), offset, limit));
     }
 
     public record InvoiceExtractRequest(
@@ -109,8 +118,12 @@ public class OfficeController {
     }
 
     @GetMapping("/invoice")
-    public ApiResponse<List<Invoice>> invoiceList(Authentication authentication) {
+    public ApiResponse<List<Invoice>> invoiceList(
+            @RequestParam(defaultValue = "" + Paging.DEFAULT_LIMIT) int limit,
+            @RequestParam(defaultValue = "0") int offset,
+            Authentication authentication) {
         User user = authService.requireUser(authentication.getName());
-        return ApiResponse.ok(invoiceRepository.findByUserIdOrderByInvoiceDateDescIdDesc(user.getId()));
+        return ApiResponse.ok(Paging.slice(
+                invoiceRepository.findByUserIdOrderByInvoiceDateDescIdDesc(user.getId()), offset, limit));
     }
 }

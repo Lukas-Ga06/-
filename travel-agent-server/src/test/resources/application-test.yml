@@ -19,6 +19,10 @@ travel:
     # 测试用小配额：便于覆盖张数与容量两条上限
     max-per-trip: 10
     max-bytes-per-user: 4096
+  rate-limit:
+    # 默认关闭：测试里有大量注册/登录，否则会互相触发限流。
+    # 限流自身的行为由 RateLimitTest（单独开启）与 RateLimiterTest（纯单测）覆盖。
+    enabled: false
   jwt:
     # 仅用于测试的固定密钥（Base64，解码后 48 字节）；生产密钥一律通过环境变量注入
     secret: "zH5p+FxWgj8rMvkAbh49f7lG7jON+493C+/qTaxuJ4I92t+NNB0QA+fdyB4VQYf9"

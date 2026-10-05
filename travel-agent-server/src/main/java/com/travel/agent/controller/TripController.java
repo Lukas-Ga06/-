@@ -10,6 +10,7 @@ import com.travel.agent.service.ItineraryService;
 import com.travel.agent.service.OperationHistoryService;
 import com.travel.agent.service.TripMapService;
 import com.travel.agent.service.TripService;
+import com.travel.agent.util.Paging;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
@@ -29,9 +30,12 @@ public class TripController {
     private final OperationHistoryService historyService;
 
     @GetMapping
-    public ApiResponse<List<TripDtos.TripResponse>> list(Authentication authentication) {
+    public ApiResponse<List<TripDtos.TripResponse>> list(
+            @RequestParam(defaultValue = "" + Paging.DEFAULT_LIMIT) int limit,
+            @RequestParam(defaultValue = "0") int offset,
+            Authentication authentication) {
         User user = authService.requireUser(authentication.getName());
-        return ApiResponse.ok(tripService.list(user.getId()));
+        return ApiResponse.ok(Paging.slice(tripService.list(user.getId()), offset, limit));
     }
 
     /** 首页足迹地图：各行程目的地坐标 */

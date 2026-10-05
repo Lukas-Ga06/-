@@ -9,7 +9,10 @@ import java.time.LocalDateTime;
 
 /** 行程支出记录：个人记账（实际花费），与行程预算对比 */
 @Entity
-@Table(name = "expense")
+@Table(name = "expense", indexes = {
+        @Index(name = "idx_expense_trip", columnList = "trip_id"),
+        @Index(name = "idx_expense_user", columnList = "user_id")
+})
 @Getter
 @Setter
 @NoArgsConstructor

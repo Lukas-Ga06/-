@@ -7,7 +7,10 @@ import java.time.LocalDateTime;
 
 /** 行程照片：文件落在本地磁盘（travel.photos.dir），库里只存元数据 */
 @Entity
-@Table(name = "trip_photo")
+@Table(name = "trip_photo", indexes = {
+        @Index(name = "idx_trip_photo_trip", columnList = "trip_id"),
+        @Index(name = "idx_trip_photo_user", columnList = "user_id")
+})
 @Getter
 @Setter
 @NoArgsConstructor

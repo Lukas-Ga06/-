@@ -9,6 +9,7 @@ import com.travel.agent.service.AuthService;
 import com.travel.agent.service.ExpenseService;
 import com.travel.agent.service.TripService;
 import com.travel.agent.util.Dates;
+import com.travel.agent.util.Paging;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
@@ -26,10 +27,14 @@ public class ExpenseController {
     private final AuthService authService;
 
     @GetMapping("/api/trips/{tripId}/expenses")
-    public ApiResponse<List<ExpenseDtos.ExpenseDTO>> list(@PathVariable Long tripId, Authentication authentication) {
+    public ApiResponse<List<ExpenseDtos.ExpenseDTO>> list(
+            @PathVariable Long tripId,
+            @RequestParam(defaultValue = "" + Paging.DEFAULT_LIMIT) int limit,
+            @RequestParam(defaultValue = "0") int offset,
+            Authentication authentication) {
         User user = authService.requireUser(authentication.getName());
         tripService.getOwned(tripId, user.getId());
-        return ApiResponse.ok(expenseService.list(tripId));
+        return ApiResponse.ok(Paging.slice(expenseService.list(tripId), offset, limit));
     }
 
     @PostMapping("/api/trips/{tripId}/expenses")

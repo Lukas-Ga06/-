@@ -7,7 +7,9 @@ import java.time.LocalDateTime;
 
 /** 学习产物：知识框架 / 学习路线 / 重点归纳 */
 @Entity
-@Table(name = "learning_artifact")
+@Table(name = "learning_artifact", indexes = {
+        @Index(name = "idx_artifact_user_kind", columnList = "user_id,kind")
+})
 @Getter
 @Setter
 @NoArgsConstructor

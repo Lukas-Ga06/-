@@ -8,7 +8,9 @@ import java.time.LocalDateTime;
 
 /** 健康日报（小米手环等设备数据导入/手动记录） */
 @Entity
-@Table(name = "health_record")
+@Table(name = "health_record", indexes = {
+        @Index(name = "idx_health_user_date", columnList = "user_id,record_date")
+})
 @Getter
 @Setter
 @NoArgsConstructor

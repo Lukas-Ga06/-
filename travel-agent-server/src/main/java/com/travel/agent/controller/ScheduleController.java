@@ -6,6 +6,7 @@ import com.travel.agent.entity.User;
 import com.travel.agent.service.AuthService;
 import com.travel.agent.service.ScheduleService;
 import com.travel.agent.util.Dates;
+import com.travel.agent.util.Paging;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
@@ -33,9 +34,12 @@ public class ScheduleController {
             @Size(max = 500, message = "长度不能超过 500 个字符") String note) {}
 
     @GetMapping
-    public ApiResponse<List<ScheduleItem>> list(Authentication authentication) {
+    public ApiResponse<List<ScheduleItem>> list(
+            @RequestParam(defaultValue = "" + Paging.DEFAULT_LIMIT) int limit,
+            @RequestParam(defaultValue = "0") int offset,
+            Authentication authentication) {
         User user = authService.requireUser(authentication.getName());
-        return ApiResponse.ok(scheduleService.list(user.getId()));
+        return ApiResponse.ok(Paging.slice(scheduleService.list(user.getId()), offset, limit));
     }
 
     @PostMapping

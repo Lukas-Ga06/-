@@ -7,7 +7,9 @@ import java.time.LocalDateTime;
 
 /** 会议纪要（由原始记录经 LLM 生成结构化纪要） */
 @Entity
-@Table(name = "meeting_minutes")
+@Table(name = "meeting_minutes", indexes = {
+        @Index(name = "idx_minutes_user", columnList = "user_id")
+})
 @Getter
 @Setter
 @NoArgsConstructor

@@ -9,7 +9,9 @@ import java.time.LocalDateTime;
 
 /** 发票整理（粘贴发票文本 → LLM 提取结构化字段） */
 @Entity
-@Table(name = "invoice")
+@Table(name = "invoice", indexes = {
+        @Index(name = "idx_invoice_user", columnList = "user_id")
+})
 @Getter
 @Setter
 @NoArgsConstructor

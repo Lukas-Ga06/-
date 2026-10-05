@@ -8,7 +8,9 @@ import java.time.LocalDateTime;
 
 /** 每日日报（由当日记账/备忘/日程数据自动生成） */
 @Entity
-@Table(name = "daily_report")
+@Table(name = "daily_report", indexes = {
+        @Index(name = "idx_daily_report_user", columnList = "user_id")
+})
 @Getter
 @Setter
 @NoArgsConstructor

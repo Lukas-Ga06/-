@@ -15,6 +15,7 @@ import com.travel.agent.repository.RagChunkRepository;
 import com.travel.agent.repository.RagDocumentRepository;
 import com.travel.agent.service.AuthService;
 import com.travel.agent.service.LlmAssistantService;
+import com.travel.agent.util.Paging;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -67,12 +68,14 @@ public class LearningController {
 
     @GetMapping("/artifacts")
     public ApiResponse<List<LearningArtifact>> artifacts(@RequestParam(required = false) String kind,
+                                                         @RequestParam(defaultValue = "" + Paging.DEFAULT_LIMIT) int limit,
+                                                         @RequestParam(defaultValue = "0") int offset,
                                                          Authentication authentication) {
         User user = authService.requireUser(authentication.getName());
         List<LearningArtifact> list = kind == null || kind.isBlank()
                 ? artifactRepository.findByUserIdOrderByCreatedAtDesc(user.getId())
                 : artifactRepository.findByUserIdAndKindOrderByCreatedAtDesc(user.getId(), kind);
-        return ApiResponse.ok(list);
+        return ApiResponse.ok(Paging.slice(list, offset, limit));
     }
 
     @DeleteMapping("/artifacts/{id}")

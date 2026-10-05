@@ -5,6 +5,7 @@ import com.travel.agent.entity.Memo;
 import com.travel.agent.entity.User;
 import com.travel.agent.service.AuthService;
 import com.travel.agent.service.MemoService;
+import com.travel.agent.util.Paging;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -28,9 +29,12 @@ public class MemoController {
             @Size(max = 500, message = "长度不能超过 500 个字符") String content) {}
 
     @GetMapping
-    public ApiResponse<List<Memo>> list(Authentication authentication) {
+    public ApiResponse<List<Memo>> list(
+            @RequestParam(defaultValue = "" + Paging.DEFAULT_LIMIT) int limit,
+            @RequestParam(defaultValue = "0") int offset,
+            Authentication authentication) {
         User user = authService.requireUser(authentication.getName());
-        return ApiResponse.ok(memoService.list(user.getId()));
+        return ApiResponse.ok(Paging.slice(memoService.list(user.getId()), offset, limit));
     }
 
     @PostMapping

@@ -7,7 +7,9 @@ import java.time.LocalDateTime;
 
 /** 个人备忘/待办：个人助理的基础生活模块 */
 @Entity
-@Table(name = "memo")
+@Table(name = "memo", indexes = {
+        @Index(name = "idx_memo_user", columnList = "user_id")
+})
 @Getter
 @Setter
 @NoArgsConstructor

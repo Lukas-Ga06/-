@@ -9,7 +9,9 @@ import java.time.LocalDateTime;
  * 操作历史：AI 修改行程时先记录 before/after 快照，这是实现「撤销」的核心。
  */
 @Entity
-@Table(name = "operation_history")
+@Table(name = "operation_history", indexes = {
+        @Index(name = "idx_history_trip_status", columnList = "trip_id,status")
+})
 @Getter
 @Setter
 @NoArgsConstructor

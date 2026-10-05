@@ -9,7 +9,9 @@ import java.time.LocalTime;
 
 /** 日程条目：办公自动化模块 */
 @Entity
-@Table(name = "schedule_item")
+@Table(name = "schedule_item", indexes = {
+        @Index(name = "idx_schedule_user", columnList = "user_id")
+})
 @Getter
 @Setter
 @NoArgsConstructor

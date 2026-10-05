@@ -4,7 +4,9 @@ import jakarta.persistence.*;
 import lombok.*;
 
 @Entity
-@Table(name = "rag_chunk")
+@Table(name = "rag_chunk", indexes = {
+        @Index(name = "idx_rag_chunk_document", columnList = "document_id")
+})
 @Getter
 @Setter
 @NoArgsConstructor

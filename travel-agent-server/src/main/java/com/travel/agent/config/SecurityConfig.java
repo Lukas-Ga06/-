@@ -2,6 +2,7 @@ package com.travel.agent.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.travel.agent.dto.ApiResponse;
+import com.travel.agent.security.RateLimitFilter;
 import com.travel.agent.security.JwtAuthenticationFilter;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -35,6 +36,7 @@ import java.util.List;
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final RateLimitFilter rateLimitFilter;
     private final ObjectMapper objectMapper;
 
     @Value("${travel.cors.allowed-origins}")
@@ -57,7 +59,9 @@ public class SecurityConfig {
                         .requestMatchers("/api/auth/**", "/h2-console/**", "/error").permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.OPTIONS).permitAll()
                         .anyRequest().authenticated())
-                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+                // 放在 JWT 之后：已登录按用户限流，未登录（登录/注册）按 IP 限流
+                .addFilterAfter(rateLimitFilter, JwtAuthenticationFilter.class);
         return http.build();
     }
 

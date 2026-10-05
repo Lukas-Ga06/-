@@ -7,7 +7,9 @@ import java.time.LocalDateTime;
 
 /** 邮件分类结果（粘贴邮件文本 → LLM 分类 + 摘要 + 建议回复） */
 @Entity
-@Table(name = "mail_item")
+@Table(name = "mail_item", indexes = {
+        @Index(name = "idx_mail_user", columnList = "user_id")
+})
 @Getter
 @Setter
 @NoArgsConstructor

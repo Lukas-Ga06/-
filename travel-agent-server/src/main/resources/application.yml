@@ -37,6 +37,14 @@ travel:
     max-per-trip: ${PHOTO_MAX_PER_TRIP:200}
     # 单用户照片总容量上限（字节，默认 500MB）
     max-bytes-per-user: ${PHOTO_MAX_BYTES_PER_USER:524288000}
+  rate-limit:
+    # 简单限流：登录/注册按 IP，Agent 与上传按用户，窗口内超过阈值返回 429
+    enabled: ${RATE_LIMIT_ENABLED:true}
+    auth-limit: ${RATE_LIMIT_AUTH:10}
+    agent-limit: ${RATE_LIMIT_AGENT:30}
+    upload-limit: ${RATE_LIMIT_UPLOAD:60}
+    default-limit: ${RATE_LIMIT_DEFAULT:600}
+    window-seconds: ${RATE_LIMIT_WINDOW_SECONDS:300}
   amap:
     # 高德开放平台 Web服务 Key（lbs.amap.com 免费申请，类型选"Web服务"）。
     # 配置后启用快速路径：大模型精简生成(~2-3s) + 高德批量定位(~1s，国内可达)。

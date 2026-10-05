@@ -5,6 +5,7 @@ import com.travel.agent.dto.PhotoDtos;
 import com.travel.agent.entity.User;
 import com.travel.agent.service.AuthService;
 import com.travel.agent.service.PhotoService;
+import com.travel.agent.util.Paging;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.MediaType;
@@ -32,9 +33,13 @@ public class PhotoController {
     }
 
     @GetMapping("/api/trips/{tripId}/photos")
-    public ApiResponse<List<PhotoDtos.Photo>> list(@PathVariable Long tripId, Authentication authentication) {
+    public ApiResponse<List<PhotoDtos.Photo>> list(
+            @PathVariable Long tripId,
+            @RequestParam(defaultValue = "" + Paging.DEFAULT_LIMIT) int limit,
+            @RequestParam(defaultValue = "0") int offset,
+            Authentication authentication) {
         User user = authService.requireUser(authentication.getName());
-        return ApiResponse.ok(photoService.list(tripId, user.getId()).stream()
+        return ApiResponse.ok(Paging.slice(photoService.list(tripId, user.getId()), offset, limit).stream()
                 .map(PhotoDtos.Photo::from)
                 .toList());
     }

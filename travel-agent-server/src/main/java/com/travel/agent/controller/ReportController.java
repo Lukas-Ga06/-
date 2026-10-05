@@ -5,6 +5,7 @@ import com.travel.agent.entity.DailyReport;
 import com.travel.agent.entity.User;
 import com.travel.agent.service.AuthService;
 import com.travel.agent.service.DailyReportService;
+import com.travel.agent.util.Paging;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -28,8 +29,11 @@ public class ReportController {
     }
 
     @GetMapping("/report")
-    public ApiResponse<List<DailyReport>> reportList(Authentication authentication) {
+    public ApiResponse<List<DailyReport>> reportList(
+            @RequestParam(defaultValue = "" + Paging.DEFAULT_LIMIT) int limit,
+            @RequestParam(defaultValue = "0") int offset,
+            Authentication authentication) {
         User user = authService.requireUser(authentication.getName());
-        return ApiResponse.ok(dailyReportService.list(user.getId()));
+        return ApiResponse.ok(Paging.slice(dailyReportService.list(user.getId()), offset, limit));
     }
 }

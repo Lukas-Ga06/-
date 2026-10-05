@@ -12,7 +12,9 @@ import java.util.List;
  * 其中 "室内"/"室外" 标记用于天气驱动的行程调整。
  */
 @Entity
-@Table(name = "itinerary_item")
+@Table(name = "itinerary_item", indexes = {
+        @Index(name = "idx_itinerary_trip", columnList = "trip_id")
+})
 @Getter
 @Setter
 @NoArgsConstructor
