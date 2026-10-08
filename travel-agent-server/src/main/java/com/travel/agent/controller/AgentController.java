@@ -112,6 +112,13 @@ public class AgentController {
         return ApiResponse.ok(agentEngine.undo(request.getTripId(), user.getId()));
     }
 
+    /** 取回待确认方案：前端刷新后据此恢复确认弹窗 */
+    @GetMapping("/plans/{planId}")
+    public ApiResponse<AgentDtos.AgentResult> pending(@PathVariable String planId, Authentication authentication) {
+        User user = authService.requireUser(authentication.getName());
+        return ApiResponse.ok(agentEngine.pendingPreview(planId, user.getId()));
+    }
+
     private AgentContext buildContext(User user, ChatDtos.ChatRequest request) {
         AgentContext ctx = new AgentContext();
         ctx.setUserId(user.getId());

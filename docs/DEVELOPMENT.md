@@ -174,6 +174,18 @@ HIGH 风险只表示"方案需要显式确认"（超预算），不是"抛异常
 **antd**：`main.tsx` 的 `ConfigProvider` token 与上面是同一套色值（主色 `#1f6feb`、圆角 8、边框 `#e4e6eb`）。
 改色板时两处要一起改，避免 antd 组件与自定义样式出现两种蓝。
 
+**暗色主题**：`[data-theme='dark']` 只覆盖新令牌这一层，`html` 上的属性由 `store/themeStore.ts` 切换
+（默认跟随系统，用户手动切换后写 localStorage），`index.html` 在首帧前预置属性避免闪白。
+antd 侧同步切 `darkAlgorithm`（`main.tsx` 的 `PALETTE`）。
+**新增硬编码颜色前先想一下暗色**：`echarts` 这类画在 canvas 上的图表读不到 CSS 变量，需要按主题给两套色值（见健康页）。
+
+**可观测性**：
+- `TraceIdFilter` 给每个请求打 `X-Trace-Id`（上游传了就用上游的），写进日志 MDC，日志格式里已带 `[%X{traceId:-}]`；
+  排查线上问题时先要 traceId，再按它捞全部日志。
+- `/actuator/health` 开放探活；`/actuator/metrics` 需要登录。
+- LLM 指标：`llm.calls{result=ok|failed|skipped}` 与 `llm.latency`。
+  **skipped 的语义是"整条链路走了规则引擎"**（没配 Key 或显式关闭），failed 才是调用失败降级。
+
 ## 部署注意事项
 
 1. 必须配置 `JWT_SECRET`，否则每次重启都会让全体用户掉线；
@@ -185,16 +197,13 @@ HIGH 风险只表示"方案需要显式确认"（超预算），不是"抛异常
 
 ## 待办清单（按优先级）
 
-1. `npm audit` 中的依赖漏洞：maplibre-gl(critical)、vite/esbuild(high)、echarts、react-router(moderate)；
+1. `npm audit` 中的依赖漏洞：maplibre-gl(critical，修复需升 6.x 破坏性升级)、vite/esbuild(high)、echarts、react-router(moderate)；
 2. 每用户 LLM 配额：限流只按请求数计，还不能按天限制模型开销；
 3. 会话记忆：`sessionId` 每次请求重建，多轮指代只能靠 `selectedElement`；需要会话级上下文存储；
 4. 预算对比：目前只有"计划成本"与"实际支出"两套数，缺"计划 vs 实际"偏差视图；
 5. 知识库运营：`RagBootstrap` "有文档就跳过"，更新 `knowledge.json` 需手工清库（缺版本/指纹机制）；
-6. 在线城市缓存用 `contains` 做模糊匹配，可能串城市（如"洛阳"命中"阳"）；
-7. 前端待确认方案刷新即丢（后端已落库，但缺按 planId 取回的接口）；
-8. 可观测性：Actuator、指标、traceId、LLM 失败率；
-9. RAG 从「字符 bigram 哈希」升级为真实 Embedding；
-10. 前端体验：移动端布局（窄视口下侧栏会占掉大部分宽度）、暗色模式、PWA 离线查看行程。
+6. RAG 从「字符 bigram 哈希」升级为真实 Embedding；
+7. 前端：PWA 离线查看行程（移动端布局与暗色主题已完成）。
 
 ## 已完成的加固（2026-10 批次）
 

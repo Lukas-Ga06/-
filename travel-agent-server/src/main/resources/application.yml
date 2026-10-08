@@ -4,6 +4,15 @@ server:
 spring:
   application:
     name: travel-agent-server
+management:
+  endpoints:
+    web:
+      # 只暴露必要端点：health 给探活，metrics 给排障（需登录）
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: never
   servlet:
     multipart:
       # 行程照片上传上限
@@ -73,3 +82,6 @@ travel:
 logging:
   level:
     com.travel.agent: info
+  pattern:
+    # 日志带 traceId，便于把一次请求的多条日志串起来（响应头同名）
+    level: "%5p [%X{traceId:-}]"

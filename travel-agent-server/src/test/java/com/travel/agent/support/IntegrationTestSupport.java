@@ -2,6 +2,7 @@ package com.travel.agent.support;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.travel.agent.config.TraceIdFilter;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -35,6 +36,9 @@ public abstract class IntegrationTestSupport {
     @Autowired
     protected ObjectMapper objectMapper;
 
+    @Autowired
+    protected TraceIdFilter traceIdFilter;
+
     protected MockMvc mockMvc;
 
     /** 测试账号：id / 用户名 / JWT */
@@ -47,6 +51,9 @@ public abstract class IntegrationTestSupport {
     @BeforeEach
     void initMockMvc() {
         mockMvc = MockMvcBuilders.webAppContextSetup(webApplicationContext)
+                // 生产环境由 Spring Boot 自动注册（@Component + @Order）；
+                // MockMvc 是手工搭的，需要显式挂上才能验证链路标识行为
+                .addFilters(traceIdFilter)
                 .apply(SecurityMockMvcConfigurers.springSecurity())
                 .build();
     }

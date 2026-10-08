@@ -22,6 +22,8 @@ interface AgentState {
   send: (payload: SendPayload) => void;
   confirm: () => Promise<AgentResult | null>;
   cancel: () => Promise<void>;
+  /** 刷新后用 planId 取回的方案重新挂起确认弹窗 */
+  restorePending: (result: AgentResult) => void;
   reset: () => void;
   clearCommitted: () => void;
 }
@@ -193,6 +195,8 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       // 忽略取消失败
     }
   },
+
+  restorePending: (result) => set({ pendingConfirm: result, lastFocus: result.focus ?? null }),
 
   reset: () => {
     streamSeq += 1;

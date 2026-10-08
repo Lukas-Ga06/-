@@ -102,4 +102,18 @@ describe('agentStore', () => {
     // 票据获取是异步的：连接建立后才发现已被 reset，此时应立刻关闭
     await vi.waitFor(() => expect(closeSpy).toHaveBeenCalled());
   });
+
+  it('restorePending 能把刷新后取回的方案重新挂起', () => {
+    useAgentStore.getState().restorePending({
+      status: 'NEED_CONFIRMATION',
+      planId: 'plan-restored',
+      message: '已生成方案，请确认',
+      focus: { type: 'itinerary', day: 2 },
+      confirmation: { planId: 'plan-restored', summary: '新增 2 项', riskLevel: 'MEDIUM' },
+    });
+
+    const state = useAgentStore.getState();
+    expect(state.pendingConfirm?.planId).toBe('plan-restored');
+    expect(state.lastFocus?.day).toBe(2);
+  });
 });

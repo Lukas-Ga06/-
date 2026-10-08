@@ -56,7 +56,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // SSE/异步请求结束时容器会发起 ASYNC dispatch，必须放行，否则连接被安全链拒绝
                         .dispatcherTypeMatchers(jakarta.servlet.DispatcherType.ASYNC).permitAll()
-                        .requestMatchers("/api/auth/**", "/h2-console/**", "/error").permitAll()
+                        // /actuator/health 给探活；其余 actuator 端点仍需登录
+                        .requestMatchers("/api/auth/**", "/h2-console/**", "/error", "/actuator/health").permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.OPTIONS).permitAll()
                         .anyRequest().authenticated())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)

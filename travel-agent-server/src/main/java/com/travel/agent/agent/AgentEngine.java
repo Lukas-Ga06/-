@@ -447,6 +447,18 @@ public class AgentEngine {
                 .build();
     }
 
+    /**
+     * 取回待确认方案。
+     * 前端刷新页面后凭 planId 找回确认弹窗内容（之前刷新即丢，只能重新发起规划）。
+     */
+    public AgentDtos.AgentResult pendingPreview(String planId, Long userId) {
+        PendingPlanStore.PendingPlan pending = pendingPlans.peek(planId, userId);
+        if (pending == null) {
+            throw new com.travel.agent.exception.BusinessException(404, "待确认方案不存在或已过期，请重新发起");
+        }
+        return pending.preview();
+    }
+
     public AgentDtos.AgentResult undo(Long tripId, Long userId) {
         Trip trip = tripService.getOwned(tripId, userId);
         String message = operationHistoryService.undoLatest(trip, userId);

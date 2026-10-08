@@ -101,3 +101,8 @@ export function cancelPlan(planId: string): Promise<AgentResult> {
 export function undoTrip(tripId: number): Promise<AgentResult> {
   return request<AgentResult>({ url: '/agent/undo', method: 'post', data: { tripId } });
 }
+
+/** 取回待确认方案：刷新页面后凭 planId 恢复确认弹窗 */
+export function getPendingPlan(planId: string): Promise<AgentResult> {
+  return request<AgentResult>({ url: `/agent/plans/${encodeURIComponent(planId)}` });
+}

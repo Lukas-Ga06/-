@@ -1,6 +1,7 @@
 package com.travel.agent.llm;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -19,6 +20,8 @@ import java.util.Map;
 public class OpenAiCompatibleLlmClient implements LlmClient {
 
     private final LlmProperties props;
+    /** 指标：llm.calls{result=ok|failed|skipped}、llm.latency —— 可在 /actuator/metrics 查询 */
+    private final MeterRegistry meterRegistry;
 
     private RestClient client;
 
@@ -40,8 +43,10 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
     @Override
     public String chat(List<LlmMessage> messages, double temperature) {
         if (!props.usable()) {
+            // "跳过"由 DelegatingLlmClient 统计，这里只负责真实调用的成功/失败
             return null;
         }
+        long startedAt = System.nanoTime();
         try {
             List<Map<String, String>> msgs = messages.stream()
                     .map(m -> Map.of("role", m.role(), "content", m.content()))
@@ -52,12 +57,23 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
                     .retrieve()
                     .body(JsonNode.class);
             if (resp == null) {
+                meterRegistry.counter("llm.calls", "result", "failed").increment();
                 return null;
             }
-            return resp.path("choices").path(0).path("message").path("content").asText(null);
+            String content = resp.path("choices").path(0).path("message").path("content").asText(null);
+            if (content == null || content.isBlank()) {
+                meterRegistry.counter("llm.calls", "result", "failed").increment();
+                return null;
+            }
+            meterRegistry.counter("llm.calls", "result", "ok").increment();
+            return content;
         } catch (Exception e) {
+            // 失败即降级为规则引擎：这里只记指标与日志，不向上抛
+            meterRegistry.counter("llm.calls", "result", "failed").increment();
             log.warn("LLM 调用失败，降级为规则模板: {}", e.getMessage());
             return null;
+        } finally {
+            meterRegistry.timer("llm.latency").record(java.time.Duration.ofNanos(System.nanoTime() - startedAt));
         }
     }
 

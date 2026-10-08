@@ -2,13 +2,20 @@ import { useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import AppShell from '../../components/AppShell';
 import ChatPanel from '../../components/ChatPanel';
+import PlanDiff from '../../components/PlanDiff';
+import { getPendingPlan } from '../../api/agent';
 import { useAgentStore } from '../../store/agentStore';
 
 /** AI 助理：统一对话入口（旅行规划 / 记账 / 备忘 / 日报 / 知识问答） */
 export default function Assistant() {
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const send = useAgentStore((s) => s.send);
   const reset = useAgentStore((s) => s.reset);
+  const pendingConfirm = useAgentStore((s) => s.pendingConfirm);
+  const confirm = useAgentStore((s) => s.confirm);
+  const cancel = useAgentStore((s) => s.cancel);
+  const streaming = useAgentStore((s) => s.streaming);
+  const restorePending = useAgentStore((s) => s.restorePending);
   const startedRef = useRef(false);
 
   // 从总览输入框跳转而来时自动发送一次
@@ -33,6 +40,46 @@ export default function Assistant() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // 刷新后凭 URL 上的 planId 找回待确认方案（此前刷新即丢，只能重新发起）
+  useEffect(() => {
+    const planId = params.get('planId');
+    if (!planId || useAgentStore.getState().pendingConfirm) return;
+    let alive = true;
+    getPendingPlan(planId)
+      .then((result) => {
+        if (alive) restorePending(result);
+      })
+      .catch(() => {
+        // 方案已过期/不属于当前用户：静默忽略（后端返回 404）
+      });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params]);
+
+  // 有待确认方案时把 planId 写进 URL，方便刷新与分享定位
+  useEffect(() => {
+    const planId = pendingConfirm?.planId;
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (planId) {
+          next.set('planId', planId);
+        } else {
+          next.delete('planId');
+        }
+        return next;
+      },
+      { replace: true },
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingConfirm?.planId]);
+
+  const onConfirm = async () => {
+    await confirm();
+  };
+
   return (
     <AppShell active="assistant">
       <div className="dash-wrap">
@@ -48,6 +95,13 @@ export default function Assistant() {
         >
           <ChatPanel placeholder="告诉我你想完成什么……（如：记一下明天办签证）" />
         </div>
+        <PlanDiff
+          open={!!pendingConfirm}
+          result={pendingConfirm}
+          onConfirm={onConfirm}
+          onCancel={() => cancel()}
+          loading={streaming}
+        />
       </div>
     </AppShell>
   );

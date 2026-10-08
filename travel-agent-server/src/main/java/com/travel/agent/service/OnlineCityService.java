@@ -86,7 +86,7 @@ public class OnlineCityService {
         // 模糊命中缓存（"石家庄市" ↔ "石家庄"）
         for (CacheEntry entry : cache.values()) {
             String known = entry.city().name();
-            if (known.contains(name) || name.contains(known)) {
+            if (matchesCity(known, name)) {
                 return entry.city();
             }
         }
@@ -500,6 +500,24 @@ public class OnlineCityService {
             return 4.2;
         }
         return Math.round(rating * 10) / 10.0;
+    }
+
+    /**
+     * 城市名模糊匹配。
+     *
+     * 只允许"包含"关系，且较短的一方至少 2 个字：
+     * 否则「阳」会命中「洛阳」、「州」会命中「杭州」，把用户带到一个完全无关的城市。
+     */
+    static boolean matchesCity(String known, String query) {
+        if (known == null || query == null) {
+            return false;
+        }
+        if (known.equals(query)) {
+            return true;
+        }
+        String shorter = known.length() <= query.length() ? known : query;
+        String longer = known.length() <= query.length() ? query : known;
+        return shorter.length() >= 2 && longer.contains(shorter);
     }
 
     private String cleanName(String raw) {
