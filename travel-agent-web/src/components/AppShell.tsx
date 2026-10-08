@@ -6,10 +6,16 @@ import { useAuthStore } from '../store/authStore';
 
 const GROUPS: { section: string; items: { key: string; label: string; path: string; icon: string }[] }[] = [
   {
+    section: '总览',
+    items: [
+      { key: 'home', label: '首页', path: '/', icon: '🏠' },
+      { key: 'travel', label: '旅行规划', path: '/travel', icon: '🧭' },
+      { key: 'footprint', label: '旅行足迹', path: '/footprint', icon: '🌍' },
+    ],
+  },
+  {
     section: '生活',
     items: [
-      { key: 'home', label: '总览', path: '/', icon: '🏠' },
-      { key: 'travel', label: '旅行', path: '/travel', icon: '🗺️' },
       { key: 'schedule', label: '日程', path: '/schedule', icon: '📅' },
       { key: 'expenses', label: '记账', path: '/expenses', icon: '💰' },
       { key: 'memos', label: '备忘', path: '/memos', icon: '📝' },
@@ -17,12 +23,20 @@ const GROUPS: { section: string; items: { key: string; label: string; path: stri
     ],
   },
   {
-    section: 'AI 工作台',
+    section: '智能',
     items: [
       { key: 'assistant', label: 'AI 助理', path: '/assistant', icon: '🤖' },
       { key: 'workbench', label: '工作台', path: '/workbench', icon: '🧰' },
     ],
   },
+];
+
+/** 窄屏底部标签栏：只放最高频的四个入口 */
+const TABS: { key: NavModule; label: string; path: string; icon: string }[] = [
+  { key: 'home', label: '首页', path: '/', icon: '🏠' },
+  { key: 'travel', label: '旅行', path: '/travel', icon: '🧭' },
+  { key: 'assistant', label: '助手', path: '/assistant', icon: '🤖' },
+  { key: 'profile', label: '我的', path: '/profile', icon: '👤' },
 ];
 
 export type NavModule =
@@ -32,7 +46,7 @@ export type NavModule =
 /** 嵌套在已有外壳内时不再重复渲染侧栏（例如工作台用 Tabs 复用办公/学习页） */
 const InsideShell = createContext(false);
 
-/** 个人助理应用外壳：左侧悬浮玻璃边栏 + 右侧内容区 */
+/** 个人助理应用外壳：左侧固定侧栏（窄屏收成图标栏 / 底部标签栏）+ 右侧内容区 */
 export default function AppShell({ active, children }: { active: NavModule; children: React.ReactNode }) {
   const insideShell = useContext(InsideShell);
   const navigate = useNavigate();
@@ -48,7 +62,8 @@ export default function AppShell({ active, children }: { active: NavModule; chil
       <div className="app-shell">
         <aside className="app-sidebar">
         <div className="sb-brand" onClick={() => navigate('/')} style={{ cursor: 'pointer' }}>
-          <span className="hn-logo">🧠</span> AI 个人助理
+          <span className="hn-logo">🧠</span>
+          <span className="sb-brand-text">AI 个人助理</span>
         </div>
         <nav className="sb-modules">
           {GROUPS.map((g) => (
@@ -59,20 +74,30 @@ export default function AppShell({ active, children }: { active: NavModule; chil
                   key={m.key}
                   className={`sb-link ${active === m.key ? 'active' : ''}`}
                   onClick={() => navigate(m.path)}
+                  title={m.label}
                 >
-                  <span>{m.icon}</span> {m.label}
+                  <span>{m.icon}</span>
+                  <span className="sb-label">{m.label}</span>
                 </button>
               ))}
             </div>
           ))}
         </nav>
         <div className="sb-footer">
-          <button className={`sb-link ${active === 'profile' ? 'active' : ''}`} onClick={() => navigate('/profile')}>
-            <span>⚙️</span> 设置
+          <button
+            className={`sb-link ${active === 'profile' ? 'active' : ''}`}
+            onClick={() => navigate('/profile')}
+            title="设置"
+          >
+            <span>⚙️</span>
+            <span className="sb-label">设置</span>
           </button>
           <div className="sb-user">
             <span className="sb-avatar">{(user?.nickname || user?.username || '旅')[0]}</span>
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <span
+              className="sb-user-name"
+              style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}
+            >
               {user?.nickname ?? user?.username}
             </span>
             <Button
@@ -90,6 +115,18 @@ export default function AppShell({ active, children }: { active: NavModule; chil
         </div>
         </aside>
         <main className="app-content">{children}</main>
+        <nav className="app-tabbar">
+          {TABS.map((t) => (
+            <a
+              key={t.key}
+              className={active === t.key ? 'on' : ''}
+              onClick={() => navigate(t.path)}
+            >
+              <span className="tb-icon">{t.icon}</span>
+              <span>{t.label}</span>
+            </a>
+          ))}
+        </nav>
       </div>
     </InsideShell.Provider>
   );

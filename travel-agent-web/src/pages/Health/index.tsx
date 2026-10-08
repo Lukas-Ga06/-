@@ -36,9 +36,10 @@ export default function Health() {
 
   useEffect(() => { load(); }, []);
 
-  // 趋势图
+  // 趋势图：容器在 loading 结束（数据到达）之后才挂载，
+  // 因此初始化必须依赖 loading，否则首次渲染时 ref 还是 null，图表永远不会创建。
   useEffect(() => {
-    if (!chartElRef.current) return;
+    if (loading || !chartElRef.current) return;
     const chart = echarts.init(chartElRef.current);
     chartRef.current = chart;
     const onResize = () => chart.resize();
@@ -48,7 +49,7 @@ export default function Health() {
       chart.dispose();
       chartRef.current = null;
     };
-  }, []);
+  }, [loading]);
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -60,22 +61,22 @@ export default function Health() {
       tooltip: { trigger: 'axis' },
       legend: { top: 0, textStyle: { color: 'rgba(60,60,67,0.6)' } },
       grid: { left: 46, right: 46, top: 34, bottom: 26 },
-      xAxis: { type: 'category', data: days.map((d) => d.date.slice(5)), axisLabel: { color: 'rgba(60,60,67,0.55)' }, axisLine: { lineStyle: { color: '#e5e5ea' } } },
+      xAxis: { type: 'category', data: days.map((d) => d.date.slice(5)), axisLabel: { color: 'rgba(60,60,67,0.55)' }, axisLine: { lineStyle: { color: '#e4e6eb' } } },
       yAxis: [
-        { type: 'value', name: '步数', splitLine: { lineStyle: { color: '#e5e5ea' } }, axisLabel: { color: 'rgba(60,60,67,0.55)' } },
+        { type: 'value', name: '步数', splitLine: { lineStyle: { color: '#e4e6eb' } }, axisLabel: { color: 'rgba(60,60,67,0.55)' } },
         { type: 'value', name: '小时', splitLine: { show: false }, axisLabel: { color: 'rgba(60,60,67,0.55)' } },
       ],
       series: [
         {
           name: '步数', type: 'bar', data: days.map((d) => d.steps ?? 0), barWidth: 18,
-          itemStyle: { color: '#007aff', borderRadius: [4, 4, 0, 0] },
+          itemStyle: { color: '#1f6feb', borderRadius: [4, 4, 0, 0] },
         },
         {
           name: '睡眠(小时)', type: 'line', yAxisIndex: 1,
           data: days.map((d) => d.sleepHours ?? 0),
           smooth: true, symbolSize: 7,
-          lineStyle: { color: '#34c759', width: 2.5 },
-          itemStyle: { color: '#34c759' },
+        lineStyle: { color: '#16a34a', width: 2.5 },
+        itemStyle: { color: '#16a34a' },
         },
       ],
     });

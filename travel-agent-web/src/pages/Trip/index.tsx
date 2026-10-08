@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { App, Button, Drawer, Space, Tooltip } from 'antd';
+import { App, Button, Drawer, Tooltip } from 'antd';
 import {
   ArrowLeftOutlined,
   BarChartOutlined,
@@ -19,6 +19,7 @@ import ChatPanel from '../../components/ChatPanel';
 import PlanDiff from '../../components/PlanDiff';
 import BudgetChart from '../../components/BudgetChart';
 import ExpensePanel from '../../components/ExpensePanel';
+import AppShell from '../../components/AppShell';
 
 /** 行程主界面：工作台式布局 —— 地图 + AI 助手 + 时间轴 + 预算 */
 export default function TripPage() {
@@ -87,54 +88,65 @@ export default function TripPage() {
   };
 
   return (
-    <div className="trip-page">
-      <div className="trip-header">
-        <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/')} />
-        <div className="th-title">
-          <b>{currentTrip?.name ?? '行程'}</b>
-          <span className="th-meta">
-            {currentTrip ? `${currentTrip.destination} · ${daysOf(currentTrip)} 天` : '加载中…'}
-          </span>
-        </div>
-        <div className="budget-pill">
-          <span className={`bp-value ${over ? 'over' : 'ok'}`}>¥{total.toFixed(0)}</span>
-          <span className="bp-label">{over ? '已超出预算 ' : '预算 '}¥{budget ?? '-'}</span>
-        </div>
-        <Space>
-          <Tooltip title="撤销上一次 AI 修改">
-            <Button icon={<UndoOutlined />} onClick={onUndo} loading={undoing} />
-          </Tooltip>
-          <Button icon={<WalletOutlined />} onClick={() => setExpenseOpen(true)}>
-            记账
-          </Button>
-          <Button type="primary" ghost icon={<BarChartOutlined />} onClick={() => setBudgetOpen(true)}>
-            预算分析
-          </Button>
-        </Space>
-      </div>
-
-      <div className="trip-body">
-        <div className="map-card">
-          <div className="map-badge">
-            <EnvironmentOutlined /> Day {selectedDay} · 智能地图
-          </div>
-          <MapView items={items} focus={lastFocus} focusDay={selectedDay} />
-        </div>
-
-        <div className="timeline-card">
-          <Timeline trip={currentTrip} items={items} focus={lastFocus} />
-        </div>
-
-        <div className="chat-card">
-          <div className="chat-head">
-            <div className="ch-avatar">🤖</div>
+    <AppShell active="travel">
+      <div className="dash-wrap">
+        <div className="dash-greeting">
+          <div className="dg-left">
+            <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/travel')} />
             <div>
-              <b>AI 旅行助手</b>
-              <span>随时调整行程 · 支持语音输入</span>
+              <h1>{currentTrip?.name ?? '行程'}</h1>
+              <div className="dg-date">
+                {currentTrip
+                  ? `${currentTrip.destination} · ${daysOf(currentTrip)} 天 · ${items.length} 个安排`
+                  : '加载中…'}
+              </div>
             </div>
           </div>
-          <ChatPanel tripId={tripId} placeholder="例如：明天下雨，把户外景点换掉" />
+          <div className="page-actions">
+            <span className={`chip ${over ? 'chip-warn' : 'chip-ok'}`}>
+              已花 ¥{total.toFixed(0)} / 预算 ¥{budget ?? '-'}
+            </span>
+            <Tooltip title="撤销上一次 AI 修改">
+              <Button icon={<UndoOutlined />} onClick={onUndo} loading={undoing}>
+                撤销
+              </Button>
+            </Tooltip>
+            <Button icon={<WalletOutlined />} onClick={() => setExpenseOpen(true)}>
+              记账
+            </Button>
+            <Button type="primary" ghost icon={<BarChartOutlined />} onClick={() => setBudgetOpen(true)}>
+              预算分析
+            </Button>
+          </div>
         </div>
+
+        <div className="trip-grid">
+          <section className="dash-card trip-map-card">
+            <div className="dc-head">
+              <b>地图</b>
+              <span className="mini-tag">
+                <EnvironmentOutlined /> Day {selectedDay}
+              </span>
+            </div>
+            <div className="trip-map-body">
+              <MapView items={items} focus={lastFocus} focusDay={selectedDay} />
+            </div>
+          </section>
+
+          <aside className="dash-card trip-chat-card">
+            <div className="dc-head">
+              <b>AI 助手</b>
+              <span className="mini-tag">随时调整行程</span>
+            </div>
+            <div className="trip-chat-body">
+              <ChatPanel tripId={tripId} placeholder="例如：明天下雨，把户外景点换掉" />
+            </div>
+          </aside>
+        </div>
+
+        <section className="dash-card trip-timeline-card">
+          <Timeline trip={currentTrip} items={items} focus={lastFocus} />
+        </section>
       </div>
 
       <Drawer title="预算分析" open={budgetOpen} onClose={() => setBudgetOpen(false)} width={560}>
@@ -150,6 +162,6 @@ export default function TripPage() {
         <ExpensePanel tripId={tripId} budget={budget} planned={total} />
       </Drawer>
       <PlanDiff open={!!pendingConfirm} result={pendingConfirm} onConfirm={onConfirm} onCancel={() => cancel()} loading={streaming} />
-    </div>
+    </AppShell>
   );
 }

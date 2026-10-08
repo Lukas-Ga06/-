@@ -107,6 +107,16 @@ export default function Home() {
     setPrompt('');
   };
 
+  /** 首页待办卡：直接勾选完成，和备忘模块共用同一份数据 */
+  const onToggleMemo = async (memo: Memo) => {
+    try {
+      const updated = await toggleMemo(memo.id);
+      setMemos((prev) => prev.map((m) => (m.id === memo.id ? updated : m)));
+    } catch (e: any) {
+      message.error(e.message);
+    }
+  };
+
   const todayStats = [
     { icon: '📅', cls: 'blue', label: '今日安排', num: String(todaySchedule.length), sub: '项', path: '/schedule' },
     { icon: '💰', cls: 'orange', label: '本月支出', num: `¥${(overview?.monthSpent ?? 0).toFixed(0)}`, path: '/expenses' },
@@ -189,6 +199,7 @@ export default function Home() {
 
         {/* 核心视觉：3D 足迹（深色块） + 右侧信息栏 */}
         <div className="hero-grid">
+          <div className="hero-main">
           <section className="hero-globe lg-sweep">
             <div className="hg-head">
               <b>🌍 我的足迹</b>
@@ -209,7 +220,7 @@ export default function Home() {
                   <FootprintMap
                     points={visiblePoints}
                     mode="city"
-                    theme="dark"
+                    theme="light"
                     autoSpin
                     showControls={false}
                     playSignal={playSignal}
@@ -262,6 +273,28 @@ export default function Home() {
               </button>
             </div>
           </section>
+
+          <section className="dash-card">
+            <div className="dc-head">
+              <b>📝 今日待办</b>
+              <button className="dc-link" onClick={() => navigate('/memos')}>
+                全部 →
+              </button>
+            </div>
+            {openMemos.length === 0 ? (
+              <div className="hss-note">暂无待办，说一句「记一下明天办签证」就能添加</div>
+            ) : (
+              <div className="todo-list">
+                {openMemos.slice(0, 5).map((m) => (
+                  <label key={m.id} className="todo-item">
+                    <input type="checkbox" checked={m.done} onChange={() => onToggleMemo(m)} />
+                    <span>{m.content}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </section>
+          </div>
 
           <aside className="hero-side">
             <div className="dash-card lg-sweep">
@@ -357,6 +390,26 @@ export default function Home() {
                 ))}
               </div>
             )}
+
+            <div className="dash-card">
+              <div className="dc-head">
+                <b>⚡ 快捷入口</b>
+              </div>
+              <div className="quick-grid">
+                <button type="button" className="quick-btn" onClick={() => navigate('/expenses')}>
+                  💰 记一笔
+                </button>
+                <button type="button" className="quick-btn" onClick={() => navigate('/memos')}>
+                  📝 加备忘
+                </button>
+                <button type="button" className="quick-btn" onClick={() => navigate('/schedule')}>
+                  📅 加日程
+                </button>
+                <button type="button" className="quick-btn" onClick={() => navigate('/workbench')}>
+                  🧰 工作台
+                </button>
+              </div>
+            </div>
           </aside>
         </div>
       </div>

@@ -496,7 +496,7 @@ export default function FootprintMap({
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] },
       });
-      const routeColor = theme === 'dark' ? '#4da3ff' : '#007aff';
+      const routeColor = theme === 'dark' ? '#4da3ff' : '#1f6feb';
       map.addLayer({
         id: 'fp-route-glow',
         type: 'line',

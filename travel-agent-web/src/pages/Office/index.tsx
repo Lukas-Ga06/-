@@ -12,7 +12,7 @@ const MAIL_TAG: Record<string, string> = {
   通知: 'rgba(90, 200, 250, 0.12)', 垃圾: 'rgba(142, 142, 147, 0.12)', 其他: 'rgba(142, 142, 147, 0.1)',
 };
 const MAIL_COLOR: Record<string, string> = {
-  重要: '#ff3b30', 会议: '#007aff', 账单: '#ff9500', 通知: '#0a7ea4', 垃圾: '#8e8e93', 其他: '#636366',
+ 重要: '#dc2626', 会议: '#1f6feb', 账单: '#d97706', 通知: '#2f9fb8', 垃圾: '#8b93a1', 其他: '#5b6472',
 };
 
 function MdView({ text }: { text: string }) {

@@ -12,36 +12,38 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       locale={zhCN}
       theme={{
         token: {
-          colorPrimary: '#007aff',
-          colorInfo: '#007aff',
-          colorBgLayout: 'transparent',
+          colorPrimary: '#1f6feb',
+          colorInfo: '#1f6feb',
+          colorSuccess: '#16a34a',
+          colorWarning: '#d97706',
+          colorError: '#dc2626',
+          colorBgLayout: '#f6f7f9',
           colorBgContainer: '#ffffff',
-          colorText: '#1c1c1e',
-          colorTextSecondary: 'rgba(60, 60, 67, 0.62)',
-          colorBorder: 'rgba(60, 60, 67, 0.16)',
-          colorBorderSecondary: 'rgba(60, 60, 67, 0.12)',
-          borderRadius: 14,
+          colorText: '#111827',
+          colorTextSecondary: '#5b6472',
+          colorTextTertiary: '#8b93a1',
+          colorBorder: '#e4e6eb',
+          colorBorderSecondary: '#eef0f4',
+          borderRadius: 8,
           fontSize: 14,
-          boxShadowSecondary: '0 12px 40px rgba(31, 41, 92, 0.18)',
+          controlHeight: 34,
+          fontFamily:
+            '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif',
+          boxShadowSecondary: '0 4px 12px rgba(16, 24, 40, 0.08)',
         },
         components: {
-          Button: { fontWeight: 600, primaryShadow: 'none' },
-          Card: { borderRadiusLG: 18 },
-          Modal: { borderRadiusLG: 18 },
+          Button: { fontWeight: 600, primaryShadow: 'none', defaultShadow: 'none' },
+          Card: { borderRadiusLG: 12 },
+          Modal: { borderRadiusLG: 12 },
+          Drawer: { borderRadiusLG: 12 },
           Segmented: { itemSelectedBg: '#ffffff' },
-          Progress: { defaultColor: '#007aff' },
-          Tooltip: { colorBgSpotlight: 'rgba(28, 28, 30, 0.92)' },
+          Progress: { defaultColor: '#1f6feb' },
+          Tooltip: { colorBgSpotlight: 'rgba(17, 24, 39, 0.92)' },
+          Table: { headerBg: '#f9fafb' },
         },
       }}
     >
       <AntApp>
-        {/* 液态玻璃画布：浅色极光，供玻璃面板折射 */}
-        <div className="aurora" aria-hidden>
-          <span className="a1" />
-          <span className="a2" />
-          <span className="a3" />
-          <span className="a4" />
-        </div>
         <App />
       </AntApp>
     </ConfigProvider>

@@ -10,10 +10,10 @@ const TYPE_LABELS: Record<string, string> = {
   transport: '交通',
 };
 
-const PIE_COLORS = ['#007aff', '#34c759', '#ff9500', '#af52de', '#ff2d55', '#5ac8fa'];
+const PIE_COLORS = ['#1f6feb', '#16a34a', '#d97706', '#7c5cd6', '#d6457a', '#2f9fb8'];
 const TEXT = 'rgba(28, 28, 30, 0.9)';
 const TEXT_DIM = 'rgba(60, 60, 67, 0.55)';
-const AXIS = '#e5e5ea';
+const AXIS = '#e4e6eb';
 
 interface Props {
   items: ItineraryItem[];
@@ -71,7 +71,7 @@ export default function BudgetChart({ items, budget }: Props) {
         trigger: 'item',
         formatter: '{b}: ¥{c}',
         backgroundColor: 'rgba(255, 255, 255, 0.96)',
-        borderColor: '#e5e5ea',
+  borderColor: '#e4e6eb',
         textStyle: { color: TEXT },
       },
       legend: { bottom: 0, left: '12%', textStyle: { color: TEXT_DIM }, itemStyle: { borderWidth: 0 } },
@@ -110,7 +110,7 @@ export default function BudgetChart({ items, budget }: Props) {
           data: dayKeys.map((d) => Number((byDay[d] ?? 0).toFixed(2))),
           itemStyle: {
             color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-              { offset: 0, color: '#007aff' },
+      { offset: 0, color: '#1f6feb' },
               { offset: 1, color: '#5ac8fa' },
             ]),
             borderRadius: [5, 5, 0, 0],

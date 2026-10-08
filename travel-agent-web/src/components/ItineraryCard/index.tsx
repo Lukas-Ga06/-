@@ -3,7 +3,7 @@ import type { ItineraryItem } from '../../types/trip';
 
 const TYPE_CHIP: Record<string, { label: string; bg: string; color: string }> = {
   hotel: { label: '酒店', bg: 'rgba(175, 82, 222, 0.12)', color: '#8e44ad' },
-  attraction: { label: '景点', bg: 'rgba(0, 122, 255, 0.1)', color: '#007aff' },
+  attraction: { label: '景点', bg: 'rgba(31, 111, 235, 0.1)', color: '#1f6feb' },
   restaurant: { label: '餐饮', bg: 'rgba(255, 149, 0, 0.12)', color: '#d48000' },
   transport: { label: '交通', bg: 'rgba(142, 142, 147, 0.14)', color: '#636366' },
 };

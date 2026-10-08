@@ -148,6 +148,32 @@ HIGH 风险只表示"方案需要显式确认"（超预算），不是"抛异常
 其样式在懒加载后才注入且优先级不低——给容器设尺寸时不要用 `absolute + inset`，**必须显式写 height**，否则容器塌成 0 高、地图完全不渲染（已踩过一次）。
 足迹地图的球体投影依赖 maplibre v5+，代码里做了运行时探测，旧版本自动退回平面 3D。
 
+## 设计系统（方向 B：内容优先）
+
+**令牌**：`travel-agent-web/src/styles/global.css` 顶部的 `:root` 是唯一来源。
+新名字（`--bg` / `--surface` / `--border` / `--text` / `--text-2` / `--text-3` / `--accent` /
+`--ok` / `--warn` / `--danger` / `--r-*` / `--sp-*`）是主用名；
+旧名字（`--ink` / `--line` / `--blue` / `--lg-bg` / `--lg-border` / `--lg-blur` / `--lg-shadow` /
+`--radius-*` / `--shadow-*`）保留为**别名**，指向同一批值——所以 2000+ 行历史样式能一次性换肤。
+新增样式请用新名字。
+
+**材质**：不再使用毛玻璃与极光。`--lg-bg` / `--lg-border` / `--lg-shadow` 已映射为平面卡片值，
+全站 `backdrop-filter: none`，`.aurora` 与 `.lg-sweep::after` 已停用。
+想恢复玻璃效果必须把这几处一起改回来，只改一个变量不会生效。
+
+**地图容器必须给确定高度**：`.fp-canvas` / `.fp-map` 用的是 `height: 100%`，而百分比高度需要确定的父高度。
+父容器若只有 `flex: 1` 或 `min-height`，解析会退化成 `auto`，maplibre 容器塌成 0 高、再被 `overflow: hidden` 裁掉
+（表现为整块地图空白，DOM 里能看到 canvas 但尺寸为 0）。首页 `.hg-map` 因此写成 `flex: none; height: 380px`，
+**改布局时不要退回 flex 高度**。
+
+**响应式**：≥1080px 侧栏 232px；720–1080px 收成 76px 图标栏（隐藏 `.sb-label`）；<720px 换成底部标签栏 `.app-tabbar`。
+文件里 `@media (max-width: 900px)` 那段"侧栏变横向顶栏"的历史规则与新方案冲突，
+已在文件末尾的新媒体查询里逐条覆盖（`position` / `flex-direction` / `align-items` / `.sb-*` 都要显式重置）。
+**新增窄屏规则请写在文件末尾**，否则会被旧规则抢先生效。
+
+**antd**：`main.tsx` 的 `ConfigProvider` token 与上面是同一套色值（主色 `#1f6feb`、圆角 8、边框 `#e4e6eb`）。
+改色板时两处要一起改，避免 antd 组件与自定义样式出现两种蓝。
+
 ## 部署注意事项
 
 1. 必须配置 `JWT_SECRET`，否则每次重启都会让全体用户掉线；

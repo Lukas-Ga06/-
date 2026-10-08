@@ -4,52 +4,97 @@
    折射玻璃（backdrop blur+saturate + 高光边缘环）+ 浅色极光画布 + 光泽扫过
    ============================================================ */
 :root {
-  /* 文字 */
-  --ink: #1c1c1e;
-  --ink-2: rgba(60, 60, 67, 0.62);
-  --ink-3: rgba(60, 60, 67, 0.34);
-  --line: rgba(60, 60, 67, 0.14);
-  --line-strong: rgba(60, 60, 67, 0.26);
+  color-scheme: light;
 
-  /* Apple 标准色 */
-  --blue: #007aff;
-  --green: #34c759;
-  --red: #ff3b30;
-  --orange: #ff9500;
-  --yellow: #ffcc00;
-  --pink: #ff2d55;
-  --purple: #af52de;
-  --teal: #5ac8fa;
-  --indigo: #5856d6;
-  --mint: #00c7be;
-  --gray: #8e8e93;
+  /* ========== 设计令牌（方向 B：内容优先的工具型）========== */
+  /* 表面与描边：中性底 + 发丝边框，替代原来的毛玻璃与极光 */
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --surface-2: #f9fafb;
+  --surface-3: #f1f3f6;
+  --border: #e4e6eb;
+  --border-strong: #d3d7de;
 
-  --primary: #007aff;
-  --accent: #ff9500;
-  --danger: #ff3b30;
-  --success: #34c759;
+  /* 文本 */
+  --text: #111827;
+  --text-2: #5b6472;
+  --text-3: #8b93a1;
 
-  /* 液态玻璃材质 */
-  --lg-bg: linear-gradient(135deg, rgba(255, 255, 255, 0.66) 0%, rgba(255, 255, 255, 0.34) 100%);
-  --lg-border: rgba(255, 255, 255, 0.72);
-  --lg-blur: 26px;
-  --lg-shadow:
-    0 10px 40px rgba(31, 41, 92, 0.12),
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    inset 0 -1px 0 rgba(255, 255, 255, 0.45),
-    inset 1px 0 0 rgba(255, 255, 255, 0.6),
-    inset -1px 0 0 rgba(255, 255, 255, 0.6);
+  /* 强调色与语义色 */
+  --accent: #1f6feb;
+  --accent-hover: #1a5fd0;
+  --accent-weak: #eaf1fd;
+  --ok: #16a34a;
+  --ok-weak: #e8f6ed;
+  --warn: #d97706;
+  --warn-weak: #fdf3e5;
+  --danger: #dc2626;
+  --danger-weak: #fdecec;
 
-  --bg-grouped: rgba(242, 242, 247, 0.66);
-  --radius-lg: 24px;
-  --radius-md: 16px;
-  --radius-sm: 12px;
-  --shadow-sm: 0 2px 12px rgba(31, 41, 92, 0.08);
-  --shadow-md: 0 12px 36px rgba(31, 41, 92, 0.14);
-  --shadow-lg: 0 24px 64px rgba(31, 41, 92, 0.18);
+  /* 阴影只用极浅两层，圆角从 16-24px 收敛到 6-14px */
+  --shadow-1: 0 1px 2px rgba(16, 24, 40, 0.04);
+  --shadow-2: 0 4px 12px rgba(16, 24, 40, 0.06);
+  --shadow-3: 0 12px 32px rgba(16, 24, 40, 0.1);
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-full: 999px;
 
-  --grad-primary: linear-gradient(135deg, #007aff, #5ac8fa);
-  --grad-card: var(--lg-bg);
+  /* 间距刻度 */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+
+  /* 布局 */
+  --sidebar: 232px;
+  --sidebar-rail: 76px;
+  --content-max: 1180px;
+
+  /* ========== 兼容别名：旧变量名 → 新令牌 ==========
+     既有 2000+ 行样式全部引用下面这些旧名字，
+     在这里统一映射即可整站换肤，无需逐条改规则。 */
+  --ink: var(--text);
+  --ink-2: var(--text-2);
+  --ink-3: var(--text-3);
+  --line: var(--border);
+  --line-strong: var(--border-strong);
+  --blue: var(--accent);
+  --primary: var(--accent);
+  --green: var(--ok);
+  --success: var(--ok);
+  --red: var(--danger);
+  --orange: var(--warn);
+  --gray: var(--text-3);
+
+  /* 点缀色（图表/头像用）：保留色相，整体降饱和以贴合中性底 */
+  --yellow: #d9a600;
+  --pink: #d6457a;
+  --purple: #7c5cd6;
+  --teal: #2f9fb8;
+  --indigo: #4f5bd5;
+  --mint: #17a08a;
+
+  /* ========== 材质：液态玻璃 → 平面 ==========
+     旧样式通过这四个变量取材质，映射后自动变成平面卡片。 */
+  --lg-bg: var(--surface);
+  --lg-border: var(--border);
+  --lg-blur: 0px;
+  --lg-shadow: var(--shadow-1);
+  --bg-grouped: var(--bg);
+  --grad-card: var(--surface);
+  --grad-primary: linear-gradient(135deg, var(--accent), #5b9bff);
+
+  /* 旧圆角/阴影刻度 → 收敛后的值 */
+  --radius-lg: var(--r-lg);
+  --radius-md: var(--r-md);
+  --radius-sm: var(--r-sm);
+  --shadow-sm: var(--shadow-1);
+  --shadow-md: var(--shadow-2);
+  --shadow-lg: var(--shadow-3);
 }
 
 * {
@@ -67,36 +112,14 @@ body,
   -webkit-font-smoothing: antialiased;
 }
 
-/* ---------- 液态画布：浅色极光渐变，供玻璃折射 ---------- */
+/* ---------- 画布：中性底色（原来的极光渐变已移除）---------- */
 body {
-  background: linear-gradient(165deg, #eef2ff 0%, #f6f2ff 35%, #f0faff 70%, #fdf2f8 100%);
-  background-attachment: fixed;
+  background: var(--bg);
 }
 
+/* 兼容旧的极光结构：即使仍被渲染也不显示 */
 .aurora {
-  position: fixed;
-  inset: 0;
-  overflow: hidden;
-  pointer-events: none;
-  z-index: 0;
-}
-
-.aurora span {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(80px);
-  opacity: 0.55;
-}
-
-.aurora .a1 { width: 520px; height: 520px; top: -160px; left: -120px; background: #a5b4fc; animation: liquidDrift 30s ease-in-out infinite; }
-.aurora .a2 { width: 460px; height: 460px; top: 24%; right: -160px; background: #f0abfc; animation: liquidDrift 36s ease-in-out infinite reverse; }
-.aurora .a3 { width: 420px; height: 420px; bottom: -140px; left: 30%; background: #7dd3fc; animation: liquidDrift 42s ease-in-out infinite; }
-.aurora .a4 { width: 300px; height: 300px; top: 8%; left: 46%; background: #fda4af; opacity: 0.4; animation: liquidDrift 48s ease-in-out infinite reverse; }
-
-@keyframes liquidDrift {
-  0%, 100% { transform: translate(0, 0) scale(1) rotate(0deg); }
-  33% { transform: translate(70px, -50px) scale(1.1) rotate(8deg); }
-  66% { transform: translate(-60px, 40px) scale(0.94) rotate(-6deg); }
+  display: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -108,8 +131,8 @@ body {
 .lg {
   position: relative;
   background: var(--lg-bg);
-  backdrop-filter: blur(var(--lg-blur)) saturate(190%);
-  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(190%);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   border-radius: var(--radius-lg);
   box-shadow: var(--lg-shadow);
   isolation: isolate;
@@ -215,8 +238,8 @@ body {
   padding: 44px 40px;
   border-radius: 30px;
   background: var(--lg-bg);
-  backdrop-filter: blur(30px) saturate(200%);
-  -webkit-backdrop-filter: blur(30px) saturate(200%);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   border: 1px solid var(--lg-border);
   box-shadow: var(--lg-shadow);
   display: flex;
@@ -278,8 +301,8 @@ body {
 .login-card {
   width: 400px;
   background: var(--lg-bg);
-  backdrop-filter: blur(30px) saturate(200%);
-  -webkit-backdrop-filter: blur(30px) saturate(200%);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   border: 1px solid var(--lg-border);
   border-radius: 30px;
   box-shadow: var(--lg-shadow);
@@ -344,8 +367,8 @@ body {
   width: 216px;
   border-radius: 30px;
   background: var(--lg-bg);
-  backdrop-filter: blur(30px) saturate(200%);
-  -webkit-backdrop-filter: blur(30px) saturate(200%);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   border: 1px solid var(--lg-border);
   box-shadow: var(--lg-shadow);
   display: flex;
@@ -513,8 +536,8 @@ body {
   position: relative;
   border-radius: var(--radius-lg);
   background: var(--lg-bg);
-  backdrop-filter: blur(var(--lg-blur)) saturate(190%);
-  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(190%);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   border: 1px solid var(--lg-border);
   box-shadow: var(--lg-shadow);
   padding: 16px;
@@ -542,8 +565,8 @@ body {
   position: relative;
   border-radius: var(--radius-lg);
   background: var(--lg-bg);
-  backdrop-filter: blur(var(--lg-blur)) saturate(190%);
-  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(190%);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   border: 1px solid var(--lg-border);
   box-shadow: var(--lg-shadow);
   padding: 16px;
@@ -591,8 +614,8 @@ body {
   position: relative;
   border-radius: var(--radius-lg);
   background: var(--lg-bg);
-  backdrop-filter: blur(var(--lg-blur)) saturate(190%);
-  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(190%);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   border: 1px solid var(--lg-border);
   box-shadow: var(--lg-shadow);
   padding: 18px;
@@ -638,8 +661,8 @@ body {
   position: relative;
   border-radius: var(--radius-lg);
   background: var(--lg-bg);
-  backdrop-filter: blur(var(--lg-blur)) saturate(190%);
-  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(190%);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   border: 1px solid var(--lg-border);
   box-shadow: var(--lg-shadow);
   padding: 16px;
@@ -671,8 +694,8 @@ body {
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.8);
   background: rgba(255, 255, 255, 0.5);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   font-size: 13px;
   color: var(--ink-2);
   cursor: pointer;
@@ -700,8 +723,8 @@ body {
   position: relative;
   border-radius: var(--radius-lg);
   background: var(--lg-bg);
-  backdrop-filter: blur(var(--lg-blur)) saturate(185%);
-  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(185%);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   border: 1px solid var(--lg-border);
   box-shadow: var(--shadow-sm), inset 0 1px 0 rgba(255, 255, 255, 0.85);
   padding: 18px;
@@ -761,8 +784,8 @@ body {
   position: relative;
   border-radius: var(--radius-lg);
   background: var(--lg-bg);
-  backdrop-filter: blur(var(--lg-blur)) saturate(190%);
-  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(190%);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   border: 1px solid var(--lg-border);
   box-shadow: var(--lg-shadow);
   padding: 18px;
@@ -853,8 +876,8 @@ body {
 .inset-list {
   position: relative;
   background: var(--lg-bg);
-  backdrop-filter: blur(var(--lg-blur)) saturate(185%);
-  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(185%);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   border: 1px solid var(--lg-border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm), inset 0 1px 0 rgba(255, 255, 255, 0.8);
@@ -943,8 +966,8 @@ body {
 
 .empty-trips {
   background: var(--lg-bg);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   border: 1.5px dashed var(--line-strong);
   border-radius: var(--radius-lg);
   padding: 44px 20px;
@@ -992,8 +1015,8 @@ body {
 .trip-header {
   position: relative;
   background: var(--lg-bg);
-  backdrop-filter: blur(28px) saturate(190%);
-  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   border-bottom: 1px solid var(--lg-border);
   padding: 10px 18px;
   display: flex;
@@ -1023,8 +1046,8 @@ body {
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.65);
   border: 1px solid var(--lg-border);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   box-shadow: 0 4px 14px rgba(31, 41, 92, 0.08);
 }
 
@@ -1066,7 +1089,7 @@ body {
 
 .map-card .maplibregl-ctrl-group {
   background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(10px);
+  backdrop-filter: none;
 }
 
 .map-card .map-badge {
@@ -1077,8 +1100,8 @@ body {
   padding: 5px 12px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.75);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   border: 1px solid var(--lg-border);
   font-size: 12.5px;
   color: var(--ink);
@@ -1102,8 +1125,8 @@ body {
   border-radius: 999px;
   overflow: hidden;
   border: 1px solid var(--lg-border);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   background: rgba(255, 255, 255, 0.72);
   box-shadow: 0 4px 14px rgba(31, 41, 92, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.85);
 }
@@ -1138,8 +1161,8 @@ body {
 .map-ctl-btn.tour {
   border-radius: 999px;
   border: 1px solid var(--lg-border);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   background: rgba(255, 255, 255, 0.72);
   box-shadow: 0 4px 14px rgba(31, 41, 92, 0.1);
 }
@@ -1197,8 +1220,8 @@ body {
   padding: 2px 9px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.88);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   border: 1px solid var(--lg-border);
   color: var(--ink);
   font-size: 11px;
@@ -1212,8 +1235,8 @@ body {
   grid-row: 2;
   border-radius: var(--radius-lg);
   background: var(--lg-bg);
-  backdrop-filter: blur(var(--lg-blur)) saturate(185%);
-  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(185%);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   border: 1px solid var(--lg-border);
   box-shadow: var(--shadow-sm), inset 0 1px 0 rgba(255, 255, 255, 0.8);
   display: flex;
@@ -1234,8 +1257,8 @@ body {
   grid-row: 1 / span 2;
   border-radius: var(--radius-lg);
   background: var(--lg-bg);
-  backdrop-filter: blur(var(--lg-blur)) saturate(190%);
-  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(190%);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   border: 1px solid var(--lg-border);
   box-shadow: var(--shadow-sm), inset 0 1px 0 rgba(255, 255, 255, 0.8);
   display: flex;
@@ -1289,8 +1312,8 @@ body {
   width: min(720px, 100%);
   border-radius: var(--radius-lg);
   background: var(--lg-bg);
-  backdrop-filter: blur(30px) saturate(195%);
-  -webkit-backdrop-filter: blur(30px) saturate(195%);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   border: 1px solid var(--lg-border);
   box-shadow: var(--lg-shadow);
   display: flex;
@@ -1347,8 +1370,8 @@ body {
 
 .chat-bubble.assistant {
   background: rgba(255, 255, 255, 0.82);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   color: #1c1c1e;
   border-radius: 18px 18px 18px 5px;
   border: 1px solid rgba(255, 255, 255, 0.6);
@@ -1614,8 +1637,8 @@ body {
   margin: 0 auto;
   border-radius: 30px;
   background: var(--lg-bg);
-  backdrop-filter: blur(30px) saturate(200%);
-  -webkit-backdrop-filter: blur(30px) saturate(200%);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   border: 1px solid var(--lg-border);
   box-shadow: var(--lg-shadow);
   padding: 28px;
@@ -1759,8 +1782,8 @@ body {
   color: var(--ink-2);
   background: rgba(255, 255, 255, 0.72);
   border: 1px solid rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(14px) saturate(1.4);
-  -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   pointer-events: none;
 }
 
@@ -1784,15 +1807,15 @@ body {
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.66);
   border: 1px solid rgba(255, 255, 255, 0.72);
-  backdrop-filter: blur(18px) saturate(1.5);
-  -webkit-backdrop-filter: blur(18px) saturate(1.5);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .fp-ctl {
   border: 1px solid rgba(255, 255, 255, 0.7);
   background: rgba(255, 255, 255, 0.72);
-  backdrop-filter: blur(18px) saturate(1.5);
-  -webkit-backdrop-filter: blur(18px) saturate(1.5);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   color: var(--ink);
   font-size: 12px;
   font-weight: 600;
@@ -1883,8 +1906,8 @@ body {
   background: rgba(255, 255, 255, 0.9);
   border: 1px solid rgba(255, 255, 255, 0.72);
   box-shadow: 0 4px 12px rgba(31, 41, 92, 0.14);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   transition: opacity 0.2s ease, transform 0.2s ease;
 }
 
@@ -1941,8 +1964,8 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.8);
   border-left: 4px solid var(--mc, var(--primary));
   box-shadow: 0 16px 40px rgba(31, 41, 92, 0.2);
-  backdrop-filter: blur(18px) saturate(1.5);
-  -webkit-backdrop-filter: blur(18px) saturate(1.5);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .fp-popup-head {
@@ -2033,8 +2056,8 @@ body {
   background: var(--lg-bg);
   border: 1px solid var(--lg-border);
   box-shadow: var(--lg-shadow);
-  backdrop-filter: blur(var(--lg-blur)) saturate(1.6);
-  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(1.6);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .fp-stat .fs-num {
@@ -2070,8 +2093,8 @@ body {
   background: var(--lg-bg);
   border: 1px solid var(--lg-border);
   box-shadow: var(--lg-shadow);
-  backdrop-filter: blur(var(--lg-blur)) saturate(1.6);
-  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(1.6);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   overflow-y: auto;
   max-height: calc(100vh - 240px);
 }
@@ -2190,8 +2213,8 @@ body {
   height: 100%;
   min-height: 420px;
   background: var(--lg-bg);
-  backdrop-filter: blur(var(--lg-blur)) saturate(1.6);
-  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(1.6);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .fp-state-text {
@@ -2667,3 +2690,666 @@ body {
     grid-template-columns: repeat(2, 1fr);
   }
 }
+
+/* ============================================================
+   重设计（方向 B：内容优先的工具型）
+   ------------------------------------------------------------
+   本段位于文件末尾，用同名选择器覆盖前面的"液态玻璃"样式。
+   配色/圆角/阴影已通过 :root 令牌替换；这里处理布局、材质收敛与响应式。
+   ============================================================ */
+
+/* ---------- 外壳：悬浮玻璃边栏 → 常规固定侧栏 ---------- */
+.app-shell {
+  background: var(--bg);
+}
+
+.app-sidebar {
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--sidebar);
+  padding: var(--sp-4) var(--sp-3);
+  background: var(--surface);
+  border: 0;
+  border-right: 1px solid var(--border);
+  border-radius: 0;
+  box-shadow: none;
+  gap: var(--sp-3);
+}
+
+.app-sidebar .sb-brand {
+  padding: 2px var(--sp-2) var(--sp-3);
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.1px;
+}
+
+.app-sidebar .sb-brand .hn-logo {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-sm);
+  background: var(--accent-weak);
+  color: var(--accent);
+  font-size: 14px;
+  box-shadow: none;
+}
+
+.sb-modules {
+  gap: 2px;
+  margin-top: 0;
+}
+
+.sb-section {
+  padding: var(--sp-3) var(--sp-2) var(--sp-1);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.sb-link {
+  padding: 7px var(--sp-2);
+  border-radius: var(--r-sm);
+  font-size: 13px;
+  font-weight: 500;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.sb-link:hover {
+  background: var(--surface-2);
+  transform: none;
+}
+
+.sb-link.active {
+  background: var(--accent-weak);
+  color: var(--accent);
+  font-weight: 600;
+  box-shadow: none;
+}
+
+.sb-footer {
+  border-top: 1px solid var(--border);
+  padding-top: var(--sp-2);
+  margin-top: var(--sp-2);
+}
+
+.sb-user {
+  padding: 6px var(--sp-2);
+}
+
+.sb-user .sb-avatar {
+  background: var(--accent);
+  box-shadow: none;
+}
+
+.app-content {
+  margin-left: var(--sidebar);
+  padding: var(--sp-6);
+}
+
+.app-content > .dash-wrap,
+.app-content > .trip-page,
+.app-content > .fp-page {
+  max-width: var(--content-max);
+  margin: 0 auto;
+}
+
+/* 移动端底部标签栏：桌面隐藏 */
+.app-tabbar {
+  display: none;
+}
+
+.app-tabbar a {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 0 4px;
+  font-size: 10.5px;
+  color: var(--text-3);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.app-tabbar a.on {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.app-tabbar .tb-icon {
+  font-size: 17px;
+  line-height: 1;
+}
+
+/* ---------- 窄屏：≤1080 收成图标栏，≤720 换底部标签栏 ---------- */
+@media (max-width: 1080px) {
+  .app-sidebar {
+    /* 覆盖旧版 ≤900px 的"横向顶栏"规则：统一成竖向图标栏 */
+    position: fixed;
+    left: 0;
+    right: auto;
+    top: 0;
+    bottom: 0;
+    width: var(--sidebar-rail);
+    flex-direction: column;
+    align-items: stretch;
+    padding: var(--sp-4) var(--sp-2);
+  }
+
+  .sb-modules {
+    flex-direction: column;
+    margin: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .sb-footer {
+    border-top: 1px solid var(--border);
+    padding-top: var(--sp-2);
+    margin-top: var(--sp-2);
+  }
+
+  .sb-user {
+    display: flex;
+  }
+
+  .app-sidebar .sb-brand {
+    justify-content: center;
+    padding: 2px 0 var(--sp-3);
+  }
+
+  .app-sidebar .sb-brand .sb-brand-text,
+  .sb-label {
+    display: none;
+  }
+
+  .sb-section {
+    display: none;
+  }
+
+  .sb-link {
+    justify-content: center;
+    padding: 9px 0;
+    font-size: 16px;
+  }
+
+  .sb-user {
+    justify-content: center;
+    padding: 6px 0;
+  }
+
+  .sb-user .sb-user-name {
+    display: none;
+  }
+
+  .app-content {
+    margin-left: var(--sidebar-rail);
+    padding: var(--sp-5);
+  }
+}
+
+@media (max-width: 720px) {
+  .app-sidebar {
+    display: none;
+  }
+
+  .app-content {
+    margin-left: 0;
+    padding: var(--sp-4) var(--sp-4) 92px;
+  }
+
+  .app-tabbar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 40;
+    display: flex;
+    padding: 4px var(--sp-2) calc(4px + env(safe-area-inset-bottom));
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+  }
+}
+
+/* ---------- 页面标题区（所有页面共用 dash-greeting） ---------- */
+.dash-wrap {
+  gap: var(--sp-4);
+}
+
+.dash-greeting {
+  align-items: center;
+}
+
+.dash-greeting h1 {
+  font-size: 24px;
+  font-weight: 680;
+  letter-spacing: -0.01em;
+}
+
+.dash-greeting .dg-date {
+  font-size: 13px;
+}
+
+/* ---------- 卡片与面板：玻璃 → 平面 ---------- */
+.dash-card,
+.stat-card,
+.assistant-quick,
+.feature-card,
+.trip-row,
+.memo-row,
+.empty-trips,
+.profile-head,
+.stat-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-1);
+}
+
+.dash-card:hover,
+.stat-card:hover,
+.feature-card:hover {
+  box-shadow: var(--shadow-2);
+}
+
+.dc-head b {
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.dc-link {
+  color: var(--accent);
+  font-size: 12.5px;
+}
+
+/* 数字与标签的层级：数值更大更重，标签更小更轻 */
+.sc-num,
+.hss-num,
+.stat-box .sb-num {
+  letter-spacing: -0.01em;
+}
+
+.sc-label {
+  font-size: 12px;
+}
+
+/* ---------- 统计条 ---------- */
+.stat-row {
+  gap: var(--sp-3);
+}
+
+.stat-card {
+  padding: var(--sp-4);
+}
+
+.sc-icon {
+  border-radius: var(--r-sm);
+  box-shadow: none;
+}
+
+.assistant-quick {
+  padding: var(--sp-3) var(--sp-4);
+}
+
+.assistant-quick .aq-input {
+  font-size: 14px;
+}
+
+.suggest-chip {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-full);
+  font-size: 12px;
+}
+
+.suggest-chip:hover {
+  background: var(--accent-weak);
+  color: var(--accent);
+}
+
+/* ---------- 首页：足迹块改为浅色卡片 ---------- */
+.hero-globe {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-1);
+  transform: none;
+  min-height: 440px;
+}
+
+.hg-head {
+  padding: var(--sp-4) var(--sp-4) var(--sp-2);
+  color: var(--text);
+}
+
+.hg-head b {
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+.hg-head span {
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.hg-timeline {
+  gap: 6px;
+  padding: var(--sp-3);
+  background: var(--surface-2);
+  border-top: 1px solid var(--border);
+}
+
+.tl-chip {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 10px;
+}
+
+.tl-chip:hover {
+  background: var(--surface-3);
+  transform: none;
+}
+
+.tl-chip.active {
+  background: var(--accent-weak);
+  border-color: var(--accent-weak);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.tl-chip.action {
+  background: var(--surface);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.tl-chip.action:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.hss-item {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+}
+
+.hss-num {
+  font-weight: 680;
+}
+
+.recent-trip {
+  border-radius: var(--r-sm);
+}
+
+.recent-trip:hover {
+  background: var(--surface-2);
+}
+
+/* ---------- 首页：左列（足迹 + 待办）与快捷入口 ---------- */
+.hero-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  min-width: 0;
+}
+
+/*
+ * 地图区必须给"确定高度"：.fp-canvas/.fp-map 用的是 height:100%，
+ * 而百分比高度需要一个确定的父高度。父容器若只有 flex/min-height，
+ * 解析结果会退化成 auto，maplibre 容器塌成 0 高、再被 overflow:hidden 裁掉（表现为整块空白）。
+ */
+.hg-map {
+  flex: none;
+  height: 380px;
+  min-height: 300px;
+}
+
+.hero-grid {
+  gap: var(--sp-4);
+  align-items: start;
+}
+
+.todo-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.todo-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 7px 0;
+  font-size: 13px;
+  border-top: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.todo-item:first-child {
+  border-top: 0;
+}
+
+.todo-item input {
+  accent-color: var(--accent);
+}
+
+.quick-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-2);
+}
+
+.quick-btn {
+  padding: var(--sp-3);
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  text-align: left;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+
+.quick-btn:hover {
+  background: var(--surface-3);
+  border-color: var(--border-strong);
+}
+
+/* 去掉残留的玻璃高光与扫光装饰 */
+.lg-sweep::after,
+.lg::before {
+  display: none;
+}
+
+/* ---------- 列表行（行程 / 备忘 / 记账） ---------- */
+.trip-row {
+  padding: var(--sp-3) var(--sp-4);
+}
+
+.trip-row:hover {
+  border-color: var(--border-strong);
+}
+
+.tr-title {
+  font-weight: 600;
+}
+
+.section-head {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.mini-tag {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  border-radius: var(--r-sm);
+}
+
+/* ---------- 登录页：去掉玻璃卡片 ---------- */
+.login-brand,
+.login-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-2);
+}
+
+.login-card .brand-mini .logo,
+.feature-item .fi-icon {
+  box-shadow: none;
+  border-radius: var(--r-sm);
+}
+
+.login-page {
+  background: var(--bg);
+}
+
+/* ---------- 响应式：栅格与工作台 ---------- */
+@media (max-width: 1080px) {
+  .hero-grid,
+  .dash-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .hero-side {
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 720px) {
+  .dash-greeting h1 {
+    font-size: 20px;
+  }
+
+  .stat-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .hero-side-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .hero-globe {
+    min-height: 360px;
+  }
+
+  .login-page {
+    grid-template-columns: 1fr;
+    padding: var(--sp-4);
+  }
+
+  .login-card {
+    width: 100%;
+  }
+}
+
+/* ---------- 页头：左侧标题组 + 右侧操作组 ---------- */
+.dg-left {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.page-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px var(--sp-3);
+  font-size: 12.5px;
+  color: var(--text-2);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-full);
+}
+
+.chip-ok {
+  color: var(--ok);
+  background: var(--ok-weak);
+  border-color: transparent;
+}
+
+.chip-warn {
+  color: var(--warn);
+  background: var(--warn-weak);
+  border-color: transparent;
+}
+
+/* ---------- 行程页：地图 + 助手并排，时间轴独立成卡 ---------- */
+.trip-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(320px, 1fr);
+  gap: var(--sp-4);
+  align-items: stretch;
+}
+
+.trip-map-card,
+.trip-chat-card,
+.trip-timeline-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.trip-map-body {
+  position: relative;
+  flex: 1;
+  min-height: 420px;
+  overflow: hidden;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+}
+
+.trip-chat-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 420px;
+}
+
+.trip-chat-body .chat-messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.trip-timeline-card .tl-scroll {
+  max-height: 62vh;
+  overflow-y: auto;
+  padding-right: var(--sp-1);
+}
+
+.mini-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+@media (max-width: 1080px) {
+  .trip-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .trip-map-body {
+    min-height: 320px;
+  }
+
+  .trip-chat-body {
+    min-height: 300px;
+  }
+}
+
