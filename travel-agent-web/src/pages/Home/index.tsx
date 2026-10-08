@@ -8,6 +8,7 @@ import { getExpenseOverview } from '../../api/expense';
 import { getMemos, toggleMemo } from '../../api/memo';
 import { healthSummary, listArtifacts, listMinutes, listReports, listSchedule, type ScheduleItem } from '../../api/assistant';
 import { useAuthStore } from '../../store/authStore';
+import { useThemeStore } from '../../store/themeStore';
 import AppShell from '../../components/AppShell';
 import CityDrawer from '../../components/CityDrawer';
 import VoiceButton from '../../components/VoiceButton';
@@ -33,6 +34,7 @@ export default function Home() {
   const { message } = App.useApp();
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
+  const themeMode = useThemeStore((s) => s.mode);
 
   const [prompt, setPrompt] = useState('');
   const [mapPoints, setMapPoints] = useState<TripMapPoint[] | null>(null);
@@ -220,7 +222,7 @@ export default function Home() {
                   <FootprintMap
                     points={visiblePoints}
                     mode="city"
-                    theme="light"
+                    theme={themeMode === 'dark' ? 'dark' : 'light'}
                     autoSpin
                     showControls={false}
                     playSignal={playSignal}

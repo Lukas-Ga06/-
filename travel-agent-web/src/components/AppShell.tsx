@@ -3,6 +3,7 @@ import { Button } from 'antd';
 import { LogoutOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
+import { useThemeStore } from '../store/themeStore';
 
 const GROUPS: { section: string; items: { key: string; label: string; path: string; icon: string }[] }[] = [
   {
@@ -52,6 +53,8 @@ export default function AppShell({ active, children }: { active: NavModule; chil
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
+  const themeMode = useThemeStore((s) => s.mode);
+  const toggleTheme = useThemeStore((s) => s.toggle);
 
   if (insideShell) {
     return <>{children}</>;
@@ -111,6 +114,14 @@ export default function AppShell({ active, children }: { active: NavModule; chil
                 navigate('/login');
               }}
             />
+            <Button
+              type="text"
+              size="small"
+              title={themeMode === 'dark' ? '切换到浅色' : '切换到暗色'}
+              onClick={toggleTheme}
+            >
+              {themeMode === 'dark' ? '☀️' : '🌙'}
+            </Button>
           </div>
         </div>
         </aside>
@@ -126,6 +137,10 @@ export default function AppShell({ active, children }: { active: NavModule; chil
               <span>{t.label}</span>
             </a>
           ))}
+          <a onClick={toggleTheme} title={themeMode === 'dark' ? '切换到浅色' : '切换到暗色'}>
+            <span className="tb-icon">{themeMode === 'dark' ? '☀️' : '🌙'}</span>
+            <span>主题</span>
+          </a>
         </nav>
       </div>
     </InsideShell.Provider>

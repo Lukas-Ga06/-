@@ -97,6 +97,60 @@
   --shadow-lg: var(--shadow-3);
 }
 
+/* ============================================================
+   暗色主题
+   ------------------------------------------------------------
+   只覆盖"新令牌"这一层；上面 :root 里的旧名字都是别名（--ink: var(--text) 等），
+   CSS 变量在使用时才求值，所以别名会自动跟随，不需要重复定义。
+   由 store/themeStore.ts 在 <html> 上切换 data-theme。
+   ============================================================ */
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  --bg: #0f1115;
+  --surface: #161920;
+  --surface-2: #1b1f27;
+  --surface-3: #222732;
+  --border: #262b35;
+  --border-strong: #333a46;
+
+  --text: #e8eaee;
+  --text-2: #a0a7b4;
+  --text-3: #6f7885;
+
+  --accent: #5b9bff;
+  --accent-hover: #7cb0ff;
+  --accent-weak: #16233a;
+  --ok: #4ade80;
+  --ok-weak: #12261a;
+  --warn: #fbbf24;
+  --warn-weak: #2a2010;
+  --danger: #f87171;
+  --danger-weak: #2b1616;
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-2: 0 4px 12px rgba(0, 0, 0, 0.45);
+  --shadow-3: 0 12px 32px rgba(0, 0, 0, 0.5);
+}
+
+/* 暗色下几处需要单独收一下的硬编码：地图底衬、表单占位、滚动条 */
+[data-theme='dark'] .map-card .leaflet-container,
+[data-theme='dark'] .map-card .maplibregl-canvas,
+[data-theme='dark'] .trip-map-body {
+  /* 底图是浅色栅格：容器仍用浅色衬底，避免暗色卡片里出现一块"漂浮的白图" */
+  background: #e8ecf1;
+}
+
+[data-theme='dark'] .map-card .maplibregl-ctrl-group,
+[data-theme='dark'] .maplibregl-popup-content {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+[data-theme='dark'] ::placeholder {
+  color: var(--text-3);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -434,16 +488,16 @@ body {
 }
 
 .sb-link:hover {
-  background: rgba(255, 255, 255, 0.65);
+  background: var(--surface);
   color: var(--ink);
   transform: translateX(3px);
 }
 
 .sb-link.active {
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--surface);
   color: var(--blue);
   font-weight: 700;
-  box-shadow: 0 4px 16px rgba(31, 41, 92, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  box-shadow: 0 4px 16px rgba(31, 41, 92, 0.12);
 }
 
 .sb-footer {
@@ -692,8 +746,8 @@ body {
 .suggest-chip {
   padding: 6px 14px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.8);
-  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid var(--border);
+  background: var(--surface);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   font-size: 13px;
@@ -707,7 +761,7 @@ body {
 .suggest-chip:hover {
   border-color: rgba(0, 122, 255, 0.4);
   color: var(--blue);
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--surface);
   transform: translateY(-2px) scale(1.03);
   box-shadow: 0 6px 18px rgba(0, 122, 255, 0.15);
 }
@@ -726,7 +780,7 @@ body {
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   border: 1px solid var(--lg-border);
-  box-shadow: var(--shadow-sm), inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  box-shadow: var(--shadow-sm);
   padding: 18px;
   display: flex;
   gap: 13px;
@@ -868,7 +922,7 @@ body {
 }
 
 .recent-expense-row:hover {
-  background: rgba(255, 255, 255, 0.65);
+  background: var(--surface);
   transform: translateX(3px);
 }
 
@@ -880,7 +934,7 @@ body {
   -webkit-backdrop-filter: none;
   border: 1px solid var(--lg-border);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  box-shadow: var(--shadow-sm);
   overflow: hidden;
 }
 
@@ -894,7 +948,7 @@ body {
   transition: background 0.18s;
 }
 
-.trip-row:hover { background: rgba(255, 255, 255, 0.55); }
+.trip-row:hover { background: var(--surface); }
 
 .trip-row:not(:last-child)::after {
   content: '';
@@ -982,7 +1036,7 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  background: rgba(255, 255, 255, 0.5);
+  background: var(--surface);
   flex-shrink: 0;
 }
 
@@ -1044,7 +1098,7 @@ body {
   align-items: flex-end;
   padding: 5px 14px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.65);
+  background: var(--surface);
   border: 1px solid var(--lg-border);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
@@ -1088,7 +1142,7 @@ body {
 .map-card .maplibregl-canvas { background: #e8ecf1; }
 
 .map-card .maplibregl-ctrl-group {
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--surface);
   backdrop-filter: none;
 }
 
@@ -1099,7 +1153,7 @@ body {
   z-index: 500;
   padding: 5px 12px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.75);
+  background: var(--surface);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   border: 1px solid var(--lg-border);
@@ -1127,8 +1181,8 @@ body {
   border: 1px solid var(--lg-border);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
-  background: rgba(255, 255, 255, 0.72);
-  box-shadow: 0 4px 14px rgba(31, 41, 92, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  background: var(--surface);
+  box-shadow: 0 4px 14px rgba(31, 41, 92, 0.1);
 }
 
 .map-ctl-btn {
@@ -1149,7 +1203,7 @@ body {
 
 .map-ctl-btn:hover {
   color: var(--blue);
-  background: rgba(255, 255, 255, 0.6);
+  background: var(--surface);
 }
 
 .map-ctl-btn.active {
@@ -1163,7 +1217,7 @@ body {
   border: 1px solid var(--lg-border);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
-  background: rgba(255, 255, 255, 0.72);
+  background: var(--surface);
   box-shadow: 0 4px 14px rgba(31, 41, 92, 0.1);
 }
 
@@ -1189,7 +1243,7 @@ body {
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.9);
+  background: var(--surface);
   border: 2px solid var(--mc, #007aff);
   display: grid;
   place-items: center;
@@ -1219,7 +1273,7 @@ body {
   transform: translateY(-50%);
   padding: 2px 9px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.88);
+  background: var(--surface);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   border: 1px solid var(--lg-border);
@@ -1238,7 +1292,7 @@ body {
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   border: 1px solid var(--lg-border);
-  box-shadow: var(--shadow-sm), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  box-shadow: var(--shadow-sm);
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -1260,7 +1314,7 @@ body {
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   border: 1px solid var(--lg-border);
-  box-shadow: var(--shadow-sm), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  box-shadow: var(--shadow-sm);
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -1273,7 +1327,7 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  background: rgba(255, 255, 255, 0.5);
+  background: var(--surface);
 }
 
 .chat-card .chat-head .ch-avatar {
@@ -1369,12 +1423,12 @@ body {
 }
 
 .chat-bubble.assistant {
-  background: rgba(255, 255, 255, 0.82);
+  background: var(--surface);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   color: #1c1c1e;
   border-radius: 18px 18px 18px 5px;
-  border: 1px solid rgba(255, 255, 255, 0.6);
+  border: 1px solid var(--border);
   box-shadow: 0 2px 8px rgba(31, 41, 92, 0.06);
 }
 
@@ -1415,7 +1469,7 @@ body {
   display: flex;
   gap: 8px;
   align-items: flex-end;
-  background: rgba(255, 255, 255, 0.45);
+  background: var(--surface);
 }
 
 /* ============================================================
@@ -1481,7 +1535,7 @@ body {
 .t-row .t-card {
   flex: 1;
   min-width: 0;
-  background: rgba(255, 255, 255, 0.55);
+  background: var(--surface);
   border: 1px solid transparent;
   border-radius: var(--radius-md);
   padding: 10px 13px;
@@ -1490,7 +1544,7 @@ body {
 }
 
 .t-row .t-card:hover {
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--surface);
   box-shadow: 0 4px 14px rgba(31, 41, 92, 0.08);
 }
 
@@ -1498,7 +1552,7 @@ body {
 .t-row .t-card.selected {
   border-color: var(--blue);
   box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.14);
-  background: rgba(255, 255, 255, 0.9);
+  background: var(--surface);
 }
 
 .t-row .tc-head {
@@ -1544,7 +1598,7 @@ body {
   font-size: 11px;
   padding: 1.5px 8px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.65);
+  background: var(--surface);
   color: var(--ink-2);
   border: 1px solid var(--line);
 }
@@ -1674,7 +1728,7 @@ body {
 .stat-box {
   border-radius: var(--radius-md);
   padding: 15px;
-  background: rgba(255, 255, 255, 0.55);
+  background: var(--surface);
   border: 1px solid var(--line);
 }
 
@@ -1780,8 +1834,8 @@ body {
   border-radius: 999px;
   font-size: 11.5px;
   color: var(--ink-2);
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.7);
+  background: var(--surface);
+  border: 1px solid var(--border);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   pointer-events: none;
@@ -1805,15 +1859,15 @@ body {
   gap: 6px;
   padding: 4px;
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.66);
-  border: 1px solid rgba(255, 255, 255, 0.72);
+  background: var(--surface);
+  border: 1px solid var(--border);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
 
 .fp-ctl {
-  border: 1px solid rgba(255, 255, 255, 0.7);
-  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--border);
+  background: var(--surface);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   color: var(--ink);
@@ -1903,8 +1957,8 @@ body {
   font-weight: 600;
   white-space: nowrap;
   color: var(--ink);
-  background: rgba(255, 255, 255, 0.9);
-  border: 1px solid rgba(255, 255, 255, 0.72);
+  background: var(--surface);
+  border: 1px solid var(--border);
   box-shadow: 0 4px 12px rgba(31, 41, 92, 0.14);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
@@ -1960,8 +2014,8 @@ body {
   min-width: 200px;
   padding: 12px 14px;
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.94);
-  border: 1px solid rgba(255, 255, 255, 0.8);
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-left: 4px solid var(--mc, var(--primary));
   box-shadow: 0 16px 40px rgba(31, 41, 92, 0.2);
   backdrop-filter: none;
@@ -2124,14 +2178,14 @@ body {
   padding: 10px 12px;
   border-radius: 14px;
   border: 1px solid transparent;
-  background: rgba(255, 255, 255, 0.6);
+  background: var(--surface);
   cursor: pointer;
   text-align: left;
   transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
 }
 
 .fp-trip:hover {
-  background: rgba(255, 255, 255, 0.9);
+  background: var(--surface);
   border-color: rgba(0, 122, 255, 0.28);
   transform: translateX(2px);
 }
@@ -2295,8 +2349,7 @@ body {
   background: linear-gradient(180deg, #1e1f24 0%, #131418 100%);
   border: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow:
-    0 26px 60px rgba(16, 18, 28, 0.26),
-    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+    0 26px 60px rgba(16, 18, 28, 0.26);
   transform: translate3d(0, -2px, 0);
 }
 
@@ -2393,8 +2446,8 @@ body {
   gap: 2px;
   padding: 10px 4px;
   border-radius: 14px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(242, 242, 247, 0.7));
-  border: 1px solid rgba(255, 255, 255, 0.8);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
 }
 
 .hss-num {
@@ -2465,8 +2518,8 @@ body {
   gap: 2px;
   padding: 10px 12px;
   border-radius: 14px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(242, 242, 247, 0.72));
-  border: 1px solid rgba(255, 255, 255, 0.84);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
 }
 
 .cs-num {
@@ -2520,14 +2573,14 @@ body {
   padding: 10px 12px;
   border-radius: 14px;
   border: 1px solid transparent;
-  background: rgba(255, 255, 255, 0.72);
+  background: var(--surface);
   cursor: pointer;
   text-align: left;
   transition: background 0.18s ease, border-color 0.18s ease;
 }
 
 .city-trip:hover {
-  background: #fff;
+  background: var(--surface);
   border-color: rgba(0, 122, 255, 0.26);
 }
 
@@ -2609,7 +2662,7 @@ body {
   border-radius: 12px;
   overflow: hidden;
   background: #f2f2f7;
-  border: 1px solid rgba(255, 255, 255, 0.8);
+  border: 1px solid var(--border);
   box-shadow: 0 4px 14px rgba(31, 41, 92, 0.08);
 }
 
@@ -3351,5 +3404,25 @@ body {
   .trip-chat-body {
     min-height: 300px;
   }
+}
+
+/* ============================================================
+   末段收口：必须在文件最后，才能盖住上面同名的历史规则
+   （同优先级下 CSS 取"后出现"的那条）
+   ============================================================ */
+
+/* 对话滚动容器原本是 35% 白：浅色下是灰底，深色下会变成一块突兀的浅灰 */
+.chat-messages {
+  background: transparent;
+}
+
+/* 相册缩略图与占位块跟随令牌 */
+.photo-item {
+  background: var(--surface-2);
+}
+
+.photo-empty {
+  background: var(--surface-2);
+  color: var(--text-3);
 }
 

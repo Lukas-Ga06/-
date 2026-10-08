@@ -4,6 +4,7 @@ import { PlusOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import * as echarts from 'echarts';
 import AppShell from '../../components/AppShell';
+import { useThemeStore } from '../../store/themeStore';
 import {
   healthSummary, listHealth, seedHealthDemo, upsertHealth,
   type HealthRecord, type HealthSummary,
@@ -21,6 +22,12 @@ export default function Health() {
   });
   const chartElRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<echarts.ECharts | null>(null);
+  const themeMode = useThemeStore((s) => s.mode);
+  // echarts 画在 canvas 上，读不到 CSS 变量，这里按主题给一组等价色值
+  const dark = themeMode === 'dark';
+  const chartColors = dark
+    ? { axis: '#6f7885', grid: '#333a46', bar: '#5b9bff', line: '#4ade80', legend: '#a0a7b4' }
+    : { axis: '#8b93a1', grid: '#e4e6eb', bar: '#1f6feb', line: '#16a34a', legend: '#5b6472' };
 
   const load = async () => {
     try {
@@ -59,28 +66,29 @@ export default function Health() {
     chart.setOption({
       backgroundColor: 'transparent',
       tooltip: { trigger: 'axis' },
-      legend: { top: 0, textStyle: { color: 'rgba(60,60,67,0.6)' } },
+      legend: { top: 0, textStyle: { color: chartColors.legend } },
       grid: { left: 46, right: 46, top: 34, bottom: 26 },
-      xAxis: { type: 'category', data: days.map((d) => d.date.slice(5)), axisLabel: { color: 'rgba(60,60,67,0.55)' }, axisLine: { lineStyle: { color: '#e4e6eb' } } },
+      xAxis: { type: 'category', data: days.map((d) => d.date.slice(5)), axisLabel: { color: chartColors.axis }, axisLine: { lineStyle: { color: chartColors.grid } } },
       yAxis: [
-        { type: 'value', name: '步数', splitLine: { lineStyle: { color: '#e4e6eb' } }, axisLabel: { color: 'rgba(60,60,67,0.55)' } },
-        { type: 'value', name: '小时', splitLine: { show: false }, axisLabel: { color: 'rgba(60,60,67,0.55)' } },
+        { type: 'value', name: '步数', splitLine: { lineStyle: { color: chartColors.grid } }, axisLabel: { color: chartColors.axis } },
+        { type: 'value', name: '小时', splitLine: { show: false }, axisLabel: { color: chartColors.axis } },
       ],
       series: [
         {
           name: '步数', type: 'bar', data: days.map((d) => d.steps ?? 0), barWidth: 18,
-          itemStyle: { color: '#1f6feb', borderRadius: [4, 4, 0, 0] },
+          itemStyle: { color: chartColors.bar, borderRadius: [4, 4, 0, 0] },
         },
         {
           name: '睡眠(小时)', type: 'line', yAxisIndex: 1,
           data: days.map((d) => d.sleepHours ?? 0),
           smooth: true, symbolSize: 7,
-        lineStyle: { color: '#16a34a', width: 2.5 },
-        itemStyle: { color: '#16a34a' },
+        lineStyle: { color: chartColors.line, width: 2.5 },
+        itemStyle: { color: chartColors.line },
         },
       ],
     });
-  }, [records]);
+    // 主题切换时需要用新的坐标轴/系列配色重画
+  }, [records, themeMode]);
 
   const seed = async () => {
     setSeeding(true);
