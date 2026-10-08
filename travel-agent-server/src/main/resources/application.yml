@@ -4,15 +4,6 @@ server:
 spring:
   application:
     name: travel-agent-server
-management:
-  endpoints:
-    web:
-      # 只暴露必要端点：health 给探活，metrics 给排障（需登录）
-      exposure:
-        include: health,info,metrics
-  endpoint:
-    health:
-      show-details: never
   servlet:
     multipart:
       # 行程照片上传上限
@@ -35,6 +26,16 @@ management:
       path: /h2-console
   jackson:
     time-zone: Asia/Shanghai
+
+management:
+  endpoints:
+    web:
+      # 只暴露必要端点：health 给探活，metrics 给排障（需登录）
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: never
 
 travel:
   # 应用时区：代码里的“今天/明天”都基于它（默认 Asia/Shanghai，避免容器 UTC 导致日期偏移一天）
