@@ -222,8 +222,9 @@ export default function Home() {
                     mode="city"
                     /* 纸质底图是这块的视觉主张：暗色界面下也保留「桌面上的地图纸」观感 */
                     theme="light"
-                    pitch={48}
+                    pitch={60}
                     bearing={-18}
+                    zoom={2.3}
                     autoSpin
                     showControls={false}
                     playSignal={playSignal}

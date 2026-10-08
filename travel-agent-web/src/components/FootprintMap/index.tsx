@@ -86,6 +86,8 @@ interface Props {
   pitch?: number;
   /** 初始方位角（度） */
   bearing?: number;
+  /** 初始缩放：调小一点能看到球体边缘，"球"的感觉更明确 */
+  zoom?: number;
 }
 
 /**
@@ -107,6 +109,7 @@ export default function FootprintMap({
   onTourStateChange,
   pitch: initialPitch = 0,
   bearing: initialBearing = 0,
+  zoom: initialZoom = 2.4,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -475,7 +478,7 @@ export default function FootprintMap({
       // 深色主题优先用免 Key 的矢量样式；加载失败会退回压暗的 OSM 栅格
       style: theme === 'dark' ? DARK_STYLE_URL : buildRasterStyle('light'),
       center: CHINA_OVERVIEW,
-      zoom: 2.4,
+      zoom: initialZoom,
       pitch: initialPitch,
       bearing: initialBearing,
       maxPitch: 78,
@@ -573,7 +576,7 @@ export default function FootprintMap({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
     // 初始视角只在首次初始化时生效；pitch/bearing 变化会重建地图（首页给的是固定值）
-  }, [theme, initialPitch, initialBearing]);
+  }, [theme, initialPitch, initialBearing, initialZoom]);
 
   // 数据或模式变化时重绘
   useEffect(() => {
