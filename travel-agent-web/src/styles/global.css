@@ -3426,3 +3426,65 @@ body {
   color: var(--text-3);
 }
 
+/* ============================================================
+   纸质底图 + 立体感（首页地球 / 足迹页地图共用）
+   ------------------------------------------------------------
+   1) 基底用"纸色"，瓦片留白处也像纸面；
+   2) .fp-canvas 叠一层细颗粒 + 四周压暗，把屏幕感压成印刷纸面；
+   3) 卡片加一层外阴影，读起来像浮起的纸面/纸球。
+   ============================================================ */
+.hg-map,
+.fp-main,
+.fp-canvas {
+  background: #f3ead8;
+}
+
+.fp-canvas {
+  box-shadow: inset 0 0 70px rgba(120, 96, 56, 0.16);
+}
+
+.fp-canvas::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  border-radius: inherit;
+  background-image:
+    repeating-linear-gradient(0deg, rgba(96, 78, 50, 0.05) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(90deg, rgba(96, 78, 50, 0.04) 0 1px, transparent 1px 4px),
+    radial-gradient(125% 95% at 50% 38%, transparent 52%, rgba(88, 68, 36, 0.2) 100%);
+  mix-blend-mode: multiply;
+}
+
+.hero-globe {
+  box-shadow: var(--shadow-2);
+}
+
+[data-theme='dark'] .hg-map,
+[data-theme='dark'] .fp-main,
+[data-theme='dark'] .fp-canvas {
+  background: #14171d;
+}
+
+[data-theme='dark'] .fp-canvas {
+  box-shadow: inset 0 0 70px rgba(0, 0, 0, 0.5);
+}
+
+[data-theme='dark'] .fp-canvas::after {
+  /* 暗色下换成极淡的提亮颗粒，压暗交给 inset 阴影 */
+  background-image: repeating-linear-gradient(
+    0deg,
+    rgba(255, 255, 255, 0.03) 0 1px,
+    transparent 1px 3px
+  );
+  mix-blend-mode: screen;
+  opacity: 0.6;
+}
+
+/* 足迹页现在是旅行规划里的一个 tab：不要再按整屏页面撑高 */
+.dash-wrap .fp-page {
+  min-height: auto;
+  padding: 0;
+}
+

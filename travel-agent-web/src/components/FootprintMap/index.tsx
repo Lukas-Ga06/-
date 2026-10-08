@@ -36,6 +36,12 @@ function buildRasterStyle(theme: FootprintTheme): maplibregl.StyleSpecification 
     },
     layers: [
       {
+        // 纸底：瓦片未加载或留白处也是"纸"的颜色，而不是刺眼的纯白
+        id: 'paper',
+        type: 'background',
+        paint: { 'background-color': dark ? '#12151b' : '#f3ead8' },
+      },
+      {
         id: 'base',
         type: 'raster',
         source: 'base',
@@ -47,7 +53,13 @@ function buildRasterStyle(theme: FootprintTheme): maplibregl.StyleSpecification 
               'raster-brightness-max': 0.42,
               'raster-contrast': 0.18,
             }
-          : { 'raster-saturation': -0.18, 'raster-brightness-max': 0.99, 'raster-contrast': 0.04 },
+          : {
+              // 纸质地图观感：强降饱和 + 略降对比 + 提亮暗部，把底图退成一张描线纸
+              'raster-saturation': -0.45,
+              'raster-brightness-min': 0.08,
+              'raster-brightness-max': 1,
+              'raster-contrast': -0.12,
+            },
       },
     ],
   };
@@ -70,6 +82,10 @@ interface Props {
   /** 自增信号：每次变化触发一次足迹回放 */
   playSignal?: number;
   onTourStateChange?: (touring: boolean) => void;
+  /** 初始俯仰角（度）：首页缩略图给一个倾斜视角会更立体，默认 0 = 正俯视 */
+  pitch?: number;
+  /** 初始方位角（度） */
+  bearing?: number;
 }
 
 /**
@@ -89,6 +105,8 @@ export default function FootprintMap({
   focusTripId = null,
   playSignal = 0,
   onTourStateChange,
+  pitch: initialPitch = 0,
+  bearing: initialBearing = 0,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -458,8 +476,8 @@ export default function FootprintMap({
       style: theme === 'dark' ? DARK_STYLE_URL : buildRasterStyle('light'),
       center: CHINA_OVERVIEW,
       zoom: 2.4,
-      pitch: 0,
-      bearing: 0,
+      pitch: initialPitch,
+      bearing: initialBearing,
       maxPitch: 78,
       minZoom: 1,
       attributionControl: false,
@@ -554,7 +572,8 @@ export default function FootprintMap({
       mapRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [theme]);
+    // 初始视角只在首次初始化时生效；pitch/bearing 变化会重建地图（首页给的是固定值）
+  }, [theme, initialPitch, initialBearing]);
 
   // 数据或模式变化时重绘
   useEffect(() => {

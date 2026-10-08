@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react';
-import { App, Button, Empty, Input, Popconfirm } from 'antd';
-import { DeleteOutlined, RobotOutlined, SearchOutlined, ThunderboltOutlined, UserOutlined } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { App, Button, Empty, Input, Popconfirm, Tabs } from 'antd';
+import { DeleteOutlined, RobotOutlined, UserOutlined } from '@ant-design/icons';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { deleteTrip, listTrips } from '../../api/trip';
 import { useAuthStore } from '../../store/authStore';
 import { useTripStore } from '../../store/tripStore';
 import VoiceButton from '../../components/VoiceButton';
 import AppShell from '../../components/AppShell';
+import Schedule from '../Schedule';
+import Footprint from '../Footprint';
 
 const SUGGESTIONS = [
   '上海三日游，预算3000元，酒店离地铁近一点',
@@ -15,13 +17,11 @@ const SUGGESTIONS = [
   '北京亲子游，玩三天，预算6000元',
 ];
 
-const FEATURES = [
-  { icon: <RobotOutlined />, cls: 'blue', title: 'Agent 智能规划', desc: '四阶段引擎生成含酒店、景点、餐饮的多日行程。' },
-  { icon: <ThunderboltOutlined />, cls: 'amber', title: '行中动态调整', desc: '「下雨换掉户外景点」，Diff 对比一键确认，支持撤销。' },
-  { icon: <SearchOutlined />, cls: 'indigo', title: '3D 地图与知识库', desc: 'MapLibre 3D 足迹与行程路线；攻略知识向量检索。' },
-];
-
-/** 旅行规划模块 */
+/**
+ * 旅行规划模块。
+ * 「日程」已并入本页（?tab=schedule）：出行安排和日程放一起看更顺，
+ * 侧栏因此去掉了一个独立入口；/schedule 旧链接会重定向到这里。
+ */
 export default function Travel() {
   const { message } = App.useApp();
   const navigate = useNavigate();
@@ -30,6 +30,9 @@ export default function Travel() {
   const loadTrips = useTripStore((s) => s.loadTrips);
   const user = useAuthStore((s) => s.user);
   const [text, setText] = useState('');
+  const [params, setParams] = useSearchParams();
+  const tabParam = params.get('tab');
+  const activeTab = tabParam === 'schedule' || tabParam === 'footprint' ? tabParam : 'trips';
 
   useEffect(() => {
     loadTrips().catch((e) => message.error(e.message));
@@ -67,6 +70,15 @@ export default function Travel() {
           </div>
         </div>
 
+        <Tabs
+          activeKey={activeTab}
+          onChange={(key) => setParams(key === 'trips' ? {} : { tab: key })}
+          items={[
+            {
+              key: 'trips',
+              label: '🧳 行程',
+              children: (
+                <>
         <div className="search-card fade-up">
           <div className="search-row">
             <Input
@@ -90,18 +102,6 @@ export default function Travel() {
               </span>
             ))}
           </div>
-        </div>
-
-        <div className="feature-grid">
-          {FEATURES.map((f) => (
-            <div className="feature-card" key={f.title}>
-              <div className={`fc-icon ${f.cls}`}>{f.icon}</div>
-              <div>
-                <b>{f.title}</b>
-                <span>{f.desc}</span>
-              </div>
-            </div>
-          ))}
         </div>
 
         <div className="section-head">
@@ -152,6 +152,13 @@ export default function Travel() {
             ))}
           </div>
         )}
+                </>
+              ),
+            },
+            { key: 'schedule', label: '📅 日程', children: <Schedule /> },
+            { key: 'footprint', label: '🌍 足迹', children: <Footprint /> },
+          ]}
+        />
       </div>
     </AppShell>
   );

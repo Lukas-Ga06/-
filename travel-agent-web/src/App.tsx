@@ -16,10 +16,8 @@ const Memos = lazy(() => import('./pages/Memos'));
 const Office = lazy(() => import('./pages/Office'));
 const Learning = lazy(() => import('./pages/Learning'));
 const Health = lazy(() => import('./pages/Health'));
-const Schedule = lazy(() => import('./pages/Schedule'));
 const Assistant = lazy(() => import('./pages/Assistant'));
 const Travel = lazy(() => import('./pages/Travel'));
-const Footprint = lazy(() => import('./pages/Footprint'));
 const Workbench = lazy(() => import('./pages/Workbench'));
 
 function Protected({ children }: { children: ReactNode }) {
@@ -52,10 +50,12 @@ export default function App() {
           <Route path="/office" element={<Protected><Office /></Protected>} />
           <Route path="/learning" element={<Protected><Learning /></Protected>} />
           <Route path="/health" element={<Protected><Health /></Protected>} />
-          <Route path="/schedule" element={<Protected><Schedule /></Protected>} />
+          {/* 日程已并入旅行规划（?tab=schedule），旧链接继续可用 */}
+          <Route path="/schedule" element={<Navigate to="/travel?tab=schedule" replace />} />
           <Route path="/assistant" element={<Protected><Assistant /></Protected>} />
           <Route path="/travel" element={<Protected><Travel /></Protected>} />
-          <Route path="/footprint" element={<Protected><Footprint /></Protected>} />
+          {/* 足迹已并入旅行规划（?tab=footprint），旧链接继续可用 */}
+          <Route path="/footprint" element={<Navigate to="/travel?tab=footprint" replace />} />
           <Route path="/workbench" element={<Protected><Workbench /></Protected>} />
           <Route path="/profile" element={<Protected><Profile /></Protected>} />
           <Route path="*" element={<Navigate to="/" replace />} />

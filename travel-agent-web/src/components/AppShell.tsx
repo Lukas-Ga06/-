@@ -11,13 +11,11 @@ const GROUPS: { section: string; items: { key: string; label: string; path: stri
     items: [
       { key: 'home', label: '首页', path: '/', icon: '🏠' },
       { key: 'travel', label: '旅行规划', path: '/travel', icon: '🧭' },
-      { key: 'footprint', label: '旅行足迹', path: '/footprint', icon: '🌍' },
     ],
   },
   {
     section: '生活',
     items: [
-      { key: 'schedule', label: '日程', path: '/schedule', icon: '📅' },
       { key: 'expenses', label: '记账', path: '/expenses', icon: '💰' },
       { key: 'memos', label: '备忘', path: '/memos', icon: '📝' },
       { key: 'health', label: '健康', path: '/health', icon: '❤️' },

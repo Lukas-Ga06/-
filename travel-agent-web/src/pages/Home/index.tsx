@@ -8,7 +8,6 @@ import { getExpenseOverview } from '../../api/expense';
 import { getMemos, toggleMemo } from '../../api/memo';
 import { healthSummary, listArtifacts, listMinutes, listReports, listSchedule, type ScheduleItem } from '../../api/assistant';
 import { useAuthStore } from '../../store/authStore';
-import { useThemeStore } from '../../store/themeStore';
 import AppShell from '../../components/AppShell';
 import CityDrawer from '../../components/CityDrawer';
 import VoiceButton from '../../components/VoiceButton';
@@ -34,7 +33,6 @@ export default function Home() {
   const { message } = App.useApp();
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
-  const themeMode = useThemeStore((s) => s.mode);
 
   const [prompt, setPrompt] = useState('');
   const [mapPoints, setMapPoints] = useState<TripMapPoint[] | null>(null);
@@ -120,7 +118,7 @@ export default function Home() {
   };
 
   const todayStats = [
-    { icon: '📅', cls: 'blue', label: '今日安排', num: String(todaySchedule.length), sub: '项', path: '/schedule' },
+    { icon: '📅', cls: 'blue', label: '今日安排', num: String(todaySchedule.length), sub: '项', path: '/travel?tab=schedule' },
     { icon: '💰', cls: 'orange', label: '本月支出', num: `¥${(overview?.monthSpent ?? 0).toFixed(0)}`, path: '/expenses' },
     { icon: '🤖', cls: 'green', label: 'AI 任务', num: String(aiCount), sub: '项', path: '/workbench' },
     { icon: '⏰', cls: 'purple', label: '待提醒', num: String(openMemos.length), sub: '项', path: '/memos' },
@@ -222,7 +220,10 @@ export default function Home() {
                   <FootprintMap
                     points={visiblePoints}
                     mode="city"
-                    theme={themeMode === 'dark' ? 'dark' : 'light'}
+                    /* 纸质底图是这块的视觉主张：暗色界面下也保留「桌面上的地图纸」观感 */
+                    theme="light"
+                    pitch={48}
+                    bearing={-18}
                     autoSpin
                     showControls={false}
                     playSignal={playSignal}
@@ -270,7 +271,7 @@ export default function Home() {
               <button type="button" className="tl-chip action" onClick={() => setPlaySignal((v) => v + 1)}>
                 ▶ 回放足迹
               </button>
-              <button type="button" className="tl-chip action" onClick={() => navigate('/footprint')}>
+              <button type="button" className="tl-chip action" onClick={() => navigate('/travel?tab=footprint')}>
                 全屏 →
               </button>
             </div>
@@ -302,7 +303,7 @@ export default function Home() {
             <div className="dash-card lg-sweep">
               <div className="dc-head">
                 <b>📊 足迹数据</b>
-                <button className="dc-link" onClick={() => navigate('/footprint')}>
+                <button className="dc-link" onClick={() => navigate('/travel?tab=footprint')}>
                   足迹页 →
                 </button>
               </div>
@@ -375,7 +376,7 @@ export default function Home() {
               <div className="dash-card lg-sweep">
                 <div className="dc-head">
                   <b>📅 即将到来</b>
-                  <button className="dc-link" onClick={() => navigate('/schedule')}>
+                  <button className="dc-link" onClick={() => navigate('/travel?tab=schedule')}>
                     日程 →
                   </button>
                 </div>
@@ -404,7 +405,7 @@ export default function Home() {
                 <button type="button" className="quick-btn" onClick={() => navigate('/memos')}>
                   📝 加备忘
                 </button>
-                <button type="button" className="quick-btn" onClick={() => navigate('/schedule')}>
+                <button type="button" className="quick-btn" onClick={() => navigate('/travel?tab=schedule')}>
                   📅 加日程
                 </button>
                 <button type="button" className="quick-btn" onClick={() => navigate('/workbench')}>
