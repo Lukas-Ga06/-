@@ -6,6 +6,7 @@ import com.travel.agent.entity.ItineraryItem;
 import com.travel.agent.entity.Trip;
 import com.travel.agent.model.Attraction;
 import com.travel.agent.model.CityCatalog;
+import com.travel.agent.llm.LlmProperties;
 import com.travel.agent.model.Hotel;
 import com.travel.agent.model.Restaurant;
 import com.travel.agent.model.WeatherInfo;
@@ -44,6 +45,8 @@ public class PlannerAgent {
     private final TravelCatalogService catalog;
     private final ItineraryService itineraryService;
     private final BudgetService budgetService;
+    /** 用于把"没规划出来"的原因说准确：是城市没有，还是模型没开 */
+    private final LlmProperties llmProperties;
 
     public AgentPlan plan(AgentContext ctx, IntentResult intent, Trip trip) {
         String message = ctx.getMessage() == null ? "" : ctx.getMessage();
@@ -62,9 +65,8 @@ public class PlannerAgent {
             String supported = catalog.cities().stream()
                     .map(CityCatalog::name)
                     .collect(java.util.stream.Collectors.joining("、"));
-            return emptyPlan(intent, null, trip,
-                    "抱歉，暂时还没有开通「" + guessRequestedCity(message) + "」的规划服务（联网查询也未成功）。目前已开通："
-                            + supported + "，选一个我开始规划吧！");
+            return emptyPlan(intent, null, trip, unsupportedCityMessage(
+                    guessRequestedCity(message), supported, llmProperties.usable()));
         }
         return switch (intent.getIntent()) {
             case IntentResult.PLAN_TRIP -> planNewTrip(ctx, intent, city, trip, message);
@@ -488,4 +490,19 @@ public class PlannerAgent {
     static String hhmm(LocalDateTime time) {
         return time == null ? null : time.format(DateTimeFormatter.ofPattern("HH:mm"));
     }
+
+    /**
+     * 目录外城市没能规划时的说明。
+     *
+     * 关键是把原因说准：没配模型和"联网也没搜到"是两回事，
+     * 之前统一说成"联网查询也未成功"，用户看不出该去配 Key。
+     */
+    static String unsupportedCityMessage(String requested, String supported, boolean llmUsable) {
+        String reason = llmUsable
+                ? "联网查询也没找到这座城市"
+                : "当前未配置大模型（LLM_API_KEY），无法联网生成城市数据";
+        return "抱歉，暂时没能为「" + requested + "」生成行程：" + reason + "。\n"
+                + "本地已开通：" + supported + "；配置 LLM_API_KEY 后任意城市都能自动规划。";
+    }
 }
+

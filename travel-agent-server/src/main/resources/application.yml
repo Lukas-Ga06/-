@@ -4,6 +4,12 @@ server:
 spring:
   application:
     name: travel-agent-server
+  config:
+    # 本地密钥文件（KEY=VALUE，已被 .gitignore 忽略）。
+    # 用 [.properties] 强制按 properties 解析，这样 java -jar / mvn spring-boot:run
+    # 也能自动读到 LLM_API_KEY，不必依赖 run-dev.ps1。
+    # 环境变量优先级更高，生产上仍以环境变量为准。
+    import: optional:file:./.env.local[.properties]
   servlet:
     multipart:
       # 行程照片上传上限

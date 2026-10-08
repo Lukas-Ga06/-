@@ -186,6 +186,12 @@ antd 侧同步切 `darkAlgorithm`（`main.tsx` 的 `PALETTE`）。
 - LLM 指标：`llm.calls{result=ok|failed|skipped}` 与 `llm.latency`。
   **skipped 的语义是"整条链路走了规则引擎"**（没配 Key 或显式关闭），failed 才是调用失败降级。
 
+**本地密钥的加载顺序**：`spring.config.import: optional:file:./.env.local[.properties]`，
+因此 `java -jar` / `mvn spring-boot:run` 都会自动读 `travel-agent-server/.env.local`，
+不必依赖 `run-dev.ps1`。优先级：环境变量 > `.env.local` > application.yml 默认值。
+**没配 `LLM_API_KEY` 时不只是"回答差一点"**：目录外城市（如海口）需要模型联网生成城市数据，
+没模型时只能退回内置城市，提示文案会明确说明原因（见 `PlannerAgent.unsupportedCityMessage`）。
+
 ## 部署注意事项
 
 1. 必须配置 `JWT_SECRET`，否则每次重启都会让全体用户掉线；
