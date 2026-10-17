@@ -196,6 +196,18 @@ Agent 通过 **GUI Focus 协议** 返回 focus（day/itemId/坐标），前端�
 待确认方案会记录生成时的**行程指纹**（日期 + 预算 + 全部条目）。确认时若指纹与当前行程不一致
 （例如另一个标签页改过安排），方案会直接失效并提示重新生成，避免按过期 Diff 覆盖新数据。
 
+### 4.9 日程与出发提醒
+
+提醒由服务端**按当前时间实时计算**，前端每 60 秒轮询，不依赖推送基础设施：
+
+| 类型 | 出现时机 | 说明 |
+| --- | --- | --- |
+| 日程 | 开始前 30 分钟 | 事件结束后 6 小时内仍可见并标记「已过期」；无具体时间的日程按当天 09:00 |
+| 行程出发 | 出发前一天 09:00 | 持续到出发日 23:59；已取消的行程不提醒 |
+
+「知道了」会写入 `dismissedAt`，该提醒不再出现。侧栏铃铛（带未处理数量）与首页「待提醒」卡片共用同一份数据；
+按事件发生时间排序，马上要做的排在前面。
+
 ## 5. REST API 一览
 
 ```
@@ -224,6 +236,10 @@ GET    /api/photos/{id}/raw           # 原图（<img> 用，token 走查询参�
 DELETE /api/photos/{id}
 
 GET    /api/system/status             # 运行能力自检：模型/定位/时区（不返回密钥）
+
+GET    /api/reminders                 # 提醒板：日程 + 出发提醒
+POST   /api/reminders/schedule/{id}/dismiss
+POST   /api/reminders/trip/{id}/dismiss
 
 GET    /api/memos                 POST /api/memos
 POST   /api/memos/{id}/toggle     DELETE /api/memos/{id}

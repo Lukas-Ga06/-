@@ -53,4 +53,14 @@ public class ScheduleService {
                 .orElseThrow(() -> new com.travel.agent.exception.BusinessException(404, "日程不存在"));
         repository.delete(item);
     }
+
+    /** 忽略该日程的提醒（不改变日程本身） */
+    @Transactional
+    public void dismissReminder(Long userId, Long id) {
+        ScheduleItem item = repository.findById(id)
+                .filter(s -> s.getUserId().equals(userId))
+                .orElseThrow(() -> new com.travel.agent.exception.BusinessException(404, "日程不存在"));
+        item.setReminderDismissedAt(java.time.LocalDateTime.now());
+        repository.save(item);
+    }
 }

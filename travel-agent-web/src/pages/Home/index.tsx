@@ -7,7 +7,9 @@ import { getTripsMap } from '../../api/trip';
 import { getExpenseOverview } from '../../api/expense';
 import { getMemos, toggleMemo } from '../../api/memo';
 import { healthSummary, listArtifacts, listMinutes, listReports, listSchedule, type ScheduleItem } from '../../api/assistant';
+import { getReminders } from '../../api/reminder';
 import { useAuthStore } from '../../store/authStore';
+import { useUIStore } from '../../store/uiStore';
 import AppShell from '../../components/AppShell';
 import CityDrawer from '../../components/CityDrawer';
 import VoiceButton from '../../components/VoiceButton';
@@ -40,6 +42,7 @@ export default function Home() {
   const [memos, setMemos] = useState<Memo[]>([]);
   const [schedule, setSchedule] = useState<ScheduleItem[]>([]);
   const [aiCount, setAiCount] = useState(0);
+  const [reminderCount, setReminderCount] = useState(0);
   const [health, setHealth] = useState<HealthSummary | null>(null);
 
   // 时间轴：年份/月份驱动地图
@@ -47,6 +50,7 @@ export default function Home() {
   const [periodMonth, setPeriodMonth] = useState<string | null>(null);
   const [playSignal, setPlaySignal] = useState(0);
   const [selectedCity, setSelectedCity] = useState<string | null>(null);
+  const setRemindersOpen = useUIStore((s) => s.setRemindersOpen);
 
   useEffect(() => {
     const safe = (p: Promise<any>, fallback: any) => p.catch(() => fallback);
@@ -59,13 +63,15 @@ export default function Home() {
       safe(listMinutes(), []),
       safe(listReports(), []),
       safe(listArtifacts(), []),
-    ]).then(([mp, ov, mm, sc, hl, min, rp, art]) => {
+      safe(getReminders(), null),
+    ]).then(([mp, ov, mm, sc, hl, min, rp, art, rem]) => {
       setMapPoints(mp);
       setOverview(ov);
       setMemos(mm);
       setSchedule(sc);
       setHealth(hl);
       setAiCount(min.length + rp.length + art.length);
+      setReminderCount(rem?.count ?? 0);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -117,11 +123,27 @@ export default function Home() {
     }
   };
 
-  const todayStats = [
+  type TodayStat = {
+    icon: string;
+    cls: string;
+    label: string;
+    num: string;
+    sub?: string;
+    path?: string;
+    action?: () => void;
+  };
+  const todayStats: TodayStat[] = [
     { icon: '📅', cls: 'blue', label: '今日安排', num: String(todaySchedule.length), sub: '项', path: '/travel?tab=schedule' },
     { icon: '💰', cls: 'orange', label: '本月支出', num: `¥${(overview?.monthSpent ?? 0).toFixed(0)}`, path: '/expenses' },
     { icon: '🤖', cls: 'green', label: 'AI 任务', num: String(aiCount), sub: '项', path: '/workbench' },
-    { icon: '⏰', cls: 'purple', label: '待提醒', num: String(openMemos.length), sub: '项', path: '/memos' },
+    {
+      icon: '⏰',
+      cls: 'purple',
+      label: '待提醒',
+      num: String(reminderCount),
+      sub: '项',
+      action: () => setRemindersOpen(true),
+    },
   ];
 
   // AI 今日建议：由真实数据推导
@@ -186,7 +208,11 @@ export default function Home() {
         {/* 今日概览 */}
         <div className="stat-row">
           {todayStats.map((s) => (
-            <div key={s.label} className="stat-card lg-sweep" onClick={() => navigate(s.path)}>
+            <div
+              key={s.label}
+              className="stat-card lg-sweep"
+              onClick={() => (s.action ? s.action() : s.path ? navigate(s.path) : undefined)}
+            >
               <div className={`sc-icon ${s.cls}`}>{s.icon}</div>
               <div className="sc-num">{s.num}</div>
               <div className="sc-label">

@@ -49,6 +49,10 @@ public class Trip {
     @Column(length = 30)
     private String status;
 
+    /** 用户已处理（忽略）出行提醒的时间；为空表示仍会出现在提醒板 */
+    @Column(name = "departure_reminder_dismissed_at")
+    private LocalDateTime departureReminderDismissedAt;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 

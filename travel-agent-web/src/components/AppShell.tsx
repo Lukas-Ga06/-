@@ -4,6 +4,7 @@ import { LogoutOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { useThemeStore } from '../store/themeStore';
+import ReminderBell from './ReminderBell';
 
 const GROUPS: { section: string; items: { key: string; label: string; path: string; icon: string }[] }[] = [
   {
@@ -85,6 +86,7 @@ export default function AppShell({ active, children }: { active: NavModule; chil
           ))}
         </nav>
         <div className="sb-footer">
+          <ReminderBell />
           <button
             className={`sb-link ${active === 'profile' ? 'active' : ''}`}
             onClick={() => navigate('/profile')}

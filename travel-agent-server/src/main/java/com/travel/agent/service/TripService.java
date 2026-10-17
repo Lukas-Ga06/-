@@ -116,6 +116,17 @@ public class TripService {
         return trip;
     }
 
+    /** 忽略该行程的出发提醒 */
+    @Transactional
+    public Trip dismissDepartureReminder(Long tripId, Long userId) {
+        Trip trip = getOwned(tripId, userId);
+        if (trip.getDepartureReminderDismissedAt() == null) {
+            trip.setDepartureReminderDismissedAt(java.time.LocalDateTime.now());
+            trip = tripRepository.save(trip);
+        }
+        return trip;
+    }
+
     @Transactional
     public void delete(Long tripId, Long userId) {
         Trip trip = getOwned(tripId, userId);

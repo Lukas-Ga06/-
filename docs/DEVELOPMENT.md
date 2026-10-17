@@ -127,6 +127,11 @@ HIGH 风险只表示"方案需要显式确认"（超预算），不是"抛异常
 **时区**：`TimeZoneConfig` 在启动时把 JVM 默认时区固定为 `travel.timezone`（默认 `Asia/Shanghai`）。
 `LocalDate.now()` 依赖它，新增时间相关逻辑时不要绕开。
 
+**提醒**：不引入后台调度器——`ReminderService.board(userId, now)` 按当前时间实时计算，
+前端轮询；`now` 可注入便于测试。规则常量（提前 30 分钟、提前一天 09:00、事后 6 小时宽限）集中在
+`ReminderService`；忽略写入 `reminder_dismissed_at` / `departure_reminder_dismissed_at`，不要把"已读"
+存在前端本地（否则多端不一致）。
+
 **越权保护**：所有行程相关接口先做 `tripService.getOwned(tripId, userId)`；
 批量操作（`applyOperations`）还会校验每个条目确实属于该行程。
 

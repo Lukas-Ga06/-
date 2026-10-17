@@ -41,6 +41,10 @@ public class ScheduleItem {
     @Column(nullable = false)
     private boolean done;
 
+    /** 用户已处理（忽略）该日程提醒的时间；为空表示仍会出现在提醒板 */
+    @Column(name = "reminder_dismissed_at")
+    private LocalDateTime reminderDismissedAt;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
