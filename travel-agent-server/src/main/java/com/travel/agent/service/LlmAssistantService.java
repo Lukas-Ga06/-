@@ -124,8 +124,10 @@ public class LlmAssistantService {
                         date = LocalDate.now();
                     }
                     String category = n.path("category").asText("其他");
+                    String title = n.path("title").asText("").trim();
+                    if (title.isEmpty()) title = "个人";
                     return new InvoiceResult(
-                            n.path("title").asText("个人"),
+                            title,
                             n.path("vendor").asText(""),
                             List.of("交通", "餐饮", "办公", "住宿", "其他").contains(category) ? category : "其他",
                             amount, date);
@@ -140,9 +142,12 @@ public class LlmAssistantService {
         if (m.find()) amount = new BigDecimal(m.group(1));
         if (amount == null) return null;
         LocalDate date = LocalDate.now();
-        Matcher dm = Pattern.compile("(\\d{4}-\\d{2}-\\d{2})").matcher(text);
+        Matcher dm = Pattern.compile("(\\d{4})\\s*[-/年]\\s*(\\d{1,2})\\s*[-/月]\\s*(\\d{1,2})\\s*日?").matcher(text);
         if (dm.find()) {
-            try { date = LocalDate.parse(dm.group(1)); } catch (Exception ignored) {}
+            try {
+                date = LocalDate.of(Integer.parseInt(dm.group(1)),
+                        Integer.parseInt(dm.group(2)), Integer.parseInt(dm.group(3)));
+            } catch (Exception ignored) {}
         }
         String title = "个人";
         String vendor = "";

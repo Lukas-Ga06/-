@@ -12,6 +12,8 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -30,9 +32,12 @@ public class InvoiceTextExtractor {
             ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".heic", ".heif");
 
     private final String tesseractCmd;
+    private final String tessdataDir;
 
-    public InvoiceTextExtractor(@Value("${travel.ocr.tesseract:${TESSERACT_CMD:}}") String tesseractCmd) {
+    public InvoiceTextExtractor(@Value("${travel.ocr.tesseract:${TESSERACT_CMD:}}") String tesseractCmd,
+                                @Value("${travel.ocr.tessdata:${TESSDATA_PREFIX:}}") String tessdataDir) {
         this.tesseractCmd = tesseractCmd == null ? "" : tesseractCmd.trim();
+        this.tessdataDir = tessdataDir == null ? "" : tessdataDir.trim();
     }
 
     public boolean ocrConfigured() {
@@ -80,8 +85,19 @@ public class InvoiceTextExtractor {
             String ext = filename.endsWith(".png") ? ".png" : ".jpg";
             temp = Files.createTempFile("invoice-ocr-", ext);
             Files.write(temp, bytes);
-            ProcessBuilder builder = new ProcessBuilder(
-                    tesseractCmd, temp.toString(), "stdout", "-l", "chi_sim+eng", "--psm", "6");
+            List<String> command = new ArrayList<>();
+            command.add(tesseractCmd);
+            command.add(temp.toString());
+            command.add("stdout");
+            if (!tessdataDir.isBlank()) {
+                command.add("--tessdata-dir");
+                command.add(tessdataDir);
+            }
+            command.add("-l");
+            command.add("chi_sim+eng");
+            command.add("--psm");
+            command.add("6");
+            ProcessBuilder builder = new ProcessBuilder(command);
             Process process = builder.start();
             String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
             if (!process.waitFor(30, TimeUnit.SECONDS)) {
@@ -96,7 +112,8 @@ public class InvoiceTextExtractor {
             throw e;
         } catch (Exception e) {
             log.warn("OCR 调用失败: {}", e.getMessage());
-            throw new BusinessException(422, "OCR 调用失败，请检查 TESSERACT_CMD 是否正确");
+            throw new BusinessException(422,
+                    "OCR 调用失败，请检查 TESSERACT_CMD 是否正确、TESSDATA_PREFIX 是否包含 chi_sim/eng 语言包");
         } finally {
             if (temp != null) {
                 try {

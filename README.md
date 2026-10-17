@@ -285,6 +285,7 @@ GET    /api/health/records        GET  /api/health/summary
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | 允许的前端来源 |
 | `APP_TIMEZONE` | `Asia/Shanghai` | 应用时区。代码里的「今天/明天」与日报、记账日期都基于它；容器默认 UTC 时必须显式确认 |
 | `TESSERACT_CMD` | 空 | 图片发票 OCR 的 Tesseract 可执行文件路径；不配置时 PDF 电子发票与粘贴文本仍可正常识别 |
+| `TESSDATA_PREFIX` | 空 | Tesseract 语言包目录，需包含 `chi_sim.traineddata` 与 `eng.traineddata`；仅在语言包装在非默认目录时需要 |
 | `INVOICE_DIR` | `data/invoices` | 上传的发票原始文件目录（已 gitignore） |
 | `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_DATABASE` / `MYSQL_USERNAME` / `MYSQL_PASSWORD` | localhost / 3306 / travel_agent / root / root | 仅在 `mysql` profile 下生效 |
 
@@ -300,7 +301,35 @@ mvn spring-boot:run
 
 模型仅用于意图识别增强、方案生成与文案润色；调用失败（余额不足、网络异常）会自动降级为规则引擎，主流程不中断。
 
-### 6.3 切换 MySQL
+### 6.3 图片发票 OCR（Windows）
+
+图片发票需要本机安装 Tesseract，并把可执行文件与语言包目录告诉后端：
+
+```powershell
+# 1. 安装 Tesseract（已安装可跳过）
+winget install --id UB-Mannheim.TesseractOCR -e
+
+# 2. 准备中英语言包（Program Files 无写权限时放到用户目录）
+mkdir C:\Users\<你>\tools\tessdata
+copy "C:\Program Files\Tesseract-OCR\tessdata\eng.traineddata" C:\Users\<你>\tools\tessdata\
+copy "C:\Program Files\Tesseract-OCR\tessdata\osd.traineddata" C:\Users\<你>\tools\tessdata\
+Invoke-WebRequest https://github.com/tesseract-ocr/tessdata_fast/raw/main/chi_sim.traineddata `
+  -OutFile C:\Users\<你>\tools\tessdata\chi_sim.traineddata
+
+# 3. 写入 travel-agent-server\.env.local（已 gitignore）
+# TESSERACT_CMD=C:/Program Files/Tesseract-OCR/tesseract.exe
+# TESSDATA_PREFIX=C:/Users/<你>/tools/tessdata
+# 注意：.env.local 按 properties 解析，Windows 路径请用正斜杠 /，反斜杠会被当作转义符
+
+# 4. 校验语言包
+& "C:\Program Files\Tesseract-OCR\tesseract.exe" `
+  --tessdata-dir C:\Users\<你>\tools\tessdata --list-langs
+```
+
+重启后端后，`GET /api/system/status` 的 `ocrConfigured` 应为 `true`。上传接口仍为
+`POST /api/office/invoice/upload`，图片按 `chi_sim+eng`、`--psm 6` 识别。
+
+### 6.4 切换 MySQL
 
 ```bash
 docker compose up -d                 # 启动 MySQL（自动执行 sql/init.sql）与 Redis

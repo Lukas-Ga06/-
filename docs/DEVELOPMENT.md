@@ -143,8 +143,12 @@ HIGH 风险只表示"方案需要显式确认"（超预算），不是"抛异常
 权限必须由用户点击按钮触发 `Notification.requestPermission()`。
 
 **发票文件**：`InvoiceTextExtractor` 负责文件 → 文本：PDF 用 PDFBox 抽文字（扫描件会 422），
-图片调用 `TESSERACT_CMD` 指向的 Tesseract（`-l chi_sim+eng`），未配置时 422 并提示；
+图片调用 `TESSERACT_CMD` 指向的 Tesseract（`-l chi_sim+eng --psm 6`）；配置了
+`TESSDATA_PREFIX` 时追加 `--tessdata-dir`，用于语言包装在用户目录（Program Files 无写权限）的场景。
+未配置 Tesseract 时 422 并提示；
 原始文件存 `travel.invoices.dir`，库里记录 `source_file/source_type`。
+OCR 文本直接进入 `extractInvoice`，优先由模型结构化，失败再走规则兜底；
+兜底日期同时支持 `2026-10-10`、`2026/10/10`、`2026年10月10日`。
 
 **越权保护**：所有行程相关接口先做 `tripService.getOwned(tripId, userId)`；
 批量操作（`applyOperations`）还会校验每个条目确实属于该行程。

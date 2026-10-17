@@ -2,6 +2,17 @@
 
 按主题记录行为变化。**第四节是最需要注意的**：其中几项改变了原有的使用习惯。
 
+## 图片发票 OCR 落地（2026-10-17）
+
+- 本机安装 Tesseract 5.4.0，并把 `chi_sim` / `eng` / `osd` 语言包放到用户目录
+  `C:\Users\<用户>\tools\tessdata`（Program Files 下写入需要管理员权限）。
+- `application.yml` 新增 `travel.ocr.tessdata`（对应 `TESSDATA_PREFIX`），
+  非空时命令追加 `--tessdata-dir`；`TESSERACT_CMD` 仍决定可执行文件路径。
+- 实测中文发票图片：金额 120.00、分类「交通」、日期 2026-10-10、`sourceType=IMAGE`，
+  OCR 原文含「价税合计 / 开票日期 / 出租车客运服务」，金额与日期均正确。
+- 规则兜底日期解析支持中文格式 `2026年10月10日`；模型返回空抬头时回退为「个人」。
+- 文档补充 Windows 安装与语言包配置步骤；后端 136 个测试通过。
+
 ## 目录外城市自动规划（2026-10-08 第三批）
 
 - **根因**：`travel-agent-server/.env.local` 里本来就有 `LLM_API_KEY`，但只有 `run-dev.ps1` 会加载它；
