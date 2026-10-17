@@ -33,3 +33,7 @@ class MemoryStorage implements Storage {
 if (typeof globalThis.localStorage === 'undefined') {
   Object.defineProperty(globalThis, 'localStorage', { value: new MemoryStorage(), writable: true });
 }
+
+if (typeof globalThis.sessionStorage === 'undefined') {
+  Object.defineProperty(globalThis, 'sessionStorage', { value: new MemoryStorage(), writable: true });
+}

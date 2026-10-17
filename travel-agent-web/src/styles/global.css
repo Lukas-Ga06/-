@@ -1714,6 +1714,20 @@ body {
 }
 
 /* 提醒抽屉 */
+.notify-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-2);
+}
+
 .reminder-list {
   display: flex;
   flex-direction: column;

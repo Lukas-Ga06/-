@@ -41,6 +41,18 @@ public class ScheduleItem {
     @Column(nullable = false)
     private boolean done;
 
+    /** NONE / DAILY / WEEKLY / MONTHLY；date 为首次发生日期 */
+    @Column(length = 10)
+    private String recurrence;
+
+    /** 重复结束日期（含），可为空表示长期重复 */
+    @Column(name = "repeat_until")
+    private LocalDate repeatUntil;
+
+    /** 下次发生日期（列表展示用，不落库） */
+    @Transient
+    private LocalDate nextOccurrence;
+
     /** 用户已处理（忽略）该日程提醒的时间；为空表示仍会出现在提醒板 */
     @Column(name = "reminder_dismissed_at")
     private LocalDateTime reminderDismissedAt;

@@ -7,7 +7,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
+
+import com.travel.agent.util.Recurrence;
 
 @Service
 @RequiredArgsConstructor
@@ -16,7 +19,13 @@ public class ScheduleService {
     private final ScheduleItemRepository repository;
 
     public List<ScheduleItem> list(Long userId) {
-        return repository.findByUserIdOrderByDateAscTimeAscIdAsc(userId);
+        List<ScheduleItem> items = repository.findByUserIdOrderByDateAscTimeAscIdAsc(userId);
+        LocalDateTime now = LocalDateTime.now();
+        items.forEach(item -> item.setNextOccurrence(item.isDone()
+                ? null
+                : Recurrence.nextOccurrence(item.getDate(), item.getRecurrence(), item.getRepeatUntil(),
+                        item.getTime(), now)));
+        return items;
     }
 
     public List<ScheduleItem> upcoming(Long userId) {
@@ -28,12 +37,20 @@ public class ScheduleService {
 
     @Transactional
     public ScheduleItem add(Long userId, String title, LocalDate date, java.time.LocalTime time, String note) {
+        return add(userId, title, date, time, note, Recurrence.NONE, null);
+    }
+
+    @Transactional
+    public ScheduleItem add(Long userId, String title, LocalDate date, java.time.LocalTime time, String note,
+                            String recurrence, LocalDate repeatUntil) {
         return repository.save(ScheduleItem.builder()
                 .userId(userId)
                 .title(title)
                 .date(date)
                 .time(time)
                 .note(note)
+                .recurrence(Recurrence.normalize(recurrence))
+                .repeatUntil(repeatUntil)
                 .build());
     }
 

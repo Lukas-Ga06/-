@@ -91,6 +91,26 @@ class ReminderServiceTest extends IntegrationTestSupport {
     }
 
     @Test
+    @DisplayName("重复日程：按下一次发生时间提醒，已结束的系列不提醒")
+    void recurringScheduleUsesNextOccurrence() throws Exception {
+        Account account = registerNew();
+        LocalDate today = NOW.toLocalDate();
+        // 每两周一次，上一次是两周前 → 下一次正好是今天 10:20
+        scheduleService.add(account.id(), "周会", today.minusWeeks(2), LocalTime.of(10, 20), null, "WEEKLY", null);
+        // 每周一次，上一次是昨天 → 下一次在 6 天后，不提醒
+        scheduleService.add(account.id(), "下周的会", today.minusDays(1), LocalTime.of(10, 20), null, "WEEKLY", null);
+        // 每周一次但已过结束日期
+        scheduleService.add(account.id(), "已结束的会", today.minusWeeks(2), LocalTime.of(10, 20), null,
+                "WEEKLY", today.minusWeeks(1));
+
+        List<ReminderDtos.Reminder> items = items(account.id());
+
+        assertThat(items).extracting(ReminderDtos.Reminder::getTitle).containsExactly("周会");
+        assertThat(items.get(0).getDetail()).contains("每周");
+        assertThat(items.get(0).getMinutesUntil()).isEqualTo(20);
+    }
+
+    @Test
     @DisplayName("行程：出发前一天 09:00 起提醒；太远的行程不提醒")
     void tripDepartureReminderWindow() throws Exception {
         Account account = registerNew();

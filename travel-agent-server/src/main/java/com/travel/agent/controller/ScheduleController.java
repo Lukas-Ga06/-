@@ -31,7 +31,9 @@ public class ScheduleController {
             @Size(max = 200, message = "长度不能超过 200 个字符") String title,
             @Pattern(regexp = "^\\d{4}-\\d{2}-\\d{2}$", message = "格式需为 yyyy-MM-dd") String date,
             @Pattern(regexp = "^\\d{2}:\\d{2}(:\\d{2})?$", message = "格式需为 HH:mm") String time,
-            @Size(max = 500, message = "长度不能超过 500 个字符") String note) {}
+            @Size(max = 500, message = "长度不能超过 500 个字符") String note,
+            @Pattern(regexp = "^(NONE|DAILY|WEEKLY|MONTHLY)?$", message = "重复规则不合法") String recurrence,
+            @Pattern(regexp = "^\\d{4}-\\d{2}-\\d{2}$", message = "格式需为 yyyy-MM-dd") String repeatUntil) {}
 
     @GetMapping
     public ApiResponse<List<ScheduleItem>> list(
@@ -48,7 +50,9 @@ public class ScheduleController {
         LocalDate date = request.date() == null || request.date().isBlank()
                 ? LocalDate.now() : Dates.parseDate(request.date(), "日程日期");
         java.time.LocalTime time = Dates.parseTime(request.time(), "日程时间");
-        return ApiResponse.ok(scheduleService.add(user.getId(), request.title(), date, time, request.note()));
+        java.time.LocalDate repeatUntil = Dates.parseDate(request.repeatUntil(), "重复结束日期");
+        return ApiResponse.ok(scheduleService.add(user.getId(), request.title(), date, time, request.note(),
+                request.recurrence(), repeatUntil));
     }
 
     @PostMapping("/{id}/toggle")

@@ -132,6 +132,16 @@ HIGH 风险只表示"方案需要显式确认"（超预算），不是"抛异常
 `ReminderService`；忽略写入 `reminder_dismissed_at` / `departure_reminder_dismissed_at`，不要把"已读"
 存在前端本地（否则多端不一致）。
 
+**重复日程**：`ScheduleItem.recurrence`（NONE/DAILY/WEEKLY/MONTHLY）+ `repeatUntil`，`date` 是首次发生日期。
+"下一次发生"统一用 `Recurrence.nextOccurrence(...)`（会跳过今天已过的时刻），不要在别处自己加天数。
+勾选完成对重复日程表示"结束整个系列"。
+
+**发票记账**：`POST /api/office/invoice/{id}/expense` 把发票写成行程支出，并把 `expense_id` 写回发票；
+同一张发票重复记账返回 409。办公类发票归入「其他」分类。
+
+**浏览器通知**：只在「已授权 + 页面 hidden + 本会话未通知过」时发（`lib/reminderNotify.ts`），
+权限必须由用户点击按钮触发 `Notification.requestPermission()`。
+
 **越权保护**：所有行程相关接口先做 `tripService.getOwned(tripId, userId)`；
 批量操作（`applyOperations`）还会校验每个条目确实属于该行程。
 

@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
-import { App, Button, Empty, Input, Tabs } from 'antd';
+import { App, Button, Empty, Input, Modal, Select, Tabs } from 'antd';
 import AppShell from '../../components/AppShell';
+import { useTripStore } from '../../store/tripStore';
+import { PAYMENT_METHODS } from '../../types/expense';
 import {
   classifyMail, generateMinutes, generateReport, extractInvoice,
-  listMail, listMinutes, listReports, listInvoices,
+  listMail, listMinutes, listReports, listInvoices, invoiceToExpense,
   type MailItem, type MeetingMinutes, type DailyReport, type Invoice,
 } from '../../api/assistant';
 
@@ -78,6 +80,12 @@ export default function Office() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [invBusy, setInvBusy] = useState(false);
   const loadInvoices = async () => { try { setInvoices(await listInvoices()); } catch (e: any) { message.error(e.message); } };
+  const [expenseInvoice, setExpenseInvoice] = useState<Invoice | null>(null);
+  const [expenseTripId, setExpenseTripId] = useState<number | null>(null);
+  const [expensePayment, setExpensePayment] = useState('现金');
+  const [expenseBusy, setExpenseBusy] = useState(false);
+  const trips = useTripStore((s) => s.trips);
+  const loadTrips = useTripStore((s) => s.loadTrips);
   const doInvoice = async () => {
     if (!invText.trim()) { message.warning('粘贴发票文本'); return; }
     setInvBusy(true);
@@ -89,7 +97,23 @@ export default function Office() {
     } catch (e: any) { message.error(e.message); } finally { setInvBusy(false); }
   };
 
-  useEffect(() => { loadMail(); loadMinutes(); loadReports(); loadInvoices(); }, []);
+  const submitInvoiceExpense = async () => {
+    if (!expenseInvoice || !expenseTripId) return;
+    setExpenseBusy(true);
+    try {
+      await invoiceToExpense(expenseInvoice.id, { tripId: expenseTripId, paymentMethod: expensePayment });
+      message.success('已记入行程支出');
+      setExpenseInvoice(null);
+      setExpenseTripId(null);
+      loadInvoices();
+    } catch (e: any) {
+      message.error(e.message);
+    } finally {
+      setExpenseBusy(false);
+    }
+  };
+
+  useEffect(() => { loadMail(); loadMinutes(); loadReports(); loadInvoices(); loadTrips().catch(() => undefined); }, []);
 
   return (
     <AppShell active="office">
@@ -181,6 +205,21 @@ export default function Office() {
                               <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>{v.invoiceDate}</div>
                             </div>
                             <span style={{ fontWeight: 700 }}>¥{v.amount}</span>
+                            {v.expenseId ? (
+                              <span className="mini-tag" style={{ flexShrink: 0 }}>已记账</span>
+                            ) : (
+                              <Button
+                                size="small"
+                                type="primary"
+                                ghost
+                                onClick={() => {
+                                  setExpenseInvoice(v);
+                                  setExpenseTripId(null);
+                                }}
+                              >
+                                记一笔
+                              </Button>
+                            )}
                           </div>
                         ))}
                     </div>
@@ -191,6 +230,35 @@ export default function Office() {
           />
         </div>
       </div>
+
+      <Modal
+        title={`发票记账 · ${expenseInvoice?.title ?? ''}`}
+        open={!!expenseInvoice}
+        onCancel={() => setExpenseInvoice(null)}
+        onOk={submitInvoiceExpense}
+        okText="记一笔"
+        confirmLoading={expenseBusy}
+        okButtonProps={{ disabled: !expenseTripId }}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ fontSize: 13, color: 'var(--text-2)' }}>
+            金额 <b>¥{expenseInvoice?.amount}</b> · {expenseInvoice?.category} · {expenseInvoice?.invoiceDate}
+          </div>
+          <Select
+            placeholder="选择要记入的行程"
+            value={expenseTripId ?? undefined}
+            onChange={setExpenseTripId}
+            options={trips.map((t) => ({ value: t.id, label: `${t.name}（${t.startDate}）` }))}
+            showSearch
+            optionFilterProp="label"
+          />
+          <Select
+            value={expensePayment}
+            onChange={setExpensePayment}
+            options={PAYMENT_METHODS.map((p) => ({ value: p, label: p }))}
+          />
+        </div>
+      </Modal>
     </AppShell>
   );
 }

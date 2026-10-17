@@ -8,10 +8,21 @@ export interface ScheduleItem {
   time?: string | null;
   note?: string | null;
   done: boolean;
+  /** NONE / DAILY / WEEKLY / MONTHLY */
+  recurrence?: string | null;
+  repeatUntil?: string | null;
+  nextOccurrence?: string | null;
 }
 
 export const listSchedule = () => request<ScheduleItem[]>({ url: '/schedule' });
-export const addSchedule = (data: { title: string; date: string; time?: string; note?: string }) =>
+export const addSchedule = (data: {
+  title: string;
+  date: string;
+  time?: string;
+  note?: string;
+  recurrence?: string;
+  repeatUntil?: string;
+}) =>
   request<ScheduleItem>({ url: '/schedule', method: 'post', data });
 export const toggleSchedule = (id: number) =>
   request<ScheduleItem>({ url: `/schedule/${id}/toggle`, method: 'post' });
@@ -62,11 +73,21 @@ export interface Invoice {
   category: string;
   amount: number;
   invoiceDate: string;
+  expenseId?: number | null;
+  tripId?: number | null;
 }
 
 export const extractInvoice = (text: string) =>
   request<Invoice>({ url: '/office/invoice/extract', method: 'post', data: { text } });
 export const listInvoices = () => request<Invoice[]>({ url: '/office/invoice' });
+
+/** 发票一键记账：写入所选行程的一笔支出 */
+export const invoiceToExpense = (id: number, data: { tripId: number; paymentMethod?: string }) =>
+  request<{ id: number; amount: number; category: string }>({
+    url: `/office/invoice/${id}/expense`,
+    method: 'post',
+    data,
+  });
 
 // ---------- 学习 ----------
 export interface LearningArtifact {

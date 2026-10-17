@@ -5,10 +5,12 @@ import com.travel.agent.entity.ScheduleItem;
 import com.travel.agent.entity.Trip;
 import com.travel.agent.repository.ScheduleItemRepository;
 import com.travel.agent.repository.TripRepository;
+import com.travel.agent.util.Recurrence;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
@@ -49,7 +51,15 @@ public class ReminderService {
             if (schedule.isDone() || schedule.getReminderDismissedAt() != null) {
                 continue;
             }
-            LocalDateTime eventAt = schedule.getDate().atTime(
+            // 重复日程：取下一次发生日期；单次日程保留原日期（以便"已过期未处理"仍能看到）
+            LocalDate occurrence = Recurrence.NONE.equals(Recurrence.normalize(schedule.getRecurrence()))
+                    ? schedule.getDate()
+                    : Recurrence.nextOccurrence(schedule.getDate(), schedule.getRecurrence(),
+                            schedule.getRepeatUntil(), schedule.getTime(), now);
+            if (occurrence == null) {
+                continue;
+            }
+            LocalDateTime eventAt = occurrence.atTime(
                     schedule.getTime() == null ? ALL_DAY_TIME : schedule.getTime());
             LocalDateTime remindAt = eventAt.minusMinutes(SCHEDULE_LEAD_MINUTES);
             if (now.isBefore(remindAt) || now.isAfter(eventAt.plusHours(SCHEDULE_GRACE_HOURS))) {
@@ -58,7 +68,10 @@ public class ReminderService {
             String timeText = schedule.getTime() == null
                     ? "全天"
                     : schedule.getTime().toString().substring(0, 5);
-            String detail = schedule.getDate() + " " + timeText;
+            String detail = occurrence + " " + timeText;
+            if (Recurrence.isRecurring(schedule.getRecurrence())) {
+                detail += " · " + Recurrence.label(schedule.getRecurrence());
+            }
             if (schedule.getNote() != null && !schedule.getNote().isBlank()) {
                 detail += " · " + schedule.getNote();
             }

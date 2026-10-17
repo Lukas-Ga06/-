@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { App, Button, DatePicker, Empty, Input, Spin, TimePicker } from 'antd';
+import { App, Button, DatePicker, Empty, Input, Select, Spin, TimePicker } from 'antd';
 import { CheckOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import AppShell from '../../components/AppShell';
@@ -14,6 +14,8 @@ export default function Schedule() {
   const [title, setTitle] = useState('');
   const [date, setDate] = useState<Dayjs>(dayjs());
   const [time, setTime] = useState<Dayjs | null>(null);
+  const [recurrence, setRecurrence] = useState('NONE');
+  const [repeatUntil, setRepeatUntil] = useState<Dayjs | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -29,9 +31,13 @@ export default function Schedule() {
   useEffect(() => { load(); }, []);
 
   const today = dayjs().format('YYYY-MM-DD');
-  const sorted = items.slice().sort((a, b) => (a.date + (a.time ?? '')).localeCompare(b.date + (b.time ?? '')));
-  const todayItems = sorted.filter((s) => s.date === today && !s.done);
-  const upcoming = sorted.filter((s) => s.date !== today || s.done);
+  /** 重复日程按"下一次发生日期"参与今天/待办的划分 */
+  const effectiveDate = (s: ScheduleItem) => s.nextOccurrence ?? s.date;
+  const sorted = items
+    .slice()
+    .sort((a, b) => (effectiveDate(a) + (a.time ?? '')).localeCompare(effectiveDate(b) + (b.time ?? '')));
+  const todayItems = sorted.filter((s) => effectiveDate(s) === today && !s.done);
+  const upcoming = sorted.filter((s) => effectiveDate(s) !== today || s.done);
   const openCount = sorted.filter((s) => !s.done).length;
 
   const add = async () => {
@@ -42,9 +48,11 @@ export default function Schedule() {
         title: title.trim(),
         date: date.format('YYYY-MM-DD'),
         time: time ? time.format('HH:mm') : undefined,
+        recurrence,
+        repeatUntil: recurrence !== 'NONE' && repeatUntil ? repeatUntil.format('YYYY-MM-DD') : undefined,
       });
       message.success('已加入日程');
-      setTitle(''); setTime(null);
+      setTitle(''); setTime(null); setRecurrence('NONE'); setRepeatUntil(null);
       load();
     } catch (e: any) {
       message.error(e.message);
@@ -66,15 +74,21 @@ export default function Schedule() {
       <button
         className={`memo-check ${s.done ? 'checked' : ''}`}
         onClick={() => toggle(s.id)}
-        title={s.done ? '标记为待办' : '标记为完成'}
+        title={s.done ? '恢复' : (s.recurrence && s.recurrence !== 'NONE' ? '结束重复' : '标记为完成')}
       >
         {s.done && <CheckOutlined />}
       </button>
       {highlight && <span className="mini-tag outdoor" style={{ flexShrink: 0 }}>今天</span>}
       <span style={{ fontSize: 12, color: 'var(--ink-3)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
-        {s.date.slice(5)}{s.time ? ` ${s.time.slice(0, 5)}` : ''}
+        {effectiveDate(s).slice(5)}{s.time ? ` ${s.time.slice(0, 5)}` : ''}
       </span>
       <span className="memo-content">{s.title}</span>
+      {s.recurrence && s.recurrence !== 'NONE' && (
+        <span className="mini-tag" style={{ flexShrink: 0 }}>
+          {{ DAILY: '每天', WEEKLY: '每周', MONTHLY: '每月' }[s.recurrence] ?? s.recurrence}
+          {s.repeatUntil ? ` 至 ${s.repeatUntil.slice(5)}` : ''}
+        </span>
+      )}
       <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => remove(s.id)} />
     </div>
   );
@@ -104,6 +118,26 @@ export default function Schedule() {
             />
             <DatePicker size="large" value={date} onChange={(d) => d && setDate(d)} allowClear={false} />
             <TimePicker size="large" value={time} onChange={(t) => setTime(t)} format="HH:mm" placeholder="时间(可选)" />
+            <Select
+              size="large"
+              value={recurrence}
+              onChange={setRecurrence}
+              style={{ width: 110 }}
+              options={[
+                { value: 'NONE', label: '不重复' },
+                { value: 'DAILY', label: '每天' },
+                { value: 'WEEKLY', label: '每周' },
+                { value: 'MONTHLY', label: '每月' },
+              ]}
+            />
+            {recurrence !== 'NONE' && (
+              <DatePicker
+                size="large"
+                value={repeatUntil}
+                onChange={setRepeatUntil}
+                placeholder="结束日期(可选)"
+              />
+            )}
             <Button size="large" type="primary" icon={<PlusOutlined />} onClick={add} loading={submitting}>
               添加日程
             </Button>
@@ -131,7 +165,7 @@ export default function Schedule() {
                   <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="其余日期暂无日程" />
                 </div>
               ) : (
-                upcoming.map((s) => renderRow(s, s.date === today))
+                upcoming.map((s) => renderRow(s, effectiveDate(s) === today))
               )}
             </div>
           </>

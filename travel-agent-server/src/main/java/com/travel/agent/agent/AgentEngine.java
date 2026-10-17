@@ -326,12 +326,15 @@ public class AgentEngine {
                     .build());
         }
         ScheduleItem item = scheduleService.add(ctx.getUserId(), request.title(),
-                request.date(), request.time(), null);
+                request.date(), request.time(), null, request.recurrence(), null);
         String timeText = item.getTime() == null ? "" : item.getTime().toString().substring(0, 5) + " ";
+        String repeatText = com.travel.agent.util.Recurrence.isRecurring(request.recurrence())
+                ? "（" + com.travel.agent.util.Recurrence.label(request.recurrence()) + "）" : "";
         return complete(ctx, AgentDtos.AgentResult.builder()
                 .intent(intent.getIntent())
                 .status(AgentDtos.STATUS_COMPLETED)
-                .message("📅 已加入日程：" + item.getDate() + " " + timeText + "「" + item.getTitle() + "」。")
+                .message("📅 已加入日程：" + item.getDate() + " " + timeText + "「" + item.getTitle() + "」"
+                        + repeatText + "。")
                 .warnings(new ArrayList<>())
                 .build());
     }

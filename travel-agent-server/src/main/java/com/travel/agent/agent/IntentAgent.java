@@ -179,7 +179,7 @@ public class IntentAgent {
         // 于是"今天开会好累"这类陈述句会被真的写成一条日程。
         boolean hasExplicitTime = EXPLICIT_TIME.matcher(message).find();
         boolean hasSchedulingVerb = MessageParser.mentions(message,
-                "排个", "排进", "安排个", "约个", "加入日程", "加到日程", "预约");
+                "排个", "排进", "安排个", "约个", "加入日程", "加到日程", "预约", "提醒我");
         boolean scheduleNoun = MessageParser.mentions(message,
                 "日程", "排期", "会议", "开会", "评审会", "例会", "晨会", "周会", "预约", "排个", "排进");
         boolean scheduleAdd = !scheduleQuery && scheduleNoun && (hasExplicitTime || hasSchedulingVerb);

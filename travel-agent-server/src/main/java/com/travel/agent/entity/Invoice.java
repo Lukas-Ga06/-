@@ -45,6 +45,14 @@ public class Invoice {
     @Column(name = "raw_text", columnDefinition = "TEXT")
     private String rawText;
 
+    /** 已生成的记账记录；非空表示该发票已记过账，避免重复 */
+    @Column(name = "expense_id")
+    private Long expenseId;
+
+    /** 记账时选择的行程 */
+    @Column(name = "trip_id")
+    private Long tripId;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 

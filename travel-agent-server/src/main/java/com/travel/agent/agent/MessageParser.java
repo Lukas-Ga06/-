@@ -155,19 +155,34 @@ public final class MessageParser {
     }
 
     /** 日程请求解析结果 */
-    public record ScheduleRequest(LocalDate date, java.time.LocalTime time, String title) {}
+    public record ScheduleRequest(LocalDate date, java.time.LocalTime time, String title, String recurrence) {}
 
     /**
-     * 解析日程请求：日期（今天/明天/后天，缺省今天）、时间（X点[X分]/HH:mm，可缺省）与事项标题。
-     * 例：「明天下午3点开评审会」→ (明天日期, 15:00, 开评审会)
+     * 解析日程请求：日期、时间、事项标题与重复规则。
+     * 例：「明天下午3点开评审会」→ (明天, 15:00, 开评审会, NONE)
+     *     「每周一上午10点例会」→ (下个周一, 10:00, 例会, WEEKLY)
      */
     public static ScheduleRequest parseScheduleRequest(String text) {
         if (text == null || text.isBlank()) {
             return null;
         }
-        LocalDate date = mentions(text, "后天") ? LocalDate.now().plusDays(2)
-                : mentions(text, "明天") ? LocalDate.now().plusDays(1)
-                : LocalDate.now();
+        LocalDate today = LocalDate.now();
+        String recurrence = mentions(text, "每天", "每日") ? "DAILY"
+                : mentions(text, "每周", "每星期") ? "WEEKLY"
+                : mentions(text, "每月") ? "MONTHLY" : "NONE";
+
+        LocalDate date;
+        if (mentions(text, "后天")) {
+            date = today.plusDays(2);
+        } else if (mentions(text, "明天")) {
+            date = today.plusDays(1);
+        } else if (mentions(text, "今天", "今晚")) {
+            date = today;
+        } else {
+            // 支持「周一 / 下周六 / 10月1日 / 周末」等写法（与行程规划共用同一套日期解析）
+            DepartureDate explicit = extractDepartureDate(text, today);
+            date = explicit.explicit() && explicit.date() != null ? explicit.date() : today;
+        }
         java.time.LocalTime time = null;
         Matcher m = Pattern.compile("(上午|下午|中午|晚上|早上)?\\s*(\\d{1,2})\\s*[点时：:]\\s*(\\d{1,2})?\\s*分?").matcher(text);
         if (m.find()) {
@@ -182,8 +197,14 @@ public final class MessageParser {
             }
             text = text.replace(m.group(), " ").trim();
         }
-        text = text.replaceAll("(今天|明天|后天|下周[一二三四五六日天]?)", " ").trim();
+        // 先替换更长的重复词（每周一），再替换「周一」，避免留下「一例会」这种残句
+        text = text.replaceAll("(每天|每日|每周[一二三四五六日天]|每星期[一二三四五六日天]|每周|每星期|每月"
+                + "|下周[一二三四五六日天]?|本周[一二三四五六日天]?|星期[一二三四五六日天]|周[一二三四五六日天]"
+                + "|今天|明天|后天)", " ").trim();
+        text = text.replaceAll("\\d{4}\\s*[-/年]\\s*\\d{1,2}\\s*[-/月]\\s*\\d{1,2}\\s*日?", " ").trim();
+        text = text.replaceAll("\\d{1,2}\\s*月\\s*\\d{1,2}\\s*日?", " ").trim();
         text = text.replaceAll("^(帮我|请|把|添加|加|新增|记录?)\\s*[:：,，、]?\\s*", "").trim();
+        text = text.replaceFirst("^(提醒我|提醒|别忘了|记得)\\s*[:：,，、]?\\s*", "").trim();
         text = text.replaceAll("^(加入|加到)\\s*日程\\s*[:：,，、]?\\s*", "").trim();
         if (text.startsWith("日程")) {
             text = text.substring(2).trim();
@@ -191,7 +212,7 @@ public final class MessageParser {
         if (text.isBlank()) {
             text = "日程事项";
         }
-        return new ScheduleRequest(date, time, text);
+        return new ScheduleRequest(date, time, text, recurrence);
     }
 
     /** 提取备忘内容：去掉「记一下/备忘/提醒我」等前缀词，返回剩余正文 */
