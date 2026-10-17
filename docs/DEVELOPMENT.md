@@ -142,6 +142,10 @@ HIGH 风险只表示"方案需要显式确认"（超预算），不是"抛异常
 **浏览器通知**：只在「已授权 + 页面 hidden + 本会话未通知过」时发（`lib/reminderNotify.ts`），
 权限必须由用户点击按钮触发 `Notification.requestPermission()`。
 
+**发票文件**：`InvoiceTextExtractor` 负责文件 → 文本：PDF 用 PDFBox 抽文字（扫描件会 422），
+图片调用 `TESSERACT_CMD` 指向的 Tesseract（`-l chi_sim+eng`），未配置时 422 并提示；
+原始文件存 `travel.invoices.dir`，库里记录 `source_file/source_type`。
+
 **越权保护**：所有行程相关接口先做 `tripService.getOwned(tripId, userId)`；
 批量操作（`applyOperations`）还会校验每个条目确实属于该行程。
 

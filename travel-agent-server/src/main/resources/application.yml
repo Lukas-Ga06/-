@@ -46,6 +46,12 @@ management:
 travel:
   # 应用时区：代码里的“今天/明天”都基于它（默认 Asia/Shanghai，避免容器 UTC 导致日期偏移一天）
   timezone: ${APP_TIMEZONE:Asia/Shanghai}
+  invoices:
+    # 上传的发票原始文件
+    dir: ${INVOICE_DIR:data/invoices}
+  ocr:
+    # 图片发票 OCR：Tesseract 可执行文件路径（不配置时仅支持 PDF 电子发票与粘贴文本）
+    tesseract: ${TESSERACT_CMD:}
   photos:
     # 行程照片落盘目录（相对后端模块）
     dir: data/photos

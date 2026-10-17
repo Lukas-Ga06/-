@@ -45,6 +45,14 @@ public class Invoice {
     @Column(name = "raw_text", columnDefinition = "TEXT")
     private String rawText;
 
+    /** 上传的原始文件（存于 travel.invoices.dir，可为空表示手工粘贴文本） */
+    @Column(name = "source_file", length = 120)
+    private String sourceFile;
+
+    /** PDF / IMAGE / TEXT */
+    @Column(name = "source_type", length = 20)
+    private String sourceType;
+
     /** 已生成的记账记录；非空表示该发票已记过账，避免重复 */
     @Column(name = "expense_id")
     private Long expenseId;

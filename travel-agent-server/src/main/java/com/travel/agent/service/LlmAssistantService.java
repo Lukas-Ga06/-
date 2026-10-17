@@ -136,7 +136,7 @@ public class LlmAssistantService {
         }
         // 规则兜底
         BigDecimal amount = null;
-        Matcher m = Pattern.compile("(?:价税合计|合计|金额)\\s*[:：]?\\s*¥?\\s*([0-9]+(?:\\.[0-9]+)?)").matcher(text);
+        Matcher m = Pattern.compile("(?i)(?:价税合计|合计|金额|total|amount)\\s*[:：]?\\s*[¥$]?\\s*([0-9]+(?:\\.[0-9]+)?)").matcher(text);
         if (m.find()) amount = new BigDecimal(m.group(1));
         if (amount == null) return null;
         LocalDate date = LocalDate.now();
@@ -149,9 +149,12 @@ public class LlmAssistantService {
         for (String line : text.split("\n")) {
             if (line.contains("公司") && vendor.isBlank()) vendor = line.trim();
         }
-        String category = text.contains("旅客运输") || text.contains("出租") ? "交通"
-                : text.contains("住宿") ? "住宿"
-                : text.contains("餐饮") ? "餐饮" : "办公";
+        String lower = text.toLowerCase();
+        String category = text.contains("旅客运输") || text.contains("出租")
+                || lower.contains("taxi") || lower.contains("transport")
+                || lower.contains("flight") || lower.contains("train") ? "交通"
+                : text.contains("住宿") || lower.contains("hotel") ? "住宿"
+                : text.contains("餐饮") || lower.contains("restaurant") || lower.contains("meal") ? "餐饮" : "办公";
         return new InvoiceResult(title, vendor, category, amount, date);
     }
 

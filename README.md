@@ -255,6 +255,7 @@ POST   /api/schedule/{id}/toggle  DELETE /api/schedule/{id}
 POST   /api/office/mail/classify  GET  /api/office/mail
 POST   /api/office/minutes/generate   GET /api/office/minutes
 POST   /api/office/invoice/extract    GET /api/office/invoice
+POST   /api/office/invoice/upload     # 上传 PDF/图片发票（图片需配置 OCR）
 POST   /api/office/report/generate    GET /api/office/report
 
 POST   /api/learning/generate     GET  /api/learning/artifacts
@@ -283,6 +284,8 @@ GET    /api/health/records        GET  /api/health/summary
 | `AMAP_KEY` | 空 | 高德 Web 服务 Key，配置后城市 POI 定位走真实数据 |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | 允许的前端来源 |
 | `APP_TIMEZONE` | `Asia/Shanghai` | 应用时区。代码里的「今天/明天」与日报、记账日期都基于它；容器默认 UTC 时必须显式确认 |
+| `TESSERACT_CMD` | 空 | 图片发票 OCR 的 Tesseract 可执行文件路径；不配置时 PDF 电子发票与粘贴文本仍可正常识别 |
+| `INVOICE_DIR` | `data/invoices` | 上传的发票原始文件目录（已 gitignore） |
 | `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_DATABASE` / `MYSQL_USERNAME` / `MYSQL_PASSWORD` | localhost / 3306 / travel_agent / root / root | 仅在 `mysql` profile 下生效 |
 
 ### 6.2 接入真实大模型（可选）

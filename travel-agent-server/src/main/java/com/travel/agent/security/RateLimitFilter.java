@@ -74,7 +74,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
         if (path.startsWith("/api/agent/")) {
             return new Rule("agent", "user", properties.getAgentLimit());
         }
-        if (path.startsWith("/api/trips/") && path.endsWith("/photos") && "POST".equals(method)) {
+        if ("POST".equals(method)
+                && (path.endsWith("/photos") || path.equals("/api/office/invoice/upload"))) {
             return new Rule("upload", "user", properties.getUploadLimit());
         }
         if (path.startsWith("/api/")) {

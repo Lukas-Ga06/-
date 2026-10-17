@@ -3,6 +3,7 @@ package com.travel.agent.controller;
 import com.travel.agent.dto.ApiResponse;
 import com.travel.agent.config.RateLimitProperties;
 import com.travel.agent.llm.LlmProperties;
+import com.travel.agent.service.InvoiceTextExtractor;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,6 +26,7 @@ import java.util.Map;
 public class SystemController {
 
     private final LlmProperties llmProperties;
+    private final InvoiceTextExtractor invoiceTextExtractor;
     private final RateLimitProperties rateLimitProperties;
 
     @Value("${travel.amap.key:}")
@@ -49,6 +51,10 @@ public class SystemController {
                 : "未配置 AMAP_KEY：城市定位退回 OSM Nominatim，国内网络可能较慢或失败");
 
         status.put("timezone", ZoneId.systemDefault().getId());
+        status.put("ocrConfigured", invoiceTextExtractor.ocrConfigured());
+        status.put("ocrHint", invoiceTextExtractor.ocrConfigured()
+                ? "已配置 Tesseract：图片发票可直接 OCR"
+                : "未配置 OCR：支持 PDF 电子发票与粘贴文本；图片需设置 TESSERACT_CMD");
 
         // 运维可见性：待确认方案已落库（多实例可用），限流是否开启
         status.put("pendingPlanStore", "database");

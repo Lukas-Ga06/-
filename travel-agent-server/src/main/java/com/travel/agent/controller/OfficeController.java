@@ -14,6 +14,8 @@ import com.travel.agent.repository.MailItemRepository;
 import com.travel.agent.repository.MeetingMinutesRepository;
 import com.travel.agent.service.AuthService;
 import com.travel.agent.service.ExpenseService;
+import com.travel.agent.service.InvoiceStorage;
+import com.travel.agent.service.InvoiceTextExtractor;
 import com.travel.agent.service.LlmAssistantService;
 import com.travel.agent.service.TripService;
 import com.travel.agent.util.Paging;
@@ -24,6 +26,7 @@ import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -39,6 +42,8 @@ public class OfficeController {
     private final LlmAssistantService llmAssistantService;
     private final TripService tripService;
     private final ExpenseService expenseService;
+    private final InvoiceTextExtractor invoiceTextExtractor;
+    private final InvoiceStorage invoiceStorage;
     private final MailItemRepository mailItemRepository;
     private final MeetingMinutesRepository minutesRepository;
     private final InvoiceRepository invoiceRepository;
@@ -136,6 +141,44 @@ public class OfficeController {
         User user = authService.requireUser(authentication.getName());
         return ApiResponse.ok(Paging.slice(
                 invoiceRepository.findByUserIdOrderByInvoiceDateDescIdDesc(user.getId()), offset, limit));
+    }
+
+    /**
+     * 上传发票文件：PDF 直接抽取文字；图片走可配置的 OCR（Tesseract）。
+     * 提取成功后沿用与"粘贴文本"相同的入库逻辑。
+     */
+    @PostMapping(value = "/invoice/upload", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ApiResponse<Invoice> uploadInvoice(@RequestParam("file") MultipartFile file,
+                                              Authentication authentication) throws java.io.IOException {
+        User user = authService.requireUser(authentication.getName());
+        if (file == null || file.isEmpty()) {
+            throw new BusinessException(400, "请选择要上传的发票文件");
+        }
+        if (file.getSize() > 10L * 1024 * 1024) {
+            throw new BusinessException(400, "文件不能超过 10MB");
+        }
+        byte[] bytes = file.getBytes();
+        String text = invoiceTextExtractor.extract(bytes, file.getOriginalFilename(), file.getContentType());
+        LlmAssistantService.InvoiceResult result = llmAssistantService.extractInvoice(text);
+        if (result == null) {
+            throw new BusinessException(400, "未能从文件中提取出发票金额，请检查文件或改用粘贴文本");
+        }
+        String name = file.getOriginalFilename() == null ? "" : file.getOriginalFilename().toLowerCase();
+        boolean pdf = name.endsWith(".pdf")
+                || (file.getContentType() != null && file.getContentType().contains("pdf"));
+        String storedName = invoiceStorage.store(bytes, file.getOriginalFilename());
+        Invoice saved = invoiceRepository.save(Invoice.builder()
+                .userId(user.getId())
+                .title(result.title())
+                .vendor(result.vendor())
+                .category(result.category())
+                .amount(result.amount())
+                .invoiceDate(result.date())
+                .rawText(text.length() > 20000 ? text.substring(0, 20000) : text)
+                .sourceFile(storedName)
+                .sourceType(pdf ? "PDF" : "IMAGE")
+                .build());
+        return ApiResponse.ok(saved);
     }
 
     public record InvoiceExpenseRequest(

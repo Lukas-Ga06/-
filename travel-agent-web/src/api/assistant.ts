@@ -75,11 +75,21 @@ export interface Invoice {
   invoiceDate: string;
   expenseId?: number | null;
   tripId?: number | null;
+  sourceFile?: string | null;
+  /** PDF / IMAGE / TEXT */
+  sourceType?: string | null;
 }
 
 export const extractInvoice = (text: string) =>
   request<Invoice>({ url: '/office/invoice/extract', method: 'post', data: { text } });
 export const listInvoices = () => request<Invoice[]>({ url: '/office/invoice' });
+
+/** 上传发票文件（PDF 直接识别；图片需服务端配置 OCR） */
+export function uploadInvoice(file: File) {
+  const form = new FormData();
+  form.append('file', file);
+  return request<Invoice>({ url: '/office/invoice/upload', method: 'post', data: form });
+}
 
 /** 发票一键记账：写入所选行程的一笔支出 */
 export const invoiceToExpense = (id: number, data: { tripId: number; paymentMethod?: string }) =>

@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { App, Button, Empty, Input, Modal, Select, Tabs } from 'antd';
+import { App, Button, Empty, Input, Modal, Select, Tabs, Upload } from 'antd';
+import { UploadOutlined } from '@ant-design/icons';
 import AppShell from '../../components/AppShell';
 import { useTripStore } from '../../store/tripStore';
 import { PAYMENT_METHODS } from '../../types/expense';
 import {
   classifyMail, generateMinutes, generateReport, extractInvoice,
-  listMail, listMinutes, listReports, listInvoices, invoiceToExpense,
+  listMail, listMinutes, listReports, listInvoices, invoiceToExpense, uploadInvoice,
   type MailItem, type MeetingMinutes, type DailyReport, type Invoice,
 } from '../../api/assistant';
 
@@ -95,6 +96,24 @@ export default function Office() {
       setInvText('');
       loadInvoices();
     } catch (e: any) { message.error(e.message); } finally { setInvBusy(false); }
+  };
+
+  const handleUpload = async (file: File) => {
+    if (file.size > 10 * 1024 * 1024) {
+      message.warning('文件不能超过 10MB');
+      return Upload.LIST_IGNORE;
+    }
+    setInvBusy(true);
+    try {
+      await uploadInvoice(file);
+      message.success('发票已识别并入库');
+      loadInvoices();
+    } catch (e: any) {
+      message.error(e.message);
+    } finally {
+      setInvBusy(false);
+    }
+    return false;
   };
 
   const submitInvoiceExpense = async () => {
@@ -193,6 +212,16 @@ export default function Office() {
                 key: 'invoice', label: '发票整理',
                 children: (
                   <>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+                      <Upload accept=".pdf,image/*" showUploadList={false} beforeUpload={handleUpload} disabled={invBusy}>
+                        <Button icon={<UploadOutlined />} loading={invBusy}>
+                          上传发票
+                        </Button>
+                      </Upload>
+                      <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
+                        PDF 电子发票可直接识别；图片需要配置 OCR（Tesseract）
+                      </span>
+                    </div>
                     <Input.TextArea rows={4} placeholder="粘贴发票文本（发票抬头/公司/金额/日期等）" value={invText} onChange={(e) => setInvText(e.target.value)} />
                     <Button type="primary" style={{ marginTop: 10 }} loading={invBusy} onClick={doInvoice}>提取并入库</Button>
                     <div style={{ marginTop: 14 }}>
