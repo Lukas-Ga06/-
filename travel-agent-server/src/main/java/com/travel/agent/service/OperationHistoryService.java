@@ -14,6 +14,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -90,7 +92,7 @@ public class OperationHistoryService {
             List<ItineraryDtos.ItineraryItemDTO> before = objectMapper.readValue(
                     history.getBeforeState(), new TypeReference<List<ItineraryDtos.ItineraryItemDTO>>() {});
             List<ItineraryItem> restored = before.stream()
-                    .map(dto -> toEntity(trip.getId(), dto))
+                    .map(dto -> toEntity(trip, dto))
                     .toList();
             itineraryService.replaceAll(trip.getId(), restored);
             history.setStatus(OperationHistory.STATUS_UNDONE);
@@ -108,19 +110,34 @@ public class OperationHistoryService {
         return items.stream().map(ItineraryDtos.ItineraryItemDTO::from).toList();
     }
 
-    public static ItineraryItem toEntity(Long tripId, ItineraryDtos.ItineraryItemDTO dto) {
+    /**
+     * 快照 → 实体。时间只沿用「时刻」，日期按当前行程的第 N 天重新锚定：
+     * 这样即使用户在两次操作之间改过行程日期，撤销也不会把条目恢复到旧日期上。
+     */
+    public static ItineraryItem toEntity(Trip trip, ItineraryDtos.ItineraryItemDTO dto) {
+        int day = dto.getDayIndex() == null ? 1 : dto.getDayIndex();
+        LocalDate date = trip.getStartDate() == null
+                ? LocalDate.now()
+                : trip.getStartDate().plusDays(Math.max(day, 1) - 1L);
         return ItineraryItem.builder()
-                .tripId(tripId)
-                .dayIndex(dto.getDayIndex() == null ? 1 : dto.getDayIndex())
+                .tripId(trip.getId())
+                .dayIndex(day)
                 .itemType(dto.getItemType() == null ? "attraction" : dto.getItemType())
                 .title(dto.getTitle())
-                .startTime(dto.getStartTime() == null ? null : java.time.LocalDateTime.parse(dto.getStartTime()))
-                .endTime(dto.getEndTime() == null ? null : java.time.LocalDateTime.parse(dto.getEndTime()))
+                .startTime(reanchor(dto.getStartTime(), date))
+                .endTime(reanchor(dto.getEndTime(), date))
                 .latitude(dto.getLatitude())
                 .longitude(dto.getLongitude())
                 .cost(dto.getCost())
                 .tags(dto.getTags() == null ? null : String.join(",", dto.getTags()))
                 .description(dto.getDescription())
                 .build();
+    }
+
+    private static LocalDateTime reanchor(String iso, LocalDate date) {
+        if (iso == null || iso.isBlank()) {
+            return null;
+        }
+        return LocalDateTime.parse(iso).toLocalTime().atDate(date);
     }
 }

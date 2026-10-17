@@ -10,7 +10,17 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 public class TripDtos {
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class TripStatusRequest {
+        @jakarta.validation.constraints.NotBlank(message = "不能为空")
+        private String status;
+    }
 
     @Data
     @NoArgsConstructor
@@ -57,9 +67,15 @@ public class TripDtos {
         private String endDate;
         private BigDecimal budget;
         private String status;
+        /** 业务阶段：UPCOMING / ONGOING / PAST / CANCELLED */
+        private String phase;
+        /** 距出发天数（仅 UPCOMING 有值） */
+        private Long daysUntilStart;
         private String createdAt;
 
         public static TripResponse from(Trip trip) {
+            LocalDate today = LocalDate.now();
+            String phase = trip.phase(today);
             return TripResponse.builder()
                     .id(trip.getId())
                     .name(trip.getName())
@@ -68,6 +84,9 @@ public class TripDtos {
                     .endDate(trip.getEndDate() == null ? null : trip.getEndDate().toString())
                     .budget(trip.getBudget())
                     .status(trip.getStatus())
+                    .phase(phase)
+                    .daysUntilStart("UPCOMING".equals(phase) && trip.getStartDate() != null
+                            ? ChronoUnit.DAYS.between(today, trip.getStartDate()) : null)
                     .createdAt(trip.getCreatedAt() == null ? null : trip.getCreatedAt().toLocalDate().toString())
                     .build();
         }

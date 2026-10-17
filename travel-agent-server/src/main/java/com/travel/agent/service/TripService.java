@@ -17,7 +17,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -29,6 +31,7 @@ public class TripService {
     private final OperationHistoryRepository operationHistoryRepository;
     private final TripPhotoRepository tripPhotoRepository;
     private final PhotoStorage photoStorage;
+    private final ItineraryService itineraryService;
 
     public List<TripDtos.TripResponse> list(Long userId) {
         return tripRepository.findByUserIdOrderByCreatedAtDesc(userId).stream()
@@ -64,8 +67,10 @@ public class TripService {
         return tripRepository.save(trip);
     }
 
+    @Transactional
     public Trip update(Long tripId, Long userId, TripDtos.TripRequest req) {
         Trip trip = getOwned(tripId, userId);
+        LocalDate oldStart = trip.getStartDate();
         if (req.getName() != null) trip.setName(req.getName());
         if (req.getDestination() != null) trip.setDestination(req.getDestination());
         LocalDate newStart = Dates.parseDate(req.getStartDate(), "开始日期");
@@ -75,8 +80,40 @@ public class TripService {
         if (trip.getStartDate() != null && trip.getEndDate() != null && trip.getEndDate().isBefore(trip.getStartDate())) {
             throw new BusinessException(400, "结束日期不能早于开始日期");
         }
+        // 缩短行程时，先确认没有安排落在新范围之外（不做静默删除）
+        int totalDays = trip.totalDays();
+        int maxDay = itineraryService.listEntities(tripId).stream()
+                .mapToInt(item -> item.getDayIndex() == null ? 1 : item.getDayIndex())
+                .max()
+                .orElse(0);
+        if (maxDay > totalDays) {
+            throw new BusinessException(400, "缩短后第 " + maxDay + " 天的安排会超出范围（当前共 "
+                    + totalDays + " 天），请先调整或删除这些安排");
+        }
+        // 改起始日期：条目绝对时间整体平移，保持「第几天 + 时刻」不变
+        if (oldStart != null && trip.getStartDate() != null && !oldStart.equals(trip.getStartDate())) {
+            itineraryService.shiftDates(tripId, ChronoUnit.DAYS.between(oldStart, trip.getStartDate()));
+        }
         if (req.getBudget() != null) trip.setBudget(req.getBudget());
         return tripRepository.save(trip);
+    }
+
+    /**
+     * 行程状态：PLANNING（待确认）/ CONFIRMED（已确认）/ CANCELLED（已取消）。
+     * 允许取消后恢复；阶段（未开始/进行中/已结束）由日期派生，不在这里存。
+     */
+    @Transactional
+    public Trip updateStatus(Long tripId, Long userId, String status) {
+        Trip trip = getOwned(tripId, userId);
+        String normalized = status == null ? "" : status.trim().toUpperCase();
+        if (!Set.of(Trip.STATUS_PLANNING, Trip.STATUS_CONFIRMED, Trip.STATUS_CANCELLED).contains(normalized)) {
+            throw new BusinessException(400, "不支持的行程状态: " + status);
+        }
+        if (!normalized.equals(trip.getStatus())) {
+            trip.setStatus(normalized);
+            trip = tripRepository.save(trip);
+        }
+        return trip;
     }
 
     @Transactional

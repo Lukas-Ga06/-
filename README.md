@@ -186,6 +186,7 @@ POST   /api/auth/register         POST /api/auth/login
 
 GET    /api/trips                 POST /api/trips
 GET    /api/trips/{id}            PUT  /api/trips/{id}      DELETE /api/trips/{id}
+PUT    /api/trips/{id}/status     # 确认 / 取消 / 恢复（阶段由日期派生）
 GET    /api/trips/{id}/itinerary  POST /api/trips/{id}/itinerary
 GET    /api/trips/map             # 首页足迹地图坐标
 PUT    /api/itinerary/{id}        DELETE /api/itinerary/{id}

@@ -144,6 +144,29 @@ public class ItineraryService {
         repository.saveAll(toSave);
     }
 
+    /**
+     * 行程改期：把该行程所有条目的绝对时间平移 N 天（dayIndex 不变）。
+     * 条目时间是「trip.startDate + dayIndex」算出来的，所以 Trip 改期必须同步平移，
+     * 否则会出现"行程 10/8 出发、安排还停在 10/1"这种自相矛盾的数据。
+     */
+    @Transactional
+    public int shiftDates(Long tripId, long days) {
+        if (days == 0) {
+            return 0;
+        }
+        List<ItineraryItem> items = repository.findByTripIdOrderByDayIndexAscStartTimeAsc(tripId);
+        for (ItineraryItem item : items) {
+            if (item.getStartTime() != null) {
+                item.setStartTime(item.getStartTime().plusDays(days));
+            }
+            if (item.getEndTime() != null) {
+                item.setEndTime(item.getEndTime().plusDays(days));
+            }
+        }
+        repository.saveAll(items);
+        return items.size();
+    }
+
     public static LocalTime parseTime(String hhmm, String fallback) {
         try {
             return LocalTime.parse(hhmm == null || hhmm.isBlank() ? fallback : hhmm);

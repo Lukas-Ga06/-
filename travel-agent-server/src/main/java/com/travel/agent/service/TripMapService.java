@@ -42,6 +42,10 @@ public class TripMapService {
         List<TripDtos.TripMapPoint> points = new ArrayList<>();
         List<Trip> unknown = new ArrayList<>();
         for (Trip trip : trips) {
+            // 已取消的行程没有真正发生，不计入足迹
+            if (Trip.STATUS_CANCELLED.equals(trip.getStatus())) {
+                continue;
+            }
             double[] c = coordCache.get(key(trip.getDestination()));
             if (c == null) {
                 c = cityAtlas.resolve(trip.getDestination());

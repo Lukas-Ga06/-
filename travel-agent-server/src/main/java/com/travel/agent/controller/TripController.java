@@ -71,6 +71,16 @@ public class TripController {
         return ApiResponse.ok(null);
     }
 
+    /** 确认 / 取消 / 恢复行程（阶段仍由日期派生） */
+    @PutMapping("/{id}/status")
+    public ApiResponse<TripDtos.TripResponse> updateStatus(@PathVariable Long id,
+                                                           @Valid @RequestBody TripDtos.TripStatusRequest request,
+                                                           Authentication authentication) {
+        User user = authService.requireUser(authentication.getName());
+        return ApiResponse.ok(TripDtos.TripResponse.from(
+                tripService.updateStatus(id, user.getId(), request.getStatus())));
+    }
+
     @GetMapping("/{id}/itinerary")
     public ApiResponse<List<ItineraryDtos.ItineraryItemDTO>> itinerary(@PathVariable Long id, Authentication authentication) {
         User user = authService.requireUser(authentication.getName());

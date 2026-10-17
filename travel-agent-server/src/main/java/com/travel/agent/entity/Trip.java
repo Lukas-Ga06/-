@@ -6,6 +6,7 @@ import lombok.*;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 
 @Entity
 @Table(name = "trip", indexes = {
@@ -20,6 +21,8 @@ public class Trip {
 
     public static final String STATUS_PLANNING = "PLANNING";
     public static final String STATUS_CONFIRMED = "CONFIRMED";
+    /** 用户取消的行程：仍保留记录，但不再计入足迹、不作为待出发行程 */
+    public static final String STATUS_CANCELLED = "CANCELLED";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -57,5 +60,34 @@ public class Trip {
         if (status == null) {
             status = STATUS_PLANNING;
         }
+    }
+
+    /** 行程天数（含首尾） */
+    public int totalDays() {
+        if (startDate == null || endDate == null) {
+            return 1;
+        }
+        return (int) Math.max(ChronoUnit.DAYS.between(startDate, endDate) + 1, 1);
+    }
+
+    /**
+     * 业务阶段（由日期派生，不落库）：
+     * CANCELLED 已取消 / PAST 已结束 / ONGOING 进行中 / UPCOMING 未开始。
+     */
+    public String phase(LocalDate today) {
+        if (STATUS_CANCELLED.equals(status)) {
+            return "CANCELLED";
+        }
+        if (startDate == null) {
+            return "UPCOMING";
+        }
+        LocalDate day = today == null ? LocalDate.now() : today;
+        if (endDate != null && day.isAfter(endDate)) {
+            return "PAST";
+        }
+        if (day.isBefore(startDate)) {
+            return "UPCOMING";
+        }
+        return "ONGOING";
     }
 }

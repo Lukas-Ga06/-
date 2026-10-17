@@ -297,7 +297,7 @@ public class PlannerAgent {
             }
             ops.add(PlanOperation.builder().type(PlanOperation.REMOVE)
                     .targetItemId(target.getId())
-                    .original(OperationHistoryService.toEntity(trip.getId(), target))
+                    .original(OperationHistoryService.toEntity(trip, target))
                     .detail("移除「" + target.getTitle() + "」").build());
             ItineraryItem draft = draft(trip.getStartDate(), target.getDayIndex(), ItineraryItem.TYPE_ATTRACTION,
                     repl.name(), "14:00", "16:30", repl.lat(), repl.lng(),

@@ -12,7 +12,7 @@ import { useTripStore } from '../../store/tripStore';
 import { useAgentStore } from '../../store/agentStore';
 import { useUIStore } from '../../store/uiStore';
 import { undoTrip } from '../../api/agent';
-import { daysOf, totalCost } from '../../types/trip';
+import { daysOf, totalCost, tripPhaseLabel } from '../../types/trip';
 import MapView from '../../components/MapView';
 import Timeline from '../../components/Timeline';
 import ChatPanel from '../../components/ChatPanel';
@@ -97,7 +97,7 @@ export default function TripPage() {
               <h1>{currentTrip?.name ?? '行程'}</h1>
               <div className="dg-date">
                 {currentTrip
-                  ? `${currentTrip.destination} · ${daysOf(currentTrip)} 天 · ${items.length} 个安排`
+                  ? `${currentTrip.destination} · ${daysOf(currentTrip)} 天 · ${tripPhaseLabel(currentTrip)} · ${items.length} 个安排`
                   : '加载中…'}
               </div>
             </div>

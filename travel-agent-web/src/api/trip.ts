@@ -25,6 +25,11 @@ export function deleteTrip(id: number): Promise<void> {
   return request<void>({ url: `/trips/${id}`, method: 'delete' });
 }
 
+/** 行程状态：PLANNING（待确认）/ CONFIRMED（已确认）/ CANCELLED（已取消，可恢复） */
+export function updateTripStatus(id: number, status: string): Promise<Trip> {
+  return request<Trip>({ url: `/trips/${id}/status`, method: 'put', data: { status } });
+}
+
 export function getItinerary(tripId: number): Promise<ItineraryItem[]> {
   return request<ItineraryItem[]>({ url: `/trips/${tripId}/itinerary` });
 }

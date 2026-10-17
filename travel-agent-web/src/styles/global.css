@@ -1606,6 +1606,12 @@ body {
 .mini-tag.indoor { background: rgba(90, 200, 250, 0.16); color: #0a7ea4; border-color: rgba(90, 200, 250, 0.3); }
 .mini-tag.outdoor { background: rgba(52, 199, 89, 0.14); color: #1e9e47; border-color: rgba(52, 199, 89, 0.3); }
 
+/* 行程阶段徽标：进行中=绿、待出发=蓝、已结束=灰、已取消=红 */
+.mini-tag.ongoing { background: rgba(52, 199, 89, 0.16); color: #178a3d; border-color: rgba(52, 199, 89, 0.32); }
+.mini-tag.upcoming { background: rgba(0, 122, 255, 0.12); color: #0a63c9; border-color: rgba(0, 122, 255, 0.26); }
+.mini-tag.past { background: rgba(142, 142, 147, 0.14); color: #636366; border-color: rgba(142, 142, 147, 0.26); }
+.mini-tag.cancelled { background: rgba(255, 59, 48, 0.12); color: #c22a21; border-color: rgba(255, 59, 48, 0.24); }
+
 .t-row .tc-desc {
   margin-top: 6px;
   color: var(--ink-3);

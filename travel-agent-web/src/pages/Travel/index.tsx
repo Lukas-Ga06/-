@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { App, Button, Empty, Input, Popconfirm, Tabs } from 'antd';
-import { DeleteOutlined, RobotOutlined, UserOutlined } from '@ant-design/icons';
+import { CheckOutlined, DeleteOutlined, RobotOutlined, StopOutlined, UndoOutlined, UserOutlined } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
-import { deleteTrip, listTrips } from '../../api/trip';
+import { deleteTrip, listTrips, updateTripStatus } from '../../api/trip';
+import { tripPhaseClass, tripPhaseLabel } from '../../types/trip';
 import { useAuthStore } from '../../store/authStore';
 import { useTripStore } from '../../store/tripStore';
 import VoiceButton from '../../components/VoiceButton';
@@ -30,6 +31,7 @@ export default function Travel() {
   const loadTrips = useTripStore((s) => s.loadTrips);
   const user = useAuthStore((s) => s.user);
   const [text, setText] = useState('');
+  const [statusBusy, setStatusBusy] = useState<number | null>(null);
   const [params, setParams] = useSearchParams();
   const tabParam = params.get('tab');
   const activeTab = tabParam === 'schedule' || tabParam === 'footprint' ? tabParam : 'trips';
@@ -54,6 +56,19 @@ export default function Travel() {
       loadTrips();
     } catch (e: any) {
       message.error(e.message);
+    }
+  };
+
+  const changeStatus = async (id: number, status: string) => {
+    setStatusBusy(id);
+    try {
+      await updateTripStatus(id, status);
+      await loadTrips();
+      message.success(status === 'CANCELLED' ? '已标记为取消' : status === 'CONFIRMED' ? '行程已确认' : '已恢复为待确认');
+    } catch (e: any) {
+      message.error(e?.message || '更新行程状态失败');
+    } finally {
+      setStatusBusy(null);
     }
   };
 
@@ -117,7 +132,16 @@ export default function Travel() {
           </div>
         ) : (
           <div className="inset-list fade-up">
-            {trips.map((t) => (
+            {trips.map((t) => {
+              // 一个按钮承载三种动作：待确认 → 确认；已确认（未结束）→ 取消；已取消 → 恢复
+              const action = t.phase === 'CANCELLED'
+                ? { label: '恢复', next: 'CONFIRMED', icon: <UndoOutlined /> }
+                : t.status === 'PLANNING'
+                  ? { label: '确认', next: 'CONFIRMED', icon: <CheckOutlined /> }
+                  : t.phase === 'PAST'
+                    ? null
+                    : { label: '取消', next: 'CANCELLED', icon: <StopOutlined /> };
+              return (
               <div key={t.id} className="trip-row" onClick={() => navigate(`/trip/${t.id}`)}>
                 <div
                   className="tr-icon"
@@ -128,10 +152,9 @@ export default function Travel() {
                 <div className="tr-main">
                   <div className="tr-title">
                     {t.name}
-                    {t.status === 'CONFIRMED' ? (
-                      <span className="mini-tag outdoor">已确认</span>
-                    ) : (
-                      <span className="mini-tag indoor">规划中</span>
+                    <span className={`mini-tag ${tripPhaseClass(t)}`}>{tripPhaseLabel(t)}</span>
+                    {t.status === 'PLANNING' && t.phase !== 'CANCELLED' && (
+                      <span className="mini-tag">待确认</span>
                     )}
                   </div>
                   <div className="tr-sub">
@@ -141,6 +164,20 @@ export default function Travel() {
                 </div>
                 <div className="tr-right">
                   <span className="tr-budget">¥{t.budget}</span>
+                  {action && (
+                    <Button
+                      type="text"
+                      size="small"
+                      loading={statusBusy === t.id}
+                      icon={action.icon}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        changeStatus(t.id, action.next);
+                      }}
+                    >
+                      {action.label}
+                    </Button>
+                  )}
                   <span className="tr-delete" onClick={(e) => e.stopPropagation()}>
                     <Popconfirm title="确定删除该行程？" onConfirm={() => remove(t.id)}>
                       <Button type="text" danger size="small" icon={<DeleteOutlined />} />
@@ -149,7 +186,8 @@ export default function Travel() {
                   <span className="tr-chevron">›</span>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
                 </>
