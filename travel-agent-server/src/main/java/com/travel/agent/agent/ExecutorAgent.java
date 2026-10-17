@@ -114,7 +114,8 @@ public class ExecutorAgent {
      */
     @Transactional
     public AgentDtos.AgentResult commit(AgentPlan plan, Long userId) {
-        if (plan.getTripDraft() != null) {
+        // 有 tripId = 重新规划已有行程（REMOVE+ADD 落到原行程）；没有 tripId 才是新建
+        if (plan.getTripId() == null && plan.getTripDraft() != null) {
             List<ItineraryItem> items = plan.getOperations().stream()
                     .filter(op -> PlanOperation.ADD.equals(op.getType()))
                     .map(PlanOperation::getDraft)

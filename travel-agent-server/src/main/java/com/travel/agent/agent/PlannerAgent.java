@@ -93,10 +93,21 @@ public class PlannerAgent {
         if (preferSubway) preferences.add("酒店近地铁");
         if (family) preferences.add("亲子友好");
 
+        // 出发日期：优先用户明确说的日期（国庆/10月1日/下周六…）；重规划已有行程时沿用原出发日期
+        LocalDate today = LocalDate.now();
+        MessageParser.DepartureDate departure = MessageParser.extractDepartureDate(message, today);
+        LocalDate startDate = trip != null && trip.getStartDate() != null
+                ? trip.getStartDate()
+                : (departure.explicit() && departure.date() != null ? departure.date() : today.plusDays(1));
+        if (startDate.isBefore(today)) {
+            return emptyPlan(intent, city, trip,
+                    "出发日期 " + startDate + " 已经过去了，请确认年份或换一个日期。");
+        }
+
         TripDraft draft = TripDraft.builder()
                 .name(city.name() + days + "日游")
                 .destination(city.name())
-                .startDate(LocalDate.now().plusDays(1))
+                .startDate(startDate)
                 .days(days)
                 .budget(budget)
                 .preferences(preferences)
@@ -152,7 +163,7 @@ public class PlannerAgent {
                 .tripDraft(draft)
                 .operations(ops)
                 .focus(AgentDtos.AgentFocus.builder().type("itinerary").day(1).build())
-                .reasoning("基于 " + city.name() + days + " 天行程与 ¥" + budget.stripTrailingZeros().toPlainString()
+                .reasoning(startDate + " 出发，基于 " + city.name() + days + " 天行程与 ¥" + budget.stripTrailingZeros().toPlainString()
                         + " 预算：酒店选择「" + (hotel == null ? "-" : hotel.name()) + "」"
                         + (preferSubway ? "（近地铁）" : "") + "；景点按「上午户外 + 下午室内」搭配，餐饮就近安排。")
                 .extras(extras)

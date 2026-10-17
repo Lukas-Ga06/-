@@ -4,6 +4,8 @@ import com.travel.agent.dto.AgentDtos;
 import com.travel.agent.model.WeatherInfo;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 /** Agent 回复文案模板（LLM 可用时会在此基础上润色） */
@@ -14,7 +16,13 @@ public final class MessageTemplates {
 
     public static String planTrip(TripDraft draft, int attractions, int restaurants, boolean hasHotel, BigDecimal total) {
         StringBuilder sb = new StringBuilder();
-        sb.append("已为你规划「").append(draft.getName()).append("」：")
+        sb.append("已为你规划「").append(draft.getName()).append("」");
+        if (draft.getStartDate() != null) {
+            boolean sameYear = draft.getStartDate().getYear() == LocalDate.now().getYear();
+            sb.append("（").append(draft.getStartDate().format(DateTimeFormatter.ofPattern(
+                    sameYear ? "M月d日" : "yyyy年M月d日"))).append("出发）");
+        }
+        sb.append("：")
                 .append(attractions).append("个景点、").append(restaurants).append("顿美食");
         if (hasHotel) {
             sb.append("，酒店已按你的偏好挑选");

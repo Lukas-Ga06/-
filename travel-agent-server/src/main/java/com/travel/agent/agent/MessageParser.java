@@ -3,7 +3,10 @@ package com.travel.agent.agent;
 import com.travel.agent.entity.Trip;
 
 import java.math.BigDecimal;
+import java.time.DayOfWeek;
 import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.TemporalAdjusters;
 import java.time.temporal.ChronoUnit;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -25,11 +28,13 @@ public final class MessageParser {
         if (text == null) {
             return -1;
         }
-        Matcher m = Pattern.compile("(\\d+)\\s*[天日]").matcher(text);
+        // 先把日期片段去掉：否则「11月1日杭州三日游」会先匹配到日期里的「1日」，被当成 1 日游
+        String stripped = stripDateExpressions(text);
+        Matcher m = Pattern.compile("(\\d+)\\s*[天日]").matcher(stripped);
         if (m.find()) {
             return Integer.parseInt(m.group(1));
         }
-        m = Pattern.compile("([一两二三四五六七八九十])\\s*[天日]").matcher(text);
+        m = Pattern.compile("([一两二三四五六七八九十])\\s*[天日]").matcher(stripped);
         if (m.find()) {
             return CN_NUM.getOrDefault(m.group(1).charAt(0), -1);
         }
@@ -37,6 +42,12 @@ public final class MessageParser {
             return 2;
         }
         return -1;
+    }
+
+    /** 去掉文本里的日期片段（完整日期与月日），避免与「N 天/N 日」的天数解析互相干扰 */
+    private static String stripDateExpressions(String text) {
+        String stripped = FULL_DATE.matcher(text).replaceAll(" ");
+        return MONTH_DAY.matcher(stripped).replaceAll(" ");
     }
 
     /** 提取预算："预算3000" / "3000元" */
@@ -234,6 +245,134 @@ public final class MessageParser {
         return NO_RELATIVE_DATE;
     }
 
+    /** 出发日期解析结果：explicit=false 表示用户没给日期 */
+    public record DepartureDate(LocalDate date, String phrase, boolean explicit) {
+        public static DepartureDate none() {
+            return new DepartureDate(null, null, false);
+        }
+    }
+
+    private static final Pattern FULL_DATE =
+            Pattern.compile("(\\d{4})\\s*[-/年]\\s*(\\d{1,2})\\s*[-/月]\\s*(\\d{1,2})\\s*日?");
+    private static final Pattern MONTH_DAY =
+            Pattern.compile("(\\d{1,2})\\s*[月/]\\s*(\\d{1,2})\\s*日?");
+    private static final Pattern WEEKDAY =
+            Pattern.compile("(下周|下个星期|本周|这周|这个星期|星期|周)([一二三四五六日天])");
+
+    /**
+     * 解析「出发日期」。支持：
+     * <ul>
+     *   <li>完整日期：2026-10-01 / 2026年10月1日</li>
+     *   <li>月日：10月1日 / 10/1（今年已过则顺延到明年）</li>
+     *   <li>节日：国庆(10/1)、元旦(1/1)、劳动节·五一(5/1)（农历节日不支持）</li>
+     *   <li>相对：今天 / 明天 / 后天</li>
+     *   <li>周末：周末 / 下周末 / 周六 / 本周六 / 下周日</li>
+     * </ul>
+     *
+     * @param today 用于计算相对日期（测试可传固定日期）
+     */
+    public static DepartureDate extractDepartureDate(String text, LocalDate today) {
+        if (text == null || text.isBlank()) {
+            return DepartureDate.none();
+        }
+        LocalDate base = today == null ? LocalDate.now() : today;
+
+        // 1) 完整日期（优先，避免被下面的月日规则截断）
+        Matcher full = FULL_DATE.matcher(text);
+        if (full.find()) {
+            try {
+                LocalDate date = LocalDate.of(Integer.parseInt(full.group(1)),
+                        Integer.parseInt(full.group(2)), Integer.parseInt(full.group(3)));
+                return new DepartureDate(date, full.group(), true);
+            } catch (RuntimeException ignored) {
+                // 非法日期（如 2026-13-40）继续尝试其它规则
+            }
+        }
+
+        // 2) 相对日期
+        int offset = relativeDayOffset(text);
+        if (offset != NO_RELATIVE_DATE) {
+            String phrase = offset == 0 ? "今天" : offset == 1 ? "明天" : "后天";
+            return new DepartureDate(base.plusDays(offset), phrase, true);
+        }
+
+        // 3) 周末 / 下周X / 周X
+        if (text.contains("下周") && text.contains("末")) {
+            LocalDate monday = base.with(TemporalAdjusters.next(DayOfWeek.MONDAY));
+            return new DepartureDate(monday.plusDays(5), "下周末", true);
+        }
+        if (text.contains("周末")) {
+            return new DepartureDate(comingWeekday(base, DayOfWeek.SATURDAY), "周末", true);
+        }
+        Matcher weekday = WEEKDAY.matcher(text);
+        if (weekday.find()) {
+            String prefix = weekday.group(1);
+            DayOfWeek target = weekdayOf(weekday.group(2));
+            if (target != null) {
+                LocalDate date;
+                if (prefix.startsWith("下")) {
+                    LocalDate nextMonday = base.with(TemporalAdjusters.next(DayOfWeek.MONDAY));
+                    date = nextMonday.plusDays(target.getValue() - 1L);
+                } else if (prefix.startsWith("本") || prefix.startsWith("这")) {
+                    LocalDate monday = base.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+                    date = monday.plusDays(target.getValue() - 1L);
+                    if (date.isBefore(base)) {
+                        date = date.plusWeeks(1); // 本周已过的那天 → 顺延到下一周
+                    }
+                } else {
+                    date = comingWeekday(base, target);
+                }
+                return new DepartureDate(date, weekday.group(), true);
+            }
+        }
+
+        // 4) 固定节日（农历节日无法只靠本类推算，暂不支持）
+        if (text.contains("国庆")) {
+            return new DepartureDate(rollForward(base, 10, 1), "国庆", true);
+        }
+        if (text.contains("元旦")) {
+            return new DepartureDate(rollForward(base, 1, 1), "元旦", true);
+        }
+        if (text.contains("劳动节") || text.contains("五一")) {
+            return new DepartureDate(rollForward(base, 5, 1), "劳动节", true);
+        }
+
+        // 5) 月日（今年已过 → 顺延到明年）
+        Matcher md = MONTH_DAY.matcher(text);
+        if (md.find()) {
+            try {
+                int month = Integer.parseInt(md.group(1));
+                int day = Integer.parseInt(md.group(2));
+                if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+                    return new DepartureDate(rollForward(base, month, day), md.group(), true);
+                }
+            } catch (RuntimeException ignored) {
+                // 落到"未识别"
+            }
+        }
+        return DepartureDate.none();
+    }
+
+    private static DayOfWeek weekdayOf(String chinese) {
+        if ("日".equals(chinese) || "天".equals(chinese)) {
+            return DayOfWeek.SUNDAY;
+        }
+        Integer n = CN_NUM.get(chinese.charAt(0));
+        return n == null || n < 1 || n > 6 ? null : DayOfWeek.of(n);
+    }
+
+    /** 下一个指定星期几（今天是该天则返回今天） */
+    private static LocalDate comingWeekday(LocalDate base, DayOfWeek target) {
+        int diff = (target.getValue() - base.getDayOfWeek().getValue() + 7) % 7;
+        return base.plusDays(diff);
+    }
+
+    /** 月日：今年已过则顺延到明年 */
+    private static LocalDate rollForward(LocalDate base, int month, int day) {
+        LocalDate date = LocalDate.of(base.getYear(), month, day);
+        return date.isBefore(base) ? date.plusYears(1) : date;
+    }
+
     /** 日期到行程天的映射结果：outsideTrip=true 表示用户提到的日期并不在行程区间内 */
     public record TripDay(int dayIndex, boolean outsideTrip, LocalDate date) {}
 
@@ -254,6 +393,19 @@ public final class MessageParser {
         }
         int totalDays = tripDays(trip);
         if (offset == NO_RELATIVE_DATE) {
+            // 也支持用户直接说日期（如「10月3日下雨」）：落在行程内就用那天
+            DepartureDate explicit = extractDepartureDate(text, LocalDate.now());
+            if (explicit.explicit() && explicit.date() != null) {
+                LocalDate mentioned = explicit.date();
+                boolean inRange = !mentioned.isBefore(trip.getStartDate())
+                        && (trip.getEndDate() == null || !mentioned.isAfter(trip.getEndDate()));
+                if (inRange) {
+                    int idx = dayIndexOf(trip, mentioned);
+                    return new TripDay(idx, false, tripDayDate(trip, idx));
+                }
+                int idx = clampDay(base, totalDays);
+                return new TripDay(idx, true, tripDayDate(trip, idx));
+            }
             int idx = clampDay(base, totalDays);
             return new TripDay(idx, false, tripDayDate(trip, idx));
         }
