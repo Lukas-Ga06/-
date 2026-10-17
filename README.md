@@ -180,6 +180,22 @@ Agent 通过 **GUI Focus 协议** 返回 focus（day/itemId/坐标），前端�
 | 「国庆去杭州」「11月1日杭州三日游」「下周六去成都」 | 出发日期按你说的算（完整日期 / 月日 / 国庆·元旦·五一 / 周末 / 本周六 / 下周六 / 明天）；月日若今年已过自动顺延到明年，明确写出已过去的完整日期会拒绝并提示 |
 | 其它无法归类的话 | 返回能力提示，不会贸然开始规划 |
 
+### 4.8 预算口径与确认时的版本校验
+
+预算统一用一张「执行摘要」表达（`GET /api/trips/{id}/budget`），Agent 的预算问答与行程页「预算分析」抽屉共用同一份数据：
+
+| 字段 | 含义 |
+| --- | --- |
+| `planned` | 计划成本：行程项 `cost` 合计 |
+| `budget` | 行程预算 |
+| `actual` | 实际支出：记账合计 |
+| `variance` | `actual - planned`（正数=比计划多花） |
+| `remaining` | `budget - actual` |
+| `categories` | 按记账分类的「计划 vs 实际」对照（酒店→住宿、餐饮→餐饮、交通→交通、景点→门票） |
+
+待确认方案会记录生成时的**行程指纹**（日期 + 预算 + 全部条目）。确认时若指纹与当前行程不一致
+（例如另一个标签页改过安排），方案会直接失效并提示重新生成，避免按过期 Diff 覆盖新数据。
+
 ## 5. REST API 一览
 
 ```
@@ -190,6 +206,7 @@ GET    /api/trips/{id}            PUT  /api/trips/{id}      DELETE /api/trips/{i
 PUT    /api/trips/{id}/status     # 确认 / 取消 / 恢复（阶段由日期派生）
 GET    /api/trips/{id}/itinerary  POST /api/trips/{id}/itinerary
 GET    /api/trips/map             # 首页足迹地图坐标
+GET    /api/trips/{id}/budget     # 预算执行：计划 / 预算 / 实际 / 偏差 + 分类对账
 PUT    /api/itinerary/{id}        DELETE /api/itinerary/{id}
 
 POST   /api/agent/chat            # 同步对话

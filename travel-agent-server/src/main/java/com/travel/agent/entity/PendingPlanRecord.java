@@ -40,6 +40,10 @@ public class PendingPlanRecord {
     @Column(name = "preview_json", nullable = false, columnDefinition = "TEXT")
     private String previewJson;
 
+    /** 生成方案时的行程指纹：确认时比对，防止按过期 Diff 提交 */
+    @Column(name = "plan_revision", length = 64)
+    private String planRevision;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 }

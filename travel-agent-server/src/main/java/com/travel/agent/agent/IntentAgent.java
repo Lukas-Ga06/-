@@ -64,7 +64,8 @@ public class IntentAgent {
         try {
             String prompt = """
                     你是个人智能助理的意图识别模块。将用户消息分类为以下意图之一：
-                    PLAN_TRIP（规划新行程）、MODIFY_ITINERARY（修改已有行程）、QUERY_BUDGET（查询预算花费）、
+                    PLAN_TRIP（规划新行程；用户说「重新规划/重排整个行程」也归这里）、
+                    MODIFY_ITINERARY（只改某一项或某一天，如换掉某个景点、调整时间）、QUERY_BUDGET（查询预算花费）、
                     QUERY_KNOWLEDGE（旅游知识问答，如攻略/推荐/介绍）、RECORD_EXPENSE（记账：记录一笔实际花费，如「记一笔午餐45元」）、
                     ADD_MEMO（添加个人备忘/待办，如「记一下明天办签证」）、QUERY_MEMO（查看备忘/待办列表）、
                     ADD_SCHEDULE（添加日程，如「明天下午3点开评审会」）、QUERY_SCHEDULE（查看日程安排）、

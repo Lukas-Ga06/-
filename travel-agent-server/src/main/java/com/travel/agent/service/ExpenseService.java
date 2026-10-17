@@ -149,4 +149,9 @@ public class ExpenseService {
     public List<Expense> listEntities(Long userId) {
         return new ArrayList<>(expenseRepository.findByUserIdOrderBySpentAtDescIdDesc(userId));
     }
+
+    /** 某行程的全部账单实体（预算对账用） */
+    public List<Expense> listEntitiesByTrip(Long tripId) {
+        return new ArrayList<>(expenseRepository.findByTripIdOrderBySpentAtDescIdDesc(tripId));
+    }
 }

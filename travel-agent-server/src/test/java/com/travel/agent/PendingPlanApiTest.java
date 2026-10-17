@@ -38,7 +38,7 @@ class PendingPlanApiTest extends IntegrationTestSupport {
                 .confirmation(AgentDtos.ConfirmationRequest.builder()
                         .planId(planId).summary("新增 2 项").riskLevel("MEDIUM").build())
                 .build();
-        store.put(new PendingPlanStore.PendingPlan(planId, userId, null, plan, preview, Instant.now()));
+        store.put(new PendingPlanStore.PendingPlan(planId, userId, null, plan, preview, null, Instant.now()));
         return planId;
     }
 

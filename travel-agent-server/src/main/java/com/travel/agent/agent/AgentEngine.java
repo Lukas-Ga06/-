@@ -1,6 +1,7 @@
 package com.travel.agent.agent;
 
 import com.travel.agent.dto.AgentDtos;
+import com.travel.agent.dto.BudgetDtos;
 import com.travel.agent.entity.DailyReport;
 import com.travel.agent.entity.Expense;
 import com.travel.agent.entity.ItineraryItem;
@@ -139,9 +140,11 @@ public class AgentEngine {
         }
 
         ctx.setState(AgentState.PRESENT);
+        String planRevision = trip == null ? null
+                : ItineraryService.planRevision(trip, itineraryService.listEntities(trip.getId()));
         pendingPlans.put(new PendingPlanStore.PendingPlan(
                 plan.getPlanId(), ctx.getUserId(), trip == null ? null : trip.getId(), plan, preview,
-                java.time.Instant.now()));
+                planRevision, java.time.Instant.now()));
 
         if (preview.getDiff() != null) {
             ctx.emit("plan_update", Map.of("diff", preview.getDiff(), "budget", preview.getBudget()));
@@ -206,11 +209,13 @@ public class AgentEngine {
         }
         List<ItineraryItem> items = itineraryService.listEntities(trip.getId());
         AgentDtos.BudgetSummary summary = budgetService.summarize(items);
+        BudgetDtos.BudgetExecution execution = budgetService.execution(trip, items,
+                expenseService.listEntitiesByTrip(trip.getId()));
         return complete(ctx, AgentDtos.AgentResult.builder()
                 .tripId(trip.getId())
                 .intent(intent.getIntent())
                 .status(AgentDtos.STATUS_COMPLETED)
-                .message(MessageTemplates.budgetSummary(trip.getName(), items.size(), summary, trip.getBudget()))
+                .message(MessageTemplates.budgetExecution(execution))
                 .focus(AgentDtos.AgentFocus.builder().type("budget").tripId(trip.getId()).build())
                 .budget(summary)
                 .warnings(new ArrayList<>())
@@ -429,6 +434,21 @@ public class AgentEngine {
                     .status(AgentDtos.STATUS_FAILED)
                     .message("确认会话不存在或已过期，请重新发起请求。")
                     .build();
+        }
+        // 版本校验：方案生成后行程若被改过（另一个标签页/设备），这份 Diff 已不可信
+        if (pending.tripId() != null) {
+            Trip current = tripService.getOwned(pending.tripId(), userId);
+            String currentRevision = ItineraryService.planRevision(current,
+                    itineraryService.listEntities(current.getId()));
+            if (pending.planRevision() != null && !pending.planRevision().equals(currentRevision)) {
+                pendingPlans.remove(planId);
+                return AgentDtos.AgentResult.builder()
+                        .planId(planId)
+                        .tripId(pending.tripId())
+                        .status(AgentDtos.STATUS_FAILED)
+                        .message("行程在你确认前已经发生变化（安排、预算或日期被修改），这份方案已失效，请重新发起调整。")
+                        .build();
+            }
         }
         AgentDtos.AgentResult result = executorAgent.commit(pending.plan(), userId);
         pendingPlans.remove(planId);

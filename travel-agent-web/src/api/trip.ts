@@ -1,5 +1,6 @@
 import { request } from './client';
 import type { AddItemPayload, ItineraryItem, Trip, TripMapPoint } from '../types/trip';
+import type { BudgetExecution } from '../types/expense';
 
 export function listTrips(): Promise<Trip[]> {
   return request<Trip[]>({ url: '/trips' });
@@ -32,6 +33,11 @@ export function updateTripStatus(id: number, status: string): Promise<Trip> {
 
 export function getItinerary(tripId: number): Promise<ItineraryItem[]> {
   return request<ItineraryItem[]>({ url: `/trips/${tripId}/itinerary` });
+}
+
+/** 预算执行：计划 / 预算 / 实际 / 偏差 + 分类对账 */
+export function getBudgetExecution(tripId: number): Promise<BudgetExecution> {
+  return request<BudgetExecution>({ url: `/trips/${tripId}/budget` });
 }
 
 export function addItineraryItem(tripId: number, payload: AddItemPayload): Promise<ItineraryItem> {

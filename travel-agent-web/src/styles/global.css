@@ -1612,6 +1612,107 @@ body {
 .mini-tag.past { background: rgba(142, 142, 147, 0.14); color: #636366; border-color: rgba(142, 142, 147, 0.26); }
 .mini-tag.cancelled { background: rgba(255, 59, 48, 0.12); color: #c22a21; border-color: rgba(255, 59, 48, 0.24); }
 
+/* 预算执行：计划 / 预算 / 实际 / 偏差 */
+.budget-exec {
+  padding: 14px;
+  margin-bottom: 14px;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.be-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+
+.be-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.be-item span {
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
+.be-item b {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.be-item b.over,
+.be-cat-num.over {
+  color: var(--danger);
+}
+
+.be-item b.ok {
+  color: var(--success);
+}
+
+.be-bar {
+  height: 6px;
+  margin-top: 12px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.be-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--primary);
+}
+
+.be-bar.over i {
+  background: var(--danger);
+}
+
+.be-note {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.be-warn {
+  color: var(--danger);
+}
+
+.be-cats {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.be-cat {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+}
+
+.be-cat-name {
+  min-width: 44px;
+  color: var(--text-2);
+}
+
+.be-cat-num {
+  color: var(--text-3);
+}
+
+@media (max-width: 700px) {
+  .be-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
 .t-row .tc-desc {
   margin-top: 6px;
   color: var(--ink-3);

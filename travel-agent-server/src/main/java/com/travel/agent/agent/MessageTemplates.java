@@ -1,12 +1,14 @@
 package com.travel.agent.agent;
 
 import com.travel.agent.dto.AgentDtos;
+import com.travel.agent.dto.BudgetDtos;
 import com.travel.agent.model.WeatherInfo;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /** Agent 回复文案模板（LLM 可用时会在此基础上润色） */
 public final class MessageTemplates {
@@ -64,6 +66,36 @@ public final class MessageTemplates {
             sb.setLength(sb.length() - 1);
         }
         return sb.toString();
+    }
+
+    /** 预算执行：计划 / 预算 / 实际 / 偏差 + 分类对账（统一口径，供 Agent 与接口复用） */
+    public static String budgetExecution(BudgetDtos.BudgetExecution e) {
+        StringBuilder sb = new StringBuilder("行程「").append(e.getTripName()).append("」：计划 ¥")
+                .append(plain(e.getPlanned()));
+        if (e.getBudget() != null) {
+            sb.append("，预算 ¥").append(plain(e.getBudget()));
+        }
+        sb.append("，已支出 ¥").append(plain(e.getActual()));
+        if (e.getRemaining() != null) {
+            sb.append(e.getRemaining().signum() >= 0 ? "，剩余预算 ¥" : "，已超预算 ¥")
+                    .append(plain(e.getRemaining().abs()));
+        }
+        sb.append("；较计划").append(e.getVariance().signum() >= 0 ? "多" : "少")
+                .append(" ¥").append(plain(e.getVariance().abs())).append("。");
+        if (e.isPlanOverBudget()) {
+            sb.append("⚠ 仅计划成本就已超出预算。");
+        }
+        if (!e.getCategories().isEmpty()) {
+            sb.append(" 分项：").append(e.getCategories().stream()
+                    .map(c -> c.getCategory() + " 计划 ¥" + plain(c.getPlanned())
+                            + " / 实际 ¥" + plain(c.getActual()))
+                    .collect(Collectors.joining("，"))).append("。");
+        }
+        return sb.toString();
+    }
+
+    private static String plain(BigDecimal value) {
+        return value == null ? "0" : value.stripTrailingZeros().toPlainString();
     }
 
     public static String translateType(String type) {

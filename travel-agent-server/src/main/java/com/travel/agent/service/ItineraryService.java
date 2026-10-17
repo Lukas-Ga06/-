@@ -183,4 +183,41 @@ public class ItineraryService {
     public static List<String> splitTags(String tags) {
         return tags == null || tags.isBlank() ? new ArrayList<>() : Arrays.asList(tags.split(","));
     }
+
+    /**
+     * 计划输入指纹：行程日期 + 预算 + 全部条目（id/天/标题/时间/费用/类型）。
+     *
+     * 用途：生成 Diff 时记下指纹，用户确认时再算一次。若中间行程被改过（哪怕在另一个标签页），
+     * 指纹不一致就拒绝提交，避免按过期 Diff 覆盖新数据。
+     */
+    public static String planRevision(Trip trip, List<ItineraryItem> items) {
+        StringBuilder sb = new StringBuilder("b=").append(trip.getBudget())
+                .append("|s=").append(trip.getStartDate())
+                .append("|e=").append(trip.getEndDate());
+        items.stream()
+                .sorted(java.util.Comparator.comparing(ItineraryItem::getId,
+                        java.util.Comparator.nullsLast(Long::compareTo)))
+                .forEach(item -> sb.append('|').append(item.getId())
+                        .append(':').append(item.getDayIndex())
+                        .append(':').append(item.getTitle())
+                        .append(':').append(item.getStartTime())
+                        .append(':').append(item.getEndTime())
+                        .append(':').append(item.getCost())
+                        .append(':').append(item.getItemType()));
+        return sha256(sb.toString());
+    }
+
+    private static String sha256(String input) {
+        try {
+            byte[] hash = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(input.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder();
+            for (int i = 0; i < 16; i++) {
+                hex.append(String.format("%02x", hash[i]));
+            }
+            return hex.toString();
+        } catch (java.security.NoSuchAlgorithmException e) {
+            return Integer.toHexString(input.hashCode());
+        }
+    }
 }

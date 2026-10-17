@@ -108,6 +108,9 @@ class TripPlanningDateTest extends IntegrationTestSupport {
 
         AgentPlan plan = plan("帮我重新规划杭州三日游", trip);
         assertThat(plan.getTripDraft().getStartDate()).isEqualTo(start);
+        // 重新规划沿用原行程的预算与天数（消息里没提新预算/天数）
+        assertThat(plan.getTripDraft().getBudget()).isEqualByComparingTo(BigDecimal.valueOf(3000));
+        assertThat(plan.getTripDraft().getDays()).isEqualTo(3);
 
         executorAgent.commit(plan, account.id());
 

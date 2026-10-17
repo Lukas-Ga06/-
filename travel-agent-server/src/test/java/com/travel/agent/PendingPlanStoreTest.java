@@ -83,7 +83,7 @@ class PendingPlanStoreTest extends IntegrationTestSupport {
         Account account = registerNew();
         String planId = "plan-roundtrip-" + account.id();
         store.put(new PendingPlanStore.PendingPlan(planId, account.id(), null,
-                samplePlan(planId, null), samplePreview(planId), Instant.now()));
+                samplePlan(planId, null), samplePreview(planId), null, Instant.now()));
 
         PendingPlanStore.PendingPlan loaded = store.peek(planId, account.id());
         assertThat(loaded).isNotNull();
@@ -108,7 +108,7 @@ class PendingPlanStoreTest extends IntegrationTestSupport {
         Account intruder = registerNew();
         String planId = "plan-owner-" + owner.id();
         store.put(new PendingPlanStore.PendingPlan(planId, owner.id(), null,
-                samplePlan(planId, null), samplePreview(planId), Instant.now()));
+                samplePlan(planId, null), samplePreview(planId), null, Instant.now()));
 
         assertThat(store.peek(planId, intruder.id())).isNull();
         assertThat(store.take(planId, intruder.id())).isNull();

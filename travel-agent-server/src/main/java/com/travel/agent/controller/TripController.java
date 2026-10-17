@@ -1,11 +1,13 @@
 package com.travel.agent.controller;
 
 import com.travel.agent.dto.ApiResponse;
+import com.travel.agent.dto.BudgetDtos;
 import com.travel.agent.dto.ItineraryDtos;
 import com.travel.agent.dto.TripDtos;
 import com.travel.agent.entity.Trip;
 import com.travel.agent.entity.User;
 import com.travel.agent.service.AuthService;
+import com.travel.agent.service.BudgetExecutionService;
 import com.travel.agent.service.ItineraryService;
 import com.travel.agent.service.OperationHistoryService;
 import com.travel.agent.service.TripMapService;
@@ -28,6 +30,7 @@ public class TripController {
     private final AuthService authService;
     private final TripMapService tripMapService;
     private final OperationHistoryService historyService;
+    private final BudgetExecutionService budgetExecutionService;
 
     @GetMapping
     public ApiResponse<List<TripDtos.TripResponse>> list(
@@ -86,6 +89,13 @@ public class TripController {
         User user = authService.requireUser(authentication.getName());
         tripService.getOwned(id, user.getId());
         return ApiResponse.ok(itineraryService.listByTrip(id));
+    }
+
+    /** 预算执行：计划成本 / 行程预算 / 实际支出 / 偏差 + 分类对账 */
+    @GetMapping("/{id}/budget")
+    public ApiResponse<BudgetDtos.BudgetExecution> budget(@PathVariable Long id, Authentication authentication) {
+        User user = authService.requireUser(authentication.getName());
+        return ApiResponse.ok(budgetExecutionService.forTrip(id, user.getId()));
     }
 
     @PostMapping("/{id}/itinerary")

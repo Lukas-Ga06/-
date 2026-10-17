@@ -80,11 +80,13 @@ public class PlannerAgent {
     private AgentPlan planNewTrip(AgentContext ctx, IntentResult intent, CityCatalog city, Trip trip, String message) {
         int days = MessageParser.extractDays(message);
         if (days <= 0) {
-            days = 3;
+            // 重新规划已有行程时沿用原行程天数，避免"3 天行程被重排成默认 3 天/其它天数"
+            days = trip != null && trip.getStartDate() != null ? trip.totalDays() : 3;
         }
         BigDecimal budget = MessageParser.extractBudget(message);
         if (budget == null) {
-            budget = BigDecimal.valueOf(5000);
+            // 同理：没重新说预算就沿用原行程预算，而不是套用默认 5000
+            budget = trip != null && trip.getBudget() != null ? trip.getBudget() : BigDecimal.valueOf(5000);
         }
         boolean preferSubway = MessageParser.mentions(message, "地铁");
         boolean family = MessageParser.mentions(message, "亲子", "孩子", "带娃", "儿童");
@@ -265,8 +267,8 @@ public class PlannerAgent {
                 buildArgs(new HashMap<>(), "city", city.name(), "date", targetDate.toString(), "mentionRain", mentionRain));
 
         List<ItineraryDtos.ItineraryItemDTO> targets = new ArrayList<>();
-        Integer dayFilter = MessageParser.relativeDayOffset(message) != MessageParser.NO_RELATIVE_DATE ? scopeDay
-                : (ctx.getCurrentDay() != null ? ctx.getCurrentDay() : null);
+        // 注意：不要写成三元表达式——int 与 Integer 混用会被拆箱，currentDay 为 null 时直接 NPE
+        final Integer dayFilter = resolveDayFilter(message, ctx.getCurrentDay(), scopeDay);
 
         if (IntentResult.TARGET_SELECTED.equals(intent.getTarget()) && ctx.getSelectedElement() != null) {
             Long selId = ctx.getSelectedElement().getId();
@@ -379,6 +381,14 @@ public class PlannerAgent {
                 .operations(new ArrayList<>())
                 .reasoning(reasoning)
                 .build();
+    }
+
+    /** 修改范围的"天"：说了相对日期就用它，否则用当前聚焦的天（可能为空=全部） */
+    private static Integer resolveDayFilter(String message, Integer currentDay, int scopeDay) {
+        if (MessageParser.relativeDayOffset(message) != MessageParser.NO_RELATIVE_DATE) {
+            return scopeDay;
+        }
+        return currentDay;
     }
 
     /** 从 LLM 约束或消息句式中提取目录外城市名 */

@@ -113,6 +113,13 @@ HIGH 风险只表示"方案需要显式确认"（超预算），不是"抛异常
 **记账对账**：`ExpenseService.overview` 必须满足「各分项之和 == totalSpent」，
 行程已删除的遗留账单归入 `tripId=0 / 已删除的行程` 分组（前端该分组不可点击跳转）。
 
+**预算口径**：计划成本 = 行程项 `cost` 合计、实际 = 记账合计、预算 = `trip.budget`；
+对外统一由 `BudgetService.execution(...)` 产出（`GET /api/trips/{id}/budget`），
+不要在别处再拼一套。分类映射：酒店→住宿、餐饮→餐饮、交通→交通、景点→门票。
+
+**确认版本**：待确认方案记录 `ItineraryService.planRevision(...)`（日期 + 预算 + 全部条目指纹），
+`confirm` 时必须与当前行程一致，否则拒绝并提示重新生成——防止多标签页/设备按过期 Diff 覆盖。
+
 **意图路由**：添加日程要求「排期名词 + 明确时间点（或排期动词）」同时成立，
 不能只靠关键词（`parseScheduleRequest` 对任何非空文本都返回非 null）。
 兜底意图是 `CHITCHAT`（返回能力提示），不要贸然返回 `PLAN_TRIP`，否则"没听懂"会变成"暂不支持该目的地"。

@@ -12,12 +12,15 @@ import { useTripStore } from '../../store/tripStore';
 import { useAgentStore } from '../../store/agentStore';
 import { useUIStore } from '../../store/uiStore';
 import { undoTrip } from '../../api/agent';
+import { getBudgetExecution } from '../../api/trip';
+import type { BudgetExecution } from '../../types/expense';
 import { daysOf, totalCost, tripPhaseLabel } from '../../types/trip';
 import MapView from '../../components/MapView';
 import Timeline from '../../components/Timeline';
 import ChatPanel from '../../components/ChatPanel';
 import PlanDiff from '../../components/PlanDiff';
 import BudgetChart from '../../components/BudgetChart';
+import BudgetExecutionPanel from '../../components/BudgetExecution';
 import ExpensePanel from '../../components/ExpensePanel';
 import AppShell from '../../components/AppShell';
 
@@ -45,6 +48,7 @@ export default function TripPage() {
   const setSelectedDay = useUIStore((s) => s.setSelectedDay);
 
   const [budgetOpen, setBudgetOpen] = useState(false);
+  const [budgetExecution, setBudgetExecution] = useState<BudgetExecution | null>(null);
   const [expenseOpen, setExpenseOpen] = useState(false);
   const [undoing, setUndoing] = useState(false);
 
@@ -62,6 +66,14 @@ export default function TripPage() {
   useEffect(() => {
     if (lastFocus?.day) setSelectedDay(lastFocus.day);
   }, [lastFocus]);
+
+  // 打开预算抽屉时拉取统一口径的预算执行（计划 / 预算 / 实际 / 偏差）
+  useEffect(() => {
+    if (!budgetOpen || !tripId) return;
+    getBudgetExecution(tripId)
+      .then(setBudgetExecution)
+      .catch(() => setBudgetExecution(null));
+  }, [budgetOpen, tripId, items.length]);
 
   const total = totalCost(items);
   const budget = currentTrip?.budget ?? null;
@@ -150,6 +162,7 @@ export default function TripPage() {
       </div>
 
       <Drawer title="预算分析" open={budgetOpen} onClose={() => setBudgetOpen(false)} width={560}>
+        <BudgetExecutionPanel data={budgetExecution} />
         <BudgetChart items={items} budget={budget} />
       </Drawer>
       <Drawer

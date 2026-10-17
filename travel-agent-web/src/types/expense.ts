@@ -53,3 +53,25 @@ export interface ExpenseOverview {
   byTrip: TripSpend[];
   recent: Expense[];
 }
+
+export interface CategoryBudget {
+  category: string;
+  planned: number;
+  actual: number;
+}
+
+/** 预算执行：计划成本（行程项）/ 行程预算 / 实际支出（记账） */
+export interface BudgetExecution {
+  tripId: number;
+  tripName: string;
+  budget: number | null;
+  planned: number;
+  actual: number;
+  remaining: number | null;
+  /** 实际 - 计划；正数表示比计划多花 */
+  variance: number;
+  executionRate: number | null;
+  overBudget: boolean;
+  planOverBudget: boolean;
+  categories: CategoryBudget[];
+}

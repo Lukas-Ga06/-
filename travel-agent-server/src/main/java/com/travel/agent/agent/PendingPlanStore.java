@@ -30,7 +30,8 @@ public class PendingPlanStore {
     public static final long TTL_MINUTES = 30;
 
     public record PendingPlan(String planId, Long userId, Long tripId,
-                              AgentPlan plan, AgentDtos.AgentResult preview, Instant createdAt) {
+                              AgentPlan plan, AgentDtos.AgentResult preview,
+                              String planRevision, Instant createdAt) {
     }
 
     private final PendingPlanRepository repository;
@@ -45,6 +46,7 @@ public class PendingPlanStore {
                     .tripId(pending.tripId())
                     .planJson(objectMapper.writeValueAsString(pending.plan()))
                     .previewJson(objectMapper.writeValueAsString(pending.preview()))
+                    .planRevision(pending.planRevision())
                     .createdAt(LocalDateTime.ofInstant(pending.createdAt(), ZoneId.systemDefault()))
                     .build());
         } catch (JsonProcessingException e) {
@@ -107,6 +109,7 @@ public class PendingPlanStore {
                     record.getTripId(),
                     objectMapper.readValue(record.getPlanJson(), AgentPlan.class),
                     objectMapper.readValue(record.getPreviewJson(), AgentDtos.AgentResult.class),
+                    record.getPlanRevision(),
                     record.getCreatedAt().atZone(ZoneId.systemDefault()).toInstant());
         } catch (Exception e) {
             // 反序列化失败说明这条记录已经不可用，直接清掉，避免反复报错
