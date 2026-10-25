@@ -28,3 +28,4 @@ travel-agent-server/data/
 .DS_Store
 Thumbs.db
 .workbuddy-ai/
+travel-agent-web/tsconfig.tsbuildinfo
