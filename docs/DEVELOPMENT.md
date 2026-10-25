@@ -284,19 +284,16 @@ antd 侧同步切 `darkAlgorithm`（`main.tsx` 的 `PALETTE`）。
 
 ## 待办清单（按优先级）
 
-1. 预算对比：目前只有"计划成本"与"实际支出"两套数，缺"计划 vs 实际"偏差视图；
-2. 知识库运营：`RagBootstrap` "有文档就跳过"，更新 `knowledge.json` 需手工清库（缺版本/指纹机制）；
-   切换 Embedding 模型后同样需重建（向量空间一致性）；
-3. 前端：PWA 离线查看行程（移动端布局与暗色主题已完成）；
-4. LLM 配额的用量呈现：`LlmQuotaService.usedToday` 已有，缺前端展示与按日报表；
-5. 结构化规划 Prompt 调优与失败重试（当前一次失败即回落规则路径）；
-6. `@MockBean` → `@MockitoBean` 全面迁移（Boot 3.6 移除前；现仅 TelegramBotTest 一处已迁）；
-7. 多实例剩余项：照片以外的大文件（发票）仍走本地 `InvoiceStorage`，迁移对象存储时同步处理。
+1. 结构化规划线上效果评估：重试命中率 / 回落率指标采集（现只有日志，无 metrics）；
+2. 前端：PWA 离线查看行程（移动端布局与暗色主题已完成）；
+3. `@MockBean` → `@MockitoBean` 全面迁移（Boot 3.6 移除前；现仅 TelegramBotTest 一处已迁）；
+4. 前端核心交互组件测试（ChatPanel / PlanDiff 确认流程）与 e2e 挂 CI。
 
 （已完成 2026-10-25，见 CHANGELOG：会话记忆、方案文案润色、路由级错误边界、真实天气
-（Open-Meteo）、httpOnly Cookie 登录态、Flyway baseline + 增量脚本、npm audit 清零、路书 PDF 导出、
-多渠道入口（Telegram / 微信公众号 / 通用 Webhook）、MCP 外部工具生态、LLM 结构化规划、LLM 每日配额、
-真实 Embedding、限流 Redis 计数、照片 S3 兼容存储、Spring Boot 3.5.7、全栈 Docker 化。）
+（Open-Meteo）、httpOnly Cookie 登录态、Flyway、路书 PDF 导出、多渠道入口（Telegram /
+微信公众号含客服消息异步回复 / 通用 Webhook）、MCP 外部工具生态、LLM 结构化规划（含失败
+带反馈重试）、LLM 每日配额（含用量展示）、真实 Embedding、知识库指纹增量同步、限流 Redis
+计数、照片/发票 S3 兼容存储、按天预算偏差视图、Spring Boot 3.5.7、全栈 Docker 化、npm audit 清零。）
 
 ## 已完成的加固（2026-10 批次）
 

@@ -235,7 +235,7 @@ Linux/macOS」顺序探测字体；一个都找不到时报业务错误并提示
 | 渠道 | 启用方式 | 说明 |
 | --- | --- | --- |
 | Telegram Bot | 配置 `TELEGRAM_BOT_TOKEN` | 长轮询（纯出站连接，本地可跑）；每个 chat 自动开通本地账号 `tg{chatId}`，会话记忆按 chat 维持；产生待确认方案时只播报并提示去网页端确认 |
-| 微信公众号 | 配置 `WECHAT_OA_TOKEN`（明文模式） | `GET/POST /api/channels/wechat`：接入签名验证 + XML 被动回复；openid 自动开通 `wx_*` 账号。被动回复窗口 5s，行程规划可能超窗（正式环境建议接客服消息异步回复） |
+| 微信公众号 | 配置 `WECHAT_OA_TOKEN`（明文模式）；可选 `WECHAT_OA_APPID/SECRET` 开客服消息 | `GET/POST /api/channels/wechat`：接入签名验证 + XML 被动回复；openid 自动开通 `wx_*` 账号。配 appid/secret 后改异步客服消息回复（解除被动 5s 窗口） |
 | 通用 Webhook | `CHANNEL_WEBHOOK_ENABLED=true` + `CHANNEL_WEBHOOK_SECRET` | `POST /api/channels/webhook`（X-Webhook-Secret 头恒时比较），给企业微信/钉钉/自建脚本桥接；body 指定本地 username，不自动注册 |
 
 **LLM 结构化规划**：配置 LLM 后，`PlannerAgent` 优先走结构化路径——模型从「候选清单」
@@ -345,6 +345,7 @@ POST   /api/channels/webhook      # 多渠道通用入口（X-Webhook-Secret 即
 | `TELEGRAM_BOT_TOKEN` | 空 | Telegram Bot token（@BotFather 创建）。配置即启用该渠道（长轮询），留空渠道关闭 |
 | `CHANNEL_WEBHOOK_ENABLED` | false | true 时启用通用 Webhook 渠道入口 |
 | `WECHAT_OA_TOKEN` | 空 | 微信公众号服务器配置 Token（明文模式），配置即启用该渠道 |
+| `WECHAT_OA_APPID` / `WECHAT_OA_SECRET` | 空 | 公众号客服消息凭据（需已认证公众号）；配置后微信渠道改异步回复，解除被动回复 5s 窗口 |
 | `LLM_DAILY_QUOTA` | 0 | 每用户每日 LLM 调用上限（0 不限），超限自动降级规则引擎 |
 | `EMBEDDING_ENABLED` | false | true 时 RAG 走真实 Embedding（`EMBEDDING_BASE_URL`/`EMBEDDING_API_KEY`/`EMBEDDING_MODEL`，OpenAI 兼容） |
 | `RATE_LIMIT_STORE` | memory | 限流计数存储：`redis` 时多实例共享（需配置 spring.data.redis） |
@@ -355,7 +356,7 @@ POST   /api/channels/webhook      # 多渠道通用入口（X-Webhook-Secret 即
 | `APP_TIMEZONE` | `Asia/Shanghai` | 应用时区。代码里的「今天/明天」与日报、记账日期都基于它；容器默认 UTC 时必须显式确认 |
 | `TESSERACT_CMD` | 空 | 图片发票 OCR 的 Tesseract 可执行文件路径；不配置时 PDF 电子发票与粘贴文本仍可正常识别 |
 | `TESSDATA_PREFIX` | 空 | Tesseract 语言包目录，需包含 `chi_sim.traineddata` 与 `eng.traineddata`；仅在语言包装在非默认目录时需要 |
-| `INVOICE_DIR` | `data/invoices` | 上传的发票原始文件目录（已 gitignore） |
+| `INVOICE_DIR` | `data/invoices` | 上传的发票原始文件目录（已 gitignore；`INVOICE_STORE=s3` 时改为对象存储，连接配置复用 `travel.photos.s3.*`） |
 | `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_DATABASE` / `MYSQL_USERNAME` / `MYSQL_PASSWORD` | localhost / 3306 / travel_agent / root / root | 仅在 `mysql` profile 下生效 |
 
 ### 6.2 接入真实大模型（可选）
@@ -430,7 +431,7 @@ cd travel-agent-server && mvn test
 cd travel-agent-web && npm run typecheck && npm test && npm run build
 ```
 
-当前覆盖（后端 179 个 / 前端 46 个）：
+当前覆盖（后端 194 个 / 前端 46 个）：
 
 - 认证与授权：401 契约、跨用户读写与删除行程；
 - Agent 计划落地：ADD/MODIFY/REMOVE、跨行程操作守卫、确认提交与撤销（含撤销新建行程）；
@@ -450,7 +451,8 @@ CI（[.github/workflows/ci.yml](.github/workflows/ci.yml)）在 push / PR 时执
 3D 足迹地图、多轮会话记忆、方案文案 LLM 润色、真实天气（Open-Meteo）、httpOnly Cookie 登录态、Flyway 增量迁移、
 SSE/照片短期票据、接口限流、待确认方案落库（多实例可用）、数据库索引与分页、路书 PDF 导出、
 多渠道入口（Telegram / 微信公众号 / 通用 Webhook）、MCP 外部工具生态、LLM 结构化规划（模型选实体编排 +
-规则校验兜底）、LLM 每日配额、真实 Embedding（失败锁定降级）、限流 Redis 计数与照片 S3 兼容存储（多实例）、
+规则校验兜底 + 失败带反馈重试）、LLM 每日配额（含用量展示）、真实 Embedding（失败锁定降级）、
+限流 Redis 计数与照片/发票 S3 兼容存储（多实例）、知识库指纹增量同步、按天预算偏差视图、
 Spring Boot 3.5、全栈 Docker 化，以及若干轮逻辑缺陷修复与安全加固
 （详见 [docs/CHANGELOG.md](docs/CHANGELOG.md)）。
 
@@ -462,14 +464,9 @@ Spring Boot 3.5、全栈 Docker 化，以及若干轮逻辑缺陷修复与安全
 
 **P1 健壮性**
 - 前端：核心交互组件测试（ChatPanel / PlanDiff 确认流程），e2e 脚本挂进 CI；
-- `@MockBean` → `@MockitoBean` 全面迁移（Boot 3.6 移除前）；
-- 结构化规划的 Prompt 调优与重试（当前一次失败即回落规则路径）。
+- `@MockBean` → `@MockitoBean` 全面迁移（Boot 3.6 移除前）。
 
 **P2 部署与运营**
-- 每用户 LLM 配额的用量展示（`usedToday` 已有服务接口，缺前端呈现与按天限额报表）；
-- 会话与预算：「计划成本 vs 实际支出」偏差视图；PWA 离线查看行程；
-- 知识库运营：`RagBootstrap` 目前"有文档就跳过"，更新 `knowledge.json` 需手工清库（缺版本/指纹机制）；
-  切换 Embedding 模型后同样需重建；
-- 渠道深化：微信公众号接客服消息（异步回复，解除 5s 被动窗口限制）；Agent 可发起路书导出
-  （generate_trip_summary 工具化）；
+- 结构化规划线上效果评估（重试命中率/回落率的指标采集）；
+- 会话与预算：PWA 离线查看行程；
 - 二期工具：compare_hotel / check_opening_hours / search_ticket。

@@ -2,6 +2,27 @@
 
 按主题记录行为变化。**第四节是最需要注意的**：其中几项改变了原有的使用习惯。
 
+## 第五批收尾：规划重试、配额展示、知识库指纹、微信客服消息、发票 S3、按天偏差（2026-10-25）
+
+- **结构化规划重试 + Prompt 调优**：首轮**完全失败**（输出非法/全部条目被校验丢弃）时，
+  把具体校验问题（编造名称/越界天数/非法 JSON）作为修正反馈追加后重试一次；部分有效直接采用，
+  最多一次不无限循环。Prompt 强化预算超支替换策略、同景点不重复、REMOVE 后补 ADD。
+- **配额用量展示**：`/api/system/status` 在配置每日配额时返回当前用户
+  `llmQuotaUsed/llmQuotaLimit`；Profile「运行能力」卡片显示今日调用进度，超限标红。
+- **知识库指纹同步**：`rag_document.fingerprint`（V4）= sha256(title+city+content)，
+  启动按篇增量：新标题新建/指纹相同跳过/不同重建该篇知识块；被移除的文档保留不删。
+  测试 profile 关闭 Flyway（测试库 schema 由 create-drop 建立）。
+- **微信客服消息异步回复**：配置 `WECHAT_OA_APPID/SECRET` 后 POST 立即 ack，
+  结果经客服消息接口异步发送，解除被动回复 5s 窗口；access_token 缓存 90 分钟提前刷新、
+  40001/42001 强刷重试一次；未配置保持同步被动回复。
+- **发票存储 S3 兼容化**：`InvoiceFileStore` 抽象（Local 默认 / `INVOICE_STORE=s3`，
+  连接配置复用 travel.photos.s3.*，键前缀 invoices/），多实例收尾最后一块。
+- **按天偏差视图**：`GET /api/trips/{id}/budget` 新增 `daily` 明细——计划按 dayIndex、
+  实际按记账日期映射行程天，行程外支出归 day=0；每日偏差之和与总量偏差一致（测试断言）。
+  前端预算分析抽屉新增逐日对账行。
+- 后端 194 个测试全绿（+15）；同时修复：26fde73 漏 add 的实体/仓库文件补提交
+  （原提交无法独立编译）、PhotoStorage/InvoiceStorage 删除记录补齐。
+
 ## 结构化规划、微信公众号、LLM 配额、真实 Embedding、多实例收尾（2026-10-25 第四批）
 
 - **LLM 结构化规划**：`PlannerAgent` 配置 LLM 后优先走 `StructuredPlanner`——模型从「候选清单」
