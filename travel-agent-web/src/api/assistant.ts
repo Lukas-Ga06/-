@@ -133,6 +133,9 @@ export interface SystemStatus {
   geoProvider: string;
   geoHint: string;
   timezone: string;
+  /** 每日 LLM 配额：仅在配置了上限（>0）时返回 */
+  llmQuotaUsed?: number;
+  llmQuotaLimit?: number;
 }
 
 export const systemStatus = () => request<SystemStatus>({ url: '/system/status' });

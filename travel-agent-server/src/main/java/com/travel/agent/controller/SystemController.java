@@ -28,6 +28,7 @@ public class SystemController {
     private final LlmProperties llmProperties;
     private final InvoiceTextExtractor invoiceTextExtractor;
     private final RateLimitProperties rateLimitProperties;
+    private final com.travel.agent.service.LlmQuotaService llmQuotaService;
 
     @Value("${travel.amap.key:}")
     private String amapKey;
@@ -59,6 +60,13 @@ public class SystemController {
         // 运维可见性：待确认方案已落库（多实例可用），限流是否开启
         status.put("pendingPlanStore", "database");
         status.put("rateLimitEnabled", rateLimitProperties.isEnabled());
+
+        // LLM 每日配额：当前登录用户的用量（配额关闭时 limit 为 null，前端不展示进度）
+        String user = com.travel.agent.security.UserContext.get();
+        if (llmProperties.getQuotaDailyLimit() > 0 && user != null && !user.isBlank()) {
+            status.put("llmQuotaUsed", llmQuotaService.usedToday(user));
+            status.put("llmQuotaLimit", llmProperties.getQuotaDailyLimit());
+        }
         return ApiResponse.ok(status);
     }
 }
