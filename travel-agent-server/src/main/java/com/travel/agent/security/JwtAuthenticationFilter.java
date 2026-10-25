@@ -25,13 +25,21 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
-        String username = resolveUsername(request);
-        if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-            UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
-                    username, null, List.of(new SimpleGrantedAuthority("ROLE_USER")));
-            SecurityContextHolder.getContext().setAuthentication(authentication);
+        try {
+            String username = resolveUsername(request);
+            if (username != null) {
+                // 供同步请求链路深处的按用户逻辑使用（LLM 配额等）；异步执行器线程由 AgentEngine 另行设置
+                UserContext.set(username);
+                if (SecurityContextHolder.getContext().getAuthentication() == null) {
+                    UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
+                            username, null, List.of(new SimpleGrantedAuthority("ROLE_USER")));
+                    SecurityContextHolder.getContext().setAuthentication(authentication);
+                }
+            }
+            filterChain.doFilter(request, response);
+        } finally {
+            UserContext.clear();
         }
-        filterChain.doFilter(request, response);
     }
 
     private String resolveUsername(HttpServletRequest request) {

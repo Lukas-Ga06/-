@@ -17,6 +17,8 @@ public class LlmProperties {
     private double temperature = 0.4;
     private int connectTimeoutMs = 5000;
     private int readTimeoutMs = 30000;
+    /** 每用户每日 LLM 调用次数上限；0 = 不限制（UserContext 取不到用户的系统调用不受限） */
+    private int quotaDailyLimit = 0;
 
     public boolean usable() {
         return enabled && apiKey != null && !apiKey.isBlank();

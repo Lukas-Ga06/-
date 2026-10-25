@@ -1,5 +1,7 @@
 package com.travel.agent.llm;
 
+import com.travel.agent.security.UserContext;
+import com.travel.agent.service.LlmQuotaService;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -8,7 +10,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 
-/** 委托客户端：优先真实模型，失败或未启用时自动降级 */
+/** 委托客户端：优先真实模型，失败或未启用时自动降级；所有调用方实际注入的就是它 */
 @Component
 @Primary
 @Slf4j
@@ -17,6 +19,7 @@ public class DelegatingLlmClient implements LlmClient {
 
     private final OpenAiCompatibleLlmClient openAiClient;
     private final LlmProperties props;
+    private final LlmQuotaService llmQuotaService;
     /** 所有调用方都注入 LlmClient（拿到的是这个委托类），因此"跳过"计数放在这里 */
     private final MeterRegistry meterRegistry;
 
@@ -28,11 +31,30 @@ public class DelegatingLlmClient implements LlmClient {
             meterRegistry.counter("llm.calls", "result", "skipped").increment();
             return null;
         }
+        if (!llmQuotaService.tryAcquire(UserContext.get())) {
+            // 按用户日配额耗尽：等同"模型不可用"，调用方走既有降级路径
+            meterRegistry.counter("llm.calls", "result", "quota").increment();
+            return null;
+        }
         String result = openAiClient.chat(messages, temperature);
         if (result != null && !result.isBlank()) {
             return result;
         }
         return null;
+    }
+
+    /** 保留调用方指定的独立读超时（润色等辅助能力靠它不拖全局 30s），经配额闸门后原样透传 */
+    @Override
+    public String chat(List<LlmMessage> messages, double temperature, int readTimeoutMs) {
+        if (!openAiClient.available()) {
+            meterRegistry.counter("llm.calls", "result", "skipped").increment();
+            return null;
+        }
+        if (!llmQuotaService.tryAcquire(UserContext.get())) {
+            meterRegistry.counter("llm.calls", "result", "quota").increment();
+            return null;
+        }
+        return openAiClient.chat(messages, temperature, readTimeoutMs);
     }
 
     @Override

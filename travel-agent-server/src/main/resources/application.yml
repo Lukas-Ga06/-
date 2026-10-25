@@ -135,6 +135,9 @@ travel:
     temperature: ${LLM_TEMPERATURE:0.4}
     connect-timeout-ms: ${LLM_CONNECT_TIMEOUT_MS:5000}
     read-timeout-ms: ${LLM_READ_TIMEOUT_MS:30000}
+    # 每用户每日 LLM 调用上限（意图识别/规划/润色/办公等全部计入）；0 = 不限制。
+    # 超限自动降级规则引擎，体验无中断；计数落库（llm_quota_usage），多实例共享
+    quota-daily-limit: ${LLM_DAILY_QUOTA:0}
 
 logging:
   level:

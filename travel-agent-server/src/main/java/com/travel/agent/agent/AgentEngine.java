@@ -71,6 +71,18 @@ public class AgentEngine {
         ctx.emit("start", Map.of("sessionId", ctx.getSessionId()));
         ctx.setState(AgentState.UNDERSTAND);
         loadConversation(ctx);
+        // SSE 异步执行器与渠道线程看不见 filter 设置的 ThreadLocal，这里按执行线程补上（LLM 按用户配额依赖它）
+        if (ctx.getUsername() != null) {
+            com.travel.agent.security.UserContext.set(ctx.getUsername());
+        }
+        try {
+            return doHandle(ctx);
+        } finally {
+            com.travel.agent.security.UserContext.clear();
+        }
+    }
+
+    private AgentDtos.AgentResult doHandle(AgentContext ctx) {
         try {
             Trip trip = ctx.getTripId() != null ? tripService.getOwned(ctx.getTripId(), ctx.getUserId()) : null;
             IntentResult intent = intentAgent.detect(ctx, trip);
