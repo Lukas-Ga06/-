@@ -33,6 +33,10 @@ public class RagDocument {
     @Column(length = 200)
     private String source;
 
+    /** knowledge.json 内容指纹（sha256 of title+city+content）：启动同步时比对决定跳过/更新 */
+    @Column(length = 64)
+    private String fingerprint;
+
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
