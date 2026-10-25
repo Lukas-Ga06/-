@@ -65,24 +65,38 @@ class StructuredPlannerRetryTest {
               {"type":"attraction","name":"故宫","startTime":"09:00","endTime":"11:30"}]}]}
             """;
 
+    private final io.micrometer.core.instrument.simple.SimpleMeterRegistry registry =
+            new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+
+    private StructuredPlanner planner(LlmClient client) {
+        return new StructuredPlanner(client, new ObjectMapper(), registry);
+    }
+
+    private double counter(String path, String result) {
+        return registry.counter("structured.planning", "path", path, "result", result).count();
+    }
+
     @Test
     void retriesOnceWithFeedbackWhenFirstAttemptFullyInvalid() {
         StubLlmClient client = new StubLlmClient(List.of(
                 "{\"reasoning\":\"r\",\"days\":[{\"day\":1,\"items\":[{\"type\":\"attraction\",\"name\":\"编造景点\",\"startTime\":\"09:00\",\"endTime\":\"10:00\"}]}]}",
                 VALID));
-        StructuredPlanner planner = new StructuredPlanner(client, new ObjectMapper());
+        StructuredPlanner planner = planner(client);
         StructuredPlanner.NewTripParse parse = planner.planNewTrip(city, draft, "两日游");
         assertTrue(parse.ok());
         assertEquals("故宫", parse.drafts().get(0).getTitle());
         assertEquals(2, client.calls(), "首轮全无效 → 恰好重试一次");
         assertTrue(client.prompts.get(1).contains("编造景点"), "重试提示词应带上首轮校验反馈");
         assertTrue(client.prompts.get(1).contains("必须全部修正"));
+        assertEquals(1, counter("new_trip", "after_retry"), "重试成功应记 after_retry");
+        assertEquals(0, counter("new_trip", "first_try"));
+        assertEquals(0, counter("new_trip", "fallback"));
     }
 
     @Test
     void malformedJsonAlsoTriggersRetry() {
         StubLlmClient client = new StubLlmClient(List.of("这不是 JSON", VALID));
-        StructuredPlanner planner = new StructuredPlanner(client, new ObjectMapper());
+        StructuredPlanner planner = planner(client);
         StructuredPlanner.NewTripParse parse = planner.planNewTrip(city, draft, "两日游");
         assertTrue(parse.ok());
         assertEquals(2, client.calls());
@@ -95,19 +109,21 @@ class StructuredPlannerRetryTest {
                 "{\"reasoning\":\"r\",\"days\":[{\"day\":1,\"items\":["
                         + "{\"type\":\"attraction\",\"name\":\"编造景点\",\"startTime\":\"09:00\",\"endTime\":\"10:00\"},"
                         + "{\"type\":\"attraction\",\"name\":\"故宫\",\"startTime\":\"10:00\",\"endTime\":\"11:30\"}]}]}"));
-        StructuredPlanner planner = new StructuredPlanner(client, new ObjectMapper());
+        StructuredPlanner planner = planner(client);
         StructuredPlanner.NewTripParse parse = planner.planNewTrip(city, draft, "两日游");
         assertTrue(parse.ok());
         assertEquals(1, client.calls(), "部分有效直接采用，不重试");
         assertFalse(parse.warnings().isEmpty());
+        assertEquals(1, counter("new_trip", "first_try"), "部分有效首轮即成功");
     }
 
     @Test
     void bothAttemptsFailReturnsFailedParseForRuleFallback() {
         StubLlmClient client = new StubLlmClient(List.of("坏输出一", "坏输出二"));
-        StructuredPlanner planner = new StructuredPlanner(client, new ObjectMapper());
+        StructuredPlanner planner = planner(client);
         StructuredPlanner.NewTripParse parse = planner.planNewTrip(city, draft, "两日游");
         assertTrue(parse == null || !parse.ok(), "两次都失败 → null/!ok → PlannerAgent 回落规则路径");
         assertEquals(2, client.calls(), "最多重试一次，不会无限循环");
+        assertEquals(1, counter("new_trip", "fallback"), "两次失败应记 fallback");
     }
 }

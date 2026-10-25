@@ -44,6 +44,8 @@ public class StructuredPlanner {
 
     private final LlmClient llmClient;
     private final ObjectMapper objectMapper;
+    /** 指标：structured.planning{path=new_trip|modification, result=first_try|after_retry|fallback} */
+    private final io.micrometer.core.instrument.MeterRegistry meterRegistry;
 
     // ==================== 结果类型 ====================
 
@@ -78,13 +80,16 @@ public class StructuredPlanner {
     public NewTripParse planNewTrip(CityCatalog city, TripDraftView draft, String message) {
         NewTripParse first = attemptNewTrip(city, draft, message, null);
         if (first != null && first.ok()) {
+            count("new_trip", "first_try");
             return first;
         }
         NewTripParse second = attemptNewTrip(city, draft, message, feedbackOf(first));
         if (second != null && second.ok()) {
+            count("new_trip", "after_retry");
             log.info("结构化规划重试成功（首轮问题: {}）", feedbackOf(first));
             return second;
         }
+        count("new_trip", "fallback");
         return second != null ? second : first;
     }
 
@@ -268,15 +273,22 @@ public class StructuredPlanner {
                                               LocalDate startDate, String weatherHint, String message) {
         ModificationParse first = attemptModification(city, items, startDate, weatherHint, message, null);
         if (first != null && first.ok()) {
+            count("modification", "first_try");
             return first;
         }
         ModificationParse second = attemptModification(city, items, startDate, weatherHint, message,
                 feedbackOf(first));
         if (second != null && second.ok()) {
+            count("modification", "after_retry");
             log.info("结构化修改重试成功（首轮问题: {}）", feedbackOf(first));
             return second;
         }
+        count("modification", "fallback");
         return second != null ? second : first;
+    }
+
+    private void count(String path, String result) {
+        meterRegistry.counter("structured.planning", "path", path, "result", result).increment();
     }
 
     private ModificationParse attemptModification(CityCatalog city, List<ItineraryDtos.ItineraryItemDTO> items,

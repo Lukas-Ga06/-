@@ -21,7 +21,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /** 结构化规划的规则引擎：模型只允许从候选清单选择，坐标/价格以目录覆盖，非法条目丢弃 */
 class StructuredPlannerTest {
 
-    private final StructuredPlanner planner = new StructuredPlanner(null, new ObjectMapper());
+    private final StructuredPlanner planner = new StructuredPlanner(null, new ObjectMapper(),
+            new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
 
     private final CityCatalog city = new CityCatalog(
             "测试市",
