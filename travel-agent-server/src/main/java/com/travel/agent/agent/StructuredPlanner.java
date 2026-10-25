@@ -69,10 +69,30 @@ public class StructuredPlanner {
 
     /**
      * 让模型编排新行程。参数提取（天数/预算/日期）沿用 PlannerAgent 的规则结果，
-     * 这里只负责「选择哪些实体、怎么排时间」。返回 null = LLM 路径失败。
+     * 这里只负责「选择哪些实体、怎么排时间」。
+     *
+     * 重试策略：首轮**完全失败**（输出非法/全部条目被校验丢弃）时，把具体校验问题
+     * 作为反馈追加后重试一次；部分有效直接采用（警告已并入 reasoning 告知用户）。
+     * 返回 null = LLM 路径失败（调用方回落规则路径）。
      */
     public NewTripParse planNewTrip(CityCatalog city, TripDraftView draft, String message) {
+        NewTripParse first = attemptNewTrip(city, draft, message, null);
+        if (first != null && first.ok()) {
+            return first;
+        }
+        NewTripParse second = attemptNewTrip(city, draft, message, feedbackOf(first));
+        if (second != null && second.ok()) {
+            log.info("结构化规划重试成功（首轮问题: {}）", feedbackOf(first));
+            return second;
+        }
+        return second != null ? second : first;
+    }
+
+    private NewTripParse attemptNewTrip(CityCatalog city, TripDraftView draft, String message, String feedback) {
         String prompt = newTripPrompt(city, draft, message);
+        if (feedback != null) {
+            prompt = prompt + "\n\n上次输出存在以下问题，必须全部修正后重新输出完整 JSON：\n" + feedback;
+        }
         String raw = llmClient.chat(List.of(
                 LlmMessage.system("你是旅行规划引擎。只输出 JSON，不要输出任何解释或 Markdown 代码块。"),
                 LlmMessage.user(prompt)), 0.2);
@@ -82,9 +102,22 @@ public class StructuredPlanner {
         try {
             return parseNewTrip(city, draft, raw);
         } catch (Exception e) {
-            log.info("结构化规划输出解析失败，回落规则路径: {}", e.getMessage());
+            log.info("结构化规划输出解析失败: {}", e.getMessage());
             return null;
         }
+    }
+
+    /** 把首轮的具体问题转成给模型的修正反馈；无 parse（非法 JSON）时给通用反馈 */
+    private static String feedbackOf(NewTripParse parse) {
+        if (parse == null) {
+            return "- 输出不是合法 JSON，或缺少非空的 days 数组；请严格按照约定格式重新输出。";
+        }
+        if (parse.warnings().isEmpty()) {
+            return "- days 数组为空或没有任何有效安排；请从候选清单中选择实体完成完整编排。";
+        }
+        StringBuilder sb = new StringBuilder();
+        parse.warnings().stream().limit(5).forEach(w -> sb.append("- ").append(w).append('\n'));
+        return sb.toString();
     }
 
     NewTripParse parseNewTrip(CityCatalog city, TripDraftView draft, String raw) throws Exception {
@@ -216,7 +249,8 @@ public class StructuredPlanner {
         sb.append("\n用户需求：").append(message).append("\n");
         sb.append("""
                 要求：每天上午安排一个景点、午餐就近、下午安排另一个景点、晚餐就近；酒店只放第 1 天。
-                严格控制总花费不超过预算；名称必须与清单完全一致，禁止编造清单外的名称；
+                严格控制总花费（酒店 + 门票 + 餐饮）不超过预算；超出时优先把高价景点换成低价景点、
+                或改选更便宜的餐厅。同一景点/餐厅不要重复安排。名称必须与清单完全一致，禁止编造清单外的名称；
                 不要输出价格与坐标（后端按清单填充）。
                 仅输出 JSON：
                 {"reasoning":"一句话规划思路","days":[{"day":1,"items":[{"type":"attraction","name":"清单中的名称","startTime":"09:00","endTime":"11:30"}]}]}
@@ -227,12 +261,31 @@ public class StructuredPlanner {
     // ==================== 行程修改 ====================
 
     /**
-     * 让模型在现有行程 + 候选景点内做替换/增删。
-     * items 为现有行程条目；weatherHint 为天气约束描述（可为 null）。
+     * 让模型在现有行程 + 候选景点内做替换/增删。重试策略与新行程相同：
+     * 完全失败（输出非法/全部操作无效）带反馈重试一次，部分有效直接采用。
      */
     public ModificationParse planModification(CityCatalog city, List<ItineraryDtos.ItineraryItemDTO> items,
                                               LocalDate startDate, String weatherHint, String message) {
+        ModificationParse first = attemptModification(city, items, startDate, weatherHint, message, null);
+        if (first != null && first.ok()) {
+            return first;
+        }
+        ModificationParse second = attemptModification(city, items, startDate, weatherHint, message,
+                feedbackOf(first));
+        if (second != null && second.ok()) {
+            log.info("结构化修改重试成功（首轮问题: {}）", feedbackOf(first));
+            return second;
+        }
+        return second != null ? second : first;
+    }
+
+    private ModificationParse attemptModification(CityCatalog city, List<ItineraryDtos.ItineraryItemDTO> items,
+                                                  LocalDate startDate, String weatherHint, String message,
+                                                  String feedback) {
         String prompt = modificationPrompt(city, items, weatherHint, message);
+        if (feedback != null) {
+            prompt = prompt + "\n\n上次输出存在以下问题，必须全部修正后重新输出完整 JSON：\n" + feedback;
+        }
         String raw = llmClient.chat(List.of(
                 LlmMessage.system("你是行程修改引擎。只输出 JSON，不要输出任何解释或 Markdown 代码块。"),
                 LlmMessage.user(prompt)), 0.2);
@@ -242,9 +295,21 @@ public class StructuredPlanner {
         try {
             return parseModification(city, items, startDate, raw);
         } catch (Exception e) {
-            log.info("结构化修改输出解析失败，回落规则路径: {}", e.getMessage());
+            log.info("结构化修改输出解析失败: {}", e.getMessage());
             return null;
         }
+    }
+
+    private static String feedbackOf(ModificationParse parse) {
+        if (parse == null) {
+            return "- 输出不是合法 JSON，或缺少非空的 operations 数组；请严格按照约定格式重新输出。";
+        }
+        if (parse.warnings().isEmpty()) {
+            return "- operations 数组没有任何有效操作；REMOVE 的 title 必须与现有行程完全一致，ADD 的 name 必须来自候选清单。";
+        }
+        StringBuilder sb = new StringBuilder();
+        parse.warnings().stream().limit(5).forEach(w -> sb.append("- ").append(w).append('\n'));
+        return sb.toString();
     }
 
     ModificationParse parseModification(CityCatalog city, List<ItineraryDtos.ItineraryItemDTO> items,
@@ -318,7 +383,7 @@ public class StructuredPlanner {
         sb.append("\n用户要求：").append(message).append("\n");
         sb.append("""
                 要求：REMOVE 的 title 必须与现有行程中的条目完全一致；ADD 的 name 必须来自候选清单；
-                只调整用户要求的部分，不要重排整个行程。
+                只调整用户要求的部分，不要重排整个行程；REMOVE 之后通常应有对应的 ADD 替代，保持行程完整。
                 仅输出 JSON：
                 {"reasoning":"一句话说明","operations":[{"type":"REMOVE","title":"现有条目标题"},{"type":"ADD","name":"候选景点名","dayIndex":1,"startTime":"14:00","endTime":"16:30"}]}
                 """);
