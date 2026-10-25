@@ -60,6 +60,15 @@ export interface CategoryBudget {
   actual: number;
 }
 
+/** 按天偏差：day=0 表示行程日期之外的支出（行前/行后采购，只有实际没有计划） */
+export interface DailyBudget {
+  day: number;
+  planned: number;
+  actual: number;
+  /** 实际 - 计划；正数表示当天比计划多花 */
+  variance: number;
+}
+
 /** 预算执行：计划成本（行程项）/ 行程预算 / 实际支出（记账） */
 export interface BudgetExecution {
   tripId: number;
@@ -74,4 +83,5 @@ export interface BudgetExecution {
   overBudget: boolean;
   planOverBudget: boolean;
   categories: CategoryBudget[];
+  daily?: DailyBudget[];
 }

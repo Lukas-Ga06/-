@@ -66,6 +66,48 @@ class BudgetExecutionTest extends IntegrationTestSupport {
     }
 
     @Test
+    @DisplayName("按天偏差：天内计划 vs 实际；行程外支出归 day=0；与总量偏差一致")
+    void breaksDownVarianceByDay() throws Exception {
+        Account account = registerNew();
+        TripDtos.TripRequest request = new TripDtos.TripRequest();
+        request.setName("按天偏差测试");
+        request.setDestination("上海");
+        request.setStartDate("2026-11-01");
+        request.setEndDate("2026-11-02");
+        request.setBudget(BigDecimal.valueOf(2000));
+        Trip trip = tripService.create(account.id(), request);
+
+        itineraryService.addItem(trip, new ItineraryDtos.AddItemRequest(
+                1, ItineraryItem.TYPE_RESTAURANT, "Day1 午餐", "12:00", "13:00",
+                BigDecimal.valueOf(100), null, null, null, null));
+        itineraryService.addItem(trip, new ItineraryDtos.AddItemRequest(
+                2, ItineraryItem.TYPE_ATTRACTION, "Day2 景点", "14:00", "16:00",
+                BigDecimal.valueOf(200), null, null, null, null));
+        // Day1 实际 120（超 20）、Day2 实际 150（省 50）、行程外（行前采购）80
+        expenseService.add(trip.getId(), account.id(), "餐饮", BigDecimal.valueOf(120), "午餐",
+                LocalDate.of(2026, 11, 1), "现金");
+        expenseService.add(trip.getId(), account.id(), "门票", BigDecimal.valueOf(150), "门票",
+                LocalDate.of(2026, 11, 2), "现金");
+        expenseService.add(trip.getId(), account.id(), "购物", BigDecimal.valueOf(80), "行前采购",
+                LocalDate.of(2026, 10, 28), "现金");
+
+        JsonNode e = execution(account, trip.getId());
+
+        Map<Integer, JsonNode> daily = new HashMap<>();
+        e.path("daily").forEach(d -> daily.put(d.path("day").asInt(), d));
+        assertThat(daily).containsOnlyKeys(0, 1, 2);
+        assertThat(daily.get(1).path("planned").decimalValue()).isEqualByComparingTo("100");
+        assertThat(daily.get(1).path("actual").decimalValue()).isEqualByComparingTo("120");
+        assertThat(daily.get(1).path("variance").decimalValue()).isEqualByComparingTo("20");
+        assertThat(daily.get(2).path("planned").decimalValue()).isEqualByComparingTo("200");
+        assertThat(daily.get(2).path("variance").decimalValue()).isEqualByComparingTo("-50");
+        assertThat(daily.get(0).path("planned").decimalValue()).isEqualByComparingTo("0");
+        assertThat(daily.get(0).path("actual").decimalValue()).isEqualByComparingTo("80");
+        // 每日偏差之和 == 总量偏差（350 - 300 = 50）
+        assertThat(e.path("variance").decimalValue()).isEqualByComparingTo("50");
+    }
+
+    @Test
     @DisplayName("计划 / 预算 / 实际 与偏差、分类对账")
     void reconcilesPlannedBudgetAndActual() throws Exception {
         Account account = registerNew();

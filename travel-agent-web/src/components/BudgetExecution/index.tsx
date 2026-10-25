@@ -62,6 +62,22 @@ export default function BudgetExecutionPanel({ data }: { data: BudgetExecution |
           ))}
         </div>
       )}
+
+      {(data.daily?.length ?? 0) > 0 && (
+        <div className="be-cats">
+          {data.daily!.map((d) => (
+            <div className="be-cat" key={d.day}>
+              <span className="be-cat-name">{d.day === 0 ? '行程外' : `Day ${d.day}`}</span>
+              <span className="be-cat-num">{d.day === 0 ? '—' : `计划 ${money(d.planned)}`}</span>
+              <span className="be-cat-num">实际 {money(d.actual)}</span>
+              <span className={`be-cat-num ${d.variance > 0 ? 'over' : 'ok'}`}>
+                {d.variance > 0 ? '+' : ''}
+                {money(d.variance)}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

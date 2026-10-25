@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -110,7 +111,57 @@ public class BudgetService {
                 .overBudget(budget != null && actual.compareTo(budget) > 0)
                 .planOverBudget(budget != null && planned.compareTo(budget) > 0)
                 .categories(categories)
+                .daily(dailyBreakdown(trip, items, expenses))
                 .build();
+    }
+
+    /**
+     * 按天偏差：计划按行程项 dayIndex 聚合；实际按记账日期映射到行程天
+     * （between(startDate, spentAt)+1），行程区间外（行前/行后采购）或日期缺失归 day=0。
+     * 只有存在计划或实际的天才出现在结果里。
+     */
+    private List<BudgetDtos.DailyBudget> dailyBreakdown(Trip trip, List<ItineraryItem> items, List<Expense> expenses) {
+        Map<Integer, BigDecimal> plannedByDay = new LinkedHashMap<>();
+        for (ItineraryItem item : items) {
+            if (item.getCost() == null || item.getDayIndex() == null) {
+                continue;
+            }
+            plannedByDay.merge(item.getDayIndex(), item.getCost(), BigDecimal::add);
+        }
+        Map<Integer, BigDecimal> actualByDay = new LinkedHashMap<>();
+        for (Expense expense : expenses) {
+            if (expense.getAmount() == null) {
+                continue;
+            }
+            actualByDay.merge(dayOf(trip, expense), expense.getAmount(), BigDecimal::add);
+        }
+        java.util.Set<Integer> days = new java.util.TreeSet<>();
+        days.addAll(plannedByDay.keySet());
+        days.addAll(actualByDay.keySet());
+        List<BudgetDtos.DailyBudget> daily = new ArrayList<>();
+        for (int day : days) {
+            BigDecimal planned = plannedByDay.getOrDefault(day, BigDecimal.ZERO);
+            BigDecimal actual = actualByDay.getOrDefault(day, BigDecimal.ZERO);
+            daily.add(BudgetDtos.DailyBudget.builder()
+                    .day(day)
+                    .planned(planned)
+                    .actual(actual)
+                    .variance(actual.subtract(planned))
+                    .build());
+        }
+        return daily;
+    }
+
+    /** 记账日期 → 行程天；行程无日期、支出无日期或不在区间内均归 0（行程外） */
+    private static int dayOf(Trip trip, Expense expense) {
+        if (trip.getStartDate() == null || expense.getSpentAt() == null) {
+            return 0;
+        }
+        long offset = java.time.temporal.ChronoUnit.DAYS.between(trip.getStartDate(), expense.getSpentAt());
+        if (offset < 0 || offset >= trip.totalDays()) {
+            return 0;
+        }
+        return (int) offset + 1;
     }
 
     private static Map<String, BigDecimal> emptyCategoryMap() {

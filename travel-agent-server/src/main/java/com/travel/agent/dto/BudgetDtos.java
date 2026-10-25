@@ -22,6 +22,20 @@ public class BudgetDtos {
         private BigDecimal actual;
     }
 
+    /** 按天偏差：day=0 表示行程日期之外的支出（行前/行后采购，只有实际没有计划） */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class DailyBudget {
+        /** 1..N 为行程第几天；0 = 行程外（日期缺失时也归 0） */
+        private int day;
+        private BigDecimal planned;
+        private BigDecimal actual;
+        /** 偏差 = actual - planned（正数=当天比计划多花） */
+        private BigDecimal variance;
+    }
+
     @Data
     @Builder
     @NoArgsConstructor
@@ -45,5 +59,7 @@ public class BudgetDtos {
         /** 计划本身是否已超预算 */
         private boolean planOverBudget;
         private List<CategoryBudget> categories;
+        /** 按天偏差明细（有计划或有实际的天才会出现） */
+        private List<DailyBudget> daily;
     }
 }
