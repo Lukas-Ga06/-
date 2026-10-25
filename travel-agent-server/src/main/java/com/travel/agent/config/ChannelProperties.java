@@ -32,6 +32,18 @@ public class ChannelProperties {
 
         /** 公众号服务器配置里填的 Token（接入验证 sha1(token+timestamp+nonce)）；留空 = 渠道关闭。明文模式 */
         private String token = "";
+
+        /**
+         * 客服消息（可选）：配置 appid + secret 后，回复改走「客服消息接口」异步发送——
+         * 解除被动回复 5s 窗口限制（行程规划不再超窗丢失）。需已认证公众号；
+         * 与 token 独立：只配 token 仍走同步被动回复
+         */
+        private String appid = "";
+        private String secret = "";
+
+        public boolean customerServiceEnabled() {
+            return appid != null && !appid.isBlank() && secret != null && !secret.isBlank();
+        }
     }
 
     @Data

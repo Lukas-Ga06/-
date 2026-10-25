@@ -40,6 +40,26 @@ public class WeChatOfficialAccountController {
     private final ChannelProperties properties;
     private final AgentEngine agentEngine;
     private final ChannelAccounts channelAccounts;
+    /** 配置了 appid+secret 时注入客服消息客户端（WeChatChannelConfig），异步回复解除 5s 窗口 */
+    private final org.springframework.beans.factory.ObjectProvider<WeChatClient> weChatClient;
+
+    private volatile java.util.concurrent.ExecutorService replyExecutor;
+
+    /** 单线程异步回复：微信场景低频，一个守护线程足够 */
+    private java.util.concurrent.ExecutorService executor() {
+        if (replyExecutor == null) {
+            synchronized (this) {
+                if (replyExecutor == null) {
+                    replyExecutor = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+                        Thread thread = new Thread(r, "wechat-reply");
+                        thread.setDaemon(true);
+                        return thread;
+                    });
+                }
+            }
+        }
+        return replyExecutor;
+    }
 
     /** 微信服务器接入验证（GET） */
     @GetMapping
@@ -60,7 +80,7 @@ public class WeChatOfficialAccountController {
                 : org.springframework.http.ResponseEntity.status(403).body("signature mismatch");
     }
 
-    /** 微信消息推送（POST XML）：text 消息交给 AgentEngine，event 转欢迎语，其余忽略 */
+    /** 微信消息推送（POST XML）：text 消息交给 AgentEngine；event 转欢迎语；其余忽略 */
     @PostMapping
     public org.springframework.http.ResponseEntity<String> receive(@RequestBody(required = false) String body) {
         String token = properties.getWechat().getToken();
@@ -83,18 +103,39 @@ public class WeChatOfficialAccountController {
         if (fromUser.isBlank()) {
             return org.springframework.http.ResponseEntity.ok("");
         }
-        String reply;
-        switch (msgType) {
-            case "text" -> {
-                String content = xml.getOrDefault("Content", "");
-                reply = isBlank(content) ? "" : handle("/start".equalsIgnoreCase(content.trim())
-                        ? "你好" : content.trim(), fromUser);
-            }
-            case "event" -> reply = "subscribe".equals(xml.getOrDefault("Event", ""))
-                    ? handle("你好", fromUser)
-                    : "";
-            default -> reply = "";
+        boolean isText = "text".equals(msgType);
+        boolean isSubscribe = "event".equals(msgType) && "subscribe".equals(xml.getOrDefault("Event", ""));
+        if (!isText && !isSubscribe) {
+            return org.springframework.http.ResponseEntity.ok("");
         }
+        String incoming = isText ? xml.getOrDefault("Content", "").trim() : "你好";
+        if (isText && "/start".equalsIgnoreCase(incoming)) {
+            incoming = "你好";
+        }
+        if (isText && incoming.isBlank()) {
+            return org.springframework.http.ResponseEntity.ok("");
+        }
+
+        String incomingFinal = incoming;
+        String fromUserFinal = fromUser;
+        // 配置了 appid/secret → 客服消息异步回复：立即 ack，解除被动回复 5s 窗口限制
+        WeChatClient customerService = weChatClient.getIfAvailable();
+        if (customerService != null) {
+            executor().submit(() -> {
+                try {
+                    String reply = handle(incomingFinal, fromUserFinal);
+                    if (!reply.isBlank()) {
+                        customerService.sendText(fromUserFinal, reply);
+                    }
+                } catch (Exception e) {
+                    log.warn("微信异步回复失败 openid={}: {}", fromUserFinal, e.getMessage());
+                }
+            });
+            return org.springframework.http.ResponseEntity.ok("success");
+        }
+
+        // 未配置客服接口 → 同步被动回复（5s 窗口内）
+        String reply = handle(incoming, fromUser);
         if (reply.isBlank()) {
             return org.springframework.http.ResponseEntity.ok("");
         }
