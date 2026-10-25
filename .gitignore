@@ -27,3 +27,4 @@ travel-agent-server/data/
 # ---- 系统 ----
 .DS_Store
 Thumbs.db
+.workbuddy-ai/

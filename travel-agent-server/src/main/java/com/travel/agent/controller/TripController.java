@@ -10,11 +10,14 @@ import com.travel.agent.service.AuthService;
 import com.travel.agent.service.BudgetExecutionService;
 import com.travel.agent.service.ItineraryService;
 import com.travel.agent.service.OperationHistoryService;
+import com.travel.agent.service.TripGuidebookService;
 import com.travel.agent.service.TripMapService;
 import com.travel.agent.service.TripService;
 import com.travel.agent.util.Paging;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
@@ -31,6 +34,7 @@ public class TripController {
     private final TripMapService tripMapService;
     private final OperationHistoryService historyService;
     private final BudgetExecutionService budgetExecutionService;
+    private final TripGuidebookService guidebookService;
 
     @GetMapping
     public ApiResponse<List<TripDtos.TripResponse>> list(
@@ -107,5 +111,17 @@ public class TripController {
         var saved = historyService.withHistory(trip, user.getId(), "手动新增行程项：" + request.getTitle(),
                 () -> itineraryService.addItem(trip, request));
         return ApiResponse.ok(ItineraryDtos.ItineraryItemDTO.from(saved));
+    }
+
+    /** 路书导出：行程 + 每日安排 + 预算小结 → PDF（浏览器内联预览，可另存） */
+    @GetMapping("/{id}/guidebook.pdf")
+    public ResponseEntity<byte[]> guidebook(@PathVariable Long id, Authentication authentication) {
+        User user = authService.requireUser(authentication.getName());
+        tripService.getOwned(id, user.getId());
+        byte[] pdf = guidebookService.renderPdf(id, user.getId());
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_PDF)
+                .header("Content-Disposition", "inline; filename=\"trip-" + id + "-guidebook.pdf\"")
+                .body(pdf);
     }
 }
