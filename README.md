@@ -318,6 +318,7 @@ POST   /api/channels/webhook      # 多渠道通用入口（X-Webhook-Secret 即
 | `JWT_EXPIRE_HOURS` | 72 | token 有效期（小时），httpOnly Cookie 的 maxAge 与之对齐 |
 | `COOKIE_SECURE` | false | https 部署时设 true，登录 Cookie 加 Secure 属性 |
 | `WEATHER_REAL` | false | true 时天气走 Open-Meteo 真实预报（免费无 Key），失败自动降级模拟 |
+| `DEMO_ACCOUNT` | true | 是否自动创建演示账号 demo/demo123（README 快速启动用）；**生产部署必须设 false** |
 | `LLM_API_KEY` | 空 | 为空则全部走规则引擎（功能完整，效果弱于模型） |
 | `LLM_BASE_URL` | `https://api.deepseek.com/v1` | 任意 OpenAI-compatible 端点 |
 | `LLM_MODEL` | `deepseek-chat` | 模型名，可换 `qwen-plus`、`gpt-4o-mini` 等 |

@@ -53,6 +53,9 @@ management:
 travel:
   # 应用时区：代码里的“今天/明天”都基于它（默认 Asia/Shanghai，避免容器 UTC 导致日期偏移一天）
   timezone: ${APP_TIMEZONE:Asia/Shanghai}
+  demo-account:
+    # 演示账号 demo/demo123（README 快速启动用）。生产部署必须设 DEMO_ACCOUNT=false 关闭
+    enabled: ${DEMO_ACCOUNT:true}
   invoices:
     # 上传的发票原始文件
     dir: ${INVOICE_DIR:data/invoices}

@@ -268,18 +268,19 @@ antd 侧同步切 `darkAlgorithm`（`main.tsx` 的 `PALETTE`）。
 ## 部署注意事项
 
 1. 必须配置 `JWT_SECRET`，否则每次重启都会让全体用户掉线；
-2. schema 变更走 Flyway（`db/migration/V*__`）；存量库首次启动会自动 baseline。
+2. **生产部署设 `DEMO_ACCOUNT=false`**——否则启动时会自动创建公开弱密码账号 demo/demo123（`DataInitializer`）；
+3. schema 变更走 Flyway（`db/migration/V*__`）；存量库首次启动会自动 baseline。
    `ddl-auto` 仍是 `update`，待全面审计后可切 `validate`；
-3. `/h2-console/**` 在默认 profile 下是放行的，生产 profile（mysql）已关闭 H2 控制台，但建议同时从 `SecurityConfig` 的放行列表中移除；
-4. `PendingPlanStore` 已落库（`pending_plan` 表，TTL 30 分钟），多实例与重启都不会丢待确认方案；
+4. `/h2-console/**` 在默认 profile 下是放行的，生产 profile（mysql）已关闭 H2 控制台，但建议同时从 `SecurityConfig` 的放行列表中移除；
+5. `PendingPlanStore` 已落库（`pending_plan` 表，TTL 30 分钟），多实例与重启都不会丢待确认方案；
    若换成 Redis，注意保持"归属校验 + 过期清理"这两条语义；
-5. 前端生产构建需自行提供 API base（当前 `baseURL` 为 `/api`，由网关或 nginx 反向代理到后端 8080）；
-6. https 部署时设置 `COOKIE_SECURE=true`（登录 Cookie 加 Secure 属性）；
-7. 本机 npm 10.8.2 存在 arborist bug（edgesOut 报错），安装/更新依赖请加 `--legacy-peer-deps`；
-8. 路书导出需要中文字体：容器内安装 `fonts-noto-cjk`，或把任意 CJK 字体放进
+6. 前端生产构建需自行提供 API base（当前 `baseURL` 为 `/api`，由网关或 nginx 反向代理到后端 8080）；
+7. https 部署时设置 `COOKIE_SECURE=true`（登录 Cookie 加 Secure 属性）；
+8. 本机 npm 10.8.2 存在 arborist bug（edgesOut 报错），安装/更新依赖请加 `--legacy-peer-deps`；
+9. 路书导出需要中文字体：容器内安装 `fonts-noto-cjk`，或把任意 CJK 字体放进
    `travel-agent-server/src/main/resources/fonts/cjk.ttf`（随包分发最稳）；字体缺失时接口报业务错误而非乱码；
-9. Telegram 渠道只需 `TELEGRAM_BOT_TOKEN`（长轮询，出站连接，无需公网回调）；Webhook 渠道
-   务必配置强随机 `CHANNEL_WEBHOOK_SECRET`，否则端点永远 401。
+10. Telegram 渠道只需 `TELEGRAM_BOT_TOKEN`（长轮询，出站连接，无需公网回调）；Webhook 渠道
+    务必配置强随机 `CHANNEL_WEBHOOK_SECRET`，否则端点永远 401。
 
 ## 待办清单（按优先级）
 

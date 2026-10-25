@@ -11,6 +11,8 @@ export default function Schedule() {
   const [items, setItems] = useState<ScheduleItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  /** toggle 请求在途的行：toggle 是取反语义，连点两次会互相抵消，必须挡住并发 */
+  const [pending, setPending] = useState<Set<number>>(new Set());
   const [title, setTitle] = useState('');
   const [date, setDate] = useState<Dayjs>(dayjs());
   const [time, setTime] = useState<Dayjs | null>(null);
@@ -62,7 +64,20 @@ export default function Schedule() {
   };
 
   const toggle = async (id: number) => {
-    try { await toggleSchedule(id); load(); } catch (e: any) { message.error(e.message); }
+    if (pending.has(id)) return;
+    setPending((prev) => new Set(prev).add(id));
+    try {
+      await toggleSchedule(id);
+      load();
+    } catch (e: any) {
+      message.error(e.message);
+    } finally {
+      setPending((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
   };
 
   const remove = async (id: number) => {
@@ -74,6 +89,7 @@ export default function Schedule() {
       <button
         className={`memo-check ${s.done ? 'checked' : ''}`}
         onClick={() => toggle(s.id)}
+        disabled={pending.has(s.id)}
         title={s.done ? '恢复' : (s.recurrence && s.recurrence !== 'NONE' ? '结束重复' : '标记为完成')}
       >
         {s.done && <CheckOutlined />}
