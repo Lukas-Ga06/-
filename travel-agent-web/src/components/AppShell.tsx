@@ -1,9 +1,11 @@
-import { createContext, useContext } from 'react';
-import { Button } from 'antd';
+import { createContext, useContext, useEffect, useState } from 'react';
+import { Badge, Button } from 'antd';
 import { LogoutOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
+import { signOut } from '../api/auth';
 import { useThemeStore } from '../store/themeStore';
+import { getMemoOpenCount } from '../api/memo';
 import ReminderBell from './ReminderBell';
 
 const GROUPS: { section: string; items: { key: string; label: string; path: string; icon: string }[] }[] = [
@@ -51,9 +53,24 @@ export default function AppShell({ active, children }: { active: NavModule; chil
   const insideShell = useContext(InsideShell);
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
-  const logout = useAuthStore((s) => s.logout);
   const themeMode = useThemeStore((s) => s.mode);
   const toggleTheme = useThemeStore((s) => s.toggle);
+
+  // 备忘待办角标：AppShell 随页面切换重新挂载，每次导航拉一次最新计数（页内变化由备忘页顶栏实时展示）
+  const [memoOpen, setMemoOpen] = useState(0);
+  const userId = user?.id;
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    getMemoOpenCount()
+      .then((n) => {
+        if (!cancelled) setMemoOpen(n);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
 
   if (insideShell) {
     return <>{children}</>;
@@ -78,7 +95,13 @@ export default function AppShell({ active, children }: { active: NavModule; chil
                   onClick={() => navigate(m.path)}
                   title={m.label}
                 >
-                  <span>{m.icon}</span>
+                  {m.key === 'memos' && memoOpen > 0 ? (
+                    <Badge count={memoOpen} size="small" overflowCount={99} offset={[-3, 3]}>
+                      <span>{m.icon}</span>
+                    </Badge>
+                  ) : (
+                    <span>{m.icon}</span>
+                  )}
                   <span className="sb-label">{m.label}</span>
                 </button>
               ))}
@@ -110,7 +133,7 @@ export default function AppShell({ active, children }: { active: NavModule; chil
               icon={<LogoutOutlined />}
               title="退出登录"
               onClick={() => {
-                logout();
+                signOut();
                 navigate('/login');
               }}
             />

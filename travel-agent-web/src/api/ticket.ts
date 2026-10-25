@@ -10,12 +10,18 @@ export interface AccessTicket {
 /** 提前 30 秒续期，避免踩在过期边界上 */
 const REFRESH_MARGIN_MS = 30_000;
 
-let cached: { authToken: string | null; ticket: string; expiresAt: number } | null = null;
+let cached: { authKey: string; ticket: string; expiresAt: number } | null = null;
 let inflight: Promise<string> | null = null;
 
 export function clearAccessTicketCache(): void {
   cached = null;
   inflight = null;
+}
+
+/** 登录态标识：用户 + 内存 token（token 刷新即失，重启浏览器后由 /me 恢复 user） */
+function authKey(): string | null {
+  const { user, token } = useAuthStore.getState();
+  return user ? `${user.id}|${token ?? ''}` : null;
 }
 
 /**
@@ -26,11 +32,11 @@ export function clearAccessTicketCache(): void {
  * 同一登录态复用缓存，并合并并发请求 —— 否则照片墙每张图都会签一次票据。
  */
 export async function getAccessTicket(): Promise<string> {
-  const authToken = useAuthStore.getState().token;
-  if (!authToken) {
+  const key = authKey();
+  if (!key) {
     throw new Error('未登录，无法获取访问票据');
   }
-  if (cached && cached.authToken === authToken && cached.expiresAt - REFRESH_MARGIN_MS > Date.now()) {
+  if (cached && cached.authKey === key && cached.expiresAt - REFRESH_MARGIN_MS > Date.now()) {
     return cached.ticket;
   }
   if (inflight) {
@@ -38,7 +44,7 @@ export async function getAccessTicket(): Promise<string> {
   }
   inflight = request<AccessTicket>({ url: '/access-ticket', method: 'post' })
     .then((res) => {
-      cached = { authToken, ticket: res.ticket, expiresAt: Date.now() + res.expiresInSeconds * 1000 };
+      cached = { authKey: key, ticket: res.ticket, expiresAt: Date.now() + res.expiresInSeconds * 1000 };
       return res.ticket;
     })
     .finally(() => {
@@ -49,12 +55,12 @@ export async function getAccessTicket(): Promise<string> {
 
 /** 组件用：随登录态自动获取票据；未就绪时返回 null */
 export function useAccessTicket(): string | null {
-  const authToken = useAuthStore((s) => s.token);
+  const user = useAuthStore((s) => s.user);
   const [ticket, setTicket] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
-    if (!authToken) {
+    if (!user) {
       setTicket(null);
       return;
     }
@@ -68,7 +74,7 @@ export function useAccessTicket(): string | null {
     return () => {
       alive = false;
     };
-  }, [authToken]);
+  }, [user]);
 
   return ticket;
 }

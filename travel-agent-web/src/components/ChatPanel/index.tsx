@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Input } from 'antd';
-import { CloseOutlined, SendOutlined } from '@ant-design/icons';
+import { Button, Input, Popconfirm } from 'antd';
+import { CloseOutlined, PlusOutlined, SendOutlined } from '@ant-design/icons';
 import { useAgentStore } from '../../store/agentStore';
 import { useAuthStore } from '../../store/authStore';
 import { useUIStore } from '../../store/uiStore';
@@ -17,6 +17,7 @@ export default function ChatPanel({ tripId, placeholder }: Props) {
   const streaming = useAgentStore((s) => s.streaming);
   const stage = useAgentStore((s) => s.stage);
   const send = useAgentStore((s) => s.send);
+  const newConversation = useAgentStore((s) => s.newConversation);
   const user = useAuthStore((s) => s.user);
   const selectedDay = useUIStore((s) => s.selectedDay);
   const selectedElement = useUIStore((s) => s.selectedElement);
@@ -89,6 +90,23 @@ export default function ChatPanel({ tripId, placeholder }: Props) {
       )}
 
       <div className="chat-input-area">
+        {messages.length > 0 && !streaming && (
+          <Popconfirm
+            title="开新对话？"
+            description="会清空当前聊天记录和上下文记忆"
+            okText="开新对话"
+            cancelText="取消"
+            onConfirm={newConversation}
+          >
+            <Button
+              type="text"
+              size="small"
+              icon={<PlusOutlined />}
+              title="开新对话（清除会话记忆）"
+              style={{ flexShrink: 0 }}
+            />
+          </Popconfirm>
+        )}
         <Input.TextArea
           value={text}
           onChange={(e) => setText(e.target.value)}

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { cancelPlan, confirmPlan, streamAgentChat } from '../api/agent';
+import { persist, createJSONStorage } from 'zustand/middleware';
+import { cancelPlan, clearConversation, confirmPlan, streamAgentChat } from '../api/agent';
 import type { AgentFocus, AgentResult, ChatMessage, SelectedElement } from '../types/agent';
 
 export interface SendPayload {
@@ -8,6 +9,8 @@ export interface SendPayload {
   currentDay?: number | null;
   selectedElement?: SelectedElement | null;
   mapCenter?: { lat: number; lng: number } | null;
+  /** 会话标识：由 store 自动生成/复用，调用方无需传入 */
+  conversationId?: string | null;
 }
 
 interface AgentState {
@@ -19,12 +22,19 @@ interface AgentState {
   lastFocus: AgentFocus | null;
   /** 规划页确认后新建的行程 id，用于跳转 */
   committedTripId: number | null;
+  /**
+   * 会话记忆标识：sessionStorage 持久化，跨页面切换存活（规划页 → 行程页是同一对话）。
+   * reset() 只清界面消息、不动它；只有 newConversation() 才开新会话。
+   */
+  conversationId: string | null;
   send: (payload: SendPayload) => void;
   confirm: () => Promise<AgentResult | null>;
   cancel: () => Promise<void>;
   /** 刷新后用 planId 取回的方案重新挂起确认弹窗 */
   restorePending: (result: AgentResult) => void;
   reset: () => void;
+  /** 显式开新会话：清消息 + 换 conversationId（同时清掉服务端该会话历史） */
+  newConversation: () => void;
   clearCommitted: () => void;
 }
 
@@ -56,13 +66,23 @@ const STAGE_TEXT: Record<string, (data: any) => string> = {
   confirmation: () => '等待你的确认…',
 };
 
-export const useAgentStore = create<AgentState>()((set, get) => ({
+function newConversationId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `c-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+export const useAgentStore = create<AgentState>()(
+  persist(
+    (set, get) => ({
   messages: [],
   streaming: false,
   stage: null,
   pendingConfirm: null,
   lastFocus: null,
   committedTripId: null,
+  conversationId: null,
 
   send: (payload) => {
     if (get().streaming || !payload.message.trim()) {
@@ -71,6 +91,11 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     closeFn?.();
     closeFn = null;
     const seq = ++streamSeq;
+    // 会话记忆：首次发送时生成，之后一直复用（跨页面切换保持同一对话）
+    const conversationId = get().conversationId ?? newConversationId();
+    if (conversationId !== get().conversationId) {
+      set({ conversationId });
+    }
     const userMsg: ChatMessage = {
       id: nextId(),
       role: 'user',
@@ -84,7 +109,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       pendingConfirm: null,
     });
 
-    streamAgentChat(payload, {
+    streamAgentChat({ ...payload, conversationId }, {
         onEvent: (event, data) => {
           const text = STAGE_TEXT[event]?.(data);
           if (text) set({ stage: text });
@@ -205,5 +230,34 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     set({ messages: [], streaming: false, stage: null, pendingConfirm: null, lastFocus: null, committedTripId: null });
   },
 
+  newConversation: () => {
+    const previous = get().conversationId;
+    streamSeq += 1;
+    closeFn?.();
+    closeFn = null;
+    set({
+      messages: [],
+      streaming: false,
+      stage: null,
+      pendingConfirm: null,
+      lastFocus: null,
+      committedTripId: null,
+      conversationId: newConversationId(),
+    });
+    if (previous) {
+      // 服务端历史清理失败不影响本地开新会话（历史 7 天后也会被定期清理）
+      Promise.resolve(clearConversation(previous)).catch(() => {});
+    }
+  },
+
   clearCommitted: () => set({ committedTripId: null }),
-}));
+}),
+    {
+      name: 'travel-agent-conversation',
+      // sessionStorage：跨页面切换（规划页 → 行程页）保持同一对话，关标签页即结束
+      storage: createJSONStorage(() => sessionStorage),
+      // 只持久化会话标识；消息是纯界面状态，不随标签页恢复
+      partialize: (state) => ({ conversationId: state.conversationId }),
+    },
+  ),
+);

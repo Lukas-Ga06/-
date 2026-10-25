@@ -2,18 +2,22 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentResult } from '../types/agent';
 import type { AgentStreamHandlers, AgentStreamParams } from '../api/agent';
 
-const { handlersRef, closeSpy } = vi.hoisted(() => ({
+const { handlersRef, paramsRef, closeSpy, clearConversationSpy } = vi.hoisted(() => ({
   handlersRef: { current: null as AgentStreamHandlers | null },
+  paramsRef: { current: null as AgentStreamParams | null },
   closeSpy: vi.fn(),
+  clearConversationSpy: vi.fn(),
 }));
 
 vi.mock('../api/agent', () => ({
-  streamAgentChat: (_params: AgentStreamParams, handlers: AgentStreamHandlers) => {
+  streamAgentChat: (params: AgentStreamParams, handlers: AgentStreamHandlers) => {
+    paramsRef.current = params;
     handlersRef.current = handlers;
     return Promise.resolve(closeSpy);
   },
   confirmPlan: vi.fn(),
   cancelPlan: vi.fn(),
+  clearConversation: clearConversationSpy,
 }));
 
 import { useAgentStore } from './agentStore';
@@ -25,7 +29,10 @@ function completedResult(overrides: Partial<AgentResult> = {}): AgentResult {
 describe('agentStore', () => {
   beforeEach(() => {
     useAgentStore.getState().reset();
+    useAgentStore.setState({ conversationId: null });
     handlersRef.current = null;
+    paramsRef.current = null;
+    clearConversationSpy.mockClear();
   });
 
   it('发送后先追加用户消息并进入 streaming 状态', () => {
@@ -36,6 +43,41 @@ describe('agentStore', () => {
     expect(state.messages[0]).toMatchObject({ role: 'user', content: '帮我安排一个上海三日游' });
     expect(state.streaming).toBe(true);
     expect(state.pendingConfirm).toBeNull();
+  });
+
+  it('发送时携带会话标识：首次生成，后续复用', () => {
+    useAgentStore.getState().send({ message: '第一条' });
+    const firstId = useAgentStore.getState().conversationId;
+    expect(firstId).toBeTruthy();
+    expect(paramsRef.current?.conversationId).toBe(firstId);
+
+    handlersRef.current?.onComplete?.(completedResult());
+    useAgentStore.getState().send({ message: '第二条' });
+    expect(useAgentStore.getState().conversationId).toBe(firstId);
+    expect(paramsRef.current?.conversationId).toBe(firstId);
+  });
+
+  it('reset 只清界面消息，会话记忆保留（跨页面切换是同一对话）', () => {
+    useAgentStore.getState().send({ message: '安排上海三日游' });
+    const id = useAgentStore.getState().conversationId;
+
+    useAgentStore.getState().reset();
+
+    expect(useAgentStore.getState().messages).toHaveLength(0);
+    expect(useAgentStore.getState().conversationId).toBe(id);
+  });
+
+  it('newConversation 换新会话标识并清掉服务端历史', () => {
+    useAgentStore.getState().send({ message: '安排上海三日游' });
+    const oldId = useAgentStore.getState().conversationId;
+
+    useAgentStore.getState().newConversation();
+
+    const state = useAgentStore.getState();
+    expect(state.messages).toHaveLength(0);
+    expect(state.conversationId).toBeTruthy();
+    expect(state.conversationId).not.toBe(oldId);
+    expect(clearConversationSpy).toHaveBeenCalledWith(oldId);
   });
 
   it('streaming 期间重复发送会被忽略', () => {

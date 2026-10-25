@@ -8,6 +8,8 @@ export interface AgentStreamParams {
   currentDay?: number | null;
   selectedElement?: SelectedElement | null;
   mapCenter?: { lat: number; lng: number } | null;
+  /** 会话记忆标识（UUID）：后端据此回放历史做指代消解 */
+  conversationId?: string | null;
 }
 
 export interface AgentStreamHandlers {
@@ -35,6 +37,7 @@ export async function streamAgentChat(
   qs.set('message', params.message);
   if (params.tripId) qs.set('tripId', String(params.tripId));
   if (params.currentDay) qs.set('currentDay', String(params.currentDay));
+  if (params.conversationId) qs.set('conversationId', params.conversationId);
   if (params.selectedElement?.id) {
     qs.set('selType', params.selectedElement.type || 'itinerary_item');
     qs.set('selId', String(params.selectedElement.id));
@@ -105,4 +108,13 @@ export function undoTrip(tripId: number): Promise<AgentResult> {
 /** 取回待确认方案：刷新页面后凭 planId 恢复确认弹窗 */
 export function getPendingPlan(planId: string): Promise<AgentResult> {
   return request<AgentResult>({ url: `/agent/plans/${encodeURIComponent(planId)}` });
+}
+
+/** 开新会话时清掉服务端该会话的历史（失败可忽略，历史 7 天后也会被定期清理） */
+export function clearConversation(conversationId: string): Promise<void> {
+  return request<void>({
+    url: '/agent/conversation/clear',
+    method: 'post',
+    data: { conversationId },
+  });
 }

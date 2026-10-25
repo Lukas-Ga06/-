@@ -2,6 +2,7 @@ import { Button } from 'antd';
 import { LogoutOutlined, UserOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
+import { signOut } from '../api/auth';
 
 const MODULES = [
   { key: 'home', label: '🏠 总览', path: '/' },
@@ -19,7 +20,6 @@ export type NavModule = 'home' | 'travel' | 'expenses' | 'memos' | 'office' | 'l
 export default function AssistantNav({ active }: { active: NavModule }) {
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
-  const logout = useAuthStore((s) => s.logout);
 
   return (
     <header className="home-nav ios-nav">
@@ -44,7 +44,7 @@ export default function AssistantNav({ active }: { active: NavModule }) {
         type="text"
         icon={<LogoutOutlined />}
         onClick={() => {
-          logout();
+          signOut();
           navigate('/login');
         }}
       />

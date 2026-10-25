@@ -3,6 +3,7 @@ import { App, Button, Tag } from 'antd';
 import { LogoutOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { systemStatus, type SystemStatus } from '../../api/assistant';
+import { signOut } from '../../api/auth';
 import { useAuthStore } from '../../store/authStore';
 import { useTripStore } from '../../store/tripStore';
 
@@ -10,7 +11,6 @@ export default function Profile() {
   const navigate = useNavigate();
   const { message } = App.useApp();
   const user = useAuthStore((s) => s.user);
-  const logout = useAuthStore((s) => s.logout);
   const trips = useTripStore((s) => s.trips);
   const loadTrips = useTripStore((s) => s.loadTrips);
   const [status, setStatus] = useState<SystemStatus | null>(null);
@@ -105,7 +105,7 @@ export default function Profile() {
             danger
             icon={<LogoutOutlined />}
             onClick={() => {
-              logout();
+              signOut();
               navigate('/login');
               message.success('已退出登录');
             }}

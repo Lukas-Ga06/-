@@ -16,3 +16,8 @@ export function toggleMemo(id: number): Promise<Memo> {
 export function deleteMemo(id: number): Promise<void> {
   return request<void>({ url: `/memos/${id}`, method: 'delete' });
 }
+
+/** 待办数量（侧栏「备忘」角标用）；后端按当前登录用户统计 */
+export function getMemoOpenCount(): Promise<number> {
+  return request<{ open: number }>({ url: '/memos/open-count' }).then((d) => d.open);
+}

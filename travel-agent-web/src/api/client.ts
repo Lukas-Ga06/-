@@ -31,10 +31,12 @@ export function unwrapApiResponse(resp: { data: unknown }) {
 /** 网络/HTTP 层错误：仅在「非登录接口的 401」时登出并跳转 */
 export function handleResponseError(error: any): Promise<never> {
   const url: string = error?.config?.url ?? '';
-  // 登录/注册接口本身会返回 401（账号密码错误），此时不能触发登出跳转，
-  // 否则用户输错一次密码就会被整页刷新。
-  const isAuthRequest = url.includes('/auth/login') || url.includes('/auth/register');
-  if (error?.response?.status === 401 && !isAuthRequest) {
+  // 登录/注册/me 接口本身会返回 401（密码错误 / 未登录探活），
+  // 此时不能触发登出跳转，否则输错一次密码或在登录页探测就整页刷新。
+  const isAuthRequest = url.includes('/auth/login') || url.includes('/auth/register') || url.includes('/auth/me');
+  // 已在登录页时也不跳转：避免 401 → 跳 /login → 又一次 401 的循环刷新
+  const alreadyOnLogin = typeof window !== 'undefined' && window.location?.pathname === '/login';
+  if (error?.response?.status === 401 && !isAuthRequest && !alreadyOnLogin) {
     useAuthStore.getState().logout();
     window.location.href = '/login';
   }
