@@ -1,0 +1,425 @@
+package com.travel.agent.agent;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.travel.agent.dto.ItineraryDtos;
+import com.travel.agent.entity.ItineraryItem;
+import com.travel.agent.llm.LlmClient;
+import com.travel.agent.llm.LlmMessage;
+import com.travel.agent.model.Attraction;
+import com.travel.agent.model.CityCatalog;
+import com.travel.agent.model.Hotel;
+import com.travel.agent.model.Restaurant;
+import com.travel.agent.service.ItineraryService;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+
+/**
+ * LLM 结构化规划：让模型从「候选清单」中选择实体并输出 JSON 操作序列，
+ * 后端逐条校验（名称必须命中目录/现有行程、时间格式、天数边界、条数上限），
+ * 坐标与价格一律以目录数据覆盖——模型只做选择与编排，不允许编造事实。
+ *
+ * 任何一步失败（模型不可用/输出非法/全部操作无效）都返回可识别的空结果，
+ * 由 PlannerAgent 完整回落到既有规则路径。确认与提交链路不变。
+ */
+@Component
+@RequiredArgsConstructor
+@Slf4j
+public class StructuredPlanner {
+
+    /** 单个计划允许的最大操作条数，防止模型输出爆炸 */
+    private static final int MAX_ITEMS = 60;
+
+    private final LlmClient llmClient;
+    private final ObjectMapper objectMapper;
+
+    // ==================== 结果类型 ====================
+
+    /** 新行程解析结果：drafts 为空表示解析失败（调用方回落规则路径） */
+    public record NewTripParse(List<ItineraryItem> drafts, String reasoning, List<String> warnings) {
+        public boolean ok() {
+            return drafts != null && !drafts.isEmpty();
+        }
+    }
+
+    /** 行程修改解析结果：removes/adds 任一为空表示解析失败（调用方回落规则路径） */
+    public record ModificationParse(List<ModificationRemove> removes, List<ItineraryItem> adds,
+                                    String reasoning, List<String> warnings) {
+        public boolean ok() {
+            return removes != null && adds != null && (!removes.isEmpty() || !adds.isEmpty());
+        }
+    }
+
+    /** 一条移除意图：title 是模型给出的原条目标题，target 是按标题唯一命中的现有条目 */
+    public record ModificationRemove(String title, ItineraryDtos.ItineraryItemDTO target) { }
+
+    // ==================== 新行程 ====================
+
+    /**
+     * 让模型编排新行程。参数提取（天数/预算/日期）沿用 PlannerAgent 的规则结果，
+     * 这里只负责「选择哪些实体、怎么排时间」。返回 null = LLM 路径失败。
+     */
+    public NewTripParse planNewTrip(CityCatalog city, TripDraftView draft, String message) {
+        String prompt = newTripPrompt(city, draft, message);
+        String raw = llmClient.chat(List.of(
+                LlmMessage.system("你是旅行规划引擎。只输出 JSON，不要输出任何解释或 Markdown 代码块。"),
+                LlmMessage.user(prompt)), 0.2);
+        if (raw == null) {
+            return null;
+        }
+        try {
+            return parseNewTrip(city, draft, raw);
+        } catch (Exception e) {
+            log.info("结构化规划输出解析失败，回落规则路径: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    NewTripParse parseNewTrip(CityCatalog city, TripDraftView draft, String raw) throws Exception {
+        String json = stripFence(raw);
+        JsonNode root = objectMapper.readTree(json);
+        JsonNode daysNode = root.path("days");
+        if (!daysNode.isArray() || daysNode.isEmpty()) {
+            return null;
+        }
+        List<String> warnings = new ArrayList<>();
+        List<ItineraryItem> drafts = new ArrayList<>();
+        int count = 0;
+        for (JsonNode day : daysNode) {
+            int dayIndex = day.path("day").asInt(-1);
+            if (dayIndex < 1 || dayIndex > draft.days()) {
+                warnings.add("第 " + dayIndex + " 天超出范围，已忽略");
+                continue;
+            }
+            for (JsonNode item : day.path("items")) {
+                if (++count > MAX_ITEMS) {
+                    warnings.add("条数超出上限，其余已忽略");
+                    break;
+                }
+                ItineraryItem converted = convertItem(city, draft, dayIndex, item, warnings);
+                if (converted != null) {
+                    drafts.add(converted);
+                }
+            }
+        }
+        String reasoning = root.path("reasoning").asText("").trim();
+        return new NewTripParse(drafts, reasoning, warnings);
+    }
+
+    /** 单条转换：名称必须命中目录，坐标/价格/描述以目录为准；非法条目丢弃并记录原因 */
+    private ItineraryItem convertItem(CityCatalog city, TripDraftView draft, int dayIndex,
+                                      JsonNode item, List<String> warnings) {
+        String type = item.path("type").asText("");
+        String name = item.path("name").asText("").trim();
+        if (name.isEmpty()) {
+            return null;
+        }
+        String start = validTime(item.path("startTime").asText(""));
+        String end = validTime(item.path("endTime").asText(""));
+        if (start == null || end == null || start.compareTo(end) >= 0) {
+            warnings.add("「" + name + "」时间非法（" + start + "~" + end + "），已忽略");
+            return null;
+        }
+        return switch (type) {
+            case "attraction" -> convertAttraction(city, draft, dayIndex, name, start, end, warnings);
+            case "restaurant" -> convertRestaurant(city, draft, dayIndex, name, start, end, warnings);
+            case "hotel" -> convertHotel(city, draft, dayIndex, name, start, end, warnings);
+            default -> null; // transport 等由后端按路线补算，不接受模型生成
+        };
+    }
+
+    private ItineraryItem convertAttraction(CityCatalog city, TripDraftView draft, int dayIndex,
+                                            String name, String start, String end, List<String> warnings) {
+        Attraction hit = match(city.attractions(), Attraction::name, name);
+        if (hit == null) {
+            warnings.add("景点「" + name + "」不在候选清单，已忽略");
+            return null;
+        }
+        return draft(draft.startDate(), dayIndex, ItineraryItem.TYPE_ATTRACTION, hit.name(),
+                start, end, hit.lat(), hit.lng(), BigDecimal.valueOf(hit.ticket()),
+                hit.tagsWithVenue(), hit.description());
+    }
+
+    private ItineraryItem convertRestaurant(CityCatalog city, TripDraftView draft, int dayIndex,
+                                            String name, String start, String end, List<String> warnings) {
+        Restaurant hit = match(city.restaurants(), Restaurant::name, name);
+        if (hit == null) {
+            warnings.add("餐厅「" + name + "」不在候选清单，已忽略");
+            return null;
+        }
+        return draft(draft.startDate(), dayIndex, ItineraryItem.TYPE_RESTAURANT, "用餐 · " + hit.name(),
+                start, end, hit.lat(), hit.lng(), BigDecimal.valueOf(hit.avgCost()),
+                List.of(hit.cuisine()), hit.description());
+    }
+
+    private ItineraryItem convertHotel(CityCatalog city, TripDraftView draft, int dayIndex,
+                                       String name, String start, String end, List<String> warnings) {
+        if (dayIndex != 1) {
+            warnings.add("酒店只安排在第 1 天，「" + name + "」已忽略");
+            return null;
+        }
+        Hotel hit = match(city.hotels(), Hotel::name, name);
+        if (hit == null) {
+            warnings.add("酒店「" + name + "」不在候选清单，已忽略");
+            return null;
+        }
+        BigDecimal cost = BigDecimal.valueOf(hit.pricePerNight())
+                .multiply(BigDecimal.valueOf(Math.max(draft.days() - 1, 1)));
+        List<String> tags = new ArrayList<>(List.of("酒店"));
+        if (hit.nearSubway()) {
+            tags.add("近地铁");
+        }
+        return draft(draft.startDate(), dayIndex, ItineraryItem.TYPE_HOTEL, "入住 · " + hit.name(),
+                start, end, hit.lat(), hit.lng(), cost, tags, hit.description());
+    }
+
+    private String newTripPrompt(CityCatalog city, TripDraftView draft, String message) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("为「").append(city.name()).append("」编排 ").append(draft.days())
+                .append(" 日行程，出发日期 ").append(draft.startDate())
+                .append("，总预算 ").append(draft.budget().stripTrailingZeros().toPlainString())
+                .append(" 元。\n");
+        if (!draft.preferences().isEmpty()) {
+            sb.append("偏好：").append(String.join("、", draft.preferences())).append("。\n");
+        }
+        sb.append("\n可选景点（只能从这个清单里选）：\n");
+        for (Attraction a : city.attractions()) {
+            sb.append("- ").append(a.name()).append("｜").append("indoor".equals(a.venue()) ? "室内" : "室外")
+                    .append("｜").append(String.join("/", a.tags()))
+                    .append("｜门票").append(BigDecimal.valueOf(a.ticket()).stripTrailingZeros().toPlainString())
+                    .append("元\n");
+        }
+        sb.append("可选餐厅：\n");
+        for (Restaurant r : city.restaurants()) {
+            sb.append("- ").append(r.name()).append("｜").append(r.cuisine())
+                    .append("｜人均").append(BigDecimal.valueOf(r.avgCost()).stripTrailingZeros().toPlainString())
+                    .append("元\n");
+        }
+        sb.append("可选酒店：\n");
+        for (Hotel h : city.hotels()) {
+            sb.append("- ").append(h.name()).append(h.nearSubway() ? "｜近地铁" : "")
+                    .append("｜每晚").append(BigDecimal.valueOf(h.pricePerNight()).stripTrailingZeros().toPlainString())
+                    .append("元\n");
+        }
+        sb.append("\n用户需求：").append(message).append("\n");
+        sb.append("""
+                要求：每天上午安排一个景点、午餐就近、下午安排另一个景点、晚餐就近；酒店只放第 1 天。
+                严格控制总花费不超过预算；名称必须与清单完全一致，禁止编造清单外的名称；
+                不要输出价格与坐标（后端按清单填充）。
+                仅输出 JSON：
+                {"reasoning":"一句话规划思路","days":[{"day":1,"items":[{"type":"attraction","name":"清单中的名称","startTime":"09:00","endTime":"11:30"}]}]}
+                """);
+        return sb.toString();
+    }
+
+    // ==================== 行程修改 ====================
+
+    /**
+     * 让模型在现有行程 + 候选景点内做替换/增删。
+     * items 为现有行程条目；weatherHint 为天气约束描述（可为 null）。
+     */
+    public ModificationParse planModification(CityCatalog city, List<ItineraryDtos.ItineraryItemDTO> items,
+                                              LocalDate startDate, String weatherHint, String message) {
+        String prompt = modificationPrompt(city, items, weatherHint, message);
+        String raw = llmClient.chat(List.of(
+                LlmMessage.system("你是行程修改引擎。只输出 JSON，不要输出任何解释或 Markdown 代码块。"),
+                LlmMessage.user(prompt)), 0.2);
+        if (raw == null) {
+            return null;
+        }
+        try {
+            return parseModification(city, items, startDate, raw);
+        } catch (Exception e) {
+            log.info("结构化修改输出解析失败，回落规则路径: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    ModificationParse parseModification(CityCatalog city, List<ItineraryDtos.ItineraryItemDTO> items,
+                                        LocalDate startDate, String raw) throws Exception {
+        JsonNode root = objectMapper.readTree(stripFence(raw));
+        JsonNode ops = root.path("operations");
+        if (!ops.isArray() || ops.isEmpty()) {
+            return null;
+        }
+        List<String> warnings = new ArrayList<>();
+        List<ModificationRemove> removes = new ArrayList<>();
+        List<ItineraryItem> adds = new ArrayList<>();
+        for (JsonNode op : ops) {
+            if (removes.size() + adds.size() >= MAX_ITEMS) {
+                warnings.add("操作数超出上限，其余已忽略");
+                break;
+            }
+            String type = op.path("type").asText("");
+            if ("REMOVE".equalsIgnoreCase(type)) {
+                String title = op.path("title").asText("").trim();
+                ItineraryDtos.ItineraryItemDTO target = matchExisting(items, title);
+                if (target == null) {
+                    warnings.add("移除目标「" + title + "」未在现有行程中找到，已忽略");
+                    continue;
+                }
+                removes.add(new ModificationRemove(title, target));
+            } else if ("ADD".equalsIgnoreCase(type)) {
+                int dayIndex = op.path("dayIndex").asInt(-1);
+                String name = op.path("name").asText("").trim();
+                Attraction hit = match(city.attractions(), Attraction::name, name);
+                if (hit == null) {
+                    warnings.add("新增景点「" + name + "」不在候选清单，已忽略");
+                    continue;
+                }
+                if (dayIndex < 1) {
+                    dayIndex = targetDayOf(items); // 模型没给天数时沿用现有行程主天
+                }
+                String start = validTime(op.path("startTime").asText("14:00"));
+                String end = validTime(op.path("endTime").asText("16:30"));
+                if (start == null || end == null || start.compareTo(end) >= 0) {
+                    start = "14:00";
+                    end = "16:30";
+                }
+                adds.add(draft(startDate, dayIndex, ItineraryItem.TYPE_ATTRACTION, hit.name(),
+                        start, end, hit.lat(), hit.lng(), BigDecimal.valueOf(hit.ticket()),
+                        hit.tagsWithVenue(), hit.description()));
+            }
+        }
+        String reasoning = root.path("reasoning").asText("").trim();
+        return new ModificationParse(removes, adds, reasoning, warnings);
+    }
+
+    private String modificationPrompt(CityCatalog city, List<ItineraryDtos.ItineraryItemDTO> items,
+                                      String weatherHint, String message) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("当前行程安排：\n");
+        for (ItineraryDtos.ItineraryItemDTO i : items) {
+            sb.append("- Day ").append(i.getDayIndex()).append("｜").append(i.getTitle())
+                    .append("｜").append(i.getTags() != null && i.getTags().contains("室内") ? "室内" : "室外")
+                    .append("｜").append(i.getStartTime() == null ? "" : shortTime(i.getStartTime()))
+                    .append('\n');
+        }
+        sb.append("\n可替换的景点候选（只能从这个清单里选）：\n");
+        for (Attraction a : city.attractions()) {
+            sb.append("- ").append(a.name()).append("｜").append("indoor".equals(a.venue()) ? "室内" : "室外")
+                    .append("｜").append(String.join("/", a.tags())).append("\n");
+        }
+        if (weatherHint != null && !weatherHint.isBlank()) {
+            sb.append("\n天气约束：").append(weatherHint).append("\n");
+        }
+        sb.append("\n用户要求：").append(message).append("\n");
+        sb.append("""
+                要求：REMOVE 的 title 必须与现有行程中的条目完全一致；ADD 的 name 必须来自候选清单；
+                只调整用户要求的部分，不要重排整个行程。
+                仅输出 JSON：
+                {"reasoning":"一句话说明","operations":[{"type":"REMOVE","title":"现有条目标题"},{"type":"ADD","name":"候选景点名","dayIndex":1,"startTime":"14:00","endTime":"16:30"}]}
+                """);
+        return sb.toString();
+    }
+
+    // ==================== 公共辅助 ====================
+
+    private <T> T match(List<T> candidates, Function<T, String> nameOf, String name) {
+        for (T candidate : candidates) {
+            if (nameOf.apply(candidate).equals(name)) {
+                return candidate;
+            }
+        }
+        for (T candidate : candidates) {
+            String candidateName = nameOf.apply(candidate);
+            if (candidateName.contains(name) || name.contains(candidateName)) {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
+    /** 移除目标按标题唯一命中；命中多个或零个都视为无效（避免误删） */
+    private ItineraryDtos.ItineraryItemDTO matchExisting(List<ItineraryDtos.ItineraryItemDTO> items, String title) {
+        List<ItineraryDtos.ItineraryItemDTO> hits = new ArrayList<>();
+        for (ItineraryDtos.ItineraryItemDTO item : items) {
+            if (item.getTitle().equals(title)) {
+                hits.add(item);
+            }
+        }
+        if (hits.size() != 1) {
+            // 允许模型省略「午餐 · 」这类前缀的宽松匹配，但仍然要求唯一
+            List<ItineraryDtos.ItineraryItemDTO> loose = new ArrayList<>();
+            for (ItineraryDtos.ItineraryItemDTO item : items) {
+                if (item.getTitle().contains(title) || title.contains(item.getTitle())) {
+                    loose.add(item);
+                }
+            }
+            hits = loose.size() == 1 ? loose : List.of();
+        }
+        return hits.isEmpty() ? null : hits.get(0);
+    }
+
+    private int targetDayOf(List<ItineraryDtos.ItineraryItemDTO> items) {
+        Map<Integer, Integer> dayCounts = new HashMap<>();
+        for (ItineraryDtos.ItineraryItemDTO item : items) {
+            dayCounts.merge(item.getDayIndex(), 1, Integer::sum);
+        }
+        return dayCounts.entrySet().stream()
+                .max(Map.Entry.comparingByValue())
+                .map(Map.Entry::getKey)
+                .orElse(1);
+    }
+
+    private static String validTime(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return LocalTime.parse(raw.trim()).format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"));
+        } catch (DateTimeParseException e) {
+            return null;
+        }
+    }
+
+    private static String shortTime(String iso) {
+        try {
+            return LocalDateTime.parse(iso).format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"));
+        } catch (DateTimeParseException e) {
+            return iso;
+        }
+    }
+
+    private static String stripFence(String raw) {
+        return raw.replace("```json", "").replace("```", "").trim();
+    }
+
+    private ItineraryItem draft(LocalDate baseDate, int day, String type, String title,
+                                String start, String end, Double lat, Double lng,
+                                BigDecimal cost, List<String> tags, String description) {
+        return ItineraryItem.builder()
+                .dayIndex(day)
+                .itemType(type)
+                .title(title)
+                .startTime(ItineraryService.atTime(baseDate, day, start, start))
+                .endTime(ItineraryService.atTime(baseDate, day, end, end))
+                .latitude(lat)
+                .longitude(lng)
+                .cost(cost)
+                .tags(tags == null ? null : String.join(",", tags))
+                .description(description)
+                .build();
+    }
+
+    /** 规划参数视图：由 PlannerAgent 从消息/行程中提取后传入，避免 StructuredPlanner 重复解析 */
+    public record TripDraftView(String city, int days, LocalDate startDate, BigDecimal budget,
+                                List<String> preferences) { }
+
+    /** 兜底校验：格式合法的 HH:mm 才允许进入条目 */
+    static boolean isOrdered(String start, String end) {
+        return start != null && end != null && start.compareTo(end) < 0;
+    }
+}

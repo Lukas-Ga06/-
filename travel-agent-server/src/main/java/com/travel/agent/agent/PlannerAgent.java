@@ -47,6 +47,8 @@ public class PlannerAgent {
     private final BudgetService budgetService;
     /** 用于把"没规划出来"的原因说准确：是城市没有，还是模型没开 */
     private final LlmProperties llmProperties;
+    /** LLM 结构化规划：模型从候选清单选择与编排，规则引擎逐条校验，失败回落规则路径 */
+    private final StructuredPlanner structuredPlanner;
 
     public AgentPlan plan(AgentContext ctx, IntentResult intent, Trip trip) {
         String message = ctx.getMessage() == null ? "" : ctx.getMessage();
@@ -116,6 +118,13 @@ public class PlannerAgent {
                 .build();
 
         List<PlanOperation> ops = new ArrayList<>();
+        // LLM 结构化规划先行：模型从候选清单里选择与编排，规则引擎逐条校验，失败回落下方规则路径
+        if (llmProperties.usable()) {
+            AgentPlan structured = tryStructuredNewTrip(ctx, intent, city, trip, draft, days, budget, message);
+            if (structured != null) {
+                return structured;
+            }
+        }
         // 重新规划已有行程：先清空原条目
         if (trip != null) {
             for (ItineraryItem item : itineraryService.listEntities(trip.getId())) {
@@ -266,6 +275,15 @@ public class PlannerAgent {
         WeatherInfo weather = (WeatherInfo) tools.invoke(ctx, "query_weather",
                 buildArgs(new HashMap<>(), "city", city.name(), "date", targetDate.toString(), "mentionRain", mentionRain));
 
+        // LLM 结构化修改先行：模型在现有行程与候选清单内做替换/增删，失败回落规则路径
+        if (llmProperties.usable()) {
+            AgentPlan structured = tryStructuredModify(ctx, intent, city, trip, items, weather,
+                    trip.getStartDate(), message, dateNote);
+            if (structured != null) {
+                return structured;
+            }
+        }
+
         List<ItineraryDtos.ItineraryItemDTO> targets = new ArrayList<>();
         // 注意：不要写成三元表达式——int 与 Integer 混用会被拆箱，currentDay 为 null 时直接 NPE
         final Integer dayFilter = resolveDayFilter(message, ctx.getCurrentDay(), scopeDay);
@@ -367,6 +385,146 @@ public class PlannerAgent {
                         + "替换方案：" + String.join("，", replacements))
                 .extras(extras)
                 .build();
+    }
+
+    // ==================== LLM 结构化规划组装 ====================
+
+    /** 结构化新行程：LLM 输出的条目序列 → REMOVE（重规划）+ ADD 计划；失败返回 null 走规则路径 */
+    private AgentPlan tryStructuredNewTrip(AgentContext ctx, IntentResult intent, CityCatalog city,
+                                           Trip trip, TripDraft draft, int days, BigDecimal budget, String message) {
+        StructuredPlanner.TripDraftView view = new StructuredPlanner.TripDraftView(
+                city.name(), days, draft.getStartDate(), budget, draft.getPreferences());
+        StructuredPlanner.NewTripParse parse = structuredPlanner.planNewTrip(city, view, message);
+        if (parse == null || !parse.ok()) {
+            if (parse != null && !parse.warnings().isEmpty()) {
+                log.info("结构化规划回落规则路径: {}", parse.warnings());
+            }
+            return null;
+        }
+        List<ItineraryItem> drafts = new ArrayList<>(parse.drafts());
+        appendTransportLegs(ctx, drafts);
+
+        List<PlanOperation> ops = new ArrayList<>();
+        if (trip != null) {
+            for (ItineraryItem item : itineraryService.listEntities(trip.getId())) {
+                ops.add(PlanOperation.builder().type(PlanOperation.REMOVE)
+                        .targetItemId(item.getId()).original(item)
+                        .detail("清除原安排：" + item.getTitle()).build());
+            }
+        }
+        for (ItineraryItem item : drafts) {
+            ops.add(PlanOperation.builder().type(PlanOperation.ADD).draft(item)
+                    .detail("新增：" + item.getTitle()).build());
+        }
+
+        BigDecimal total = budgetService.totalOf(drafts);
+        String hotelName = drafts.stream()
+                .filter(i -> ItineraryItem.TYPE_HOTEL.equals(i.getItemType()))
+                .findFirst().map(i -> i.getTitle().replaceFirst("^入住 · ", "")).orElse("暂无");
+        Map<String, Object> extras = new HashMap<>();
+        extras.put("hotelName", hotelName);
+        extras.put("total", total);
+        extras.put("days", days);
+        String warnings = parse.warnings().isEmpty() ? ""
+                : "（模型输出已按候选清单校正：" + String.join("；", parse.warnings().stream().limit(2).toList()) + "）";
+        return AgentPlan.builder()
+                .planId(UUID.randomUUID().toString())
+                .intent(intent.getIntent())
+                .target(intent.getTarget())
+                .tripId(trip == null ? null : trip.getId())
+                .city(city)
+                .tripDraft(draft)
+                .operations(ops)
+                .focus(AgentDtos.AgentFocus.builder().type("itinerary").day(1).build())
+                .reasoning((parse.reasoning().isEmpty() ? "按你的需求从候选清单编排。" : parse.reasoning()) + warnings)
+                .extras(extras)
+                .build();
+    }
+
+    /** 结构化修改：LLM 的 REMOVE/ADD 意图 → 校验后的操作计划；失败返回 null 走规则路径 */
+    private AgentPlan tryStructuredModify(AgentContext ctx, IntentResult intent, CityCatalog city, Trip trip,
+                                          List<ItineraryDtos.ItineraryItemDTO> items, WeatherInfo weather,
+                                          LocalDate startDate, String message, String dateNote) {
+        String weatherHint = weather == null ? null
+                : weather.condition() + "，降雨概率 " + weather.rainProbability()
+                        + "%（" + (weather.isRainy() ? "雨天优先把户外景点换成室内" : "适合户外安排") + "）";
+        StructuredPlanner.ModificationParse parse =
+                structuredPlanner.planModification(city, items, trip.getStartDate(), weatherHint, message);
+        if (parse == null || !parse.ok()) {
+            return null;
+        }
+        List<PlanOperation> ops = new ArrayList<>();
+        List<String> replacements = new ArrayList<>();
+        if (!dateNote.isEmpty()) {
+            replacements.add(dateNote);
+        }
+        Integer focusDay = null;
+        for (StructuredPlanner.ModificationRemove remove : parse.removes()) {
+            ops.add(PlanOperation.builder().type(PlanOperation.REMOVE)
+                    .targetItemId(remove.target().getId())
+                    .original(OperationHistoryService.toEntity(trip, remove.target()))
+                    .detail("移除「" + remove.target().getTitle() + "」").build());
+            replacements.add("移除「" + remove.target().getTitle() + "」");
+            focusDay = remove.target().getDayIndex();
+        }
+        for (ItineraryItem add : parse.adds()) {
+            ops.add(PlanOperation.builder().type(PlanOperation.ADD).draft(add)
+                    .detail("新增「" + add.getTitle() + "」").build());
+            replacements.add("新增「" + add.getTitle() + "」");
+            focusDay = focusDay == null ? add.getDayIndex() : focusDay;
+        }
+        if (ops.isEmpty()) {
+            return null;
+        }
+        int day = focusDay != null ? focusDay : 1;
+        Map<String, Object> extras = new HashMap<>();
+        extras.put("weather", weather);
+        extras.put("replacements", replacements);
+        extras.put("day", day);
+        String warnings = parse.warnings().isEmpty() ? ""
+                : "（模型输出已按候选清单校正：" + String.join("；", parse.warnings().stream().limit(2).toList()) + "）";
+        return AgentPlan.builder()
+                .planId(UUID.randomUUID().toString())
+                .intent(intent.getIntent())
+                .target(intent.getTarget())
+                .tripId(trip.getId())
+                .city(city)
+                .operations(ops)
+                .focus(AgentDtos.AgentFocus.builder().type("itinerary").day(day).build())
+                .reasoning((weather == null ? "" : "天气：" + weather.condition() + "（降雨概率 " + weather.rainProbability() + "%）；")
+                        + "替换方案：" + String.join("，", replacements) + warnings)
+                .extras(extras)
+                .build();
+    }
+
+    /** 结构化输出逐天补打车交通：按条目坐标链估算，与规则路径的交通条目口径一致 */
+    private void appendTransportLegs(AgentContext ctx, List<ItineraryItem> drafts) {
+        Map<Integer, List<ItineraryItem>> byDay = new java.util.LinkedHashMap<>();
+        for (ItineraryItem item : drafts) {
+            byDay.computeIfAbsent(item.getDayIndex(), k -> new ArrayList<>()).add(item);
+        }
+        LocalDate baseDate = drafts.get(0).getStartTime() != null
+                ? drafts.get(0).getStartTime().toLocalDate()
+                : LocalDate.now();
+        List<ItineraryItem> extra = new ArrayList<>();
+        for (Map.Entry<Integer, List<ItineraryItem>> entry : byDay.entrySet()) {
+            Double prevLat = null;
+            Double prevLng = null;
+            BigDecimal transport = BigDecimal.ZERO;
+            for (ItineraryItem item : entry.getValue()) {
+                if (item.getLatitude() != null && item.getLongitude() != null) {
+                    transport = transport.add(legTaxiCost(ctx, prevLat, prevLng, item.getLatitude(), item.getLongitude()));
+                    prevLat = item.getLatitude();
+                    prevLng = item.getLongitude();
+                }
+            }
+            if (transport.compareTo(BigDecimal.ZERO) > 0) {
+                extra.add(draft(baseDate, entry.getKey(), ItineraryItem.TYPE_TRANSPORT, "当日交通（打车）",
+                        "19:45", "20:00", null, null, transport, List.of("交通"),
+                        "Agent 根据路线距离估算的市内交通费用"));
+            }
+        }
+        drafts.addAll(extra);
     }
 
     // ==================== 公共辅助 ====================
