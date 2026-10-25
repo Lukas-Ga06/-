@@ -64,6 +64,8 @@ travel:
   invoices:
     # 上传的发票原始文件
     dir: ${INVOICE_DIR:data/invoices}
+    # 发票存储：local（默认）/ s3（S3 兼容对象存储，连接配置复用 travel.photos.s3.*，键前缀 invoices/）
+    store: ${INVOICE_STORE:local}
   ocr:
     # 图片发票 OCR：Tesseract 可执行文件路径（不配置时仅支持 PDF 电子发票与粘贴文本）
     tesseract: ${TESSERACT_CMD:}

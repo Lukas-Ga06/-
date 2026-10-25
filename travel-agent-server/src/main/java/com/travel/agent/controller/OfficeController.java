@@ -14,7 +14,7 @@ import com.travel.agent.repository.MailItemRepository;
 import com.travel.agent.repository.MeetingMinutesRepository;
 import com.travel.agent.service.AuthService;
 import com.travel.agent.service.ExpenseService;
-import com.travel.agent.service.InvoiceStorage;
+import com.travel.agent.service.InvoiceFileStore;
 import com.travel.agent.service.InvoiceTextExtractor;
 import com.travel.agent.service.LlmAssistantService;
 import com.travel.agent.service.TripService;
@@ -43,7 +43,7 @@ public class OfficeController {
     private final TripService tripService;
     private final ExpenseService expenseService;
     private final InvoiceTextExtractor invoiceTextExtractor;
-    private final InvoiceStorage invoiceStorage;
+    private final InvoiceFileStore invoiceStorage;
     private final MailItemRepository mailItemRepository;
     private final MeetingMinutesRepository minutesRepository;
     private final InvoiceRepository invoiceRepository;
