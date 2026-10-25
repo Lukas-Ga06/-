@@ -14,6 +14,7 @@ import org.springframework.stereotype.Component;
 public class ChannelProperties {
 
     private final Telegram telegram = new Telegram();
+    private final WeChat wechat = new WeChat();
     private final Webhook webhook = new Webhook();
 
     @Data
@@ -24,6 +25,13 @@ public class ChannelProperties {
 
         /** 长轮询挂起秒数（Telegram 上限 50） */
         private long pollTimeoutSeconds = 25;
+    }
+
+    @Data
+    public static class WeChat {
+
+        /** 公众号服务器配置里填的 Token（接入验证 sha1(token+timestamp+nonce)）；留空 = 渠道关闭。明文模式 */
+        private String token = "";
     }
 
     @Data

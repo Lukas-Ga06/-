@@ -6,11 +6,9 @@ import com.travel.agent.agent.AgentEngine;
 import com.travel.agent.config.ChannelProperties;
 import com.travel.agent.dto.AgentDtos;
 import com.travel.agent.entity.User;
-import com.travel.agent.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.SmartLifecycle;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -34,8 +32,7 @@ public class TelegramBotService implements SmartLifecycle {
     private final ChannelProperties properties;
     private final TelegramClient telegram;
     private final AgentEngine agentEngine;
-    private final UserRepository userRepository;
-    private final PasswordEncoder passwordEncoder;
+    private final ChannelAccounts channelAccounts;
 
     private Thread worker;
     private volatile boolean running = false;
@@ -104,7 +101,7 @@ public class TelegramBotService implements SmartLifecycle {
             return; // 只处理文本消息（贴图/语音暂不支持）
         }
         String firstName = message.path("from").path("first_name").asText("旅友");
-        User user = resolveUser(chatId, firstName);
+        User user = channelAccounts.resolveOrCreate("tg" + chatId, firstName);
 
         AgentContext ctx = new AgentContext();
         ctx.setUserId(user.getId());
@@ -121,22 +118,7 @@ public class TelegramBotService implements SmartLifecycle {
         sendSplit(chatId, reply);
     }
 
-    /** 每个 Telegram chat 对应一个本地账号：tg{chatId}，首次消息时自动创建 */
-    private User resolveUser(long chatId, String firstName) {
-        String username = "tg" + chatId;
-        return userRepository.findByUsername(username).orElseGet(() -> {
-            String nickname = firstName.length() > 20 ? firstName.substring(0, 20) : firstName;
-            User created = userRepository.save(User.builder()
-                    .username(username)
-                    // 密码随机且不外发：该账号只能经 Telegram 渠道使用
-                    .password(passwordEncoder.encode(UUID.randomUUID().toString()))
-                    .nickname(nickname)
-                    .build());
-            log.info("Telegram 用户自动开通: chatId={} -> {}", chatId, username);
-            return created;
-        });
-    }
-
+    /** 每个 Telegram chat 对应一个本地账号（tg{chatId}），见 ChannelAccounts */
     private void sendSplit(long chatId, String reply) {
         String token = properties.getTelegram().getBotToken();
         for (int start = 0; start < reply.length(); start += MAX_MESSAGE_LENGTH) {
