@@ -69,6 +69,11 @@ public class JwtService {
                 .compact();
     }
 
+    /** token 有效期（秒）：httpOnly Cookie 的 maxAge 与之对齐，避免「token 还没过期 Cookie 先没了」 */
+    public long expireSeconds() {
+        return expireHours * 3600L;
+    }
+
     /** 校验并返回用户名；非法或过期返回 null */
     public String validate(String token) {
         try {
