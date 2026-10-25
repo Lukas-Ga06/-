@@ -235,7 +235,24 @@ Linux/macOS」顺序探测字体；一个都找不到时报业务错误并提示
 | 渠道 | 启用方式 | 说明 |
 | --- | --- | --- |
 | Telegram Bot | 配置 `TELEGRAM_BOT_TOKEN` | 长轮询（纯出站连接，本地可跑）；每个 chat 自动开通本地账号 `tg{chatId}`，会话记忆按 chat 维持；产生待确认方案时只播报并提示去网页端确认 |
+| 微信公众号 | 配置 `WECHAT_OA_TOKEN`（明文模式） | `GET/POST /api/channels/wechat`：接入签名验证 + XML 被动回复；openid 自动开通 `wx_*` 账号。被动回复窗口 5s，行程规划可能超窗（正式环境建议接客服消息异步回复） |
 | 通用 Webhook | `CHANNEL_WEBHOOK_ENABLED=true` + `CHANNEL_WEBHOOK_SECRET` | `POST /api/channels/webhook`（X-Webhook-Secret 头恒时比较），给企业微信/钉钉/自建脚本桥接；body 指定本地 username，不自动注册 |
+
+**LLM 结构化规划**：配置 LLM 后，`PlannerAgent` 优先走结构化路径——模型从「候选清单」
+（目录景点/餐厅/酒店，目录外城市为联网生成结果）中选择实体并编排时间，后端逐条校验
+（名称必须命中清单、天数边界、时间格式、条数上限；坐标与票价一律以目录数据覆盖，模型不能编造），
+失败自动完整回落既有规则路径。行程修改同理：REMOVE 按标题唯一命中现有条目，ADD 只收候选景点。
+确认与提交链路不变（preview → Diff → confirm → commit）。
+
+**LLM 每日配额**：`LLM_DAILY_QUOTA`（默认 0 不限）按用户限制每日全部 LLM 调用
+（意图识别/规划/润色/办公），超限自动降级规则引擎；计数落库（`llm_quota_usage`），多实例共享。
+
+**真实 Embedding**：`EMBEDDING_ENABLED=true` 时 RAG 用 OpenAI 兼容 `/embeddings` 端点
+（SiliconFlow/智谱/OpenAI 等）替代本地字符 bigram 哈希；调用失败进程内锁定降级（保持向量空间一致）。
+**切换 Embedding 模型后需清空 rag_document / rag_chunk 重建知识库**。
+
+**多实例**：`RATE_LIMIT_STORE=redis` 限流计数跨实例共享（Lua 原子，Redis 故障 fail-open）；
+`PHOTOS_STORE=s3` 照片存 S3 兼容对象存储（MinIO/OSS/COS，`travel.photos.s3.*` 配置）。
 
 **MCP 工具生态**：`travel.mcp.servers`（`MCP_ENABLED=true`）启动时把外部 MCP server 的工具
 注册进 ToolRegistry（`mcp_{server}_{tool}`，只读，单个 server 失败只告警）。传输支持
@@ -327,6 +344,11 @@ POST   /api/channels/webhook      # 多渠道通用入口（X-Webhook-Secret 即
 | `AMAP_KEY` | 空 | 高德 Web 服务 Key，配置后城市 POI 定位走真实数据 |
 | `TELEGRAM_BOT_TOKEN` | 空 | Telegram Bot token（@BotFather 创建）。配置即启用该渠道（长轮询），留空渠道关闭 |
 | `CHANNEL_WEBHOOK_ENABLED` | false | true 时启用通用 Webhook 渠道入口 |
+| `WECHAT_OA_TOKEN` | 空 | 微信公众号服务器配置 Token（明文模式），配置即启用该渠道 |
+| `LLM_DAILY_QUOTA` | 0 | 每用户每日 LLM 调用上限（0 不限），超限自动降级规则引擎 |
+| `EMBEDDING_ENABLED` | false | true 时 RAG 走真实 Embedding（`EMBEDDING_BASE_URL`/`EMBEDDING_API_KEY`/`EMBEDDING_MODEL`，OpenAI 兼容） |
+| `RATE_LIMIT_STORE` | memory | 限流计数存储：`redis` 时多实例共享（需配置 spring.data.redis） |
+| `PHOTOS_STORE` | local | 照片存储：`s3` 时用 S3 兼容对象存储（`travel.photos.s3.*`：endpoint/region/bucket/access-key/secret-key） |
 | `CHANNEL_WEBHOOK_SECRET` | 空 | Webhook 渠道密钥（X-Webhook-Secret 头，恒时比较）；未配置时端点始终 401 |
 | `MCP_ENABLED` | false | true 时启动接入 `travel.mcp.servers` 里的 MCP server（见 §4.10 与 application.yml 示例） |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | 允许的前端来源 |
@@ -408,7 +430,7 @@ cd travel-agent-server && mvn test
 cd travel-agent-web && npm run typecheck && npm test && npm run build
 ```
 
-当前覆盖（后端 155 个 / 前端 46 个）：
+当前覆盖（后端 179 个 / 前端 46 个）：
 
 - 认证与授权：401 契约、跨用户读写与删除行程；
 - Agent 计划落地：ADD/MODIFY/REMOVE、跨行程操作守卫、确认提交与撤销（含撤销新建行程）；
@@ -427,26 +449,27 @@ CI（[.github/workflows/ci.yml](.github/workflows/ci.yml)）在 push / PR 时执
 已完成的工程化改造：密钥外置、版本控制、测试与 CI、原子化提交、参数校验、错误语义对齐、前端路由懒加载与分包、
 3D 足迹地图、多轮会话记忆、方案文案 LLM 润色、真实天气（Open-Meteo）、httpOnly Cookie 登录态、Flyway 增量迁移、
 SSE/照片短期票据、接口限流、待确认方案落库（多实例可用）、数据库索引与分页、路书 PDF 导出、
-多渠道入口（Telegram / 通用 Webhook）、MCP 外部工具生态，以及若干轮逻辑缺陷修复与安全加固
+多渠道入口（Telegram / 微信公众号 / 通用 Webhook）、MCP 外部工具生态、LLM 结构化规划（模型选实体编排 +
+规则校验兜底）、LLM 每日配额、真实 Embedding（失败锁定降级）、限流 Redis 计数与照片 S3 兼容存储（多实例）、
+Spring Boot 3.5、全栈 Docker 化，以及若干轮逻辑缺陷修复与安全加固
 （详见 [docs/CHANGELOG.md](docs/CHANGELOG.md)）。
 
 按优先级继续推进：
 
 **P0 产品力**
-- LLM 结构化规划：让模型输出 JSON 操作列表、规则引擎校验兜底，替代当前「模板拼装 + 文案润色」；
 - 真实数据源：优先经 §4.10 的 MCP 通道接高德 POI / 路径规划（stdio 接 @amap/amap-maps-mcp-server），
   酒店/餐厅开放平台同理（天气已接 Open-Meteo）。
 
 **P1 健壮性**
-- Spring Boot 3.3 → 3.5（3.3 OSS 支持已终止）；
 - 前端：核心交互组件测试（ChatPanel / PlanDiff 确认流程），e2e 脚本挂进 CI；
-- 多实例收尾：限流计数迁移 Redis、照片迁移对象存储。
+- `@MockBean` → `@MockitoBean` 全面迁移（Boot 3.6 移除前）；
+- 结构化规划的 Prompt 调优与重试（当前一次失败即回落规则路径）。
 
 **P2 部署与运营**
-- 全栈 Docker 化（✅ 已完成：`docker compose up -d --build` 一键起 MySQL + 后端 + 前端 nginx）；
-- 每用户 LLM 配额（按天限制模型开销，限流目前只按请求数）；
-- 向量检索升级：真实 Embedding + Pgvector/Milvus 替换内存向量库（`VectorStore` 接口已预留）；
+- 每用户 LLM 配额的用量展示（`usedToday` 已有服务接口，缺前端呈现与按天限额报表）；
 - 会话与预算：「计划成本 vs 实际支出」偏差视图；PWA 离线查看行程；
 - 知识库运营：`RagBootstrap` 目前"有文档就跳过"，更新 `knowledge.json` 需手工清库（缺版本/指纹机制）；
-- 渠道深化：微信公众号新消息回调适配器（XML 协议，需公网回调地址）；Agent 可发起路书导出（generate_trip_summary 工具化）；
+  切换 Embedding 模型后同样需重建；
+- 渠道深化：微信公众号接客服消息（异步回复，解除 5s 被动窗口限制）；Agent 可发起路书导出
+  （generate_trip_summary 工具化）；
 - 二期工具：compare_hotel / check_opening_hours / search_ticket。

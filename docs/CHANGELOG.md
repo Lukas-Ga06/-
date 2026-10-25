@@ -2,6 +2,36 @@
 
 按主题记录行为变化。**第四节是最需要注意的**：其中几项改变了原有的使用习惯。
 
+## 结构化规划、微信公众号、LLM 配额、真实 Embedding、多实例收尾（2026-10-25 第四批）
+
+- **LLM 结构化规划**：`PlannerAgent` 配置 LLM 后优先走 `StructuredPlanner`——模型从「候选清单」
+  （目录实体；目录外城市为联网生成）选择实体并编排时间，输出 JSON 操作序列；后端逐条校验
+  （名称命中清单、天数边界、时间格式与先后、条数上限 ≤60），坐标/票价/描述一律以目录数据覆盖
+  （模型只选不编），REMOVE 按标题唯一命中现有条目（宽松匹配仍要求唯一，防误删）；
+  transport 不接受模型生成、由后端按坐标链补算打车费。任何失败完整回落既有规则路径；
+  Human-in-the-loop（preview → Diff → confirm → commit）不变。校验规则 7 个离线单测。
+- **LLM 每日配额**：`LLM_DAILY_QUOTA`（默认 0 不限）按用户限制每日全部 LLM 调用；
+  闸门收口在 `@Primary DelegatingLlmClient`，超限返回 null 走既有降级并记
+  `llm.calls{result=quota}`；计数落库 `llm_quota_usage`（V3 迁移，用户+日唯一、原子自增，多实例共享）；
+  用户身份经 `UserContext` ThreadLocal（JwtAuthenticationFilter 同步线程 + AgentEngine 异步/渠道线程）。
+  **顺带修复**：DelegatingLlmClient 未透传 3 参重载，润色的 8s 独立读超时实际变成了全局 30s。
+- **微信公众号渠道（明文模式）**：`GET/POST /api/channels/wechat`——接入验证
+  sha1(sort(token,timestamp,nonce))、XML 文本消息 → AgentEngine → XML 被动回复（防 XXE 解析）；
+  openid 自动开通 `wx_*` 账号（开户逻辑抽取为 `ChannelAccounts`，Telegram 复用）。
+  已知限制：被动回复窗口 5s，行程规划可能超窗；正式环境建议接客服消息异步回复。
+- **真实 Embedding**：`EMBEDDING_ENABLED=true` 时 `@Primary OpenAiCompatibleEmbeddingService`
+  接管 RAG 向量化（OpenAI 兼容 /embeddings，L2 归一化）。失败**进程内锁定降级**本地哈希——
+  混用两套向量空间会让余弦相似度归零；切换模型需清 rag_document/rag_chunk 重建。
+- **多实例收尾**：
+  - 限流：`RateCounter` 抽象——`InMemoryRateCounter`（默认）/ `RedisRateCounter`
+    （`RATE_LIMIT_STORE=redis`，Lua 原子 INCR+PEXPIRE，Redis 故障 fail-open）；
+  - 照片：`PhotoStore` 抽象——`LocalPhotoStore`（默认）/ `S3PhotoStore`
+    （`PHOTOS_STORE=s3`，兼容 MinIO/OSS/COS，`travel.photos.s3.*`），原图 GetObject 流式返回，
+    元数据仍落库；发票 `InvoiceStorage` 暂留本地（待办已记）。
+- **附带修复**：`@MockBean` → `@MockitoBean`（Boot 3.6 移除前）；排除 Redis 自动健康检查
+  （本地无 Redis 会把 /actuator/health 拖成 503，Redis 仅限流计数非关键路径）。
+- 后端 **179** 个测试全绿（新增 24：配额 4、结构化规划 7、Embedding 2、微信 4、Redis 限流 3、照片 S3 4）。
+
 ## Spring Boot 3.5 升级与全栈 Docker 化（2026-10-24 第三批补充 3）
 
 - **Spring Boot 3.3.4 → 3.5.7**：3.3 OSS 支持已终止。升级零代码改动——Flyway 11 与既有迁移兼容、
