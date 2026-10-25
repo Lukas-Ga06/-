@@ -13,6 +13,8 @@ import { useUIStore } from '../../store/uiStore';
 import AppShell from '../../components/AppShell';
 import CityDrawer from '../../components/CityDrawer';
 import VoiceButton from '../../components/VoiceButton';
+import CountUp from '../../components/CountUp';
+import Skeleton from '../../components/Skeleton';
 import {
   filterByPeriod,
   footprintMonths,
@@ -44,6 +46,7 @@ export default function Home() {
   const [aiCount, setAiCount] = useState(0);
   const [reminderCount, setReminderCount] = useState(0);
   const [health, setHealth] = useState<HealthSummary | null>(null);
+  const [statsLoading, setStatsLoading] = useState(true);
 
   // 时间轴：年份/月份驱动地图
   const [periodYear, setPeriodYear] = useState<string | null>(null);
@@ -72,6 +75,7 @@ export default function Home() {
       setHealth(hl);
       setAiCount(min.length + rp.length + art.length);
       setReminderCount(rem?.count ?? 0);
+      setStatsLoading(false);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -207,14 +211,26 @@ export default function Home() {
 
         {/* 今日概览 */}
         <div className="stat-row">
-          {todayStats.map((s) => (
+          {todayStats.map((s, i) => (
             <div
               key={s.label}
-              className="stat-card lg-sweep"
+              className="stat-card lg-sweep stagger-item"
+              style={{ animationDelay: `${i * 0.06}s` }}
               onClick={() => (s.action ? s.action() : s.path ? navigate(s.path) : undefined)}
             >
               <div className={`sc-icon ${s.cls}`}>{s.icon}</div>
-              <div className="sc-num">{s.num}</div>
+              {statsLoading ? (
+                <Skeleton.Text width={60} height={23} />
+              ) : (
+                <div className="sc-num">
+                  <CountUp
+                    value={parseFloat(s.num.replace(/[^0-9.]/g, '')) || 0}
+                    prefix={s.num.startsWith('¥') ? '¥' : ''}
+                    duration={800}
+                    decimals={0}
+                  />
+                </div>
+              )}
               <div className="sc-label">
                 {s.label}
                 {s.sub ? ` · ${s.sub}` : ''}
@@ -336,19 +352,27 @@ export default function Home() {
               </div>
               <div className="hero-side-stats">
                 <div className="hss-item">
-                  <span className="hss-num">{stats.cities}</span>
+                  <span className="hss-num">
+                    <CountUp value={stats.cities} duration={700} />
+                  </span>
                   <span className="hss-label">城市</span>
                 </div>
                 <div className="hss-item">
-                  <span className="hss-num">{stats.trips}</span>
+                  <span className="hss-num">
+                    <CountUp value={stats.trips} duration={700} />
+                  </span>
                   <span className="hss-label">出行</span>
                 </div>
                 <div className="hss-item">
-                  <span className="hss-num">{stats.days}</span>
+                  <span className="hss-num">
+                    <CountUp value={stats.days} duration={700} />
+                  </span>
                   <span className="hss-label">天数</span>
                 </div>
                 <div className="hss-item">
-                  <span className="hss-num">¥{(stats.budget / 1000).toFixed(1)}k</span>
+                  <span className="hss-num">
+                    <CountUp value={stats.budget / 1000} prefix="¥" suffix="k" decimals={1} duration={800} />
+                  </span>
                   <span className="hss-label">预算</span>
                 </div>
               </div>

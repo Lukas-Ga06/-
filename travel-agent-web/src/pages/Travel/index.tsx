@@ -132,7 +132,7 @@ export default function Travel() {
           </div>
         ) : (
           <div className="inset-list fade-up">
-            {trips.map((t) => {
+            {trips.map((t, tripIdx) => {
               // 一个按钮承载三种动作：待确认 → 确认；已确认（未结束）→ 取消；已取消 → 恢复
               const action = t.phase === 'CANCELLED'
                 ? { label: '恢复', next: 'CONFIRMED', icon: <UndoOutlined /> }
@@ -142,7 +142,12 @@ export default function Travel() {
                     ? null
                     : { label: '取消', next: 'CANCELLED', icon: <StopOutlined /> };
               return (
-              <div key={t.id} className="trip-row" onClick={() => navigate(`/trip/${t.id}`)}>
+              <div
+                key={t.id}
+                className="trip-row stagger-item"
+                style={{ animationDelay: `${Math.min(tripIdx * 0.06, 0.4)}s` }}
+                onClick={() => navigate(`/trip/${t.id}`)}
+              >
                 <div
                   className="tr-icon"
                   style={{ background: 'var(--grad-primary)' }}

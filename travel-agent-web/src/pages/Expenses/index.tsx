@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Button, Empty, Spin } from 'antd';
+import { Button, Empty } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import AppShell from '../../components/AppShell';
+import CountUp from '../../components/CountUp';
+import Skeleton from '../../components/Skeleton';
 import { getExpenseOverview } from '../../api/expense';
 import { CATEGORY_COLORS, PAYMENT_COLORS, PAYMENT_METHODS, type ExpenseOverview } from '../../types/expense';
 
@@ -35,7 +37,14 @@ export default function Expenses() {
         </div>
 
         {loading ? (
-          <Spin style={{ display: 'block', margin: '60px auto' }} />
+          <div className="dash-grid">
+            <div className="dash-card" style={{ padding: 18 }}>
+              <Skeleton.Paragraph lines={4} />
+            </div>
+            <div className="dash-card" style={{ padding: 18 }}>
+              <Skeleton.Paragraph lines={4} />
+            </div>
+          </div>
         ) : !overview || overview.count === 0 ? (
           <div className="empty-trips">
             <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有支出记录，去行程里记一笔吧" />
@@ -43,18 +52,22 @@ export default function Expenses() {
         ) : (
           <>
             <div className="dash-grid">
-              <div className="dash-card">
+              <div className="dash-card stagger-item" style={{ animationDelay: '0s' }}>
                 <div className="dc-head">
                   <b>支出概览</b>
                   <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>{overview.count} 条记录</span>
                 </div>
                 <div className="exp-stats">
                   <div className="exp-stat">
-                    <div className="exp-num">¥{overview.totalSpent.toFixed(0)}</div>
+                    <div className="exp-num">
+                      <CountUp value={overview.totalSpent} prefix="¥" duration={1000} />
+                    </div>
                     <div className="exp-label">累计支出</div>
                   </div>
                   <div className="exp-stat">
-                    <div className="exp-num green">¥{overview.monthSpent.toFixed(0)}</div>
+                    <div className="exp-num green">
+                      <CountUp value={overview.monthSpent} prefix="¥" duration={1000} />
+                    </div>
                     <div className="exp-label">本月</div>
                   </div>
                 </div>
@@ -70,13 +83,15 @@ export default function Expenses() {
                       <span className="pay-track">
                         <span className="pay-fill" style={{ width: `${pct}%`, background: PAYMENT_COLORS[p] }} />
                       </span>
-                      <span className="pay-amount">¥{amount.toFixed(0)}</span>
+                      <span className="pay-amount">
+                        <CountUp value={amount} prefix="¥" duration={600} />
+                      </span>
                     </div>
                   );
                 })}
               </div>
 
-              <div className="dash-card">
+              <div className="dash-card stagger-item" style={{ animationDelay: '0.06s' }}>
                 <div className="dc-head">
                   <b>按行程</b>
                 </div>
@@ -115,8 +130,13 @@ export default function Expenses() {
               <h3>最近记录</h3>
             </div>
             <div className="inset-list fade-up">
-              {overview.recent.map((r) => (
-                <div className="trip-row" key={r.id} onClick={() => navigate(`/trip/${r.tripId}`)}>
+              {overview.recent.map((r, i) => (
+                <div
+                  className="trip-row stagger-item"
+                  style={{ animationDelay: `${Math.min(i * 0.04, 0.4)}s` }}
+                  key={r.id}
+                  onClick={() => navigate(`/trip/${r.tripId}`)}
+                >
                   <div
                     className="tr-icon"
                     style={{ background: CATEGORY_COLORS[r.category] ?? '#8e8e93', fontSize: 14 }}
@@ -133,7 +153,9 @@ export default function Expenses() {
                     </div>
                   </div>
                   <div className="tr-right">
-                    <span className="tr-budget">¥{r.amount}</span>
+                    <span className="tr-budget">
+                      <CountUp value={r.amount} prefix="¥" duration={500} />
+                    </span>
                     <span className="tr-chevron">›</span>
                   </div>
                 </div>
