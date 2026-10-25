@@ -138,6 +138,13 @@ travel:
     # 每用户每日 LLM 调用上限（意图识别/规划/润色/办公等全部计入）；0 = 不限制。
     # 超限自动降级规则引擎，体验无中断；计数落库（llm_quota_usage），多实例共享
     quota-daily-limit: ${LLM_DAILY_QUOTA:0}
+  embedding:
+    # 真实 Embedding：enabled=true 时 RAG 用 OpenAI 兼容 /embeddings 端点（SiliconFlow/智谱/OpenAI 等），
+    # 失败进程内锁定降级为本地字符 bigram 哈希。切换模型后需清空 rag_document/rag_chunk 重建知识库
+    enabled: ${EMBEDDING_ENABLED:false}
+    base-url: ${EMBEDDING_BASE_URL:https://api.siliconflow.cn/v1}
+    api-key: ${EMBEDDING_API_KEY:}
+    model: ${EMBEDDING_MODEL:BAAI/bge-m3}
 
 logging:
   level:
