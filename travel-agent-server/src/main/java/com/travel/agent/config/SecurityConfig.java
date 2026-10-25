@@ -56,8 +56,12 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // SSE/异步请求结束时容器会发起 ASYNC dispatch，必须放行，否则连接被安全链拒绝
                         .dispatcherTypeMatchers(jakarta.servlet.DispatcherType.ASYNC).permitAll()
+                        // 登录/注册/登出无需登录；/api/auth/me 必须认证（凭 Cookie 或头恢复登录态）
+                        // /api/channels/** 多渠道入口：secret 即凭证（WebhookChannelController 恒时比较，未配置密钥一律拒绝）
                         // /actuator/health 给探活；其余 actuator 端点仍需登录
-                        .requestMatchers("/api/auth/**", "/h2-console/**", "/error", "/actuator/health").permitAll()
+                        .requestMatchers("/api/auth/login", "/api/auth/register", "/api/auth/logout",
+                                "/api/channels/**",
+                                "/h2-console/**", "/error", "/actuator/health").permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.OPTIONS).permitAll()
                         .anyRequest().authenticated())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
@@ -89,6 +93,8 @@ public class SecurityConfig {
         config.setAllowedOrigins(Arrays.stream(allowedOrigins.split(",")).map(String::trim).toList());
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
         config.setAllowedHeaders(List.of("*"));
+        // 登录态走 httpOnly Cookie：跨域部署时需要携带凭证（同源经反代则不经过这里）
+        config.setAllowCredentials(true);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", config);
         return source;
