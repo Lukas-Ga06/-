@@ -8,6 +8,10 @@ spring:
   jpa:
     hibernate:
       ddl-auto: create-drop
+  flyway:
+    # 测试库 schema 全由 create-drop 建立（表在 Hibernate 阶段才存在，V* 的 ALTER 会失败）；
+    # 迁移脚本只服务真实库，语法覆盖不在测试范围
+    enabled: false
   h2:
     console:
       enabled: false
