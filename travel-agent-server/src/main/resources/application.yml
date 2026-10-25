@@ -26,6 +26,13 @@ spring:
     hibernate:
       ddl-auto: update
     open-in-view: false
+  flyway:
+    enabled: true
+    # 存量库（已有表）自动打 baseline，跳过历史版本，只执行增量脚本；
+    # 全新库由 ddl-auto 建表 + 顺序执行 db/migration 增量。今后改 schema 一律加 V*__ 脚本。
+    baseline-on-migrate: true
+    baseline-version: 1
+    locations: classpath:db/migration
   h2:
     console:
       enabled: true
@@ -74,12 +81,44 @@ travel:
     # 配置后启用快速路径：大模型精简生成(~2-3s) + 高德批量定位(~1s，国内可达)。
     # 留空则自动退回兜底路径（大模型直接生成坐标，约 6-15 秒）。也可用环境变量 AMAP_KEY 覆盖。
     key: ${AMAP_KEY:}
+  weather:
+    # 真实天气（Open-Meteo，免费无需 Key）：设 WEATHER_REAL=true 开启；
+    # 网络失败或超出预报范围（过去 / 16 天外）自动降级为确定性模拟数据
+    real: ${WEATHER_REAL:false}
+  mcp:
+    # MCP（Model Context Protocol）工具生态：启动时把外部 MCP server 的工具注册进 ToolRegistry（只读，
+    # 名称前缀 mcp_）。LLM 意图识别会把「查外部数据」路由到这些工具；未启用或未接入时 LLM 被提示禁用
+    # INVOKE_TOOL，规则兜底路径也完全不受影响。单个 server 接入失败只告警，不影响应用。
+    enabled: ${MCP_ENABLED:false}
+    servers: []
+    # 示例一：高德地图 MCP（stdio 子进程；Key 在 lbs.amap.com 免费申请，经环境变量注入，不落仓库）
+    # servers:
+    #   - name: amap
+    #     command: ["cmd", "/c", "npx", "-y", "@amap/amap-maps-mcp-server"]   # Linux/Mac 去掉 cmd /c 前缀
+    #     env: { AMAP_MAPS_API_KEYS: ${AMAP_KEY:} }
+    # 示例二：streamable HTTP 远端 MCP server
+    #   - name: wiki
+    #     url: http://localhost:8807/mcp
+  channels:
+    # 多渠道入口：同一个 AgentEngine 同时服务网页与外部渠道，数据与账号体系完全一致。
+    telegram:
+      # BotFather 签发的 token（@BotFather /newbot 免费创建）。留空 = 渠道关闭；
+      # 长轮询为纯出站连接，本地/内网可运行，无需公网回调。
+      bot-token: ${TELEGRAM_BOT_TOKEN:}
+      poll-timeout-seconds: ${TELEGRAM_POLL_TIMEOUT:25}
+    webhook:
+      # 通用 Webhook 入口 POST /api/channels/webhook（X-Webhook-Secret 头即凭证，
+      # 恒时比较）：给企业微信/钉钉/自建脚本等桥接用。需显式开启；未配置密钥时端点始终拒绝。
+      enabled: ${CHANNEL_WEBHOOK_ENABLED:false}
+      secret: ${CHANNEL_WEBHOOK_SECRET:}
   jwt:
     # Base64 编码的密钥（解码后长度必须 >= 32 字节）。
     # 必须通过环境变量注入；未配置时启动会生成一次性随机密钥（仅适合本地开发，重启后已签发 token 全部失效）。
     # 生成方式：openssl rand -base64 48
     secret: ${JWT_SECRET:}
     expire-hours: ${JWT_EXPIRE_HOURS:72}
+    # 登录 Cookie 是否带 Secure（https 部署时设 true；本地 http 开发保持 false）
+    cookie-secure: ${COOKIE_SECURE:false}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
   llm:

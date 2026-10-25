@@ -2,6 +2,78 @@
 
 按主题记录行为变化。**第四节是最需要注意的**：其中几项改变了原有的使用习惯。
 
+## 备忘页修缮（2026-10-24 第三批补充）
+
+- **toggle 防抖**：备忘/日程复用行的勾选请求在途期间禁用并拦截重复点击——toggle 是取反语义，
+  连点两次会互相抵消；删除也加了在途守卫，退出动画排程后不会重复发 DELETE。
+- **孤儿接口接线**：`GET /api/memos/open-count` 此前后端有接口、前端无人调用；
+  现接为侧栏「备忘」项的待办角标（antd Badge，AppShell 随页面切换重新挂载时刷新，
+  页内变化仍由备忘页顶栏实时展示）。
+- **补齐缺失的行样式**：实地检测发现 `.memo-row`（无 flex 布局）、`.memo-check`（16px 直角灰按钮）、
+  `.done` 划线、`.memo-content`/`.memo-time` 在全站 CSS 中**整体缺失**（「玻璃→平面」重构时疑似只保留了卡片底色），
+  备忘与日程两个页面一直以浏览器默认样式裸奔。现按设计令牌补齐：圆形勾选框（完成态 var(--ok)）、
+  flex 行布局 + 0.5px 发丝分隔线、完成划线置灰、时间戳弱化、禁用态半透明。
+- 实测（浏览器实测 + `npm run build`）：添加/勾选/删除/角标计数全部通过，临时数据已清理。
+
+## 路书 PDF 导出、多渠道入口、MCP 工具生态（2026-10-24 第三批）
+
+- **路书导出**：行程页新增「路书」按钮 → `GET /api/trips/{id}/guidebook.pdf`——行程概况 +
+  每日安排表 + 预算小结渲染为打印友好 HTML 再转 PDF（flying-saucer-pdf-openpdf 9.4.0）。
+  登录态凭 httpOnly Cookie 同源 GET 携带，前端无需附加 token。中文字体按
+  「classpath:fonts/cjk.* → Windows（微软雅黑/宋体/黑体）→ Linux Noto/文泉驿 → macOS 苹方」探测，
+  全部缺失时返回业务错误并给出安装提示（容器部署需装 fonts-noto-cjk），绝不导出乱码。
+- **多渠道入口**：网页之外的渠道复用同一个 `AgentEngine`（同账号体系、同确认/撤销机制）。
+  - Telegram Bot：配置 `TELEGRAM_BOT_TOKEN` 即启用，`getUpdates` 长轮询（纯出站连接，本地可跑）；
+    每个 chat 自动开通本地账号 `tg{chatId}`（密码随机、不外发），会话记忆按 chat 维持；
+    单条回复超 3800 字自动分片；产生待确认方案时只播报并提示去网页端确认（渠道内不做确认操作）。
+  - 通用 Webhook：`POST /api/channels/webhook`（`X-Webhook-Secret` 头恒时比较，body 指定本地 username，
+    不自动注册），给企业微信/钉钉/自建脚本桥接；`SecurityConfig` 对 `/api/channels/**` 放行，
+    未启用或未配置密钥时端点一律 401。
+- **MCP 工具生态**：`MCP_ENABLED=true` 时启动接入 `travel.mcp.servers`——支持 streamable HTTP（`url`）
+  与本机子进程 stdio（`command`，如 npx 启动 `@amap/amap-maps-mcp-server`），把外部工具以
+  `mcp_{server}_{tool}` 注册进 ToolRegistry（只读、与内置工具同受 SafetyInterceptor 审计、
+  重复注册拒绝；单个 server 失败只告警不影响应用）。
+  意图层新增 `INVOKE_TOOL`：LLM 看到工具目录（含从 inputSchema 提取的参数提示）后可对
+  「查外部数据」类问题输出工具名 + 参数，经 ToolInvoker 执行并回播；模型编造工具名会被
+  plausibility 校验拦回规则引擎；未接入 MCP 时提示词明确禁用该意图，行为与从前一致。
+  `ToolRegistry` 新增公共 `register()`（构造期与 MCP 桥接共用同一套只读安全策略）。
+- 后端 155 个测试通过（新增：路书 PDF 2、MCP 桥接 3、Webhook 4、Telegram 2），前端 46 个。
+
+## 真实天气、httpOnly Cookie、Flyway、依赖升级（2026-10-24 第二批）
+
+- **真实天气**：`WEATHER_REAL=true` 时接 Open-Meteo（免费无需 Key）——内置城市用目录坐标、
+  目录外城市走其地理编码；失败或超出预报范围（过去 / 16 天外）自动降级为确定性模拟数据。
+  真实路径下「明天下雨换掉户外景点」以真实预报为准（不下雨时户外景点会换成另一个户外景点）。
+- **登录态迁移 httpOnly Cookie**：登录/注册成功后服务端种 `travel_agent_token` Cookie
+  （httpOnly + SameSite=Lax + maxAge 与 token 有效期对齐，`COOKIE_SECURE` 控制 https 部署）；
+  **前端不再把 token 写 localStorage**，刷新后经 `GET /api/auth/me` 恢复登录态，登出走 `POST /api/auth/logout` 清 Cookie。
+  Authorization 头仍被接受（e2e 脚本 / curl 兼容），响应体仍返回 token。
+  受影响行为：`Protected` 路由改查 user + 启动探活，刷新页面会先等 `/auth/me` 再渲染受保护页面。
+- **Flyway**：引入 flyway-core + flyway-mysql，存量库自动 baseline（版本 1）后执行增量脚本；
+  新增 `V2__conversation_message.sql`（IF NOT EXISTS 建表，索引仍由 ddl-auto 补齐——MySQL 不支持
+  `CREATE INDEX IF NOT EXISTS`）。**今后改 schema 一律加 `db/migration/V*__` 脚本**，不要再依赖 ddl-auto 的字段变更。
+- **依赖升级（npm audit 11 → 0）**：maplibre-gl 5→6（critical XSS，修复：v6 仅具名导出，两处改 `import *`）、
+  vite 5→6.4.5、react-router-dom 6→7.18、echarts 5→6.1、happy-dom 20→21、vitest 4.1.12；
+  follow-redirects / source-map-js 同步补丁。注意：本机 npm 10.8.2 有 arborist bug（edgesOut），
+  安装依赖请加 `--legacy-peer-deps`。
+- 后端 144 个测试、前端 46 个测试通过。
+
+## 会话记忆与方案文案润色（2026-10-24）
+
+- **多轮会话记忆**：前端生成 `conversationId`（sessionStorage 持久化，跨页面切换保持同一对话），
+  随每次对话携带；后端按「用户 + 会话」落最近 10 轮消息（`conversation_message` 表，7 天保留期定期清理），
+  喂给 LLM 意图识别做指代消解——「那把第二天的酒店也换掉」这类追问现在能接住。
+  未配置 LLM 时规则路径行为不变；聊天面板输入框旁新增「新对话」按钮（清本地消息 + 清服务端历史）。
+- **新接口**：`POST /api/agent/conversation/clear`（开新会话清历史）；
+  `/api/agent/stream` 与 `/api/agent/chat` 新增可选 `conversationId` 参数（服务端按 userId 隔离，客户端传什么都拿不到别人的历史）。
+- **方案文案润色**：确认弹窗/方案说明先由模板生成（事实准确），配置 LLM 后由模型重写得更自然；
+  输出做长度与关键金额校验，不达标回退模板；润色走 8s 独立读超时（`LlmClient.chat` 新增超时重载），
+  模型慢或失败都不拖慢对话链路。
+- **前端错误边界**：路由级 `ErrorBoundary` 包住全部页面，渲染异常不再白屏整站，切换页面自动复位。
+- **文档纠偏**：README 第 8 节「后续规划」清理掉已完成项（SSE 票据、限流、待确认方案落库、
+  按 planId 取回、索引与分页、可观测性等均已上线），测试数更新为后端 141 / 前端 46。
+- 后端 141 个测试、前端 46 个测试通过。
+
 ## 图片发票 OCR 落地（2026-10-17）
 
 - 本机安装 Tesseract 5.4.0，并把 `chi_sim` / `eng` / `osd` 语言包放到用户目录

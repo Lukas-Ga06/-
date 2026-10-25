@@ -115,10 +115,16 @@ RECEIVE → UNDERSTAND → PLAN → EXECUTE → REFLECT → PRESENT → CONFIRM 
                                       ↘ ERROR（反馈用户）
 ```
 
-- **IntentAgent**：LLM 优先 + 规则兜底，输出 `{intent, target, constraints}`（规则边界见 4.7）；
+- **会话记忆**：前端生成 `conversationId`（sessionStorage，跨页面切换保持同一对话），
+  后端按「用户 + 会话」存最近 10 轮消息，喂给 LLM 做指代消解——「那把第二天的酒店也换掉」
+  这类追问能接住；聊天面板「新对话」按钮开新会话并清掉服务端历史（保留 7 天后定期清理）。
+  未配置 LLM 时规则路径行为不变；
+- **IntentAgent**：LLM 优先（带会话历史）+ 规则兜底，输出 `{intent, target, constraints}`（规则边界见 4.7）；
 - **PlannerAgent**：结合行程/预算/偏好/天气/交通生成 `AgentPlan`（操作列表，不直接落库）；
 - **ExecutorAgent**：preview（生成 Diff + 确认请求）→ 用户确认 → commit（单事务内 Service → Repository + 操作历史）；
-- **ReflectAgent**：基于「应用计划之后」的行程做时间冲突检查（覆盖 ADD 与 MODIFY 造成的重叠）与预算超限校验，输出警告。
+- **ReflectAgent**：基于「应用计划之后」的行程做时间冲突检查（覆盖 ADD 与 MODIFY 造成的重叠）与预算超限校验，输出警告；
+- **文案润色**：方案确认消息先由模板生成（保证事实准确），配置 LLM 后再由模型重写得更自然——
+  模型输出做长度与关键金额校验，不达标回退模板原文；润色走 8s 独立读超时，不拖慢对话链路。
 
 ### 4.2 Human-in-the-loop 三级风险
 
@@ -137,7 +143,8 @@ RECEIVE → UNDERSTAND → PLAN → EXECUTE → REFLECT → PRESENT → CONFIRM 
 
 - **RAG**：旅游知识、景点介绍、城市攻略、注意事项（内置 10 篇文档，内存向量库 Top-K 检索）。
   检索按目的地城市过滤，但**标记为「通用」或未标注城市的文档始终参与**，因此"注意事项"这类通用知识在任何行程里都查得到；
-- **Tools**：天气 / 路线 / 酒店价格等实时信息（MVP 为确定性模拟数据，接口与真实服务一致）。
+- **Tools**：天气 / 路线 / 酒店价格等实时信息。天气默认确定性模拟（`WEATHER_REAL=true` 时接
+  Open-Meteo 真实预报，失败自动降级模拟）；酒店/餐厅价格仍为模拟数据，接口与真实服务一致。
 
 > 当前 Embedding 为本地字符 bigram 哈希（`LocalHashEmbeddingService`），属于词面匹配而非语义向量；
 > 要获得真正的语义检索需替换为真实 Embedding 模型（`EmbeddingService` 已预留接口）。
@@ -147,10 +154,13 @@ RECEIVE → UNDERSTAND → PLAN → EXECUTE → REFLECT → PRESENT → CONFIRM 
 事件流：`start → intent → planning → tool_call → tool_result → rag_result → plan_update → focus → confirmation → complete`。
 Agent 通过 **GUI Focus 协议** 返回 focus（day/itemId/坐标），前端自动切换 Day、滚动时间轴、地图 flyTo。
 
-### 4.5 工具清单（8 个，全部只读）
+### 4.5 工具清单（8 个内置 + 可选 MCP 外部工具，全部只读）
 
-`search_attraction` / `search_hotel` / `search_restaurant` / `query_weather` / `calculate_route` /
+内置：`search_attraction` / `search_hotel` / `search_restaurant` / `query_weather` / `calculate_route` /
 `calculate_budget` / `get_itinerary` / `search_city_online`
+
+接入 MCP 后（见 §4.10），外部工具以 `mcp_{server}_{tool}` 注册进同一注册表，与内置工具同受
+SafetyInterceptor 审计。
 
 > 写操作（新增/修改/删除行程项、撤销）不是工具，而是 `AgentPlan` 的操作项，统一经
 > preview → Diff → 用户确认 → `ExecutorAgent.commit` 落地，并写入操作历史以便撤销。
@@ -212,10 +222,33 @@ Agent 通过 **GUI Focus 协议** 返回 focus（day/itemId/坐标），前端�
 
 在提醒抽屉里可以开启**浏览器通知**：授权后，页面在后台时也会弹出系统通知（同一提醒每个会话只弹一次）。
 
+### 4.10 路书导出 / 多渠道入口 / MCP 工具生态
+
+**路书导出**：行程页「路书」按钮 → `GET /api/trips/{id}/guidebook.pdf`，服务端把
+行程概况 + 每日安排表 + 预算小结渲染成打印友好的 HTML 再转 PDF（flying-saucer + OpenPDF，
+登录态走 httpOnly Cookie，同源 GET 直接可用）。中文按「classpath:fonts/cjk.* → Windows →
+Linux/macOS」顺序探测字体；一个都找不到时报业务错误并提示安装方式，不会导出乱码方块。
+
+**多渠道入口**：网页之外的渠道复用同一个 `AgentEngine`（同一套账号、数据与确认/撤销机制）：
+
+| 渠道 | 启用方式 | 说明 |
+| --- | --- | --- |
+| Telegram Bot | 配置 `TELEGRAM_BOT_TOKEN` | 长轮询（纯出站连接，本地可跑）；每个 chat 自动开通本地账号 `tg{chatId}`，会话记忆按 chat 维持；产生待确认方案时只播报并提示去网页端确认 |
+| 通用 Webhook | `CHANNEL_WEBHOOK_ENABLED=true` + `CHANNEL_WEBHOOK_SECRET` | `POST /api/channels/webhook`（X-Webhook-Secret 头恒时比较），给企业微信/钉钉/自建脚本桥接；body 指定本地 username，不自动注册 |
+
+**MCP 工具生态**：`travel.mcp.servers`（`MCP_ENABLED=true`）启动时把外部 MCP server 的工具
+注册进 ToolRegistry（`mcp_{server}_{tool}`，只读，单个 server 失败只告警）。传输支持
+streamable HTTP（`url`）与本机子进程 stdio（`command`，如 `npx -y @amap/amap-maps-mcp-server`）。
+启用后 LLM 意图识别在用户明确要查外部数据时输出 `INVOKE_TOOL`（工具名 + 参数），由
+`ToolInvoker` 执行并回播结果；未接入 MCP 或 LLM 不可用时，意图层不产出该意图，行为与从前一致。
+
 ## 5. REST API 一览
 
 ```
 POST   /api/auth/register         POST /api/auth/login
+GET    /api/auth/me               # 凭 httpOnly Cookie 恢复登录态（刷新后用）
+POST   /api/auth/logout           # 清登录 Cookie
+POST   /api/auth/access-ticket    # 签发短期只读票据（SSE / 照片原图用）
 
 GET    /api/trips                 POST /api/trips
 GET    /api/trips/{id}            PUT  /api/trips/{id}      DELETE /api/trips/{id}
@@ -223,20 +256,24 @@ PUT    /api/trips/{id}/status     # 确认 / 取消 / 恢复（阶段由日期�
 GET    /api/trips/{id}/itinerary  POST /api/trips/{id}/itinerary
 GET    /api/trips/map             # 首页足迹地图坐标
 GET    /api/trips/{id}/budget     # 预算执行：计划 / 预算 / 实际 / 偏差 + 分类对账
+GET    /api/trips/{id}/guidebook.pdf  # 路书导出（PDF，登录态凭 Cookie）
 PUT    /api/itinerary/{id}        DELETE /api/itinerary/{id}
 
 POST   /api/agent/chat            # 同步对话
-GET    /api/agent/stream          # SSE 流式对话（token 走查询参数）
+GET    /api/agent/stream          # SSE 流式对话（短期只读票据走查询参数，含 conversationId 会话记忆）
 POST   /api/agent/confirm         # 确认提交 planId
 POST   /api/agent/cancel          # 取消方案
 POST   /api/agent/undo            # 撤销上一次修改
+GET    /api/agent/plans/{planId}  # 取回待确认方案（刷新页面后恢复确认弹窗）
+POST   /api/agent/conversation/clear  # 开新会话：清掉当前用户在该会话下的历史消息
+POST   /api/auth/access-ticket    # 签发短期只读票据（SSE / 照片原图用，替代在 URL 传登录 JWT）
 
 GET    /api/trips/{tripId}/expenses   POST /api/trips/{tripId}/expenses
 GET    /api/expenses/overview         DELETE /api/expenses/{id}
 
 POST   /api/trips/{tripId}/photos     # 上传行程照片（multipart，≤10MB）
 GET    /api/trips/{tripId}/photos
-GET    /api/photos/{id}/raw           # 原图（<img> 用，token 走查询参数）
+GET    /api/photos/{id}/raw           # 原图（<img> 用，短期票据走查询参数）
 DELETE /api/photos/{id}
 
 GET    /api/system/status             # 运行能力自检：模型/定位/时区（不返回密钥）
@@ -264,6 +301,8 @@ POST   /api/learning/knowledge/add    POST /api/learning/knowledge/search
 
 POST   /api/health/record         POST /api/health/seed-demo
 GET    /api/health/records        GET  /api/health/summary
+
+POST   /api/channels/webhook      # 多渠道通用入口（X-Webhook-Secret 即凭证，未启用/未配置一律 401）
 ```
 
 统一响应：`{"code":0,"message":"success","data":...}`。
@@ -276,12 +315,18 @@ GET    /api/health/records        GET  /api/health/summary
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `JWT_SECRET` | 空 | Base64 密钥（解码后 ≥ 32 字节）。为空时启动生成一次性随机密钥，重启后 token 失效；**生产必须显式配置** |
-| `JWT_EXPIRE_HOURS` | 72 | token 有效期（小时） |
+| `JWT_EXPIRE_HOURS` | 72 | token 有效期（小时），httpOnly Cookie 的 maxAge 与之对齐 |
+| `COOKIE_SECURE` | false | https 部署时设 true，登录 Cookie 加 Secure 属性 |
+| `WEATHER_REAL` | false | true 时天气走 Open-Meteo 真实预报（免费无 Key），失败自动降级模拟 |
 | `LLM_API_KEY` | 空 | 为空则全部走规则引擎（功能完整，效果弱于模型） |
 | `LLM_BASE_URL` | `https://api.deepseek.com/v1` | 任意 OpenAI-compatible 端点 |
 | `LLM_MODEL` | `deepseek-chat` | 模型名，可换 `qwen-plus`、`gpt-4o-mini` 等 |
 | `LLM_ENABLED` | true | 设 false 可强制关闭模型调用 |
 | `AMAP_KEY` | 空 | 高德 Web 服务 Key，配置后城市 POI 定位走真实数据 |
+| `TELEGRAM_BOT_TOKEN` | 空 | Telegram Bot token（@BotFather 创建）。配置即启用该渠道（长轮询），留空渠道关闭 |
+| `CHANNEL_WEBHOOK_ENABLED` | false | true 时启用通用 Webhook 渠道入口 |
+| `CHANNEL_WEBHOOK_SECRET` | 空 | Webhook 渠道密钥（X-Webhook-Secret 头，恒时比较）；未配置时端点始终 401 |
+| `MCP_ENABLED` | false | true 时启动接入 `travel.mcp.servers` 里的 MCP server（见 §4.10 与 application.yml 示例） |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | 允许的前端来源 |
 | `APP_TIMEZONE` | `Asia/Shanghai` | 应用时区。代码里的「今天/明天」与日报、记账日期都基于它；容器默认 UTC 时必须显式确认 |
 | `TESSERACT_CMD` | 空 | 图片发票 OCR 的 Tesseract 可执行文件路径；不配置时 PDF 电子发票与粘贴文本仍可正常识别 |
@@ -347,13 +392,15 @@ cd travel-agent-server && mvn test
 cd travel-agent-web && npm run typecheck && npm test && npm run build
 ```
 
-当前覆盖（后端 49 个 / 前端 28 个）：
+当前覆盖（后端 155 个 / 前端 46 个）：
 
 - 认证与授权：401 契约、跨用户读写与删除行程；
 - Agent 计划落地：ADD/MODIFY/REMOVE、跨行程操作守卫、确认提交与撤销（含撤销新建行程）；
 - 工具层契约：只读工具才允许注册、风险评估等级、业务错误原样透出；
 - 理解精度：日期→行程天映射、意图路由（闲聊不被误写成日程）、时间冲突检查（含 MODIFY）；
 - 数据一致性：删除行程的级联清理、记账分项与总支出对账；
+- 扩展能力：路书 PDF（内容 + 越权）、MCP 桥接（HTTP/stdio 传输、注册与调用、坏服务器跳过）、
+  多渠道入口（Webhook 密钥契约、Telegram 消息→引擎→回复与账号自动开通）；
 - 运行环境：应用时区固定；前端流式状态机与 SSE 中断路径。
 
 CI（[.github/workflows/ci.yml](.github/workflows/ci.yml)）在 push / PR 时执行 `mvn -B verify` 与
@@ -362,17 +409,28 @@ CI（[.github/workflows/ci.yml](.github/workflows/ci.yml)）在 push / PR 时执
 ## 8. 后续规划
 
 已完成的工程化改造：密钥外置、版本控制、测试与 CI、原子化提交、参数校验、错误语义对齐、前端路由懒加载与分包、
-3D 足迹地图，以及一轮逻辑缺陷修复（详见 [docs/CHANGELOG.md](docs/CHANGELOG.md)）。
+3D 足迹地图、多轮会话记忆、方案文案 LLM 润色、真实天气（Open-Meteo）、httpOnly Cookie 登录态、Flyway 增量迁移、
+SSE/照片短期票据、接口限流、待确认方案落库（多实例可用）、数据库索引与分页、路书 PDF 导出、
+多渠道入口（Telegram / 通用 Webhook）、MCP 外部工具生态，以及若干轮逻辑缺陷修复与安全加固
+（详见 [docs/CHANGELOG.md](docs/CHANGELOG.md)）。
 
-继续推进的方向：
-- 真实数据源：高德/百度 POI 与路径规划、和风天气、酒店/餐厅开放平台；
+按优先级继续推进：
+
+**P0 产品力**
+- LLM 结构化规划：让模型输出 JSON 操作列表、规则引擎校验兜底，替代当前「模板拼装 + 文案润色」；
+- 真实数据源：优先经 §4.10 的 MCP 通道接高德 POI / 路径规划（stdio 接 @amap/amap-maps-mcp-server），
+  酒店/餐厅开放平台同理（天气已接 Open-Meteo）。
+
+**P1 健壮性**
+- Spring Boot 3.3 → 3.5（3.3 OSS 支持已终止）；
+- 前端：核心交互组件测试（ChatPanel / PlanDiff 确认流程），e2e 脚本挂进 CI；
+- 多实例收尾：限流计数迁移 Redis、照片迁移对象存储。
+
+**P2 部署与运营**
+- 全栈 Docker 化（应用镜像 + compose 一键起；路书导出镜像内需安装 fonts-noto-cjk）；
+- 每用户 LLM 配额（按天限制模型开销，限流目前只按请求数）；
 - 向量检索升级：真实 Embedding + Pgvector/Milvus 替换内存向量库（`VectorStore` 接口已预留）；
-- 多实例部署：Redis 存储待确认会话（`PendingPlanStore`）与限流、每用户 LLM 配额；
-- 安全加固：SSE 改用一次性短时 ticket 替代 query 传 token、token 存储从 localStorage 迁出、接口限流；
-- 数据库：Flyway/Liquibase 管理 schema（当前 `ddl-auto: update`）、补 `trip_id`/`user_id` 索引与列表分页；
-- 可观测性：Actuator 健康检查、指标与 traceId、LLM 调用失败率监控；
-- 前端：依赖漏洞升级（`npm audit` 中的 echarts / maplibre-gl / vite / react-router）、ECharts 按需引入、地图引擎收敛为一套；
-- 会话与预算：多轮上下文（当前 `sessionId` 每次请求重建，只能靠 selectedElement 指代）、"计划成本 vs 实际支出"对比视图；
-- 知识库运营：`RagBootstrap` 目前"有文档就跳过"，更新 `knowledge.json` 需手工清库；在线城市缓存的模糊匹配可能串城市；
-- 前端体验：待确认方案刷新后丢失（后端已有 30 分钟 TTL，但缺按 planId 取回的接口）；
-- 二期工具：compare_hotel / check_opening_hours / search_ticket / generate_trip_summary。
+- 会话与预算：「计划成本 vs 实际支出」偏差视图；PWA 离线查看行程；
+- 知识库运营：`RagBootstrap` 目前"有文档就跳过"，更新 `knowledge.json` 需手工清库（缺版本/指纹机制）；
+- 渠道深化：微信公众号新消息回调适配器（XML 协议，需公网回调地址）；Agent 可发起路书导出（generate_trip_summary 工具化）；
+- 二期工具：compare_hotel / check_opening_hours / search_ticket。

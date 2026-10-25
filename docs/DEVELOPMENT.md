@@ -90,9 +90,27 @@ node .e2e/e2e.mjs
 Agent 内部抛出的 `BusinessException` 也会原样透出给用户（不再包装成"服务端异常"），
 而真正的未知异常只返回通用提示、细节进日志。
 
-**工具层只读**：`AgentTool.readOnly()` 默认为 true，`ToolRegistry` 会拒绝注册写操作工具；
-任何"会改数据"的能力都必须实现为 `AgentPlan` 的操作项，经确认后由 `ExecutorAgent.commit` 落地。
+**工具层只读**：`AgentTool.readOnly()` 默认为 true，`ToolRegistry.register()`（构造期注入与
+MCP 桥接共用的唯一注册口）会拒绝注册写操作工具；任何"会改数据"的能力都必须实现为
+`AgentPlan` 的操作项，经确认后由 `ExecutorAgent.commit` 落地。
 HIGH 风险只表示"方案需要显式确认"（超预算），不是"抛异常报错"。
+
+**MCP 外部工具**：`travel.mcp.servers`（`MCP_ENABLED` 开关）由 `McpToolBridge` 在启动期接入，
+传输层二选一：streamable HTTP（`url`）或本机子进程 stdio（`command`，Windows 下 npx 需
+`cmd /c` 前缀）。注册名固定 `mcp_{server}_{tool}` 且默认只读；工具描述会拼上从 inputSchema
+提取的参数提示供 LLM 生成参数。`IntentAgent` 只在 LLM 路径产出 `INVOKE_TOOL`，且必须命中
+已注册的 mcp_* 工具（否则拦回规则引擎）；规则路径永远不产出该意图，保证离线行为可预期。
+单个 server 接入失败只告警，**不允许**让 MCP 故障阻断应用启动。
+
+**多渠道入口**：外部渠道一律复用 `AgentEngine.handle(ctx)`，不要绕开引擎另写业务逻辑。
+Telegram 走长轮询（`SmartLifecycle`，token 为空直接不启动）；每个 chat 对应本地账号
+`tg{chatId}`（自动开通，密码随机不外发）；Webhook（`/api/channels/webhook`）密钥即凭证，
+恒时比较（`MessageDigest.isEqual`），body 指定已存在的本地 username、不自动注册。
+渠道内产生待确认方案时只播报 planId 提示去网页确认——**确认/撤销等写操作只保留网页一个入口**。
+
+**路书导出**：`TripGuidebookService` 先渲染 HTML 再转 PDF（flying-saucer），中文字体探测顺序
+classpath:fonts/cjk.* → Windows → Linux/macOS，找不到一律抛业务错误（不导出乱码）。
+模板用 `String.formatted` 时注意 `%` 转义（正文是参数不是模板，安全；模板内字面 `%` 要写 `%%`）。
 
 **事务边界**：`ExecutorAgent.commit` 是唯一落库入口，标注 `@Transactional`；
 行程变更与操作历史必须同生共死，否则用户会「改成功但撤不回来」。
@@ -123,6 +141,18 @@ HIGH 风险只表示"方案需要显式确认"（超预算），不是"抛异常
 **意图路由**：添加日程要求「排期名词 + 明确时间点（或排期动词）」同时成立，
 不能只靠关键词（`parseScheduleRequest` 对任何非空文本都返回非 null）。
 兜底意图是 `CHITCHAT`（返回能力提示），不要贸然返回 `PLAN_TRIP`，否则"没听懂"会变成"暂不支持该目的地"。
+
+**会话记忆**：`conversationId` 由前端生成（sessionStorage，跨页面切换保持）并随请求携带，
+服务端一切查询都以 `userId` 隔离——**永远不要信任客户端传的会话标识来做归属判断**。
+`AgentEngine` 在 UNDERSTAND 之前载入历史（`loadConversation`，先载后存，history 不含本轮），
+历史只喂给 `IntentAgent` 的 LLM 路径，**规则路径必须保持无状态**（行为可预期、测试离线可跑）。
+存取失败按单轮对话继续，不许挡主流程；内容入库前截断 1000 字。
+「新对话」= 前端换新 id + `POST /api/agent/conversation/clear` 清服务端历史。
+给提示词拼接用户原文时**不要用 `String.formatted`**（用户消息可能含 `%`），直接字符串拼接。
+
+**方案文案润色**：模板先保证事实，`PlanNarrationService.polish` 只做语言组织；
+输出做长度与关键金额校验，不达标回退模板。润色走 8s 独立读超时
+（`LlmClient.chat(messages, temperature, readTimeoutMs)` 重载），辅助能力不许挂全局 30s 超时。
 
 **时区**：`TimeZoneConfig` 在启动时把 JVM 默认时区固定为 `travel.timezone`（默认 `Asia/Shanghai`）。
 `LocalDate.now()` 依赖它，新增时间相关逻辑时不要绕开。
@@ -167,6 +197,19 @@ OCR 文本直接进入 `extractInvoice`，优先由模型结构化，失败再�
 这里传的是 `AccessTicketService` 签发的 10 分钟只读票据（scope `media-read`，密钥由 JWT 密钥派生），
 **不是登录 JWT**——登录凭证出现在 URL 里会进入访问日志与浏览器历史。
 前端 `api/ticket.ts` 负责缓存与并发合并，新增同类场景（又一个 `<img>` / EventSource 入口）请复用它。
+
+**登录态**：浏览器走 httpOnly Cookie（`AuthCookieService`，SameSite=Lax，maxAge 与 token 对齐），
+**前端不持久化 token**——刷新后靠 `GET /api/auth/me` 恢复 user，`Protected` 在 `authChecked` 前不做跳转判断。
+Authorization 头继续保留给非浏览器客户端；新增接口不需要关心凭证来源。
+UI 登出必须走 `api/auth.ts` 的 `signOut()`（先清服务端 Cookie 再清本地状态），不要直接调 store 的 `logout()`。
+
+**天气数据源**：`WeatherService.forecast` 是唯一入口。`WEATHER_REAL=true` 时先走 Open-Meteo
+（内置城市用目录坐标均值，目录外走其地理编码），失败或超出预报窗口（过去 / 16 天外）降级模拟。
+模拟路径的 `mentionRain` 演示行为仅存在于降级路径。新增天气相关功能不要绕过该入口。
+
+**Flyway**：`db/migration/V*__*.sql` 是 schema 变更的唯一通道（存量库已 baseline 在版本 1）。
+`CREATE INDEX IF NOT EXISTS` 在 MySQL 不可用，索引交给实体 `@Index` + ddl-auto 补齐；
+脚本要同时兼容 H2（MODE=MySQL）与 MySQL 8。`ddl-auto` 暂留 `update`，全面审计后才切 `validate`。
 
 **校验**：DTO 使用 `jakarta.validation` 注解，控制器参数加 `@Valid`；
 「格式正确但值非法」的日期（如 2026-02-30）通过 `util/Dates` 统一转 400。
@@ -225,21 +268,34 @@ antd 侧同步切 `darkAlgorithm`（`main.tsx` 的 `PALETTE`）。
 ## 部署注意事项
 
 1. 必须配置 `JWT_SECRET`，否则每次重启都会让全体用户掉线；
-2. 将 `spring.jpa.hibernate.ddl-auto` 从 `update` 改为 `validate` 并引入 Flyway/Liquibase 管理 schema；
+2. schema 变更走 Flyway（`db/migration/V*__`）；存量库首次启动会自动 baseline。
+   `ddl-auto` 仍是 `update`，待全面审计后可切 `validate`；
 3. `/h2-console/**` 在默认 profile 下是放行的，生产 profile（mysql）已关闭 H2 控制台，但建议同时从 `SecurityConfig` 的放行列表中移除；
 4. `PendingPlanStore` 已落库（`pending_plan` 表，TTL 30 分钟），多实例与重启都不会丢待确认方案；
    若换成 Redis，注意保持"归属校验 + 过期清理"这两条语义；
-5. 前端生产构建需自行提供 API base（当前 `baseURL` 为 `/api`，由网关或 nginx 反向代理到后端 8080）。
+5. 前端生产构建需自行提供 API base（当前 `baseURL` 为 `/api`，由网关或 nginx 反向代理到后端 8080）；
+6. https 部署时设置 `COOKIE_SECURE=true`（登录 Cookie 加 Secure 属性）；
+7. 本机 npm 10.8.2 存在 arborist bug（edgesOut 报错），安装/更新依赖请加 `--legacy-peer-deps`；
+8. 路书导出需要中文字体：容器内安装 `fonts-noto-cjk`，或把任意 CJK 字体放进
+   `travel-agent-server/src/main/resources/fonts/cjk.ttf`（随包分发最稳）；字体缺失时接口报业务错误而非乱码；
+9. Telegram 渠道只需 `TELEGRAM_BOT_TOKEN`（长轮询，出站连接，无需公网回调）；Webhook 渠道
+   务必配置强随机 `CHANNEL_WEBHOOK_SECRET`，否则端点永远 401。
 
 ## 待办清单（按优先级）
 
-1. `npm audit` 中的依赖漏洞：maplibre-gl(critical，修复需升 6.x 破坏性升级)、vite/esbuild(high)、echarts、react-router(moderate)；
-2. 每用户 LLM 配额：限流只按请求数计，还不能按天限制模型开销；
-3. 会话记忆：`sessionId` 每次请求重建，多轮指代只能靠 `selectedElement`；需要会话级上下文存储；
-4. 预算对比：目前只有"计划成本"与"实际支出"两套数，缺"计划 vs 实际"偏差视图；
-5. 知识库运营：`RagBootstrap` "有文档就跳过"，更新 `knowledge.json` 需手工清库（缺版本/指纹机制）；
-6. RAG 从「字符 bigram 哈希」升级为真实 Embedding；
-7. 前端：PWA 离线查看行程（移动端布局与暗色主题已完成）。
+1. 每用户 LLM 配额：限流只按请求数计，还不能按天限制模型开销；
+2. 预算对比：目前只有"计划成本"与"实际支出"两套数，缺"计划 vs 实际"偏差视图；
+3. 知识库运营：`RagBootstrap` "有文档就跳过"，更新 `knowledge.json` 需手工清库（缺版本/指纹机制）；
+4. RAG 从「字符 bigram 哈希」升级为真实 Embedding；
+5. 前端：PWA 离线查看行程（移动端布局与暗色主题已完成）；
+6. LLM 结构化规划：模型输出 JSON 操作列表、规则引擎校验兜底，替代「模板拼装 + 文案润色」；
+7. Spring Boot 3.3 → 3.5；多实例收尾（限流 Redis 化、照片对象存储）；全栈 Docker 化（注意路书字体，见部署注意事项 8）；
+8. 渠道深化：微信公众号新消息回调适配器（XML 协议，需公网回调地址）；路书导出工具化（generate_trip_summary）。
+
+（已完成 2026-10-24，见 CHANGELOG：会话记忆、方案文案润色、路由级错误边界、真实天气
+（Open-Meteo）、httpOnly Cookie 登录态、Flyway baseline + 增量脚本、npm audit 清零
+（maplibre 6 / vite 6 / react-router 7 / echarts 6 / happy-dom 21）、路书 PDF 导出、
+多渠道入口（Telegram / 通用 Webhook）、MCP 外部工具生态（HTTP + stdio）。）
 
 ## 已完成的加固（2026-10 批次）
 
