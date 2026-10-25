@@ -30,7 +30,7 @@ import java.nio.charset.StandardCharsets;
 public class RateLimitFilter extends OncePerRequestFilter {
 
     private final RateLimitProperties properties;
-    private final RateLimiter limiter;
+    private final RateCounter limiter;
     private final ObjectMapper objectMapper;
 
     @Override

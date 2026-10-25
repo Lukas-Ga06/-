@@ -30,7 +30,7 @@ public class TripService {
     private final ExpenseRepository expenseRepository;
     private final OperationHistoryRepository operationHistoryRepository;
     private final TripPhotoRepository tripPhotoRepository;
-    private final PhotoStorage photoStorage;
+    private final PhotoStore photoStorage;
     private final ItineraryService itineraryService;
 
     public List<TripDtos.TripResponse> list(Long userId) {

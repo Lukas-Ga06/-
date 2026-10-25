@@ -49,7 +49,7 @@ public class PhotoController {
      * 因此沿用 SSE 的做法：token 通过查询参数传递（JwtAuthenticationFilter 已支持）。
      */
     @GetMapping("/api/photos/{id}/raw")
-    public ResponseEntity<FileSystemResource> raw(@PathVariable Long id, Authentication authentication) {
+    public ResponseEntity<org.springframework.core.io.Resource> raw(@PathVariable Long id, Authentication authentication) {
         User user = authService.requireUser(authentication.getName());
         PhotoService.StoredPhoto stored = photoService.fileFor(id, user.getId());
         MediaType type = stored.photo().getContentType() == null
@@ -63,7 +63,7 @@ public class PhotoController {
                 .header("Content-Security-Policy", "default-src 'none'; sandbox")
                 .header("Content-Disposition", "inline")
                 .header("Cache-Control", "private, max-age=86400")
-                .body(new FileSystemResource(stored.path()));
+                .body(stored.resource());
     }
 
     @DeleteMapping("/api/photos/{id}")

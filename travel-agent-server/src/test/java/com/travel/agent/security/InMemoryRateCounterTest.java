@@ -6,9 +6,9 @@ import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** 限流器语义：窗口内计数、窗口滚动重置、超限与重试提示 */
-class RateLimiterTest {
+class InMemoryRateCounterTest {
 
-    private final RateLimiter limiter = new RateLimiter();
+    private final InMemoryRateCounter limiter = new InMemoryRateCounter();
     private static final long WINDOW = 60_000L;
 
     @Test

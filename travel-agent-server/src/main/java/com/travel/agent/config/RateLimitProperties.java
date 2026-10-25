@@ -6,7 +6,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * 限流配置。默认值面向单机小规模部署：注册/登录按 IP 限，Agent 与照片上传按用户限。
- * 多实例部署需要把计数换成 Redis（见 docs/DEVELOPMENT.md 待办）。
+ * 多实例部署设 travel.rate-limit.store=redis，配额由全部实例共享（需配置 spring.data.redis）。
  */
 @Data
 @Component
@@ -30,4 +30,7 @@ public class RateLimitProperties {
 
     /** 窗口长度（秒） */
     private long windowSeconds = 300;
+
+    /** 计数存储：memory（默认，进程内）/ redis（多实例共享配额，需配置 spring.data.redis） */
+    private String store = "memory";
 }

@@ -1,18 +1,21 @@
 package com.travel.agent.security;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 极简固定窗口限流器（进程内，无第三方依赖）。
+ * 进程内固定窗口限流计数器（无第三方依赖，默认实现）。
  *
  * 选择固定窗口而不是令牌桶：实现足够短、行为可预测，个人助理场景够用。
- * 计数不落库，重启即清零；多实例部署需要换成 Redis 计数。
+ * 计数不落库，重启即清零；多实例部署时用 travel.rate-limit.store=redis 切换
+ * {@link RedisRateCounter}，配额由全部实例共享。
  */
 @Component
-public class RateLimiter {
+@ConditionalOnProperty(prefix = "travel.rate-limit", name = "store", havingValue = "memory", matchIfMissing = true)
+public class InMemoryRateCounter implements RateCounter {
 
     private record Window(long startMillis, int count) {
     }

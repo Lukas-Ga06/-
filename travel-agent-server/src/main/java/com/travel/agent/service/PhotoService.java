@@ -12,7 +12,6 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -37,13 +36,13 @@ public class PhotoService {
 
     private final TripPhotoRepository repository;
     private final TripService tripService;
-    private final PhotoStorage storage;
+    private final PhotoStore storage;
     private final int maxPhotosPerTrip;
     private final long maxBytesPerUser;
 
     public PhotoService(TripPhotoRepository repository,
                         TripService tripService,
-                        PhotoStorage storage,
+                        PhotoStore storage,
                         @Value("${travel.photos.max-per-trip:200}") int maxPhotosPerTrip,
                         @Value("${travel.photos.max-bytes-per-user:524288000}") long maxBytesPerUser) {
         this.repository = repository;
@@ -53,8 +52,8 @@ public class PhotoService {
         this.maxBytesPerUser = maxBytesPerUser;
     }
 
-    /** 照片 + 它在磁盘上的位置 */
-    public record StoredPhoto(TripPhoto photo, Path path) {}
+    /** 照片 + 原图资源（本地文件或对象存储流） */
+    public record StoredPhoto(TripPhoto photo, org.springframework.core.io.Resource resource) {}
 
     @Transactional
     public TripPhoto upload(Long tripId, Long userId, MultipartFile file) {
@@ -135,7 +134,7 @@ public class PhotoService {
         if (!storage.exists(photo.getStoredName())) {
             throw new BusinessException(404, "照片文件不存在（可能已被清理）");
         }
-        return new StoredPhoto(photo, storage.pathOf(photo.getStoredName()));
+        return new StoredPhoto(photo, storage.read(photo.getStoredName()));
     }
 
     private static String detectType(MultipartFile file) {
