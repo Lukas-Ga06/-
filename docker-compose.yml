@@ -1,27 +1,72 @@
-version: "3.8"
-
-# 可选的基础设施：切换 MySQL / Redis 时使用
-#   docker compose up -d
-#   后端启动参数：--spring.profiles.active=mysql
+# AI 个人助理 · 全栈一键部署
+# 用法：JWT_SECRET=$(openssl rand -base64 48) docker compose up -d --build
+# 密钥类变量一律经环境变量注入，仓库内不保存任何真实 Key。
+# 本地开发用 MySQL/Redis 基础设施见 docker-compose.infra.yml。
 
 services:
   mysql:
-    image: mysql:8.0
-    container_name: travel-agent-mysql
+    image: mysql:8.4
     environment:
-      MYSQL_ROOT_PASSWORD: root
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-travel_root_pw}
       MYSQL_DATABASE: travel_agent
-    ports:
-      - "3306:3306"
+      MYSQL_USER: travel
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-travel_pw}
+      TZ: Asia/Shanghai
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     volumes:
-      - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
       - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-travel_root_pw}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
 
-  redis:
-    image: redis:7-alpine
-    container_name: travel-agent-redis
+  backend:
+    build: ./travel-agent-server
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: mysql
+      MYSQL_HOST: mysql
+      MYSQL_PORT: "3306"
+      MYSQL_DATABASE: travel_agent
+      MYSQL_USERNAME: travel
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-travel_pw}
+      # 必配：openssl rand -base64 48；不配则每次重启生成一次性密钥，全体用户掉线
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      # 生产建议关闭公开弱密码演示账号
+      DEMO_ACCOUNT: ${DEMO_ACCOUNT:-false}
+      # 可选能力：真实天气 / 高德 / 大模型 / 渠道入口（留空则功能降级，不影响启动）
+      WEATHER_REAL: ${WEATHER_REAL:-false}
+      AMAP_KEY: ${AMAP_KEY:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com/v1}
+      LLM_MODEL: ${LLM_MODEL:-deepseek-chat}
+      MCP_ENABLED: ${MCP_ENABLED:-false}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      CHANNEL_WEBHOOK_ENABLED: ${CHANNEL_WEBHOOK_ENABLED:-false}
+      CHANNEL_WEBHOOK_SECRET: ${CHANNEL_WEBHOOK_SECRET:-}
+      # Cookie 属性：经 https/域名访问时设 true
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:8081}
+      INVOICE_DIR: /app/data/invoices
+    volumes:
+      - backend-data:/app/data
+    # 如需后端直连调试可放开端口；默认只经 web 反代
+    # ports:
+    #   - "8080:8080"
+    restart: unless-stopped
+
+  web:
+    build: ./travel-agent-web
+    depends_on:
+      - backend
     ports:
-      - "6379:6379"
+      - "8081:80"
+    restart: unless-stopped
 
 volumes:
   mysql-data:
+  backend-data:

@@ -15,7 +15,8 @@
 ```
 travel-agent/
 ├── sql/init.sql                        # MySQL 初始化脚本（H2 模式无需执行）
-├── docker-compose.yml                  # 可选：MySQL + Redis 基础设施
+├── docker-compose.yml                  # 全栈一键部署：MySQL + 后端 + 前端(nginx)
+├── docker-compose.infra.yml            # 本地开发可选：MySQL + Redis 基础设施
 ├── .github/workflows/ci.yml            # CI：后端 mvn verify + 前端 typecheck/test/build
 ├── docs/DEVELOPMENT.md                 # 环境变量、测试、约定、部署与后续规划
 ├── docs/CHANGELOG.md                   # 行为变化记录（含影响使用习惯的调整）
@@ -54,7 +55,7 @@ travel-agent/
 | Node.js | 18+（CI 使用 20） | 前端构建与测试（含 npm） |
 
 数据库：**默认使用 H2 文件数据库，开箱即用，无需安装任何数据库**。
-要切换 MySQL/Redis 时运行 `docker compose up -d` 并按第 6 节修改配置。
+本地开发要切 MySQL/Redis 时运行 `docker compose -f docker-compose.infra.yml up -d` 并按第 6 节修改配置。
 
 > ⚠️ 仓库内**不保存任何密钥**：`JWT_SECRET` 与 `LLM_API_KEY` 一律通过环境变量注入，
 > 未配置时的降级行为见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)。
@@ -375,13 +376,27 @@ Invoke-WebRequest https://github.com/tesseract-ocr/tessdata_fast/raw/main/chi_si
 重启后端后，`GET /api/system/status` 的 `ocrConfigured` 应为 `true`。上传接口仍为
 `POST /api/office/invoice/upload`，图片按 `chi_sim+eng`、`--psm 6` 识别。
 
-### 6.4 切换 MySQL
+### 6.4 切换 MySQL（本地开发）
 
 ```bash
-docker compose up -d                 # 启动 MySQL（自动执行 sql/init.sql）与 Redis
+docker compose -f docker-compose.infra.yml up -d   # 启动 MySQL（自动执行 sql/init.sql）与 Redis
 cd travel-agent-server
 mvn spring-boot:run -Dspring-boot.run.profiles=mysql
 ```
+
+### 6.5 Docker 一键部署（全栈）
+
+```bash
+JWT_SECRET=$(openssl rand -base64 48) docker compose up -d --build
+# 打开 http://localhost:8081 （web/nginx 反代 /api 到后端）
+```
+
+- 三个服务：MySQL 8.4（healthcheck 门控）→ 后端（Spring Boot mysql profile，镜像内置
+  fonts-noto-cjk 供路书 PDF）→ 前端 nginx（SPA 回退 + /api 反代，SSE 已关闭缓冲）；
+- 数据持久化卷：`mysql-data`、`backend-data`（H2 兜底文件/照片/发票均落 `/app/data`）；
+- 密钥与开关全部经环境变量注入：`JWT_SECRET` 必配；`DEMO_ACCOUNT` 默认 false；
+  `LLM_API_KEY` / `AMAP_KEY` / `WEATHER_REAL` / `TELEGRAM_BOT_TOKEN` 等可选（留空功能降级）；
+- 本机未安装 Docker 时无法本地验证镜像构建，首次部署请留意 `docker compose build` 输出。
 
 ## 7. 测试与 CI
 
@@ -428,7 +443,7 @@ SSE/照片短期票据、接口限流、待确认方案落库（多实例可用�
 - 多实例收尾：限流计数迁移 Redis、照片迁移对象存储。
 
 **P2 部署与运营**
-- 全栈 Docker 化（应用镜像 + compose 一键起；路书导出镜像内需安装 fonts-noto-cjk）；
+- 全栈 Docker 化（✅ 已完成：`docker compose up -d --build` 一键起 MySQL + 后端 + 前端 nginx）；
 - 每用户 LLM 配额（按天限制模型开销，限流目前只按请求数）；
 - 向量检索升级：真实 Embedding + Pgvector/Milvus 替换内存向量库（`VectorStore` 接口已预留）；
 - 会话与预算：「计划成本 vs 实际支出」偏差视图；PWA 离线查看行程；

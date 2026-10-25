@@ -2,6 +2,23 @@
 
 按主题记录行为变化。**第四节是最需要注意的**：其中几项改变了原有的使用习惯。
 
+## Spring Boot 3.5 升级与全栈 Docker 化（2026-10-24 第三批补充 3）
+
+- **Spring Boot 3.3.4 → 3.5.7**：3.3 OSS 支持已终止。升级零代码改动——Flyway 11 与既有迁移兼容、
+  Hibernate 6.6 与 H2 MODE=MySQL 正常、`@MockBean` 在 3.5 仍可用（3.6 移除前需迁 `@MockitoBean`，
+  已记录为后续事项）。155 个测试全绿。
+- **全栈 Docker 化**：
+  - `travel-agent-server/Dockerfile`：多阶段构建（Maven 依赖层缓存 → JRE 运行层），内置
+    fonts-noto-cjk（路书 PDF 中文字体）与 curl（healthcheck），非 root 运行，`/app/data` 卷承载
+    H2 兜底文件/照片/发票；
+  - `travel-agent-web/Dockerfile` + `nginx.conf`：Node 构建产物由 nginx 托管，SPA 路由回退、
+    `/api` 反代（SSE 已关闭缓冲、12MB 上传对齐）、assets 长缓存；
+  - `docker-compose.yml`（全栈一键）：MySQL 8.4 healthcheck 门控 → 后端（mysql profile，
+    JWT_SECRET 必配、DEMO_ACCOUNT 默认 false、LLM/高德/渠道变量透传）→ 前端 8081 端口；
+    数据卷 mysql-data / backend-data；
+  - 原 MySQL/Redis 本地开发基础设施改名为 `docker-compose.infra.yml`（用法加 `-f`）；
+  - 注意：本机未安装 Docker，镜像构建未实测，首次部署留意 build 输出（README §6.5）。
+
 ## 安全与交互修缮（2026-10-24 第三批补充 2）
 
 - **演示账号开关**：`DataInitializer` 此前无条件创建公开弱密码账号 demo/demo123 且无法关闭；

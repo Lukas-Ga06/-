@@ -290,7 +290,7 @@ antd 侧同步切 `darkAlgorithm`（`main.tsx` 的 `PALETTE`）。
 4. RAG 从「字符 bigram 哈希」升级为真实 Embedding；
 5. 前端：PWA 离线查看行程（移动端布局与暗色主题已完成）；
 6. LLM 结构化规划：模型输出 JSON 操作列表、规则引擎校验兜底，替代「模板拼装 + 文案润色」；
-7. Spring Boot 3.3 → 3.5；多实例收尾（限流 Redis 化、照片对象存储）；全栈 Docker 化（注意路书字体，见部署注意事项 8）；
+7. Spring Boot 3.3 → 3.5（✅ 已完成，见 CHANGELOG）；多实例收尾（限流 Redis 化、照片对象存储）；
 8. 渠道深化：微信公众号新消息回调适配器（XML 协议，需公网回调地址）；路书导出工具化（generate_trip_summary）。
 
 （已完成 2026-10-24，见 CHANGELOG：会话记忆、方案文案润色、路由级错误边界、真实天气

@@ -1,0 +1,27 @@
+version: "3.8"
+
+# 可选的基础设施：切换 MySQL / Redis 时使用
+#   docker compose up -d
+#   后端启动参数：--spring.profiles.active=mysql
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: travel-agent-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: travel_agent
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - mysql-data:/var/lib/mysql
+
+  redis:
+    image: redis:7-alpine
+    container_name: travel-agent-redis
+    ports:
+      - "6379:6379"
+
+volumes:
+  mysql-data:
