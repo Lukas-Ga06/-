@@ -2,6 +2,7 @@ package com.travel.agent.agent;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.travel.agent.dto.ChatDtos;
+import com.travel.agent.entity.ConversationMessage;
 import lombok.Data;
 
 import java.util.HashMap;
@@ -21,12 +22,22 @@ public class AgentContext {
     private String message;
     private Integer currentDay;
 
+    /**
+     * 会话记忆：前端生成的会话标识（跨页面切换保持），为空表示单轮对话。
+     * 历史消息由 AgentEngine 在 UNDERSTAND 之前载入，只喂给 LLM 做指代消解。
+     */
+    private String conversationId;
+
     /** 多模态上下文：用户当前选中的元素，解决「这个换成类似的」的指代 */
     private ChatDtos.SelectedElement selectedElement;
     private ChatDtos.MapLocation mapCenter;
 
     private AgentState state = AgentState.RECEIVE;
     private Map<String, Object> variables = new HashMap<>();
+
+    /** 本会话最近的消息（时间正序），@JsonIgnore 避免随 SSE 事件序列化出去 */
+    @JsonIgnore
+    private transient List<ConversationMessage> history = List.of();
 
     @JsonIgnore
     private final transient List<Consumer<AgentEvent>> listeners = new CopyOnWriteArrayList<>();

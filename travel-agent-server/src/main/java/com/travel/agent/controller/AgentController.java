@@ -30,6 +30,7 @@ public class AgentController {
     private final AgentEngine agentEngine;
     private final AuthService authService;
     private final ObjectMapper objectMapper;
+    private final com.travel.agent.service.ConversationService conversationService;
     /** Agent 专用线程池：避免阻塞调用挤占 ForkJoin commonPool */
     private final ThreadPoolTaskExecutor agentTaskExecutor;
 
@@ -50,6 +51,7 @@ public class AgentController {
     public SseEmitter stream(@RequestParam("message") String message,
                              @RequestParam(value = "tripId", required = false) Long tripId,
                              @RequestParam(value = "currentDay", required = false) Integer currentDay,
+                             @RequestParam(value = "conversationId", required = false) String conversationId,
                              @RequestParam(value = "selType", required = false) String selType,
                              @RequestParam(value = "selId", required = false) Long selId,
                              @RequestParam(value = "selTitle", required = false) String selTitle,
@@ -60,7 +62,8 @@ public class AgentController {
         ChatDtos.ChatRequest request = new ChatDtos.ChatRequest(
                 message, tripId, currentDay,
                 selType == null ? null : new ChatDtos.SelectedElement(selType, selId, selTitle),
-                (lat == null || lng == null) ? null : new ChatDtos.MapLocation(lat, lng));
+                (lat == null || lng == null) ? null : new ChatDtos.MapLocation(lat, lng),
+                sanitizeConversationId(conversationId));
         AgentContext ctx = buildContext(user, request);
 
         SseEmitter emitter = new SseEmitter(180_000L);
@@ -119,16 +122,38 @@ public class AgentController {
         return ApiResponse.ok(agentEngine.pendingPreview(planId, user.getId()));
     }
 
+    /** 开新会话：清掉当前用户在该会话下的历史消息 */
+    @PostMapping("/conversation/clear")
+    public ApiResponse<Void> clearConversation(@Valid @RequestBody ChatDtos.ClearConversationRequest request,
+                                               Authentication authentication) {
+        User user = authService.requireUser(authentication.getName());
+        conversationService.clear(user.getId(), request.getConversationId());
+        return ApiResponse.ok(null);
+    }
+
     private AgentContext buildContext(User user, ChatDtos.ChatRequest request) {
         AgentContext ctx = new AgentContext();
         ctx.setUserId(user.getId());
         ctx.setUsername(user.getUsername());
         ctx.setTripId(request.getTripId());
         ctx.setSessionId(UUID.randomUUID().toString());
+        ctx.setConversationId(request.getConversationId());
         ctx.setMessage(request.getMessage());
         ctx.setCurrentDay(request.getCurrentDay());
         ctx.setSelectedElement(request.getSelectedElement());
         ctx.setMapCenter(request.getMapCenter());
         return ctx;
+    }
+
+    /** SSE 查询参数不经过 Bean Validation，这里做与 DTO 一致的清洗（超长/非法字符直接视为单轮） */
+    private static String sanitizeConversationId(String conversationId) {
+        if (conversationId == null) {
+            return null;
+        }
+        String trimmed = conversationId.trim();
+        if (trimmed.isEmpty() || trimmed.length() > 64 || !trimmed.matches("[A-Za-z0-9_-]*")) {
+            return null;
+        }
+        return trimmed;
     }
 }
