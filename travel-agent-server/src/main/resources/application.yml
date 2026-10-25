@@ -49,6 +49,11 @@ management:
   endpoint:
     health:
       show-details: never
+  health:
+    redis:
+      # data-redis 引入后 Boot 会自动加 Redis 健康检查；Redis 仅用于限流计数（fail-open），
+      # 不可用不应把整站标为 DOWN。需要 Redis 健康监控时再打开
+      enabled: false
 
 travel:
   # 应用时区：代码里的“今天/明天”都基于它（默认 Asia/Shanghai，避免容器 UTC 导致日期偏移一天）
