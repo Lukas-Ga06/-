@@ -2,6 +2,7 @@ package com.travel.agent.agent;
 
 import com.travel.agent.dto.AgentDtos;
 import com.travel.agent.dto.BudgetDtos;
+import com.travel.agent.entity.ConversationMessage;
 import com.travel.agent.entity.DailyReport;
 import com.travel.agent.entity.Expense;
 import com.travel.agent.entity.ItineraryItem;
@@ -12,15 +13,20 @@ import com.travel.agent.exception.BusinessException;
 import com.travel.agent.model.WeatherInfo;
 import com.travel.agent.rag.RagService;
 import com.travel.agent.service.BudgetService;
+import com.travel.agent.service.ConversationService;
 import com.travel.agent.service.DailyReportService;
 import com.travel.agent.service.ExpenseService;
 import com.travel.agent.service.HealthService;
 import com.travel.agent.service.ItineraryService;
 import com.travel.agent.service.MemoService;
 import com.travel.agent.service.OperationHistoryService;
+import com.travel.agent.service.PlanNarrationService;
 import com.travel.agent.service.ScheduleService;
 import com.travel.agent.service.TripService;
 import com.travel.agent.service.TravelCatalogService;
+import com.travel.agent.tool.AgentTool;
+import com.travel.agent.tool.ToolInvoker;
+import com.travel.agent.tool.ToolRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -55,10 +61,16 @@ public class AgentEngine {
     private final ScheduleService scheduleService;
     private final HealthService healthService;
     private final DailyReportService dailyReportService;
+    private final ConversationService conversationService;
+    private final PlanNarrationService planNarrationService;
+    private final ToolRegistry toolRegistry;
+    private final ToolInvoker toolInvoker;
+    private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     public AgentDtos.AgentResult handle(AgentContext ctx) {
         ctx.emit("start", Map.of("sessionId", ctx.getSessionId()));
         ctx.setState(AgentState.UNDERSTAND);
+        loadConversation(ctx);
         try {
             Trip trip = ctx.getTripId() != null ? tripService.getOwned(ctx.getTripId(), ctx.getUserId()) : null;
             IntentResult intent = intentAgent.detect(ctx, trip);
@@ -66,7 +78,7 @@ public class AgentEngine {
             log.info("Intent: {} target={} user={} trip={}", intent.getIntent(), intent.getTarget(),
                     ctx.getUsername(), ctx.getTripId());
 
-            return switch (intent.getIntent()) {
+            AgentDtos.AgentResult result = switch (intent.getIntent()) {
                 case IntentResult.QUERY_KNOWLEDGE -> answerKnowledge(ctx, intent, trip);
                 case IntentResult.QUERY_BUDGET -> answerBudget(ctx, intent, trip);
                 case IntentResult.RECORD_EXPENSE -> answerRecordExpense(ctx, intent, trip);
@@ -76,6 +88,7 @@ public class AgentEngine {
                 case IntentResult.QUERY_SCHEDULE -> answerQuerySchedule(ctx, intent);
                 case IntentResult.GEN_DAILY_REPORT -> answerDailyReport(ctx, intent);
                 case IntentResult.QUERY_HEALTH -> answerQueryHealth(ctx, intent);
+                case IntentResult.INVOKE_TOOL -> answerInvokeTool(ctx, intent);
                 case IntentResult.PLAN_TRIP, IntentResult.MODIFY_ITINERARY -> planAndPresent(ctx, intent, trip);
                 default -> complete(ctx, AgentDtos.AgentResult.builder()
                         .intent(IntentResult.CHITCHAT)
@@ -83,6 +96,7 @@ public class AgentEngine {
                         .message(MessageTemplates.HELP)
                         .build());
             };
+            return finish(ctx, result, intent.getIntent());
         } catch (BusinessException e) {
             // 业务规则/校验类错误（含越权、参数不合法）：原样告诉用户，不伪装成系统故障
             log.info("Agent 业务校验未通过: {}", e.getMessage());
@@ -94,7 +108,7 @@ public class AgentEngine {
                     .build();
             ctx.emit("error", Map.of("message", rejected.getMessage()));
             ctx.emit("complete", rejected);
-            return rejected;
+            return finish(ctx, rejected, "REJECTED");
         } catch (Exception e) {
             log.error("Agent 执行异常", e);
             ctx.setState(AgentState.ERROR);
@@ -106,8 +120,35 @@ public class AgentEngine {
                     .build();
             ctx.emit("error", Map.of("message", failed.getMessage()));
             ctx.emit("complete", failed);
-            return failed;
+            return finish(ctx, failed, "ERROR");
         }
+    }
+
+    /**
+     * 会话记忆：载入上一段历史供意图识别消解指代，并把本轮用户消息先落一条。
+     * 先载后存，保证 history 不包含本轮消息；无 conversationId 时两者都是空操作。
+     */
+    private void loadConversation(AgentContext ctx) {
+        try {
+            ctx.setHistory(conversationService.recent(ctx.getUserId(), ctx.getConversationId()));
+            conversationService.append(ctx.getUserId(), ctx.getConversationId(),
+                    ConversationMessage.ROLE_USER, ctx.getMessage(), null);
+        } catch (Exception e) {
+            // 记忆存取失败不能挡住对话：按单轮继续处理
+            log.warn("会话记忆读取失败，按单轮对话处理: {}", e.getMessage());
+            ctx.setHistory(List.of());
+        }
+    }
+
+    /** 出口统一落一条助手消息（也吃掉 null message 的返回），异常时同样不挡主流程 */
+    private AgentDtos.AgentResult finish(AgentContext ctx, AgentDtos.AgentResult result, String intent) {
+        try {
+            conversationService.append(ctx.getUserId(), ctx.getConversationId(),
+                    ConversationMessage.ROLE_ASSISTANT, result == null ? null : result.getMessage(), intent);
+        } catch (Exception e) {
+            log.warn("会话记忆写入失败: {}", e.getMessage());
+        }
+        return result;
     }
 
     private AgentDtos.AgentResult planAndPresent(AgentContext ctx, IntentResult intent, Trip trip) {
@@ -130,7 +171,8 @@ public class AgentEngine {
 
         ctx.setState(AgentState.EXECUTE);
         AgentDtos.AgentResult preview = executorAgent.preview(ctx, plan, trip);
-        preview.setMessage(composePlanMessage(plan));
+        // 模板事实 + 模型润色：润色失败或不可用时原样返回模板
+        preview.setMessage(planNarrationService.polish(composePlanMessage(plan)));
 
         ctx.setState(AgentState.REFLECT);
         List<String> warnings = reflectAgent.review(plan, trip);
@@ -404,8 +446,7 @@ public class AgentEngine {
                 .build());
     }
 
-    private String healthAdviceText(com.travel.agent.entity.HealthRecord latest, double avgSteps, double avgSleep) {
-        StringBuilder sb = new StringBuilder();
+    private String healthAdviceText(com.travel.agent.entity.HealthRecord latest, double avgSteps, double avgSleep) {        StringBuilder sb = new StringBuilder();
         if (avgSteps < 6000) {
             sb.append("步数偏少，建议每天增加 30 分钟快走。");
         } else {
@@ -420,6 +461,48 @@ public class AgentEngine {
             sb.append("静息心率偏高，注意休息。");
         }
         return sb.toString();
+    }
+
+    /**
+     * INVOKE_TOOL：LLM 选中一个已注册的 MCP 外部工具并给出参数，直接执行（工具层保证只读）。
+     * 仅 LLM 路径可产出该意图；规则兜底路径不会走到这里。
+     */
+    private AgentDtos.AgentResult answerInvokeTool(AgentContext ctx, IntentResult intent) {
+        String toolName = intent.getToolName();
+        AgentTool tool = toolRegistry.get(toolName);
+        if (tool == null) {
+            return complete(ctx, AgentDtos.AgentResult.builder()
+                    .intent(intent.getIntent())
+                    .status(AgentDtos.STATUS_FAILED)
+                    .message("外部工具「" + toolName + "」暂不可用，请换个问法或稍后再试。")
+                    .warnings(new ArrayList<>())
+                    .build());
+        }
+        Object result = toolInvoker.invoke(ctx, toolName,
+                intent.getToolArgs() == null ? Map.of() : intent.getToolArgs());
+        return complete(ctx, AgentDtos.AgentResult.builder()
+                .intent(intent.getIntent())
+                .status(AgentDtos.STATUS_COMPLETED)
+                .message("🔎 已通过外部工具「" + toolName + "」查询：\n\n" + renderToolResult(result))
+                .warnings(new ArrayList<>())
+                .build());
+    }
+
+    private String renderToolResult(Object result) {
+        if (result == null) {
+            return "（无结果）";
+        }
+        String text;
+        if (result instanceof String s && !s.isBlank()) {
+            text = s;
+        } else {
+            try {
+                text = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(result);
+            } catch (Exception e) {
+                text = String.valueOf(result);
+            }
+        }
+        return text.length() > 2000 ? text.substring(0, 2000) + "…" : text;
     }
 
     private AgentDtos.AgentResult complete(AgentContext ctx, AgentDtos.AgentResult result) {

@@ -6,6 +6,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.travel.agent.entity.Trip;
 import com.travel.agent.llm.LlmClient;
 import com.travel.agent.llm.LlmMessage;
+import com.travel.agent.tool.AgentTool;
+import com.travel.agent.tool.ToolRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -30,10 +32,12 @@ public class IntentAgent {
             IntentResult.QUERY_KNOWLEDGE, IntentResult.RECORD_EXPENSE,
             IntentResult.ADD_MEMO, IntentResult.QUERY_MEMO,
             IntentResult.ADD_SCHEDULE, IntentResult.QUERY_SCHEDULE,
-            IntentResult.GEN_DAILY_REPORT, IntentResult.QUERY_HEALTH, IntentResult.CHITCHAT);
+            IntentResult.GEN_DAILY_REPORT, IntentResult.QUERY_HEALTH,
+            IntentResult.INVOKE_TOOL, IntentResult.CHITCHAT);
 
     private final LlmClient llmClient;
     private final ObjectMapper objectMapper;
+    private final ToolRegistry toolRegistry;
 
     public IntentResult detect(AgentContext ctx, Trip trip) {
         String message = ctx.getMessage() == null ? "" : ctx.getMessage();
@@ -57,11 +61,21 @@ public class IntentAgent {
             log.info("模型把「{}」判成日报，交回规则引擎", message);
             return false;
         }
+        // INVOKE_TOOL 只认注册过的 mcp_* 工具：模型编造工具名时交回规则引擎
+        if (IntentResult.INVOKE_TOOL.equals(result.getIntent())
+                && (result.getToolName() == null || result.getToolName().isBlank()
+                    || !result.getToolName().startsWith("mcp_")
+                    || toolRegistry.get(result.getToolName()) == null)) {
+            log.info("模型给出了不可用的 MCP 工具「{}」，交回规则引擎", result.getToolName());
+            return false;
+        }
         return true;
     }
 
     private IntentResult llmDetect(AgentContext ctx, Trip trip, String message) {
         try {
+            String historyBlock = renderHistory(ctx);
+            String toolsBlock = renderToolCatalog();
             String prompt = """
                     你是个人智能助理的意图识别模块。将用户消息分类为以下意图之一：
                     PLAN_TRIP（规划新行程；用户说「重新规划/重排整个行程」也归这里）、
@@ -73,12 +87,16 @@ public class IntentAgent {
                     说「总结我在上海的旅行」「回顾某次旅行」属于 QUERY_KNOWLEDGE 或 QUERY_BUDGET，不要判成日报）、
                     QUERY_HEALTH（查询健康数据，如步数/睡眠/心率/手环）、
                     CHITCHAT（其他闲聊）。
+                    %s
                     target 为操作目标：OUTDOOR_ACTIVITY / SELECTED_ITEM / NONE。
                     destination 为用户想去的城市名（仅中文城市名本身，如 "石家庄"、"洛阳"），无法确定时填 null。
-                    仅输出 JSON，格式：{"intent":"...","target":"...","destination":"...","constraints":{"date":"明天","weather":"rain"}}
+                    结合对话历史理解指代与省略：用户说「那把第二天的酒店也换掉」「它太贵了」时，
+                    要结合上一轮内容判断目标；分类仍然只看这一条消息的意图本身。
+                    仅输出 JSON，格式：{"intent":"...","target":"...","destination":"...","constraints":{"date":"明天","weather":"rain"},"tool":"工具名","args":{"参数":"值"}}
+                    （intent 为 INVOKE_TOOL 时必须带 tool 与 args 两个字段；其他意图忽略 tool/args）
                     当前用户是否已有行程：%s
-                    用户消息：%s
-                    """.formatted(trip != null ? "有 (tripId=" + trip.getId() + ")" : "无", message);
+                    %s用户消息：
+                    """.formatted(toolsBlock, trip != null ? "有 (tripId=" + trip.getId() + ")" : "无", historyBlock) + message;
             String raw = llmClient.chat(List.of(
                     LlmMessage.system("你只输出 JSON，不要输出任何其他内容。"),
                     LlmMessage.user(prompt)), 0.0);
@@ -101,15 +119,56 @@ public class IntentAgent {
             if (!destination.isBlank() && !"null".equalsIgnoreCase(destination)) {
                 constraints.put("destination", destination);
             }
-            return IntentResult.builder()
+            IntentResult.IntentResultBuilder builder = IntentResult.builder()
                     .intent(intent)
                     .target(node.path("target").asText(IntentResult.TARGET_NONE))
-                    .constraints(constraints)
-                    .build();
+                    .constraints(constraints);
+            if (IntentResult.INVOKE_TOOL.equals(intent)) {
+                builder.toolName(node.path("tool").asText("").trim());
+                if (node.hasNonNull("args") && node.path("args").isObject()) {
+                    builder.toolArgs(objectMapper.convertValue(node.path("args"), new TypeReference<>() {}));
+                }
+            }
+            return builder.build();
         } catch (Exception e) {
             log.warn("LLM 意图识别失败，使用规则兜底: {}", e.getMessage());
             return null;
         }
+    }
+
+    /** 注册的 MCP 外部工具目录；未接入任何 MCP 工具时提示模型禁用 INVOKE_TOOL */
+    private String renderToolCatalog() {
+        List<AgentTool> mcpTools = toolRegistry.all().values().stream()
+                .filter(t -> t.getName().startsWith("mcp_"))
+                .toList();
+        if (mcpTools.isEmpty()) {
+            return "外部工具：本次未接入任何 MCP 外部工具，不要使用 INVOKE_TOOL。";
+        }
+        StringBuilder sb = new StringBuilder(
+                "INVOKE_TOOL（通过外部 MCP 工具查询外部数据，如地图/百科/搜索；仅当用户明确要查外部数据且下面的工具适用时使用）。可用外部工具：\n");
+        for (AgentTool tool : mcpTools) {
+            sb.append("- ").append(tool.getName()).append("：").append(tool.getDescription()).append('\n');
+        }
+        return sb.toString();
+    }
+
+    /** 最近对话渲染成简短的历史块；无历史返回空串，提示词里不出现多余空行 */
+    private String renderHistory(AgentContext ctx) {
+        List<com.travel.agent.entity.ConversationMessage> history = ctx.getHistory();
+        if (history == null || history.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder("最近对话（时间正序，供理解指代，不要回复这些）：\n");
+        for (com.travel.agent.entity.ConversationMessage m : history) {
+            String content = m.getContent();
+            if (content != null && content.length() > 200) {
+                content = content.substring(0, 200) + "…";
+            }
+            sb.append("user".equals(m.getRole()) ? "用户：" : "助理：")
+                    .append(content == null ? "" : content.replace("\n", " "))
+                    .append('\n');
+        }
+        return sb.append('\n').toString();
     }
 
     private IntentResult ruleDetect(AgentContext ctx, Trip trip, String message) {

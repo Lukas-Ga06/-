@@ -25,6 +25,8 @@ public class IntentResult {
     public static final String QUERY_SCHEDULE = "QUERY_SCHEDULE";
     public static final String GEN_DAILY_REPORT = "GEN_DAILY_REPORT";
     public static final String QUERY_HEALTH = "QUERY_HEALTH";
+    /** 调用外部 MCP 工具（travel.mcp.servers 注册的 mcp_* 只读工具）；仅 LLM 路径可产出 */
+    public static final String INVOKE_TOOL = "INVOKE_TOOL";
     public static final String CHITCHAT = "CHITCHAT";
 
     public static final String TARGET_OUTDOOR = "OUTDOOR_ACTIVITY";
@@ -34,4 +36,8 @@ public class IntentResult {
     private String intent;
     private String target;
     private Map<String, Object> constraints;
+
+    /** INVOKE_TOOL：要调用的 MCP 工具名（mcp_*）与参数 */
+    private String toolName;
+    private Map<String, Object> toolArgs;
 }
