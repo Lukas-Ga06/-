@@ -3,6 +3,7 @@ import { App, Button, Drawer, Tooltip } from 'antd';
 import {
   ArrowLeftOutlined,
   BarChartOutlined,
+  BookOutlined,
   EnvironmentOutlined,
   UndoOutlined,
   WalletOutlined,
@@ -99,6 +100,12 @@ export default function TripPage() {
     }
   };
 
+  // 路书导出走同源 GET：登录态在 httpOnly Cookie 里，顶层导航会自动携带（经 vite 代理到后端）
+  const onExportGuidebook = () => {
+    if (!tripId || Number.isNaN(tripId)) return;
+    window.open(`/api/trips/${tripId}/guidebook.pdf`, '_blank');
+  };
+
   return (
     <AppShell active="travel">
       <div className="dash-wrap">
@@ -121,6 +128,11 @@ export default function TripPage() {
             <Tooltip title="撤销上一次 AI 修改">
               <Button icon={<UndoOutlined />} onClick={onUndo} loading={undoing}>
                 撤销
+              </Button>
+            </Tooltip>
+            <Tooltip title="导出可打印的路书 PDF">
+              <Button icon={<BookOutlined />} onClick={onExportGuidebook}>
+                路书
               </Button>
             </Tooltip>
             <Button icon={<WalletOutlined />} onClick={() => setExpenseOpen(true)}>
