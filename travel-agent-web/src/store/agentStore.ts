@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { cancelPlan, clearConversation, confirmPlan, streamAgentChat } from '../api/agent';
+import { cancelPlan, clearConversation, confirmPlan, streamAgentChat, streamAgentChatPost } from '../api/agent';
 import type { AgentFocus, AgentResult, ChatMessage, SelectedElement } from '../types/agent';
 
 export interface SendPayload {
@@ -11,6 +11,13 @@ export interface SendPayload {
   mapCenter?: { lat: number; lng: number } | null;
   /** 会话标识：由 store 自动生成/复用，调用方无需传入 */
   conversationId?: string | null;
+  /**
+   * 传输通道：默认 GET（EventSource，消息走 URL，≤500 字）；
+   * 'post' 走 fetch SSE（请求体，≤2 万字），结构化规划表单带攻略正文时必须用它。
+   */
+  transport?: 'get' | 'post';
+  /** 聊天记录里展示给用户看的文案；长文本（如攻略正文）提交时用它换成简短摘要 */
+  displayText?: string;
 }
 
 interface AgentState {
@@ -99,7 +106,7 @@ export const useAgentStore = create<AgentState>()(
     const userMsg: ChatMessage = {
       id: nextId(),
       role: 'user',
-      content: payload.message,
+      content: payload.displayText ?? payload.message,
       time: new Date().toISOString(),
     };
     set({
@@ -109,7 +116,8 @@ export const useAgentStore = create<AgentState>()(
       pendingConfirm: null,
     });
 
-    streamAgentChat({ ...payload, conversationId }, {
+    const streamFn = payload.transport === 'post' ? streamAgentChatPost : streamAgentChat;
+    streamFn({ ...payload, conversationId }, {
         onEvent: (event, data) => {
           const text = STAGE_TEXT[event]?.(data);
           if (text) set({ stage: text });

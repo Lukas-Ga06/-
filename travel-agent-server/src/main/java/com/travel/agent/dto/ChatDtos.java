@@ -30,6 +30,26 @@ public class ChatDtos {
         private String conversationId;
     }
 
+    /**
+     * 结构化规划表单的 POST 流式请求：与 {@link ChatRequest} 字段一致，
+     * 但 message 放宽到 2 万字符 —— 表单会把参考攻略正文（最多 3 篇共 1.5 万字）
+     * 编译进需求文本，URL 查询参数（GET /stream 的 EventSource 限制）放不下这个量级。
+     */
+    @Data
+    @NoArgsConstructor
+    public static class PlanStreamRequest {
+        @NotBlank(message = "不能为空")
+        @Size(max = 20000, message = "长度不能超过 20000 个字符")
+        private String message;
+        private Long tripId;
+        private Integer currentDay;
+        private SelectedElement selectedElement;
+        private MapLocation mapCenter;
+        @Size(max = 64, message = "长度不能超过 64 个字符")
+        @Pattern(regexp = "[A-Za-z0-9_-]*", message = "格式不正确")
+        private String conversationId;
+    }
+
     /** 多模态上下文：用户点击选中的元素，解决「这个换成类似的」中的指代问题 */
     @Data
     @NoArgsConstructor

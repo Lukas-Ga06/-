@@ -64,6 +64,25 @@ public class AgentController {
                 selType == null ? null : new ChatDtos.SelectedElement(selType, selId, selTitle),
                 (lat == null || lng == null) ? null : new ChatDtos.MapLocation(lat, lng),
                 sanitizeConversationId(conversationId));
+        return doStream(user, request);
+    }
+
+    /**
+     * POST 版 SSE 流：结构化规划表单（含参考攻略正文）的入口。
+     * 需求文本可长达 2 万字符，走请求体而不是查询参数；浏览器 fetch 自带 Cookie 认证。
+     */
+    @PostMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter streamPost(@Valid @RequestBody ChatDtos.PlanStreamRequest body,
+                                 Authentication authentication) {
+        User user = authService.requireUser(authentication.getName());
+        ChatDtos.ChatRequest request = new ChatDtos.ChatRequest(
+                body.getMessage(), body.getTripId(), body.getCurrentDay(),
+                body.getSelectedElement(), body.getMapCenter(), body.getConversationId());
+        return doStream(user, request);
+    }
+
+    /** GET/POST 两个 stream 端点共用的执行与事件推送逻辑 */
+    private SseEmitter doStream(User user, ChatDtos.ChatRequest request) {
         AgentContext ctx = buildContext(user, request);
 
         SseEmitter emitter = new SseEmitter(180_000L);

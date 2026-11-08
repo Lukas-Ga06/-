@@ -93,6 +93,114 @@ export async function streamAgentChat(
   return () => finish();
 }
 
+/**
+ * POST 版 SSE 流：结构化规划表单（含参考攻略正文）专用。
+ * EventSource 只能 GET、消息走 URL，长文本（攻略正文可上万字）放不下；
+ * fetch POST 走请求体 + Cookie 认证，用 ReadableStream 手工解析 SSE 帧。
+ * 返回关闭函数（语义与 streamAgentChat 一致）。
+ */
+export async function streamAgentChatPost(
+  params: AgentStreamParams,
+  handlers: AgentStreamHandlers,
+): Promise<() => void> {
+  const controller = new AbortController();
+  let finished = false;
+  const finish = (callback?: () => void) => {
+    if (finished) {
+      return;
+    }
+    finished = true;
+    controller.abort();
+    callback?.();
+  };
+
+  (async () => {
+    try {
+      const resp = await fetch('/api/agent/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          message: params.message,
+          tripId: params.tripId ?? null,
+          currentDay: params.currentDay ?? null,
+          conversationId: params.conversationId ?? null,
+          selectedElement: params.selectedElement ?? null,
+          mapCenter: params.mapCenter ?? null,
+        }),
+        signal: controller.signal,
+      });
+      if (!resp.ok || !resp.body) {
+        const text = await resp.text().catch(() => '');
+        let msg = `请求失败（${resp.status}）`;
+        try {
+          const parsed = JSON.parse(text);
+          if (parsed?.message) msg = parsed.message;
+        } catch {
+          // 非 JSON 响应体，保留默认提示
+        }
+        finish(() => handlers.onError?.(msg));
+        return;
+      }
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      const handleBlock = (block: string) => {
+        let event = 'message';
+        const dataLines: string[] = [];
+        for (const line of block.split('\n')) {
+          if (line.startsWith('event:')) {
+            event = line.slice(6).trim();
+          } else if (line.startsWith('data:')) {
+            dataLines.push(line.slice(5).trimStart());
+          }
+        }
+        const raw = dataLines.join('\n');
+        if (!raw && event === 'message') {
+          return;
+        }
+        let data: any = null;
+        if (raw) {
+          try {
+            data = JSON.parse(raw);
+          } catch {
+            data = raw;
+          }
+        }
+        if (event === 'complete') {
+          finish(() => handlers.onComplete?.(data as AgentResult));
+        } else if (event === 'error') {
+          // 服务端主动报错：Agent 随后还会发一条 complete，这里只提示、不终止
+          handlers.onError?.(data?.message || 'Agent 执行出错');
+        } else {
+          handlers.onEvent?.(event, data);
+        }
+      };
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let idx: number;
+        while ((idx = buffer.indexOf('\n\n')) >= 0) {
+          const block = buffer.slice(0, idx).replace(/\r/g, '');
+          buffer = buffer.slice(idx + 2);
+          handleBlock(block);
+        }
+      }
+      // 连接关闭却没收到 complete：与 GET 版 onerror 语义一致
+      finish(() => handlers.onError?.('与 Agent 的连接已中断，请重试'));
+    } catch (e: any) {
+      if (e?.name === 'AbortError') {
+        finish();
+        return;
+      }
+      finish(() => handlers.onError?.(e?.message || '无法建立与 Agent 的连接'));
+    }
+  })();
+
+  return () => finish();
+}
+
 export function confirmPlan(planId: string): Promise<AgentResult> {
   return request<AgentResult>({ url: '/agent/confirm', method: 'post', data: { planId } });
 }
