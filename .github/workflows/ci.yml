@@ -56,3 +56,59 @@ jobs:
 
       - name: Production build
         run: npm run build
+
+  e2e:
+    name: E2E / Playwright smoke (backend H2 + frontend preview)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: travel-agent-web/package-lock.json
+
+      # 后端：H2 文件库 + demo 账号（默认开启），后台常驻供 e2e 使用
+      - name: Start backend
+        working-directory: travel-agent-server
+        run: nohup mvn -B spring-boot:run > backend.log 2>&1 &
+
+      - name: Wait for backend health
+        run: |
+          timeout 240 bash -c 'until curl -sf http://localhost:8080/actuator/health > /dev/null; do sleep 5; done'
+
+      - name: Install frontend dependencies
+        working-directory: travel-agent-web
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: travel-agent-web
+        run: npm run build
+
+      - name: Install Playwright browsers
+        working-directory: travel-agent-web
+        run: npx playwright install --with-deps chromium
+
+      - name: Run e2e smoke
+        working-directory: travel-agent-web
+        run: npx playwright test
+
+      - name: Upload artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts
+          path: |
+            travel-agent-server/backend.log
+            travel-agent-web/test-results
+            travel-agent-web/playwright-report
+          retention-days: 7
