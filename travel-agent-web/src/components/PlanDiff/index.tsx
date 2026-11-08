@@ -10,11 +10,11 @@ interface Props {
   loading?: boolean;
 }
 
-function renderChange(c: DiffChange) {
+function renderChange(c: DiffChange, key: number) {
   const isRemove = c.type === 'REMOVE';
   const isModify = c.type === 'MODIFY';
   return (
-    <div className={`diff-row ${isRemove ? 'remove' : 'add'}`}>
+    <div key={key} className={`diff-row ${isRemove ? 'remove' : 'add'}`}>
       <span className="dr-icon">{isRemove ? '✕' : isModify ? '✎' : '＋'}</span>
       <span className="dr-title">{c.title}</span>
       {c.detail && !isRemove && <span style={{ color: 'var(--ink-3)', fontSize: 12 }}>{c.detail}</span>}
@@ -54,7 +54,7 @@ export default function PlanDiff({ open, result, onConfirm, onCancel, loading }:
           style={{ marginBottom: 14, marginTop: 4 }}
         />
       )}
-      <div style={{ maxHeight: 320, overflowY: 'auto' }}>{changes.map((c, idx) => renderChange(c))}</div>
+      <div style={{ maxHeight: 320, overflowY: 'auto' }}>{changes.map((c, idx) => renderChange(c, idx))}</div>
       <div className="diff-budget-box">
         <div>
           <div className="db-label">调整前</div>

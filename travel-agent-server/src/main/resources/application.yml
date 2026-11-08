@@ -74,6 +74,8 @@ travel:
   photos:
     # 行程照片落盘目录（相对后端模块）
     dir: data/photos
+    # 照片存储：local（默认，本地磁盘）/ s3（S3 兼容对象存储，连接配置见 travel.photos.s3.*）
+    store: ${PHOTOS_STORE:local}
     # 单行程照片张数上限
     max-per-trip: ${PHOTO_MAX_PER_TRIP:200}
     # 单用户照片总容量上限（字节，默认 500MB）
@@ -81,6 +83,8 @@ travel:
   rate-limit:
     # 简单限流：登录/注册按 IP，Agent 与上传按用户，窗口内超过阈值返回 429
     enabled: ${RATE_LIMIT_ENABLED:true}
+    # 计数存储：memory（默认，进程内）/ redis（多实例共享配额，Redis 故障 fail-open）
+    store: ${RATE_LIMIT_STORE:memory}
     auth-limit: ${RATE_LIMIT_AUTH:10}
     agent-limit: ${RATE_LIMIT_AGENT:30}
     upload-limit: ${RATE_LIMIT_UPLOAD:60}
@@ -126,6 +130,10 @@ travel:
       # URL 填 https://<域名>/api/channels/wechat，Message 加解密选"明文模式"。
       # 被动回复窗口 5s：快路径实时回复；行程规划可能超窗（正式环境建议接客服消息异步回复）
       token: ${WECHAT_OA_TOKEN:}
+      # 客服消息（可选）：配 appid + secret 后改异步回复，解除被动回复 5s 窗口；需已认证公众号。
+      # 与 token 独立：只配 token 仍走同步被动回复。
+      appid: ${WECHAT_OA_APPID:}
+      secret: ${WECHAT_OA_SECRET:}
   jwt:
     # Base64 编码的密钥（解码后长度必须 >= 32 字节）。
     # 必须通过环境变量注入；未配置时启动会生成一次性随机密钥（仅适合本地开发，重启后已签发 token 全部失效）。
@@ -135,7 +143,8 @@ travel:
     # 登录 Cookie 是否带 Secure（https 部署时设 true；本地 http 开发保持 false）
     cookie-secure: ${COOKIE_SECURE:false}
   cors:
-    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
+    # 本地 dev(5173) 与 preview/e2e(4173) 两套端口都放行；生产用 CORS_ALLOWED_ORIGINS 覆盖为真实域名
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173}
   llm:
     # 统一 LLM 接口：走 OpenAI-compatible API（DeepSeek / Qwen / OpenAI 均可）。
     # API Key 只能通过环境变量 LLM_API_KEY 注入，仓库内不得保留任何真实 Key。
