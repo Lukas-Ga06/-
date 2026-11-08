@@ -10,6 +10,24 @@
 
 ---
 
+## 文档导航
+
+完整文档套件在 **[docs/guide/](docs/guide/README.md)**，按角色选入口：
+
+| 文档 | 内容 |
+| --- | --- |
+| [docs/guide/README.md](docs/guide/README.md) | 文档索引：角色阅读路径、模块速览、一分钟心智模型 |
+| [docs/guide/getting-started.md](docs/guide/getting-started.md) | 快速上手：环境要求、启动、演示闭环 walkthrough、常见问题排查 |
+| [docs/guide/architecture.md](docs/guide/architecture.md) | 架构与核心设计：状态机、四 Agent、工具层、RAG、SSE 协议、MCP、配额 |
+| [docs/guide/api-reference.md](docs/guide/api-reference.md) | REST API 参考：通用约定（认证/票据/错误码）+ 分模块逐接口契约 |
+| [docs/guide/data-model.md](docs/guide/data-model.md) | 数据模型：ER 图、全部表结构、Flyway 策略、一致性不变量 |
+| [docs/guide/frontend.md](docs/guide/frontend.md) | 前端结构：路由表、页面清单、状态管理、SSE 消费链路、组件说明 |
+| [docs/guide/deployment.md](docs/guide/deployment.md) | 部署与运维：Docker 全栈、生产必改项、环境变量权威表、监控排障 |
+| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 开发约定：关键不变量、测试规范、设计系统 |
+| [docs/CHANGELOG.md](docs/CHANGELOG.md) | 行为变化记录 |
+
+---
+
 ## 1. 项目结构
 
 ```
@@ -18,6 +36,7 @@ travel-agent/
 ├── docker-compose.yml                  # 全栈一键部署：MySQL + 后端 + 前端(nginx)
 ├── docker-compose.infra.yml            # 本地开发可选：MySQL + Redis 基础设施
 ├── .github/workflows/ci.yml            # CI：后端 mvn verify + 前端 typecheck/test/build
+├── docs/guide/                         # 完整项目文档套件（见下方「文档导航」）
 ├── docs/DEVELOPMENT.md                 # 环境变量、测试、约定、部署与后续规划
 ├── docs/CHANGELOG.md                   # 行为变化记录（含影响使用习惯的调整）
 ├── .e2e/                               # 手工端到端验证脚本（需本地先启动后端）
@@ -115,6 +134,10 @@ npm run dev
 RECEIVE → UNDERSTAND → PLAN → EXECUTE → REFLECT → PRESENT → CONFIRM → COMMIT
                                       ↘ ERROR（反馈用户）
 ```
+
+> 上图是概念流程。`AgentState` 枚举实际声明 10 个值（另有 `REPLAN`），但 `CONFIRM` / `COMMIT` / `REPLAN`
+> 在引擎主链路中并未被设置——确认与提交是由前端拿到确认请求后经 `POST /api/agent/confirm` 触发的独立调用。
+> 精确的状态转移与「哪些状态真正被 set」见 [docs/guide/architecture.md](docs/guide/architecture.md) §2。
 
 - **会话记忆**：前端生成 `conversationId`（sessionStorage，跨页面切换保持同一对话），
   后端按「用户 + 会话」存最近 10 轮消息，喂给 LLM 做指代消解——「那把第二天的酒店也换掉」
@@ -266,7 +289,7 @@ streamable HTTP（`url`）与本机子进程 stdio（`command`，如 `npx -y @am
 POST   /api/auth/register         POST /api/auth/login
 GET    /api/auth/me               # 凭 httpOnly Cookie 恢复登录态（刷新后用）
 POST   /api/auth/logout           # 清登录 Cookie
-POST   /api/auth/access-ticket    # 签发短期只读票据（SSE / 照片原图用）
+POST   /api/access-ticket         # 签发短期只读票据（SSE / 照片原图用）
 
 GET    /api/trips                 POST /api/trips
 GET    /api/trips/{id}            PUT  /api/trips/{id}      DELETE /api/trips/{id}
@@ -284,7 +307,6 @@ POST   /api/agent/cancel          # 取消方案
 POST   /api/agent/undo            # 撤销上一次修改
 GET    /api/agent/plans/{planId}  # 取回待确认方案（刷新页面后恢复确认弹窗）
 POST   /api/agent/conversation/clear  # 开新会话：清掉当前用户在该会话下的历史消息
-POST   /api/auth/access-ticket    # 签发短期只读票据（SSE / 照片原图用，替代在 URL 传登录 JWT）
 
 GET    /api/trips/{tripId}/expenses   POST /api/trips/{tripId}/expenses
 GET    /api/expenses/overview         DELETE /api/expenses/{id}
@@ -431,19 +453,21 @@ cd travel-agent-server && mvn test
 cd travel-agent-web && npm run typecheck && npm test && npm run build
 ```
 
-当前覆盖（后端 194 个 / 前端 46 个）：
+当前覆盖（后端 199 个 / 前端 55 个 / e2e 4 个）：
 
 - 认证与授权：401 契约、跨用户读写与删除行程；
-- Agent 计划落地：ADD/MODIFY/REMOVE、跨行程操作守卫、确认提交与撤销（含撤销新建行程）；
+- Agent 计划落地：ADD_ITEM / MODIFY_ITEM / REMOVE_ITEM、跨行程操作守卫、确认提交与撤销（含撤销新建行程）；
 - 工具层契约：只读工具才允许注册、风险评估等级、业务错误原样透出；
 - 理解精度：日期→行程天映射、意图路由（闲聊不被误写成日程）、时间冲突检查（含 MODIFY）；
 - 数据一致性：删除行程的级联清理、记账分项与总支出对账；
 - 扩展能力：路书 PDF（内容 + 越权）、MCP 桥接（HTTP/stdio 传输、注册与调用、坏服务器跳过）、
-  多渠道入口（Webhook 密钥契约、Telegram 消息→引擎→回复与账号自动开通）；
+  多渠道入口（Webhook 密钥契约、Telegram 消息→引擎→回复与账号自动开通、微信公众号签名/XML 被动回复）、
+  POST 流式端点（401/超长校验/长文本建流）；
 - 运行环境：应用时区固定；前端流式状态机与 SSE 中断路径。
 
-CI（[.github/workflows/ci.yml](.github/workflows/ci.yml)）在 push / PR 时执行 `mvn -B verify` 与
-`npm ci && npm run typecheck && npm test && npm run build`。
+CI（[.github/workflows/ci.yml](.github/workflows/ci.yml)）在 push / PR 时执行 `mvn -B verify`、
+`npm ci && npm run typecheck && npm test && npm run build`，以及 e2e job（H2 后端 + preview 4173 +
+Playwright chromium：登录建行程路书、PWA 资源、结构化规划表单攻略/从零闭环）。
 
 ## 8. 后续规划
 

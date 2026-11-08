@@ -2,6 +2,30 @@
 
 按主题记录行为变化。**第四节是最需要注意的**：其中几项改变了原有的使用习惯。
 
+## 第六批：结构化规划表单、POST 流式、PWA app shell、e2e 挂 CI、文档套件（2026-11-08）
+
+- **结构化规划表单（攻略整合 / 从零规划双模式）**：规划页改为结构化需求表单——目的地与时间
+  （天数或日期范围）、同行人员、预算与节奏、偏好体验、特别要求；攻略模式可粘贴最多 3 篇参考攻略
+  （单篇 ≤6000 字、合计 ≤15000 字）+ 优化目标 + 锁定项。`planForm.ts` 纯编译逻辑把表单拼成完整中文需求
+  （9 个离线单测），聊天里只展示短摘要、攻略正文不进 bubbles。
+- **POST 流式端点**：`POST /api/agent/stream`（`PlanStreamRequest`，message 放宽到 2 万字符）与 GET 版共用
+  执行逻辑；长文本走请求体而非 URL，前端 `streamAgentChatPost` 用 fetch + ReadableStream 手工解析 SSE 帧、
+  Cookie 认证。`PlanStreamApiTest` 覆盖 401 / 超长校验 / 长文本建流（3 个）。
+- **PWA app shell**：`vite-plugin-pwa` 预缓存构建产物 + SPA 回退（manifest / sw.js / workbox），
+  **API 一律不缓存**（数据带登录态且实时，离线只保证页面打得开不白屏）；行程数据离线查看仍待办。
+- **e2e 挂 CI**：`ci.yml` 新增 e2e job（H2 后端 + preview 4173 + Playwright chromium）；
+  `planner-form.spec.ts` 覆盖结构化表单两条闭环（填表→POST 流式→确认弹窗→新行程），与 smoke 共 4 个用例。
+- **文档套件**：`docs/guide/`（上手 / 架构 / API 参考 / 数据模型 / 前端 / 部署）+ README 文档导航。
+- **底图降级提示**：地图瓦片多次加载失败时给出提示（标记与路线仍可用），`MapProvider.init` 增 `onBaseMapStatus` 回调。
+- **修复**：
+  - **CORS 漏配 preview 端口**：默认 `CORS_ALLOWED_ORIGINS` 只含 dev 5173，浏览器从 preview/e2e 4173
+    fetch POST 带 `Origin:4173` 被拒 403；默认值补上 4173（生产仍由 env 覆盖，任意源仍拒绝）。
+  - **微信空 appid 误触发异步回复**：yml 给了 `appid: ${WECHAT_OA_APPID:}` 空默认值，
+    `@ConditionalOnProperty(name="appid")` 对空串也匹配，未配置 appid 仍装配客服客户端、把同步被动 XML 回复
+    误切成异步 ack；改用 `@ConditionalOnExpression` 要求 appid+secret 非空才装配（`ChannelWeChatTest` 回归）。
+  - **PlanDiff 列表缺 React key**：确认弹窗 diff 行补 key，消除渲染警告。
+- 后端 **199** 个测试全绿、前端 **55** 个、e2e **4** 个；`@MockBean` 已无残留（迁移完成）。
+
 ## 第五批收尾：规划重试、配额展示、知识库指纹、微信客服消息、发票 S3、按天偏差（2026-10-25）
 
 - **结构化规划重试 + Prompt 调优**：首轮**完全失败**（输出非法/全部条目被校验丢弃）时，

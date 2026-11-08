@@ -56,8 +56,13 @@ cd travel-agent-web && npm test             # 前端单元测试
 cd travel-agent-web && npm run typecheck    # 仅类型检查
 ```
 
-当前规模：后端 49 个用例（认证/越权、Agent 计划与撤销、工具层契约、RAG 过滤、日期映射、意图路由、
-冲突检查、记账对账、时区），前端 28 个用例（agent store、SSE 客户端、axios 401 分流、足迹数据）。
+当前规模：后端 199 个用例（认证/越权、Agent 计划与撤销、工具层契约、RAG 过滤、日期映射、意图路由、
+冲突检查、记账对账、时区、微信渠道、POST 流式端点），前端 55 个用例（agent store、SSE 客户端、
+axios 401 分流、足迹数据、规划表单、浏览器通知、地图标记、票据），e2e 4 个（Playwright：登录建行程路书、
+PWA 资源、结构化表单攻略/从零闭环）。
+
+> 在 Linux/macOS 或 CI 上 `mvn test` 可全绿；**Windows 本地若出现 `Could not self-attach to current VM`**，
+> 是 Mockito/ByteBuddy 自附加被本机策略拦截（与代码无关），在 CI 或容器里跑测试即可。
 
 约定：
 
@@ -284,16 +289,20 @@ antd 侧同步切 `darkAlgorithm`（`main.tsx` 的 `PALETTE`）。
 
 ## 待办清单（按优先级）
 
-1. 结构化规划线上效果评估：重试命中率 / 回落率指标采集（现只有日志，无 metrics）；
-2. 前端：PWA 离线查看行程（移动端布局与暗色主题已完成）；
-3. `@MockBean` → `@MockitoBean` 全面迁移（Boot 3.6 移除前；现仅 TelegramBotTest 一处已迁）；
-4. 前端核心交互组件测试（ChatPanel / PlanDiff 确认流程）与 e2e 挂 CI。
+1. **P0 真实数据源**：经 MCP 通道接高德 POI / 路径规划（stdio 接 `@amap/amap-maps-mcp-server`），
+   酒店/餐厅开放平台同理（天气已接 Open-Meteo）；
+2. **P1 前端组件测试**：ChatPanel 核心交互的 jsdom 组件测试（PlanDiff 确认流程已由 e2e 覆盖）；
+   jsdom 依赖 `require(ESM)`，需 Node ≥ 20.19（本机 20.17 暂跑 node 环境纯逻辑测试）；
+3. **P2 PWA 离线数据**：当前仅预缓存 app shell（离线打得开页面、不白屏），行程数据离线查看待做
+   （API 一律不缓存，需引入只读行程的 runtime 缓存 + 失效策略）；
+4. **P2 二期工具**：`compare_hotel` / `check_opening_hours` / `search_ticket`。
 
-（已完成 2026-10-25，见 CHANGELOG：会话记忆、方案文案润色、路由级错误边界、真实天气
-（Open-Meteo）、httpOnly Cookie 登录态、Flyway、路书 PDF 导出、多渠道入口（Telegram /
-微信公众号含客服消息异步回复 / 通用 Webhook）、MCP 外部工具生态、LLM 结构化规划（含失败
-带反馈重试）、LLM 每日配额（含用量展示）、真实 Embedding、知识库指纹增量同步、限流 Redis
-计数、照片/发票 S3 兼容存储、按天预算偏差视图、Spring Boot 3.5.7、全栈 Docker 化、npm audit 清零。）
+（已完成：结构化规划线上指标（重试命中率/回落率，9f67a56）；`@MockBean` → `@MockitoBean` 全面迁移
+（测试已无 `@MockBean` 残留）；e2e 挂 CI（Playwright smoke + 结构化规划表单闭环，`ci.yml` e2e job）；
+结构化规划表单/参考攻略整合 + `POST /api/agent/stream` 流式端点；PWA app shell 预缓存。
+更早批次见 CHANGELOG：会话记忆、方案文案润色、真实天气、httpOnly Cookie、Flyway、路书 PDF、
+多渠道入口、MCP 生态、LLM 结构化规划与配额、真实 Embedding、知识库指纹同步、限流 Redis 计数、
+照片/发票 S3、按天预算偏差、Spring Boot 3.5.7、全栈 Docker 化。）
 
 ## 已完成的加固（2026-10 批次）
 
