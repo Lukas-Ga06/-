@@ -23,13 +23,18 @@ export default function MapView({ items, focus, focusDay }: Props) {
   const renderedKeyRef = useRef('');
   const [engine, setEngine] = useState<Engine>('3d');
   const [touring, setTouring] = useState(false);
+  /** 底图瓦片加载失败（弱网/外网受限）：标记与路线仍可用，给出降级提示 */
+  const [tileFailed, setTileFailed] = useState(false);
 
   // 初始化 / 引擎切换
   useEffect(() => {
     if (!containerRef.current || providerRef.current) return;
+    setTileFailed(false);
     const provider: MapProvider =
       engine === '3d' ? new MapLibre3DProvider() : new LeafletMapProvider();
-    provider.init(containerRef.current);
+    provider.init(containerRef.current, (status) => {
+      if (status === 'failed') setTileFailed(true);
+    });
     providerRef.current = provider;
     renderedKeyRef.current = '';
     return () => {
@@ -104,6 +109,11 @@ export default function MapView({ items, focus, focusDay }: Props) {
   return (
     <>
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+      {tileFailed && (
+        <div className="map-tile-hint" role="status">
+          ⚠️ 底图瓦片加载失败或不稳定，地图可能显示不全
+        </div>
+      )}
       <div className="map-controls">
         <div className="map-ctl-group">
           <button

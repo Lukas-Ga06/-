@@ -21,8 +21,14 @@ export class MapLibre3DProvider implements MapProvider {
   private lastRenderKey = '';
   private didInitialFit = false;
   private tourTimer: number | null = null;
+  private tileOkCount = 0;
+  private tileErrors = 0;
+  private statusReported = false;
+  private statusTimer: number | null = null;
+  private statusCb?: (status: 'ok' | 'failed') => void;
 
-  init(container: HTMLDivElement): void {
+  init(container: HTMLDivElement, onBaseMapStatus?: (status: 'ok' | 'failed') => void): void {
+    this.statusCb = onBaseMapStatus;
     this.map = new maplibregl.Map({
       container,
       style: {
@@ -57,6 +63,22 @@ export class MapLibre3DProvider implements MapProvider {
     });
     this.map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
     this.map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
+
+    // 底图瓦片成败探测：成功占多数 → ok；失败占多数（弱网/外网受限）→ failed，各最多回调一次
+    this.map.on('sourcedata', (e) => {
+      if ((e as { tile?: unknown }).tile && e.sourceId === 'osm' && e.isSourceLoaded) {
+        this.tileOkCount += 1;
+        this.reportBaseMapStatus();
+      }
+    });
+    this.map.on('error', (e) => {
+      const err = e?.error as { status?: number; message?: string } | undefined;
+      const ajaxLike = err != null && (err.status !== undefined || /fetch|network|ajax/i.test(err.message ?? ''));
+      if (ajaxLike) {
+        this.tileErrors += 1;
+        this.reportBaseMapStatus();
+      }
+    });
     this.map.on('load', () => {
       if (!this.map) return;
       this.map.addSource('routes', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -92,6 +114,31 @@ export class MapLibre3DProvider implements MapProvider {
       this.loaded = true;
       this.render(this.pendingItems, this.pendingDay);
     });
+    // 挂起兜底必须在 init 时启动：'load' 要等首个视觉完整渲染，
+    // 瓦片全部挂起时 'load' 永不触发，计时器放在 load 回调里就永远启动不了
+    this.statusTimer = window.setTimeout(() => this.reportBaseMapStatus(true), 8000);
+  }
+
+  /** 瓦片成败统计出来后回调一次：成功占多数算 ok，否则算 failed */
+  private reportBaseMapStatus(timeout = false): void {
+    if (this.statusReported) return;
+    if (this.tileOkCount > 0 && this.tileErrors <= this.tileOkCount) {
+      this.statusReported = true;
+      this.clearStatusTimer();
+      this.statusCb?.('ok');
+    } else if ((timeout && this.tileOkCount === 0) || (this.tileErrors >= 5 && this.tileErrors > this.tileOkCount)) {
+      // timeout：请求长时间挂起（无成功也无失败）也算底图不可用
+      this.statusReported = true;
+      this.clearStatusTimer();
+      this.statusCb?.('failed');
+    }
+  }
+
+  private clearStatusTimer(): void {
+    if (this.statusTimer != null) {
+      window.clearTimeout(this.statusTimer);
+      this.statusTimer = null;
+    }
   }
 
   render(items: ItineraryItem[], focusDay: number | null): void {
@@ -221,6 +268,7 @@ export class MapLibre3DProvider implements MapProvider {
 
   destroy(): void {
     this.stopTour();
+    this.clearStatusTimer();
     this.map?.remove();
     this.map = null;
     this.loaded = false;
