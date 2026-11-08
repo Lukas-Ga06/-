@@ -80,8 +80,6 @@ export default function Login() {
   return (
     <div className="login-page">
       <div className="login-brand">
-        <div className="blob b1" />
-        <div className="blob b2" />
         <div>
           <h1>AI Travel Agent</h1>
           <div className="slogan">

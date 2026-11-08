@@ -174,7 +174,7 @@ export default function Home() {
         </div>
 
         {/* ✨ 助手输入 */}
-        <div className="assistant-quick lg-sweep fade-up">
+        <div className="assistant-quick fade-up">
           <div className="aq-row">
             <span className="aq-icon">✨</span>
             <Input
@@ -214,7 +214,7 @@ export default function Home() {
           {todayStats.map((s, i) => (
             <div
               key={s.label}
-              className="stat-card lg-sweep stagger-item"
+              className="stat-card stagger-item"
               style={{ animationDelay: `${i * 0.06}s` }}
               onClick={() => (s.action ? s.action() : s.path ? navigate(s.path) : undefined)}
             >
@@ -242,7 +242,7 @@ export default function Home() {
         {/* 核心视觉：3D 足迹（深色块） + 右侧信息栏 */}
         <div className="hero-grid">
           <div className="hero-main">
-          <section className="hero-globe lg-sweep">
+          <section className="hero-globe">
             <div className="hg-head">
               <b>🌍 我的足迹</b>
               <span>
@@ -343,7 +343,7 @@ export default function Home() {
           </div>
 
           <aside className="hero-side">
-            <div className="dash-card lg-sweep">
+            <div className="dash-card">
               <div className="dc-head">
                 <b>📊 足迹数据</b>
                 <button className="dc-link" onClick={() => navigate('/travel?tab=footprint')}>
@@ -381,7 +381,7 @@ export default function Home() {
               )}
             </div>
 
-            <div className="dash-card lg-sweep">
+            <div className="dash-card">
               <div className="dc-head">
                 <b>✨ AI 今日建议</b>
               </div>
@@ -393,7 +393,7 @@ export default function Home() {
               ))}
             </div>
 
-            <div className="dash-card lg-sweep">
+            <div className="dash-card">
               <div className="dc-head">
                 <b>🧭 最近行程</b>
                 <button className="dc-link" onClick={() => navigate('/travel')}>
@@ -424,7 +424,7 @@ export default function Home() {
             </div>
 
             {upcoming.length > 0 && (
-              <div className="dash-card lg-sweep">
+              <div className="dash-card">
                 <div className="dc-head">
                   <b>📅 即将到来</b>
                   <button className="dc-link" onClick={() => navigate('/travel?tab=schedule')}>
