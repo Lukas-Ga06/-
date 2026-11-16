@@ -61,7 +61,7 @@ travel-agent-web/
     │   ├── trip.ts / expense.ts / memo.ts      # 行程与条目、记账、备忘
     │   ├── assistant.ts       # 日程/邮件/纪要/日报/发票/学习/健康/系统状态
     │   ├── reminder.ts / photo.ts              # 提醒看板、行程照片（原图带票据）
-    ├── components/            # 34 个文件（24 个组件 + 10 个接口/工具/测试），见第 7 节
+    ├── components/            # 35 个文件（23 个组件 + 12 个接口/工具/测试），见第 7 节
     ├── hooks/                 # useIntersection（CountUp 入视口才动画）、useOnlineStatus（离线提示条）
     ├── lib/                   # reminderNotify.ts + 其测试
     ├── pages/                 # 16 个页面目录，见第 4 节
@@ -447,7 +447,6 @@ export function clearAccessTicketCache(): void;                                 
 | --- | --- | --- | --- |
 | `AppShell` | `AppShell.tsx` | `active: NavModule`, `children` | 应用外壳：分组侧栏（备忘角标、提醒铃铛、用户区、主题切换）、内容区、窄屏底部标签栏；已在壳内（`InsideShell` context）时**只渲染 children** |
 | `OfflineBanner` | `OfflineBanner/index.tsx` | 无 | 断网时置顶显示「离线：显示缓存数据」，恢复在线自动消失（`useOnlineStatus` + 原生 `online`/`offline` 事件）；可手动关闭，恢复在线后重置关闭状态（见 11.3） |
-| `AssistantNav` | `AssistantNav.tsx` | `active: NavModule` | 旧版顶部导航，保留给需要顶栏的页面 |
 | `ChatPanel` | `ChatPanel/index.tsx` | `tripId?`, `placeholder?` | 聊天面板：消息列表 + 语音输入 + 发送；自动滚到底；带 `tripId`/`currentDay`/`selectedElement` 上下文 |
 | `MapView` | `MapView/index.tsx` | `items`, `focus`, `focusDay` | 地图容器与引擎切换（见第 8 节），含底图失败降级提示与 3D 巡航按钮 |
 | `Timeline` | `Timeline/index.tsx` | `trip`, `items`, `focus` | 时间轴：按 Day 分组，点击选中元素写入 `uiStore`；收到 `focus` 自动切 Day 并 `scrollIntoView` |
@@ -737,12 +736,13 @@ const ITINERARY_API_PATTERN =
 | 改登录态逻辑 | `App.tsx` 的 `Protected` + `api/auth.ts` + `api/client.ts` 的 401 分流 |
 | 改配色 | `styles/global.css` 的 `:root` + `main.tsx` 的 `PALETTE`（两处一起） |
 
-**组件统计**：`src/components/` 共 **34 个文件** = **24 个组件**（`AppShell`、`AssistantNav`、`BudgetChart`、
+**组件统计**：`src/components/` 共 **35 个文件** = **23 个组件**（`AppShell`、`BudgetChart`、
 `BudgetExecution`、`ChatPanel`、`CityDrawer`、`Collapse`、`CountUp`、`DraggableList`、`ErrorBoundary`、`ExpensePanel`、
 `FootprintMap`、`ItineraryCard`、`MapView`、`OfflineBanner`、`PageTransition`、`PaginationBar`、`PlanDiff`、`ReminderBell`、
-`Skeleton`、`SwipeRow`、`Timeline`、`Toast`、`VoiceButton`）+ **10 个非组件文件**（`MapProvider.ts`、`AMapProvider.ts`、
-`amapLoader.ts`、`markerElement.ts`、`footprintData.ts` + 5 个测试文件，含 `BudgetExecution/index.test.tsx` 与
-`OfflineBanner/index.test.tsx`）。
+`Skeleton`、`SwipeRow`、`Timeline`、`Toast`、`VoiceButton`）+ **12 个非组件文件**（`MapProvider.ts`、`AMapProvider.ts`、
+`amapLoader.ts`、`markerElement.ts`、`footprintData.ts`、`basemap.ts` + 6 个测试文件，含 `BudgetExecution/index.test.tsx`、
+`OfflineBanner/index.test.tsx`、`FootprintMap/basemap.test.ts`、`FootprintMap/footprintData.test.ts`、
+`MapView/AMapProvider.test.ts` 与 `MapView/markerElement.test.ts`）。
 
 **页面统计**：`src/pages/` 共 **16 个目录**；`App.tsx` 共 **17 条 `<Route>`** —— 15 条渲染页面组件
 （14 个受保护页 + `/login`）、2 条重定向（`/schedule`、`/footprint`）、1 条通配兜底 `*`。

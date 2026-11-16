@@ -17,6 +17,7 @@
 | 文档 | 内容 |
 | --- | --- |
 | [docs/guide/README.md](docs/guide/README.md) | 文档索引：角色阅读路径、模块速览、一分钟心智模型 |
+| [docs/guide/code-structure.md](docs/guide/code-structure.md) | 代码结构手册：分层依赖、包职责、关键协作类、新增代码落点、命名约定、维护红线 |
 | [docs/guide/getting-started.md](docs/guide/getting-started.md) | 快速上手：环境要求、启动、演示闭环 walkthrough、常见问题排查 |
 | [docs/guide/architecture.md](docs/guide/architecture.md) | 架构与核心设计：状态机、四 Agent、工具层、RAG、SSE 协议、MCP、配额 |
 | [docs/guide/api-reference.md](docs/guide/api-reference.md) | REST API 参考：通用约定（认证/票据/错误码）+ 分模块逐接口契约 |

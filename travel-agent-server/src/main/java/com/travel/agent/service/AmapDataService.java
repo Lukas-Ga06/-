@@ -2,6 +2,7 @@ package com.travel.agent.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.travel.agent.config.AmapProperties;
 import com.travel.agent.model.AmapPoi;
 import com.travel.agent.model.AmapRoute;
 import com.travel.agent.tool.AgentTool;
@@ -10,7 +11,6 @@ import com.travel.agent.util.CoordinateTransform;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
@@ -46,15 +46,15 @@ public class AmapDataService {
 
     private final ObjectMapper objectMapper;
     private final ObjectProvider<ToolRegistry> toolRegistryProvider;
-    private final String amapKey;
+    private final AmapProperties amap;
     private final RestClient restClient;
 
     @Autowired
     public AmapDataService(ObjectProvider<ToolRegistry> toolRegistryProvider, ObjectMapper objectMapper,
-                           @Value("${travel.amap.key:}") String amapKey, RestClient.Builder builder) {
+                           AmapProperties amap, RestClient.Builder builder) {
         this.toolRegistryProvider = toolRegistryProvider;
         this.objectMapper = objectMapper;
-        this.amapKey = amapKey;
+        this.amap = amap;
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(3000);
         factory.setReadTimeout(6000);
@@ -68,7 +68,8 @@ public class AmapDataService {
                     String amapKey, RestClient restClient) {
         this.toolRegistryProvider = toolRegistryProvider;
         this.objectMapper = objectMapper;
-        this.amapKey = amapKey;
+        this.amap = new AmapProperties();
+        this.amap.setKey(amapKey);
         this.restClient = restClient;
     }
 
@@ -86,7 +87,7 @@ public class AmapDataService {
     }
 
     private boolean amapKeyUsable() {
-        return amapKey != null && !amapKey.isBlank();
+        return amap.usable();
     }
 
     /**
@@ -114,7 +115,7 @@ public class AmapDataService {
             return List.of();
         }
         try {
-            StringBuilder uri = new StringBuilder(REST_BASE + "/v3/place/text?key=" + enc(amapKey)
+            StringBuilder uri = new StringBuilder(REST_BASE + "/v3/place/text?key=" + enc(amap.getKey())
                     + "&keywords=" + enc(keywords) + "&offset=" + max + "&extensions=all");
             if (city != null && !city.isBlank()) {
                 uri.append("&city=").append(enc(city));
@@ -162,7 +163,7 @@ public class AmapDataService {
             return null;
         }
         try {
-            String uri = REST_BASE + restPath + "?key=" + enc(amapKey)
+            String uri = REST_BASE + restPath + "?key=" + enc(amap.getKey())
                     + "&origin=" + origin + "&destination=" + destination;
             JsonNode resp = restClient.get().uri(URI.create(uri)).retrieve().body(JsonNode.class);
             return parseRoute(resp);
@@ -199,7 +200,7 @@ public class AmapDataService {
         }
         for (JsonNode p : pois) {
             String name = p.path("name").asText("").trim();
-            double[] loc = parseLocation(p.path("location").asText(""));
+            double[] loc = CoordinateTransform.parseGcj02Location(p.path("location").asText(""));
             if (name.isEmpty() || loc == null) {
                 continue;
             }
@@ -224,27 +225,6 @@ public class AmapDataService {
         double dist = first.path("distance").asDouble(-1);
         double dur = first.path("duration").asDouble(-1);
         return (dist >= 0 && dur >= 0) ? new AmapRoute(dist, dur) : null;
-    }
-
-    /** 高德 location 格式为 "经度,纬度"（GCJ-02）→ WGS-84 [lat, lng]；非法/零坐标返回 null */
-    private double[] parseLocation(String location) {
-        if (location == null) {
-            return null;
-        }
-        String[] parts = location.split(",");
-        if (parts.length != 2) {
-            return null;
-        }
-        try {
-            double lng = Double.parseDouble(parts[0].trim());
-            double lat = Double.parseDouble(parts[1].trim());
-            if (lat == 0 && lng == 0) {
-                return null;
-            }
-            return CoordinateTransform.gcj02ToWgs84(lat, lng);
-        } catch (NumberFormatException e) {
-            return null;
-        }
     }
 
     private JsonNode asJson(Object res) {

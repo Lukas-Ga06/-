@@ -1,29 +1,16 @@
 package com.travel.agent.agent;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.travel.agent.dto.AgentDtos;
-import com.travel.agent.dto.BudgetDtos;
 import com.travel.agent.entity.ConversationMessage;
-import com.travel.agent.entity.DailyReport;
-import com.travel.agent.entity.Expense;
 import com.travel.agent.entity.ItineraryItem;
-import com.travel.agent.entity.Memo;
-import com.travel.agent.entity.ScheduleItem;
 import com.travel.agent.entity.Trip;
 import com.travel.agent.exception.BusinessException;
 import com.travel.agent.model.WeatherInfo;
-import com.travel.agent.rag.RagService;
-import com.travel.agent.service.BudgetService;
 import com.travel.agent.service.ConversationService;
-import com.travel.agent.service.DailyReportService;
-import com.travel.agent.service.ExpenseService;
-import com.travel.agent.service.HealthService;
 import com.travel.agent.service.ItineraryService;
-import com.travel.agent.service.MemoService;
-import com.travel.agent.service.OperationHistoryService;
 import com.travel.agent.service.PlanNarrationService;
-import com.travel.agent.service.ScheduleService;
 import com.travel.agent.service.TripService;
-import com.travel.agent.service.TravelCatalogService;
 import com.travel.agent.tool.AgentTool;
 import com.travel.agent.tool.ToolInvoker;
 import com.travel.agent.tool.ToolRegistry;
@@ -42,6 +29,15 @@ import java.util.Set;
 /**
  * Agent Engine：RECEIVE → UNDERSTAND → PLAN → EXECUTE → REFLECT → PRESENT → CONFIRM → COMMIT。
  * 异常路径：EXECUTE → ERROR → 反馈用户。
+ *
+ * <p>本类只保留<b>状态机与编排</b>：取消边界、会话记忆、规划→预览→反思→待确认链路、
+ * 外部工具调用；各类意图的具体答复与确认/撤销分别委托给：
+ * <ul>
+ *   <li>{@link AssistantIntentHandler}：备忘 / 日程 / 日报 / 健康；</li>
+ *   <li>{@link TravelQueryHandler}：知识问答 / 预算 / 记账；</li>
+ *   <li>{@link PlanConfirmationService}：确认 / 取消 / 取回 / 撤销；</li>
+ *   <li>{@link AgentStageTimer}：阶段计时指标。</li>
+ * </ul>
  */
 @Service
 @RequiredArgsConstructor
@@ -63,15 +59,8 @@ public class AgentEngine {
     private static final String TICKET_READONLY_MESSAGE =
             "当前连接为只读票据会话，记账/备忘/日程/日报请在网页端操作。";
 
-    /** 阶段计时指标：agent.stage{stage=intent|plan|tool|commit}，失败路径同样观测 */
-    private static final String AGENT_STAGE_METRIC = "agent.stage";
     /** SSE 断连计数：reason=complete|timeout|error（controller 记）＋ cancelled（引擎阶段边界短路记） */
     private static final String SSE_DISCONNECTS_METRIC = "sse.disconnects";
-
-    private static final String STAGE_INTENT = "intent";
-    private static final String STAGE_PLAN = "plan";
-    private static final String STAGE_TOOL = "tool";
-    private static final String STAGE_COMMIT = "commit";
 
     /** 被取消的轮次在结果里的 intent 标记（只用于日志/单测识别，不随 SSE 事件下发） */
     public static final String CANCELLED_INTENT = "CANCELLED";
@@ -81,23 +70,18 @@ public class AgentEngine {
     private final ExecutorAgent executorAgent;
     private final ReflectAgent reflectAgent;
     private final PendingPlanStore pendingPlans;
-    private final RagService ragService;
-    private final BudgetService budgetService;
     private final TripService tripService;
     private final ItineraryService itineraryService;
-    private final OperationHistoryService operationHistoryService;
-    private final TravelCatalogService catalogService;
-    private final ExpenseService expenseService;
-    private final MemoService memoService;
-    private final ScheduleService scheduleService;
-    private final HealthService healthService;
-    private final DailyReportService dailyReportService;
     private final ConversationService conversationService;
     private final PlanNarrationService planNarrationService;
     private final ToolRegistry toolRegistry;
     private final ToolInvoker toolInvoker;
-    private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
-    /** 指标：agent.stage / sse.disconnects（注入方式与 StructuredPlanner、LlmClient 一致） */
+    private final ObjectMapper objectMapper;
+    private final AgentStageTimer stageTimer;
+    private final AssistantIntentHandler assistantHandler;
+    private final TravelQueryHandler travelQueryHandler;
+    private final PlanConfirmationService planConfirmation;
+    /** 指标：sse.disconnects（注入方式与 StructuredPlanner、LlmClient 一致） */
     private final MeterRegistry meterRegistry;
 
     public AgentDtos.AgentResult handle(AgentContext ctx) {
@@ -150,15 +134,15 @@ public class AgentEngine {
             }
 
             AgentDtos.AgentResult result = switch (intent.getIntent()) {
-                case IntentResult.QUERY_KNOWLEDGE -> answerKnowledge(ctx, intent, trip);
-                case IntentResult.QUERY_BUDGET -> answerBudget(ctx, intent, trip);
-                case IntentResult.RECORD_EXPENSE -> answerRecordExpense(ctx, intent, trip);
-                case IntentResult.ADD_MEMO -> answerAddMemo(ctx, intent);
-                case IntentResult.QUERY_MEMO -> answerQueryMemo(ctx, intent);
-                case IntentResult.ADD_SCHEDULE -> answerAddSchedule(ctx, intent);
-                case IntentResult.QUERY_SCHEDULE -> answerQuerySchedule(ctx, intent);
-                case IntentResult.GEN_DAILY_REPORT -> answerDailyReport(ctx, intent);
-                case IntentResult.QUERY_HEALTH -> answerQueryHealth(ctx, intent);
+                case IntentResult.QUERY_KNOWLEDGE -> travelQueryHandler.answerKnowledge(ctx, intent, trip);
+                case IntentResult.QUERY_BUDGET -> travelQueryHandler.answerBudget(ctx, intent, trip);
+                case IntentResult.RECORD_EXPENSE -> travelQueryHandler.recordExpense(ctx, intent, trip);
+                case IntentResult.ADD_MEMO -> assistantHandler.addMemo(ctx, intent);
+                case IntentResult.QUERY_MEMO -> assistantHandler.queryMemo(ctx, intent);
+                case IntentResult.ADD_SCHEDULE -> assistantHandler.addSchedule(ctx, intent);
+                case IntentResult.QUERY_SCHEDULE -> assistantHandler.querySchedule(ctx, intent);
+                case IntentResult.GEN_DAILY_REPORT -> assistantHandler.dailyReport(ctx, intent);
+                case IntentResult.QUERY_HEALTH -> assistantHandler.queryHealth(ctx, intent);
                 case IntentResult.INVOKE_TOOL -> answerInvokeTool(ctx, intent);
                 case IntentResult.PLAN_TRIP, IntentResult.MODIFY_ITINERARY -> planAndPresent(ctx, intent, trip);
                 default -> complete(ctx, AgentDtos.AgentResult.builder()
@@ -202,31 +186,11 @@ public class AgentEngine {
 
     /** intent 阶段：意图识别（LLM 优先，规则兜底）；异常也计时，失败次数看 count */
     private IntentResult timedIntent(AgentContext ctx, Trip trip) {
-        Timer.Sample sample = startStage();
+        Timer.Sample sample = stageTimer.start();
         try {
             return intentAgent.detect(ctx, trip);
         } finally {
-            stopStage(STAGE_INTENT, sample);
-        }
-    }
-
-    private Timer.Sample startStage() {
-        return Timer.start(meterRegistry);
-    }
-
-    /**
-     * 结束阶段计时。必须放 finally：异常路径同样要落到 agent.stage 上，
-     * 否则"超时/报错阶段"在指标里完全消失，只剩成功样本。
-     */
-    private void stopStage(String stage, Timer.Sample sample) {
-        if (sample == null) {
-            return;
-        }
-        try {
-            sample.stop(Timer.builder(AGENT_STAGE_METRIC).tag("stage", stage).register(meterRegistry));
-        } catch (RuntimeException e) {
-            // 指标故障绝不能反噬主流程
-            log.debug("记录阶段指标失败: stage={} err={}", stage, e.getMessage());
+            stageTimer.stop(AgentStageTimer.STAGE_INTENT, sample);
         }
     }
 
@@ -296,12 +260,12 @@ public class AgentEngine {
                 IntentResult.PLAN_TRIP.equals(intent.getIntent()) ? "正在为你规划行程…" : "正在重新规划行程…"));
 
         // plan 阶段：规则路径 + LLM 结构化规划都在 plannerAgent.plan 内部，一并计时
-        Timer.Sample planSample = startStage();
+        Timer.Sample planSample = stageTimer.start();
         AgentPlan plan;
         try {
             plan = plannerAgent.plan(ctx, intent, trip);
         } finally {
-            stopStage(STAGE_PLAN, planSample);
+            stageTimer.stop(AgentStageTimer.STAGE_PLAN, planSample);
         }
         // 规划往往要几秒到几十秒：结束时再确认客户端还在，别再做预览/反思/落待确认方案
         if (abortIfCancelled(ctx, "after-plan")) {
@@ -372,249 +336,6 @@ public class AgentEngine {
         return plan.getReasoning();
     }
 
-    private AgentDtos.AgentResult answerKnowledge(AgentContext ctx, IntentResult intent, Trip trip) {
-        String city = trip != null ? trip.getDestination() : null;
-        if (city == null) {
-            String message = ctx.getMessage() == null ? "" : ctx.getMessage();
-            city = catalogService.cities().stream()
-                    .map(c -> c.name())
-                    .filter(message::contains)
-                    .findFirst().orElse(null);
-        }
-        // 带上当前用户：个人知识库只对本人可见，公共知识（userId 为空）所有人可见
-        RagService.RagAnswer answer = ragService.answer(
-                ctx.getMessage() == null ? "" : ctx.getMessage(), city, ctx.getUserId());
-        ctx.emit("rag_result", Map.of("sources", answer.sources()));
-        return complete(ctx, AgentDtos.AgentResult.builder()
-                .intent(intent.getIntent())
-                .status(AgentDtos.STATUS_COMPLETED)
-                .message(answer.message())
-                .warnings(new ArrayList<>())
-                .build());
-    }
-
-    private AgentDtos.AgentResult answerBudget(AgentContext ctx, IntentResult intent, Trip trip) {
-        if (trip == null) {
-            return complete(ctx, AgentDtos.AgentResult.builder()
-                    .intent(intent.getIntent())
-                    .status(AgentDtos.STATUS_COMPLETED)
-                    .message("请先选择一个行程，我就能帮你算预算啦。")
-                    .build());
-        }
-        List<ItineraryItem> items = itineraryService.listEntities(trip.getId());
-        AgentDtos.BudgetSummary summary = budgetService.summarize(items);
-        BudgetDtos.BudgetExecution execution = budgetService.execution(trip, items,
-                expenseService.listEntitiesByTrip(trip.getId()));
-        return complete(ctx, AgentDtos.AgentResult.builder()
-                .tripId(trip.getId())
-                .intent(intent.getIntent())
-                .status(AgentDtos.STATUS_COMPLETED)
-                .message(MessageTemplates.budgetExecution(execution))
-                .focus(AgentDtos.AgentFocus.builder().type("budget").tripId(trip.getId()).build())
-                .budget(summary)
-                .warnings(new ArrayList<>())
-                .build());
-    }
-
-    private AgentDtos.AgentResult answerRecordExpense(AgentContext ctx, IntentResult intent, Trip trip) {
-        if (trip == null) {
-            return complete(ctx, AgentDtos.AgentResult.builder()
-                    .intent(intent.getIntent())
-                    .status(AgentDtos.STATUS_COMPLETED)
-                    .message("记账前请先选择一个行程；进入行程后说「记一笔午餐 45 元」即可。")
-                    .build());
-        }
-        MessageParser.ExpenseRequest request = MessageParser.parseExpenseRequest(ctx.getMessage());
-        if (request == null) {
-            return complete(ctx, AgentDtos.AgentResult.builder()
-                    .intent(intent.getIntent())
-                    .status(AgentDtos.STATUS_COMPLETED)
-                    .message("请告诉我金额，比如「记一笔午餐 45 元」或「打车花了 30 元」。")
-                    .build());
-        }
-        java.time.LocalDate spentAt = java.time.LocalDate.now().plusDays(request.dayOffset());
-        String note = ctx.getMessage() == null ? null
-                : ctx.getMessage().length() > 200 ? ctx.getMessage().substring(0, 200) : ctx.getMessage();
-        Expense saved = expenseService.add(trip.getId(), ctx.getUserId(), request.category(),
-                request.amount(), note, spentAt, request.paymentMethod());
-        java.math.BigDecimal total = expenseService.totalOf(trip.getId());
-        StringBuilder sb = new StringBuilder("✅ 已记账：").append(saved.getCategory())
-                .append(" ¥").append(saved.getAmount().stripTrailingZeros().toPlainString())
-                .append("（").append(spentAt).append(" · ").append(saved.getPaymentMethod()).append("）。本行程累计支出 ¥")
-                .append(total.stripTrailingZeros().toPlainString());
-        String over = "";
-        if (trip.getBudget() != null) {
-            sb.append(" / 预算 ¥").append(trip.getBudget().stripTrailingZeros().toPlainString());
-            if (total.compareTo(trip.getBudget()) > 0) {
-                over = "（已超出预算 ⚠）";
-            }
-        }
-        return complete(ctx, AgentDtos.AgentResult.builder()
-                .tripId(trip.getId())
-                .intent(intent.getIntent())
-                .status(AgentDtos.STATUS_COMPLETED)
-                .message(sb + over)
-                .focus(AgentDtos.AgentFocus.builder().type("budget").tripId(trip.getId()).build())
-                .warnings(new ArrayList<>())
-                .build());
-    }
-
-    /** 备忘：添加（个人助理生活模块） */
-    private AgentDtos.AgentResult answerAddMemo(AgentContext ctx, IntentResult intent) {
-        String content = MessageParser.parseMemoContent(ctx.getMessage());
-        if (content == null || content.isBlank()) {
-            return complete(ctx, AgentDtos.AgentResult.builder()
-                    .intent(intent.getIntent())
-                    .status(AgentDtos.STATUS_COMPLETED)
-                    .message("请告诉我备忘内容，比如「记一下明天办签证」。")
-                    .build());
-        }
-        Memo memo = memoService.add(ctx.getUserId(), content);
-        long open = memoService.openCount(ctx.getUserId());
-        return complete(ctx, AgentDtos.AgentResult.builder()
-                .intent(intent.getIntent())
-                .status(AgentDtos.STATUS_COMPLETED)
-                .message("📝 已添加备忘：「" + memo.getContent() + "」。当前待办 " + open + " 项。")
-                .warnings(new ArrayList<>())
-                .build());
-    }
-
-    /** 备忘：查看待办列表 */
-    private AgentDtos.AgentResult answerQueryMemo(AgentContext ctx, IntentResult intent) {
-        List<Memo> memos = memoService.list(ctx.getUserId());
-        List<Memo> open = memos.stream().filter(m -> !m.isDone()).toList();
-        long doneCount = memos.size() - open.size();
-        if (open.isEmpty()) {
-            return complete(ctx, AgentDtos.AgentResult.builder()
-                    .intent(intent.getIntent())
-                    .status(AgentDtos.STATUS_COMPLETED)
-                    .message(doneCount > 0
-                            ? "📝 待办都完成啦（另有 " + doneCount + " 项已完成）。说「记一下……」可以添加新备忘。"
-                            : "📝 备忘录是空的，说「记一下明天办签证」即可添加。")
-                    .warnings(new ArrayList<>())
-                    .build());
-        }
-        StringBuilder sb = new StringBuilder("📝 你的待办共 ").append(open.size()).append(" 项：");
-        for (int i = 0; i < open.size(); i++) {
-            sb.append("\n").append(i + 1).append(". ").append(open.get(i).getContent());
-        }
-        if (doneCount > 0) {
-            sb.append("\n（另有 ").append(doneCount).append(" 项已完成）");
-        }
-        return complete(ctx, AgentDtos.AgentResult.builder()
-                .intent(intent.getIntent())
-                .status(AgentDtos.STATUS_COMPLETED)
-                .message(sb.toString())
-                .warnings(new ArrayList<>())
-                .build());
-    }
-
-    /** 日程：添加（办公自动化模块） */
-    private AgentDtos.AgentResult answerAddSchedule(AgentContext ctx, IntentResult intent) {
-        MessageParser.ScheduleRequest request = MessageParser.parseScheduleRequest(ctx.getMessage());
-        if (request == null) {
-            return complete(ctx, AgentDtos.AgentResult.builder()
-                    .intent(intent.getIntent())
-                    .status(AgentDtos.STATUS_COMPLETED)
-                    .message("请告诉我日程事项，比如「明天下午3点开评审会」。")
-                    .build());
-        }
-        ScheduleItem item = scheduleService.add(ctx.getUserId(), request.title(),
-                request.date(), request.time(), null, request.recurrence(), null);
-        String timeText = item.getTime() == null ? "" : item.getTime().toString().substring(0, 5) + " ";
-        String repeatText = com.travel.agent.util.Recurrence.isRecurring(request.recurrence())
-                ? "（" + com.travel.agent.util.Recurrence.label(request.recurrence()) + "）" : "";
-        return complete(ctx, AgentDtos.AgentResult.builder()
-                .intent(intent.getIntent())
-                .status(AgentDtos.STATUS_COMPLETED)
-                .message("📅 已加入日程：" + item.getDate() + " " + timeText + "「" + item.getTitle() + "」"
-                        + repeatText + "。")
-                .warnings(new ArrayList<>())
-                .build());
-    }
-
-    /** 日程：查看 */
-    private AgentDtos.AgentResult answerQuerySchedule(AgentContext ctx, IntentResult intent) {
-        List<ScheduleItem> upcoming = scheduleService.upcoming(ctx.getUserId());
-        if (upcoming.isEmpty()) {
-            return complete(ctx, AgentDtos.AgentResult.builder()
-                    .intent(intent.getIntent())
-                    .status(AgentDtos.STATUS_COMPLETED)
-                    .message("📅 日程是空的，说「明天下午3点开评审会」即可添加。")
-                    .warnings(new ArrayList<>())
-                    .build());
-        }
-        StringBuilder sb = new StringBuilder("📅 即将到来的日程：");
-        for (ScheduleItem item : upcoming) {
-            sb.append("\n· ").append(item.getDate()).append(" ")
-                    .append(item.getTime() == null ? "" : item.getTime().toString().substring(0, 5) + " ")
-                    .append(item.getTitle());
-        }
-        return complete(ctx, AgentDtos.AgentResult.builder()
-                .intent(intent.getIntent())
-                .status(AgentDtos.STATUS_COMPLETED)
-                .message(sb.toString())
-                .warnings(new ArrayList<>())
-                .build());
-    }
-
-    /** 日报：汇总当日真实数据自动生成 */
-    private AgentDtos.AgentResult answerDailyReport(AgentContext ctx, IntentResult intent) {
-        DailyReport report = dailyReportService.generate(ctx.getUserId(), java.time.LocalDate.now());
-        String brief = report.getContent().length() > 500
-                ? report.getContent().substring(0, 500) + "……（完整日报已保存，可在办公模块查看）"
-                : report.getContent();
-        return complete(ctx, AgentDtos.AgentResult.builder()
-                .intent(intent.getIntent())
-                .status(AgentDtos.STATUS_COMPLETED)
-                .message("📋 今日日报已生成：\n\n" + brief)
-                .warnings(new ArrayList<>())
-                .build());
-    }
-
-    /** 健康：最新数据 + 一周均值 + 建议 */
-    private AgentDtos.AgentResult answerQueryHealth(AgentContext ctx, IntentResult intent) {
-        com.travel.agent.entity.HealthRecord latest = healthService.latest(ctx.getUserId());
-        double[] avg = healthService.weeklyAverages(ctx.getUserId());
-        if (latest == null) {
-            return complete(ctx, AgentDtos.AgentResult.builder()
-                    .intent(intent.getIntent())
-                    .status(AgentDtos.STATUS_COMPLETED)
-                    .message("暂无健康数据。可在「❤️ 健康」模块导入小米手环演示数据，或手动记录。")
-                    .warnings(new ArrayList<>())
-                    .build());
-        }
-        String advice = healthAdviceText(latest, avg[0], avg[1]);
-        return complete(ctx, AgentDtos.AgentResult.builder()
-                .intent(intent.getIntent())
-                .status(AgentDtos.STATUS_COMPLETED)
-                .message("❤️ 最新健康数据（" + latest.getDate() + "）：步数 "
-                        + (latest.getSteps() == null ? "-" : latest.getSteps())
-                        + "，睡眠 " + (latest.getSleepHours() == null ? "-" : latest.getSleepHours() + " 小时")
-                        + "，静息心率 " + (latest.getRestingHeartRate() == null ? "-" : latest.getRestingHeartRate())
-                        + "。\n近 7 天均值：步数 " + (int) avg[0] + "，睡眠 " + String.format("%.1f", avg[1]) + " 小时。\n"
-                        + advice)
-                .warnings(new ArrayList<>())
-                .build());
-    }
-
-    private String healthAdviceText(com.travel.agent.entity.HealthRecord latest, double avgSteps, double avgSleep) {        StringBuilder sb = new StringBuilder();
-        if (avgSteps < 6000) {
-            sb.append("步数偏少，建议每天增加 30 分钟快走。");
-        } else {
-            sb.append("步数表现不错，保持规律运动。");
-        }
-        if (avgSleep < 7) {
-            sb.append("睡眠不足 7 小时，建议提前 30 分钟入睡。");
-        } else {
-            sb.append("睡眠时长健康。");
-        }
-        if (latest.getRestingHeartRate() != null && latest.getRestingHeartRate() > 90) {
-            sb.append("静息心率偏高，注意休息。");
-        }
-        return sb.toString();
-    }
-
     /**
      * INVOKE_TOOL：LLM 选中一个已注册的 MCP 外部工具并给出参数，直接执行（工具层保证只读）。
      * 仅 LLM 路径可产出该意图；规则兜底路径不会走到这里。
@@ -635,12 +356,12 @@ public class AgentEngine {
             return aborted(ctx);
         }
         // tool 阶段：外部 MCP / 内置只读工具调用（ToolInvoker 内部含审计与 tool_call/tool_result 事件）
-        Timer.Sample toolSample = startStage();
+        Timer.Sample toolSample = stageTimer.start();
         try {
             result = toolInvoker.invoke(ctx, toolName,
                     intent.getToolArgs() == null ? Map.of() : intent.getToolArgs());
         } finally {
-            stopStage(STAGE_TOOL, toolSample);
+            stageTimer.stop(AgentStageTimer.STAGE_TOOL, toolSample);
         }
         if (abortIfCancelled(ctx, "after-tool")) {
             return aborted(ctx);
@@ -676,104 +397,21 @@ public class AgentEngine {
     }
 
     // ==================== 确认 / 取消 / 撤销（Human-in-the-loop） ====================
+    // 具体并发语义见 PlanConfirmationService；这里保留对外入口以维持既有调用方与测试契约。
 
     public AgentDtos.AgentResult confirm(String planId, Long userId) {
-        // 1) 先确认方案存在且属于当前用户（不存在 / 过期 → 业务失败）
-        PendingPlanStore.PendingPlan pending = pendingPlans.peek(planId, userId);
-        if (pending == null) {
-            return AgentDtos.AgentResult.builder()
-                    .planId(planId)
-                    .status(AgentDtos.STATUS_FAILED)
-                    .message("确认会话不存在或已过期，请重新发起请求。")
-                    .build();
-        }
-        // 2) 抢所有权：条件更新 PENDING → CONFIRMING，只有成功者可以继续提交。
-        //    这一步把「读方案 → 提交 → 删除」串行化：并发确认同一方案时，
-        //    后到的请求拿到 0 行，直接返回业务失败（不是 500，也没有重复落库）。
-        if (!pendingPlans.claim(planId, userId)) {
-            return AgentDtos.AgentResult.builder()
-                    .planId(planId)
-                    .tripId(pending.tripId())
-                    .status(AgentDtos.STATUS_FAILED)
-                    .message("该方案正在处理中或已被确认/取消，请刷新后查看最新结果。")
-                    .build();
-        }
-        // claim 与 commit 之间不要插入其它写操作：越短窗口越安全
-        // 版本校验：方案生成后行程若被改过（另一个标签页/设备），这份 Diff 已不可信
-        if (pending.tripId() != null) {
-            Trip current = tripService.getOwned(pending.tripId(), userId);
-            String currentRevision = ItineraryService.planRevision(current,
-                    itineraryService.listEntities(current.getId()));
-            if (pending.planRevision() != null && !pending.planRevision().equals(currentRevision)) {
-                pendingPlans.remove(planId);
-                return AgentDtos.AgentResult.builder()
-                        .planId(planId)
-                        .tripId(pending.tripId())
-                        .status(AgentDtos.STATUS_FAILED)
-                        .message("行程在你确认前已经发生变化（安排、预算或日期被修改），这份方案已失效，请重新发起调整。")
-                        .build();
-            }
-        }
-        try {
-            // commit 阶段：真正落库（POST /api/agent/confirm → AgentEngine.confirm → executorAgent.commit）。
-            // 计时放在本类内，不跨范围改 ExecutorAgent；SSE 流里的 plan 预览不计入 commit。
-            Timer.Sample commitSample = startStage();
-            AgentDtos.AgentResult result;
-            try {
-                result = executorAgent.commit(pending.plan(), userId);
-            } finally {
-                stopStage(STAGE_COMMIT, commitSample);
-            }
-            // 成功：方案已被消费
-            pendingPlans.remove(planId);
-            return result;
-        } catch (RuntimeException e) {
-            // 提交失败：释放所有权、保留方案行，用户可用同一 planId 重试（原设计语义）
-            pendingPlans.release(planId);
-            throw e;
-        }
+        return planConfirmation.confirm(planId, userId);
     }
 
     public AgentDtos.AgentResult cancel(String planId, Long userId) {
-        // 取消也要抢所有权：否则可能与正在提交的确认交错，
-        // 出现「已提示取消成功、但行程已被提交」的假取消。
-        PendingPlanStore.PendingPlan pending = pendingPlans.peek(planId, userId);
-        if (pending != null && !pendingPlans.claim(planId, userId)) {
-            return AgentDtos.AgentResult.builder()
-                    .planId(planId)
-                    .status(AgentDtos.STATUS_FAILED)
-                    .message("该方案正在确认中，请稍后刷新查看结果。")
-                    .build();
-        }
-        if (pending != null) {
-            pendingPlans.remove(planId);
-        }
-        return AgentDtos.AgentResult.builder()
-                .planId(planId)
-                .status(AgentDtos.STATUS_COMPLETED)
-                .message("已取消该方案，行程未做任何修改。")
-                .build();
+        return planConfirmation.cancel(planId, userId);
     }
 
-    /**
-     * 取回待确认方案。
-     * 前端刷新页面后凭 planId 找回确认弹窗内容（之前刷新即丢，只能重新发起规划）。
-     */
     public AgentDtos.AgentResult pendingPreview(String planId, Long userId) {
-        PendingPlanStore.PendingPlan pending = pendingPlans.peek(planId, userId);
-        if (pending == null) {
-            throw new com.travel.agent.exception.BusinessException(404, "待确认方案不存在或已过期，请重新发起");
-        }
-        return pending.preview();
+        return planConfirmation.pendingPreview(planId, userId);
     }
 
     public AgentDtos.AgentResult undo(Long tripId, Long userId) {
-        Trip trip = tripService.getOwned(tripId, userId);
-        String message = operationHistoryService.undoLatest(trip, userId);
-        return AgentDtos.AgentResult.builder()
-                .tripId(tripId)
-                .status(AgentDtos.STATUS_COMPLETED)
-                .message(message)
-                .build();
+        return planConfirmation.undo(tripId, userId);
     }
 }

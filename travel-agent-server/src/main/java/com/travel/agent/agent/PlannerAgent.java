@@ -23,13 +23,11 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 /**
  * Planner Agent：Intent + 当前行程 + 用户偏好 + 预算 + 天气 + 交通 → 规划候选方案。
@@ -53,6 +51,8 @@ public class PlannerAgent {
     private final LlmProperties llmProperties;
     /** LLM 结构化规划：模型从候选清单选择与编排，规则引擎逐条校验，失败回落规则路径 */
     private final StructuredPlanner structuredPlanner;
+    /** 候选选择与条目草稿装配（新行程 / 行程修改两条路径共用同一套口径） */
+    private final PlannerDraftSupport draftsSupport;
 
     public AgentPlan plan(AgentContext ctx, IntentResult intent, Trip trip) {
         String message = ctx.getMessage() == null ? "" : ctx.getMessage();
@@ -197,7 +197,7 @@ public class PlannerAgent {
             if (d == 1 && hotel != null) {
                 List<String> hotelTags = new ArrayList<>(List.of("酒店"));
                 if (hotel.nearSubway()) hotelTags.add("近地铁");
-                drafts.add(draft(baseDate, d, ItineraryItem.TYPE_HOTEL, "入住 · " + hotel.name(),
+                drafts.add(draftsSupport.draft(baseDate, d, ItineraryItem.TYPE_HOTEL, "入住 · " + hotel.name(),
                         "09:00", "09:30", hotel.lat(), hotel.lng(), hotelCost, hotelTags, hotel.description()));
             }
 
@@ -205,22 +205,22 @@ public class PlannerAgent {
             Double prevLng = (d == 1 && hotel != null) ? hotel.lng() : null;
             BigDecimal transport = BigDecimal.ZERO;
 
-            Attraction morning = pickAttraction(ctx, city, "outdoor", usedAttractions, family);
+            Attraction morning = draftsSupport.pickAttraction(ctx, city, "outdoor", usedAttractions, family);
             if (morning != null) {
-                transport = transport.add(legTaxiCost(ctx, prevLat, prevLng, morning.lat(), morning.lng()));
+                transport = transport.add(draftsSupport.legTaxiCost(ctx, prevLat, prevLng, morning.lat(), morning.lng()));
                 String start = d == 1 ? "10:00" : "09:00";
                 String end = d == 1 ? "11:45" : "11:30";
-                drafts.add(draft(baseDate, d, ItineraryItem.TYPE_ATTRACTION, morning.name(), start, end,
+                drafts.add(draftsSupport.draft(baseDate, d, ItineraryItem.TYPE_ATTRACTION, morning.name(), start, end,
                         morning.lat(), morning.lng(), BigDecimal.valueOf(morning.ticket()),
                         morning.tagsWithVenue(), morning.description()));
                 usedAttractions.add(morning.name());
                 prevLat = morning.lat();
                 prevLng = morning.lng();
 
-                Restaurant lunch = pickRestaurant(ctx, city, morning.lat(), morning.lng(), usedRestaurants);
+                Restaurant lunch = draftsSupport.pickRestaurant(ctx, city, morning.lat(), morning.lng(), usedRestaurants);
                 if (lunch != null) {
-                    transport = transport.add(legTaxiCost(ctx, prevLat, prevLng, lunch.lat(), lunch.lng()));
-                    drafts.add(draft(baseDate, d, ItineraryItem.TYPE_RESTAURANT, "午餐 · " + lunch.name(),
+                    transport = transport.add(draftsSupport.legTaxiCost(ctx, prevLat, prevLng, lunch.lat(), lunch.lng()));
+                    drafts.add(draftsSupport.draft(baseDate, d, ItineraryItem.TYPE_RESTAURANT, "午餐 · " + lunch.name(),
                             "12:00", "13:30", lunch.lat(), lunch.lng(), BigDecimal.valueOf(lunch.avgCost()),
                             List.of(lunch.cuisine()), lunch.description()));
                     usedRestaurants.add(lunch.name());
@@ -229,20 +229,20 @@ public class PlannerAgent {
                 }
             }
 
-            Attraction afternoon = pickAttraction(ctx, city, "indoor", usedAttractions, family);
+            Attraction afternoon = draftsSupport.pickAttraction(ctx, city, "indoor", usedAttractions, family);
             if (afternoon != null) {
-                transport = transport.add(legTaxiCost(ctx, prevLat, prevLng, afternoon.lat(), afternoon.lng()));
-                drafts.add(draft(baseDate, d, ItineraryItem.TYPE_ATTRACTION, afternoon.name(),
+                transport = transport.add(draftsSupport.legTaxiCost(ctx, prevLat, prevLng, afternoon.lat(), afternoon.lng()));
+                drafts.add(draftsSupport.draft(baseDate, d, ItineraryItem.TYPE_ATTRACTION, afternoon.name(),
                         "14:00", "16:30", afternoon.lat(), afternoon.lng(),
                         BigDecimal.valueOf(afternoon.ticket()), afternoon.tagsWithVenue(), afternoon.description()));
                 usedAttractions.add(afternoon.name());
                 prevLat = afternoon.lat();
                 prevLng = afternoon.lng();
 
-                Restaurant dinner = pickRestaurant(ctx, city, afternoon.lat(), afternoon.lng(), usedRestaurants);
+                Restaurant dinner = draftsSupport.pickRestaurant(ctx, city, afternoon.lat(), afternoon.lng(), usedRestaurants);
                 if (dinner != null) {
-                    transport = transport.add(legTaxiCost(ctx, prevLat, prevLng, dinner.lat(), dinner.lng()));
-                    drafts.add(draft(baseDate, d, ItineraryItem.TYPE_RESTAURANT, "晚餐 · " + dinner.name(),
+                    transport = transport.add(draftsSupport.legTaxiCost(ctx, prevLat, prevLng, dinner.lat(), dinner.lng()));
+                    drafts.add(draftsSupport.draft(baseDate, d, ItineraryItem.TYPE_RESTAURANT, "晚餐 · " + dinner.name(),
                             "18:00", "19:30", dinner.lat(), dinner.lng(), BigDecimal.valueOf(dinner.avgCost()),
                             List.of(dinner.cuisine()), dinner.description()));
                     usedRestaurants.add(dinner.name());
@@ -250,7 +250,7 @@ public class PlannerAgent {
             }
 
             if (transport.compareTo(BigDecimal.ZERO) > 0) {
-                drafts.add(draft(baseDate, d, ItineraryItem.TYPE_TRANSPORT, "当日交通（打车）",
+                drafts.add(draftsSupport.draft(baseDate, d, ItineraryItem.TYPE_TRANSPORT, "当日交通（打车）",
                         "19:45", "20:00", null, null, transport, List.of("交通"), "Agent 根据路线距离估算的市内交通费用"));
             }
         }
@@ -277,7 +277,7 @@ public class PlannerAgent {
                 : "";
         boolean mentionRain = MessageParser.mentions(message, "雨");
         WeatherInfo weather = (WeatherInfo) tools.invoke(ctx, "query_weather",
-                buildArgs(new HashMap<>(), "city", city.name(), "date", targetDate.toString(), "mentionRain", mentionRain));
+                draftsSupport.buildArgs(new HashMap<>(), "city", city.name(), "date", targetDate.toString(), "mentionRain", mentionRain));
 
         // LLM 结构化修改先行：模型在现有行程与候选清单内做替换/增删，失败回落规则路径
         if (llmProperties.usable()) {
@@ -325,7 +325,7 @@ public class PlannerAgent {
             boolean rainHere = weather != null && weather.isRainy();
             String venue = rainHere ? "indoor"
                     : (target.getTags() != null && target.getTags().contains("室内")) ? "indoor" : "outdoor";
-            Attraction repl = pickReplacement(ctx, city, venue, target.getLatitude(), target.getLongitude(), exclude);
+            Attraction repl = draftsSupport.pickReplacement(ctx, city, venue, target.getLatitude(), target.getLongitude(), exclude);
             if (repl == null) {
                 replacements.add("「" + target.getTitle() + "」暂无合适替代");
                 continue;
@@ -334,7 +334,7 @@ public class PlannerAgent {
                     .targetItemId(target.getId())
                     .original(OperationHistoryService.toEntity(trip, target))
                     .detail("移除「" + target.getTitle() + "」").build());
-            ItineraryItem draft = draft(trip.getStartDate(), target.getDayIndex(), ItineraryItem.TYPE_ATTRACTION,
+            ItineraryItem draft = draftsSupport.draft(trip.getStartDate(), target.getDayIndex(), ItineraryItem.TYPE_ATTRACTION,
                     repl.name(), "14:00", "16:30", repl.lat(), repl.lng(),
                     BigDecimal.valueOf(repl.ticket()), repl.tagsWithVenue(), repl.description());
             if (target.getStartTime() != null) {
@@ -354,10 +354,10 @@ public class PlannerAgent {
             boolean hasRestaurant = items.stream()
                     .anyMatch(i -> ItineraryItem.TYPE_RESTAURANT.equals(i.getItemType()) && diningDay == i.getDayIndex());
             if (!hasRestaurant) {
-                Restaurant rest = pickRestaurant(ctx, city, lastTarget.getLatitude(), lastTarget.getLongitude(), new ArrayList<>());
+                Restaurant rest = draftsSupport.pickRestaurant(ctx, city, lastTarget.getLatitude(), lastTarget.getLongitude(), new ArrayList<>());
                 if (rest != null) {
                     ops.add(PlanOperation.builder().type(PlanOperation.ADD)
-                            .draft(draft(trip.getStartDate(), diningDay, ItineraryItem.TYPE_RESTAURANT,
+                            .draft(draftsSupport.draft(trip.getStartDate(), diningDay, ItineraryItem.TYPE_RESTAURANT,
                                     "晚餐 · " + rest.name(), "18:00", "19:30", rest.lat(), rest.lng(),
                                     BigDecimal.valueOf(rest.avgCost()), List.of(rest.cuisine()), rest.description()))
                             .detail("新增「" + rest.name() + "」").build());
@@ -518,13 +518,13 @@ public class PlannerAgent {
             BigDecimal transport = BigDecimal.ZERO;
             for (ItineraryItem item : entry.getValue()) {
                 if (item.getLatitude() != null && item.getLongitude() != null) {
-                    transport = transport.add(legTaxiCost(ctx, prevLat, prevLng, item.getLatitude(), item.getLongitude()));
+                    transport = transport.add(draftsSupport.legTaxiCost(ctx, prevLat, prevLng, item.getLatitude(), item.getLongitude()));
                     prevLat = item.getLatitude();
                     prevLng = item.getLongitude();
                 }
             }
             if (transport.compareTo(BigDecimal.ZERO) > 0) {
-                extra.add(draft(baseDate, entry.getKey(), ItineraryItem.TYPE_TRANSPORT, "当日交通（打车）",
+                extra.add(draftsSupport.draft(baseDate, entry.getKey(), ItineraryItem.TYPE_TRANSPORT, "当日交通（打车）",
                         "19:45", "20:00", null, null, transport, List.of("交通"),
                         "Agent 根据路线距离估算的市内交通费用"));
             }
@@ -587,100 +587,6 @@ public class PlannerAgent {
         return "该目的地";
     }
 
-    private Attraction pickAttraction(AgentContext ctx, CityCatalog city, String venue,
-                                      List<String> used, boolean family) {
-        List<Attraction> list = (List<Attraction>) tools.invoke(ctx, "search_attraction",
-                buildArgs(new HashMap<>(), "city", city.name(), "venue", venue, "exclude", String.join(",", used)));
-        if ((list == null || list.isEmpty()) && venue != null) {
-            list = (List<Attraction>) tools.invoke(ctx, "search_attraction",
-                    buildArgs(new HashMap<>(), "city", city.name(), "venue", null, "exclude", String.join(",", used)));
-        }
-        if (list == null || list.isEmpty()) {
-            return null;
-        }
-        if (family) {
-            return list.stream().filter(a -> a.tags().contains("亲子")).findFirst().orElse(list.get(0));
-        }
-        return list.get(0);
-    }
-
-    private Attraction pickReplacement(AgentContext ctx, CityCatalog city, String venue,
-                                       Double nearLat, Double nearLng, List<String> exclude) {
-        Map<String, Object> args = new HashMap<>();
-        args.put("city", city.name());
-        args.put("venue", venue);
-        args.put("exclude", String.join(",", exclude));
-        if (nearLat != null) args.put("nearLat", nearLat);
-        if (nearLng != null) args.put("nearLng", nearLng);
-        List<Attraction> list = (List<Attraction>) tools.invoke(ctx, "search_attraction", args);
-        if ((list == null || list.isEmpty()) && venue != null) {
-            args.put("venue", null);
-            list = (List<Attraction>) tools.invoke(ctx, "search_attraction", args);
-        }
-        return (list == null || list.isEmpty()) ? null : list.get(0);
-    }
-
-    private Restaurant pickRestaurant(AgentContext ctx, CityCatalog city, Double nearLat, Double nearLng,
-                                      List<String> used) {
-        Map<String, Object> args = new HashMap<>();
-        args.put("city", city.name());
-        if (nearLat != null) args.put("nearLat", nearLat);
-        if (nearLng != null) args.put("nearLng", nearLng);
-        List<Restaurant> list = (List<Restaurant>) tools.invoke(ctx, "search_restaurant", args);
-        if (list == null || list.isEmpty()) {
-            return null;
-        }
-        return list.stream().filter(r -> !used.contains(r.name())).findFirst().orElse(list.get(0));
-    }
-
-    private BigDecimal legTaxiCost(AgentContext ctx, Double fromLat, Double fromLng, double toLat, double toLng) {
-        if (fromLat == null || fromLng == null) {
-            return BigDecimal.ZERO;
-        }
-        Object result = tools.invoke(ctx, "calculate_route", Map.of(
-                "fromLat", fromLat, "fromLng", fromLng, "toLat", toLat, "toLng", toLng));
-        if (result instanceof com.travel.agent.model.RouteInfo route && route.walkMinutes() > 25) {
-            return BigDecimal.valueOf(route.taxiCost());
-        }
-        return BigDecimal.ZERO;
-    }
-
-    private ItineraryItem draft(LocalDate baseDate, int day, String type, String title,
-                                String start, String end, Double lat, Double lng,
-                                BigDecimal cost, List<String> tags, String description) {
-        return ItineraryItem.builder()
-                .dayIndex(day)
-                .itemType(type)
-                .title(title)
-                .startTime(ItineraryService.atTime(baseDate, day, start, start))
-                .endTime(ItineraryService.atTime(baseDate, day, end, end))
-                .latitude(lat)
-                .longitude(lng)
-                .cost(cost)
-                .tags(tags == null ? null : tags.stream()
-                        .filter(t -> t != null && !t.isBlank())
-                        .collect(Collectors.joining(",")))
-                .description(description)
-                .build();
-    }
-
-    private Map<String, Object> buildArgs(Map<String, Object> map, Object... kv) {
-        for (int i = 0; i < kv.length; i += 2) {
-            map.put((String) kv[i], kv[i + 1]);
-        }
-        return map;
-    }
-
-    static String hhmm(LocalDateTime time) {
-        return time == null ? null : time.format(DateTimeFormatter.ofPattern("HH:mm"));
-    }
-
-    /**
-     * 目录外城市没能规划时的说明。
-     *
-     * 关键是把原因说准：没配模型和"联网也没搜到"是两回事，
-     * 之前统一说成"联网查询也未成功"，用户看不出该去配 Key。
-     */
     static String unsupportedCityMessage(String requested, String supported, boolean llmUsable) {
         String reason = llmUsable
                 ? "联网查询也没找到这座城市"

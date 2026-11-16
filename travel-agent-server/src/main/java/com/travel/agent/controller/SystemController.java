@@ -1,11 +1,11 @@
 package com.travel.agent.controller;
 
 import com.travel.agent.dto.ApiResponse;
+import com.travel.agent.config.AmapProperties;
 import com.travel.agent.config.RateLimitProperties;
 import com.travel.agent.llm.LlmProperties;
 import com.travel.agent.service.InvoiceTextExtractor;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -29,15 +29,13 @@ public class SystemController {
     private final InvoiceTextExtractor invoiceTextExtractor;
     private final RateLimitProperties rateLimitProperties;
     private final com.travel.agent.service.LlmQuotaService llmQuotaService;
-
-    @Value("${travel.amap.key:}")
-    private String amapKey;
+    private final AmapProperties amapProperties;
 
     @GetMapping("/status")
     public ApiResponse<Map<String, Object>> status() {
         Map<String, Object> status = new LinkedHashMap<>();
         boolean llm = llmProperties.usable();
-        boolean amap = amapKey != null && !amapKey.isBlank();
+        boolean amap = amapProperties.usable();
 
         status.put("llmConfigured", llm);
         status.put("llmModel", llm ? llmProperties.getModel() : null);

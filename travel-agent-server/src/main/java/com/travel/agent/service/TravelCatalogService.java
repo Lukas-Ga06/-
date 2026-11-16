@@ -7,7 +7,6 @@ import com.travel.agent.model.Attraction;
 import com.travel.agent.model.CityCatalog;
 import com.travel.agent.model.Hotel;
 import com.travel.agent.model.Restaurant;
-import com.travel.agent.model.RouteInfo;
 import com.travel.agent.util.CityNames;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;

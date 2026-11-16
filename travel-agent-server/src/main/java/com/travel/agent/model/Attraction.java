@@ -3,8 +3,6 @@ package com.travel.agent.model;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /** 景点（来自本地目录数据，可替换为真实 POI 服务） */
 public record Attraction(

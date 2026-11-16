@@ -234,7 +234,8 @@ class PlannerHistoryPromptTest {
         BudgetService budgetService = mock(BudgetService.class);
         when(budgetService.totalOf(any())).thenReturn(BigDecimal.valueOf(980));
         PlannerAgent plannerAgent = new PlannerAgent(mock(ToolInvoker.class), catalog,
-                mock(ItineraryService.class), budgetService, props, structured);
+                mock(ItineraryService.class), budgetService, props, structured,
+                new PlannerDraftSupport(mock(ToolInvoker.class)));
 
         AgentContext ctx = new AgentContext();
         ctx.setMessage("帮我规划测试市三日游");
@@ -262,7 +263,8 @@ class PlannerHistoryPromptTest {
         BudgetService budgetService = mock(BudgetService.class);
         when(budgetService.totalOf(any())).thenReturn(BigDecimal.ZERO);
         PlannerAgent plannerAgent = new PlannerAgent(mock(ToolInvoker.class), catalog,
-                mock(ItineraryService.class), budgetService, props, planner(client));
+                mock(ItineraryService.class), budgetService, props, planner(client),
+                new PlannerDraftSupport(mock(ToolInvoker.class)));
 
         AgentContext ctx = new AgentContext();
         ctx.setMessage("帮我规划测试市三日游");

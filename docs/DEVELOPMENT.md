@@ -57,8 +57,8 @@ cd travel-agent-web && npm test             # 前端单元测试
 cd travel-agent-web && npm run typecheck    # 仅类型检查
 ```
 
-当前规模：后端 199 个用例（认证/越权、Agent 计划与撤销、工具层契约、RAG 过滤、日期映射、意图路由、
-冲突检查、记账对账、时区、微信渠道、POST 流式端点），前端 68 个用例（agent store、SSE 客户端、
+当前规模：后端 335 个用例（认证/越权、Agent 计划与撤销、工具层契约、RAG 过滤、日期映射、意图路由、
+冲突检查、记账对账、时区、微信渠道、POST 流式端点、迁移基线、并发确认），前端 114 个用例（agent store、SSE 客户端、
 axios 401 分流、足迹数据、规划表单、浏览器通知、高德地图 Provider、地图标记、票据），e2e 4 个（Playwright：登录建行程路书、
 PWA 资源、结构化表单攻略/从零闭环）。
 
@@ -79,6 +79,18 @@ PWA 资源、结构化表单攻略/从零闭环）。
 cd travel-agent-server && mvn spring-boot:run
 node .e2e/e2e.mjs
 ```
+
+## 代码结构
+
+写第一行代码前先看 **[docs/guide/code-structure.md](guide/code-structure.md)**：分层与依赖方向、16 个包的职责、
+「我要加 X 放哪里」决策表、命名约定与测试组织。以下几条是评审时的硬性约束：
+
+- **单类超过 500 行或构造函数超过 12 个依赖** → 拆内聚协作类；拆分优先新增类，不改公开方法签名。
+- 编排类不写 JSON 解析/网络细节；解析类不写缓存；缓存类不写业务判定（参考第十一批的
+  `AgentEngine`、`OnlineCityService` 拆分）。
+- 公共规则只保留一个实现：城市名匹配 `util.CityNames`、高德坐标解析
+  `CoordinateTransform.parseGcj02Location`、配置读取 `*Properties#usable()`（禁止新增散落的 `@Value`）。
+- 写操作唯一入口仍是 `ExecutorAgent.commit`；工具层永远只读。
 
 ## CI
 

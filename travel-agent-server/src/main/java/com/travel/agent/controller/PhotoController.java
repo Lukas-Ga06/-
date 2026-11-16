@@ -7,7 +7,6 @@ import com.travel.agent.service.AuthService;
 import com.travel.agent.service.PhotoService;
 import com.travel.agent.util.Paging;
 import lombok.RequiredArgsConstructor;
-import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;

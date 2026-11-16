@@ -2,6 +2,25 @@
 
 按主题记录行为变化。**第四节是最需要注意的**：其中几项改变了原有的使用习惯。
 
+## 第十一批：代码框架整理（无行为变化，2026-11-16）
+
+> 只做结构与仓库卫生整理，不改接口、不改业务规则、不新增依赖；后端 335 / 前端 114 个用例整理前后全绿。
+> 结构约定见新增的 [docs/guide/code-structure.md](guide/code-structure.md)。
+
+- **拆超大类（拆出内聚协作类，公开方法签名不变）**：
+  - `AgentEngine` 779 → 361 行：拆出 `AssistantIntentHandler`（备忘/日程/日报/健康）、`TravelQueryHandler`（知识/预算/记账）、
+    `PlanConfirmationService`（确认/取消/取回/撤销的并发语义）、`AgentStageTimer`（agent.stage 计时）；
+    `AgentEngine.confirm/cancel/pendingPreview/undo` 保留为委托入口，调用方与测试无需改动。
+  - `PlannerAgent` 692 → 538 行：候选选择（景点/餐厅/替换）与行程条目草稿抽到 `PlannerDraftSupport`，
+    新行程与行程修改两条路径共用同一套交通/标签/时间口径；同时删掉未使用的 `hhmm`。
+  - `OnlineCityService` 648 → 205 行：拆出 `CityGeoLocator`（高德优先 + Nominatim 兜底）、`AmapGeocodeClient`（地理编码，包内类）、
+    `OnlineCityCatalogReader`（两套提示词 + JSON→模型）、`CityCatalogDiskCache`（7 天文件缓存）。
+- **去重与统一**：新增 `config.AmapProperties` 统一 `travel.amap.key` 读取（原 3 处 `@Value`）；
+  新增 `CoordinateTransform.parseGcj02Location` 统一高德 location 解析（原 2 份重复实现）。
+- **清理**：13 个未使用 import、无引用的 `AssistantNav.tsx`、根目录 4 个构建日志、根目录误生成的 H2 `data/`；
+  `.gitignore` 补 `.tools/`（保留 `.tools/flyway-repair`）与根 `/data/`。
+- **文档**：新增代码结构手册；README / docs/guide 索引与本文件同步更新；开发指南的测试规模与结构约定同步。
+
 ## 第十批：真实数据源、schema 单一权威、可观测性与暗色/PWA（2026-11-16）
 
 > 本批按 README/DEVELOPMENT 的 P0/P1/P2 路线图推进：P0 真实数据源（高德 MCP）、

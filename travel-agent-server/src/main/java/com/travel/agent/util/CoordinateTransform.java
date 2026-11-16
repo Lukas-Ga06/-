@@ -50,6 +50,32 @@ public final class CoordinateTransform {
         return new double[]{wLat, wLng};
     }
 
+    /**
+     * 解析高德接口的 {@code location} 字段（格式 {"经度,纬度"}，GCJ-02）为 WGS-84 {@code [lat, lng]}。
+     *
+     * <p>约定：格式非法或经纬度都为 0（高德对无结果常返回 "0,0"）时返回 {@code null}，
+     * 由调用方按「定位失败」处理。
+     */
+    public static double[] parseGcj02Location(String location) {
+        if (location == null) {
+            return null;
+        }
+        String[] parts = location.split(",");
+        if (parts.length != 2) {
+            return null;
+        }
+        try {
+            double lng = Double.parseDouble(parts[0].trim());
+            double lat = Double.parseDouble(parts[1].trim());
+            if (lat == 0 && lng == 0) {
+                return null;
+            }
+            return gcj02ToWgs84(lat, lng);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
     private static boolean outOfChina(double lat, double lng) {
         return lng < 72.004 || lng > 137.8347 || lat < 0.8293 || lat > 55.8271;
     }

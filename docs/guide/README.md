@@ -11,7 +11,7 @@
 
 | 角色 / 目标 | 推荐阅读顺序 |
 | --- | --- |
-| **新加入的开发者** | [快速上手](getting-started.md) → [架构](architecture.md) → [数据模型](data-model.md) → [开发约定](../DEVELOPMENT.md) |
+| **新加入的开发者** | [代码结构手册](code-structure.md) → [快速上手](getting-started.md) → [架构](architecture.md) → [数据模型](data-model.md) → [开发约定](../DEVELOPMENT.md) |
 | **前端开发者** | [快速上手](getting-started.md) → [前端结构](frontend.md) → [API 参考](api-reference.md) |
 | **后端 / Agent 能力开发** | [架构](architecture.md) → [API 参考](api-reference.md) → [数据模型](data-model.md) → [开发约定](../DEVELOPMENT.md) |
 | **第三方集成 / 对接接口** | [API 参考](api-reference.md)（含认证、票据、错误码） |
@@ -24,6 +24,7 @@
 
 | 文档 | 内容概要 | 适合谁 |
 | --- | --- | --- |
+| [code-structure.md](code-structure.md) | 代码结构手册：分层与依赖方向、16 个包职责、关键协作类（Agent 引擎 / 联网城市数据拆分）、新增代码落点决策表、命名约定、测试组织、维护红线（单类行数阈值等） | 所有人（写第一行代码前读） |
 | [getting-started.md](getting-started.md) | 环境要求、`run-dev.ps1` 启动、首次启动自动完成的事、前端启动与 `/api` 反代、演示闭环 walkthrough、常见问题排查表、提交前自检清单 | 所有人（第一天读） |
 | [architecture.md](architecture.md) | 分层架构、8 状态机、Intent/Planner/Executor/Reflect 四 Agent、AgentPlan 与 PlanOperation、三级风险 Human-in-the-loop、工具层只读闸门与 8 个内置工具、RAG 与 Embedding 降级、SSE 事件协议与 focus、会话记忆、待确认方案落库、MCP 生态、LLM 配额 | 后端 / Agent 能力开发 |
 | [api-reference.md](api-reference.md) | 通用约定（认证、短期票据、统一响应、错误码）、按业务模块逐接口的真实契约（参数 / 请求体 / 响应 / 错误码 / 源码位置）、接口总表 | 前端 / 第三方集成 |
@@ -65,31 +66,31 @@
 
 ## 模块速览
 
-### 后端（`travel-agent-server`，Spring Boot 3 / Java 17，184 个主代码文件）
+### 后端（`travel-agent-server`，Spring Boot 3 / Java 17，210 个主代码文件）
 
 | 包 | 文件数 | 职责 |
 | --- | --- | --- |
-| `agent` | 16 | Agent 引擎：状态机、四个 Agent、上下文、计划、会话记忆、待确认方案 |
-| `tool` | 5 | `AgentTool` 契约、`ToolRegistry` 只读闸门、`SafetyInterceptor` 风险分级、`ToolInvoker` |
-| `rag` | 10 | Embedding（本地哈希 / OpenAI 兼容）、内存向量库、RAG 检索、知识库引导 |
+| `agent` | 21 | Agent 引擎：状态机、四个 Agent、上下文、计划、会话记忆、待确认方案、意图答复协作类 |
+| `tool` | 13 | `AgentTool` 契约、`ToolRegistry` 只读闸门、`SafetyInterceptor` 风险分级、`ToolInvoker`、8 个内置只读工具 |
+| `rag` | 14 | Embedding（本地哈希 / OpenAI 兼容）、内存向量库、RAG 检索、知识库引导与版本化 |
 | `llm` | 6 | 统一 LLM 接口（OpenAI-compatible，可切 DeepSeek/Qwen）+ 规则实现 + 委派与降级 |
-| `mcp` | 6 | MCP 外部工具桥接（streamable HTTP / 本机 stdio） |
+| `mcp` | 7 | MCP 外部工具桥接（streamable HTTP / 本机 stdio） |
 | `controller` | 15 | REST API + SSE 流式接口 |
-| `service` | 31 | 行程 / 预算 / 操作历史 / 目录 / 天气 / 路线 / 办公 / 学习 / 健康 / 提醒 / 路书 … |
-| `entity` / `repository` | 19 + 19 | JPA 实体与数据访问 |
-| `security` / `config` | 9 + 10 | JWT、Cookie、访问票据、限流、安全配置、CORS、时区、TraceId |
+| `service` | 36 | 行程 / 预算 / 操作历史 / 目录 / 天气 / 路线 / 办公 / 学习 / 健康 / 提醒 / 路书 / 联网城市数据 |
+| `entity` / `repository` | 20 + 20 | JPA 实体与数据访问 |
+| `security` / `config` | 11 + 13 | JWT、Cookie、访问票据、限流、安全配置、CORS、时区、TraceId、配置属性 |
 | `channel` | 7 | 多渠道入口：Telegram / 微信公众号 / 通用 Webhook |
-| `dto` / `model` / `util` / `exception` | 10 / 6 / 4 / 2 | 传输对象、领域模型、通用工具、全局异常 |
+| `dto` / `model` / `util` / `exception` | 10 / 8 / 6 / 2 | 传输对象、领域模型、通用工具、全局异常 |
 
-### 前端（`travel-agent-web`，React 18 + TypeScript + Vite，86 个源文件）
+### 前端（`travel-agent-web`，React 18 + TypeScript + Vite，90 个源文件）
 
 | 目录 | 文件数 | 职责 |
 | --- | --- | --- |
 | `pages` | 18 | 16 个页面目录（各含 `index.tsx`）+ 规划表单逻辑 `planForm.ts` 与其测试 |
-| `components` | 34 | ChatPanel / MapView(高德 2D/3D) / Timeline / ItineraryCard / PlanDiff / BudgetChart / FootprintMap / ReminderBell … |
+| `components` | 35 | ChatPanel / MapView(高德 2D/3D) / Timeline / ItineraryCard / PlanDiff / BudgetChart / FootprintMap / ReminderBell … |
 | `api` | 14 | axios 封装、SSE 客户端、票据、各业务接口（含测试） |
 | `store` | 7 | zustand：auth / trip / agent / ui / theme（含 `agentStore.test.ts`） |
-| `types` / `lib` / `hooks` / `styles` / `test` | 5 / 2 / 2 / 1 / 1 | 与后端对齐的 TS 类型、`reminderNotify`（浏览器通知）、`useIntersection` / `useOnlineStatus`、`global.css` 样式令牌、vitest 环境 `setup.ts` |
+| `types` / `lib` / `hooks` / `styles` / `test` | 5 / 4 / 2 / 1 / 1 | 与后端对齐的 TS 类型、`reminderNotify`（浏览器通知）、`useIntersection` / `useOnlineStatus`、`global.css` 样式令牌、vitest 环境 `setup.ts` |
 
 ---
 

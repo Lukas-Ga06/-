@@ -16,9 +16,16 @@ dist/
 
 # ---- 运行时数据 ----
 travel-agent-server/data/
+# 从仓库根误启动时 H2 会写到根目录 data/（与后端目录内的 data/ 区分）
+/data/
 *.log
 *.mv.db
 *.trace.db
+
+# ---- 本地工具与草稿 ----
+# .tools 是本地探针/截图/临时脚本；只保留有文档引用的 flyway-repair
+.tools/*
+!.tools/flyway-repair/
 
 # ---- 本地密钥（绝不入库）----
 .env.local
