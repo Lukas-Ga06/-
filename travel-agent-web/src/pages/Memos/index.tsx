@@ -4,7 +4,9 @@ import { CheckOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import AppShell from '../../components/AppShell';
 import SwipeRow from '../../components/SwipeRow';
 import Skeleton from '../../components/Skeleton';
-import { addMemo, deleteMemo, getMemos, toggleMemo } from '../../api/memo';
+import PaginationBar from '../../components/PaginationBar';
+import { addMemo, deleteMemo, getMemosPage, toggleMemo } from '../../api/memo';
+import { DEFAULT_PAGE_SIZE } from '../../api/client';
 import type { Memo } from '../../types/memo';
 
 /** 备忘模块：个人待办与备忘录，支持滑动操作 */
@@ -13,23 +15,40 @@ export default function Memos() {
   const [items, setItems] = useState<Memo[]>([]);
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(true);
+  /** 翻页/静默刷新请求态：只禁用翻页按钮，不切骨架屏（避免丢滚动位置） */
+  const [paging, setPaging] = useState(false);
+  const [offset, setOffset] = useState(0);
+  const [meta, setMeta] = useState({ total: 0, hasMore: false, paged: false, limit: DEFAULT_PAGE_SIZE });
   const [exiting, setExiting] = useState<Set<number>>(new Set());
   /** toggle 请求在途的行：toggle 是取反语义，连点两次会互相抵消，必须挡住并发 */
   const [pending, setPending] = useState<Set<number>>(new Set());
 
-  const load = async () => {
-    setLoading(true);
+  const fetchPage = async (nextOffset: number, options: { silent?: boolean } = {}) => {
+    if (options.silent) setPaging(true);
+    else setLoading(true);
     try {
-      setItems(await getMemos());
+      const page = await getMemosPage({ limit: DEFAULT_PAGE_SIZE, offset: nextOffset });
+      setItems(page.items);
+      setOffset(nextOffset);
+      setMeta({
+        total: page.pagination?.total ?? page.items.length,
+        hasMore: page.pagination?.hasMore ?? false,
+        paged: page.pagination != null,
+        limit: page.pagination?.limit ?? DEFAULT_PAGE_SIZE,
+      });
     } catch (e: any) {
       message.error(e.message);
     } finally {
       setLoading(false);
+      setPaging(false);
     }
   };
 
+  /** 原地刷新当前页：不重置输入框、不跳回第一页、不重置滚动位置 */
+  const load = () => fetchPage(offset, { silent: true });
+
   useEffect(() => {
-    load();
+    fetchPage(0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -46,7 +65,8 @@ export default function Memos() {
       await addMemo(value);
       setContent('');
       message.success('已添加备忘');
-      load();
+      // 新备忘在最前，回到第一页
+      fetchPage(0, { silent: true });
     } catch (e: any) {
       message.error(e.message);
     }
@@ -77,7 +97,9 @@ export default function Memos() {
       try {
         await deleteMemo(id);
         message.success('已删除');
-        load();
+        // 删掉当前页最后一条时回退一页，避免停在空页
+        if (items.length === 1 && offset > 0) fetchPage(Math.max(offset - meta.limit, 0), { silent: true });
+        else load();
       } catch (e: any) {
         message.error(e.message);
       } finally {
@@ -151,7 +173,8 @@ export default function Memos() {
           <div>
             <h1>📝 备忘</h1>
             <div className="dg-date">
-              待办 {open.length} 项 · 已完成 {done.length} 项 · 左滑可完成或删除
+              待办 {open.length} 项 · 已完成 {done.length} 项
+              {meta.paged ? ` · 共 ${meta.total} 条` : ''} · 左滑可完成或删除
             </div>
           </div>
         </div>
@@ -195,6 +218,24 @@ export default function Memos() {
                   </div>
                 )}
                 {done.map((m, i) => renderRow(m, open.length + i))}
+                <div style={{ padding: '0 14px' }}>
+                  <PaginationBar
+                    total={meta.total}
+                    offset={offset}
+                    limit={meta.limit}
+                    hasMore={meta.hasMore}
+                    paged={meta.paged}
+                    loading={paging}
+                    onPrev={() => {
+                      if (paging || offset <= 0) return;
+                      fetchPage(Math.max(offset - meta.limit, 0), { silent: true });
+                    }}
+                    onNext={() => {
+                      if (paging || !meta.hasMore) return;
+                      fetchPage(offset + meta.limit, { silent: true });
+                    }}
+                  />
+                </div>
               </>
             )}
           </div>

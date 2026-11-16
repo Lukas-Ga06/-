@@ -27,6 +27,8 @@ import com.travel.agent.service.TravelCatalogService;
 import com.travel.agent.tool.AgentTool;
 import com.travel.agent.tool.ToolInvoker;
 import com.travel.agent.tool.ToolRegistry;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -35,6 +37,7 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Agent Engine：RECEIVE → UNDERSTAND → PLAN → EXECUTE → REFLECT → PRESENT → CONFIRM → COMMIT。
@@ -44,6 +47,34 @@ import java.util.Map;
 @RequiredArgsConstructor
 @Slf4j
 public class AgentEngine {
+
+    /**
+     * 票据只读会话下禁止执行的"直接写入类"意图：这四类都会立刻落库
+     * （账单 / 备忘 / 日程 / 日报），而票据是 URL 凭证，泄漏面大，不能凭它代受害者写数据。
+     *
+     * <p>规划类（PLAN_TRIP / MODIFY_ITINERARY）保持可用：它们只产出待确认方案（pending_plan），
+     * 真正提交仍需 POST /api/agent/confirm，而 POST 不接受票据。查询类本来就只读。
+     */
+    private static final Set<String> TICKET_READONLY_BLOCKED_INTENTS = Set.of(
+            IntentResult.RECORD_EXPENSE, IntentResult.ADD_MEMO,
+            IntentResult.ADD_SCHEDULE, IntentResult.GEN_DAILY_REPORT);
+
+    /** 票据只读会话拒绝写意图时返回的文案（明确告知原因与替代路径，不当作错误处理） */
+    private static final String TICKET_READONLY_MESSAGE =
+            "当前连接为只读票据会话，记账/备忘/日程/日报请在网页端操作。";
+
+    /** 阶段计时指标：agent.stage{stage=intent|plan|tool|commit}，失败路径同样观测 */
+    private static final String AGENT_STAGE_METRIC = "agent.stage";
+    /** SSE 断连计数：reason=complete|timeout|error（controller 记）＋ cancelled（引擎阶段边界短路记） */
+    private static final String SSE_DISCONNECTS_METRIC = "sse.disconnects";
+
+    private static final String STAGE_INTENT = "intent";
+    private static final String STAGE_PLAN = "plan";
+    private static final String STAGE_TOOL = "tool";
+    private static final String STAGE_COMMIT = "commit";
+
+    /** 被取消的轮次在结果里的 intent 标记（只用于日志/单测识别，不随 SSE 事件下发） */
+    public static final String CANCELLED_INTENT = "CANCELLED";
 
     private final IntentAgent intentAgent;
     private final PlannerAgent plannerAgent;
@@ -66,29 +97,57 @@ public class AgentEngine {
     private final ToolRegistry toolRegistry;
     private final ToolInvoker toolInvoker;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
+    /** 指标：agent.stage / sse.disconnects（注入方式与 StructuredPlanner、LlmClient 一致） */
+    private final MeterRegistry meterRegistry;
 
     public AgentDtos.AgentResult handle(AgentContext ctx) {
         ctx.emit("start", Map.of("sessionId", ctx.getSessionId()));
         ctx.setState(AgentState.UNDERSTAND);
-        loadConversation(ctx);
         // SSE 异步执行器与渠道线程看不见 filter 设置的 ThreadLocal，这里按执行线程补上（LLM 按用户配额依赖它）
         if (ctx.getUsername() != null) {
             com.travel.agent.security.UserContext.set(ctx.getUsername());
         }
         try {
+            // 排队期间客户端可能已经断开：连会话记忆都不必读写
+            if (ctx.isCancelled()) {
+                return aborted(ctx);
+            }
+            loadConversation(ctx);
             return doHandle(ctx);
         } finally {
             com.travel.agent.security.UserContext.clear();
+            // 一次运行只计一次：阶段边界可能多次命中取消检查
+            if (ctx.isCancelled()) {
+                log.info("客户端已断开，本轮 Agent 取消: user={}", ctx.getUsername());
+                meterRegistry.counter(SSE_DISCONNECTS_METRIC, "reason", "cancelled").increment();
+            }
         }
     }
 
     private AgentDtos.AgentResult doHandle(AgentContext ctx) {
         try {
             Trip trip = ctx.getTripId() != null ? tripService.getOwned(ctx.getTripId(), ctx.getUserId()) : null;
-            IntentResult intent = intentAgent.detect(ctx, trip);
+            if (abortIfCancelled(ctx, "before-intent")) {
+                return aborted(ctx);
+            }
+            IntentResult intent = timedIntent(ctx, trip);
+            if (abortIfCancelled(ctx, "after-intent")) {
+                return aborted(ctx);
+            }
             ctx.emit("intent", intent);
             log.info("Intent: {} target={} user={} trip={}", intent.getIntent(), intent.getTarget(),
                     ctx.getUsername(), ctx.getTripId());
+
+            // 只读票据会话：写意图不执行，但保持正常结束（前端不需要为票据链路单独处理错误）
+            if (ctx.isTicketOnly() && TICKET_READONLY_BLOCKED_INTENTS.contains(intent.getIntent())) {
+                log.info("只读票据会话拒绝写意图: intent={} user={}", intent.getIntent(), ctx.getUsername());
+                return finish(ctx, complete(ctx, AgentDtos.AgentResult.builder()
+                        .intent(intent.getIntent())
+                        .status(AgentDtos.STATUS_COMPLETED)
+                        .message(TICKET_READONLY_MESSAGE)
+                        .warnings(new ArrayList<>())
+                        .build()), intent.getIntent());
+            }
 
             AgentDtos.AgentResult result = switch (intent.getIntent()) {
                 case IntentResult.QUERY_KNOWLEDGE -> answerKnowledge(ctx, intent, trip);
@@ -108,6 +167,9 @@ public class AgentEngine {
                         .message(MessageTemplates.HELP)
                         .build());
             };
+            if (abortIfCancelled(ctx, "before-return")) {
+                return aborted(ctx);
+            }
             return finish(ctx, result, intent.getIntent());
         } catch (BusinessException e) {
             // 业务规则/校验类错误（含越权、参数不合法）：原样告诉用户，不伪装成系统故障
@@ -134,6 +196,68 @@ public class AgentEngine {
             ctx.emit("complete", failed);
             return finish(ctx, failed, "ERROR");
         }
+    }
+
+    // ==================== 阶段计时（agent.stage） ====================
+
+    /** intent 阶段：意图识别（LLM 优先，规则兜底）；异常也计时，失败次数看 count */
+    private IntentResult timedIntent(AgentContext ctx, Trip trip) {
+        Timer.Sample sample = startStage();
+        try {
+            return intentAgent.detect(ctx, trip);
+        } finally {
+            stopStage(STAGE_INTENT, sample);
+        }
+    }
+
+    private Timer.Sample startStage() {
+        return Timer.start(meterRegistry);
+    }
+
+    /**
+     * 结束阶段计时。必须放 finally：异常路径同样要落到 agent.stage 上，
+     * 否则"超时/报错阶段"在指标里完全消失，只剩成功样本。
+     */
+    private void stopStage(String stage, Timer.Sample sample) {
+        if (sample == null) {
+            return;
+        }
+        try {
+            sample.stop(Timer.builder(AGENT_STAGE_METRIC).tag("stage", stage).register(meterRegistry));
+        } catch (RuntimeException e) {
+            // 指标故障绝不能反噬主流程
+            log.debug("记录阶段指标失败: stage={} err={}", stage, e.getMessage());
+        }
+    }
+
+    // ==================== 客户端断连取消 ====================
+
+    /**
+     * 阶段边界取消检查：客户端已断开就不再发起新的 LLM / 工具调用。
+     *
+     * <p>只做标记检查，<b>不</b> interrupt 线程（共享池线程不能被污染）。
+     * 真正的计数在 {@link #handle(AgentContext)} 的 finally 里统一做，一次运行只计一次。
+     *
+     * @return true 表示本轮应立即返回 {@link #aborted(AgentContext)}
+     */
+    private boolean abortIfCancelled(AgentContext ctx, String boundary) {
+        if (!ctx.isCancelled()) {
+            return false;
+        }
+        log.info("客户端已断开，Agent 在阶段边界取消: boundary={} user={}", boundary, ctx.getUsername());
+        return true;
+    }
+
+    /**
+     * 取消后的返回：不再发 SSE 事件（连接已断，发了也没人收），也不落会话记忆——
+     * 半途取消的一轮没有可展示的助手答复，写进去只会污染下一轮的上下文。
+     */
+    private AgentDtos.AgentResult aborted(AgentContext ctx) {
+        return AgentDtos.AgentResult.builder()
+                .intent(CANCELLED_INTENT)
+                .status(AgentDtos.STATUS_FAILED)
+                .message("请求已取消（客户端已断开连接）")
+                .build();
     }
 
     /**
@@ -164,11 +288,25 @@ public class AgentEngine {
     }
 
     private AgentDtos.AgentResult planAndPresent(AgentContext ctx, IntentResult intent, Trip trip) {
+        if (abortIfCancelled(ctx, "before-plan")) {
+            return aborted(ctx);
+        }
         ctx.setState(AgentState.PLAN);
         ctx.emit("planning", Map.of("message",
                 IntentResult.PLAN_TRIP.equals(intent.getIntent()) ? "正在为你规划行程…" : "正在重新规划行程…"));
 
-        AgentPlan plan = plannerAgent.plan(ctx, intent, trip);
+        // plan 阶段：规则路径 + LLM 结构化规划都在 plannerAgent.plan 内部，一并计时
+        Timer.Sample planSample = startStage();
+        AgentPlan plan;
+        try {
+            plan = plannerAgent.plan(ctx, intent, trip);
+        } finally {
+            stopStage(STAGE_PLAN, planSample);
+        }
+        // 规划往往要几秒到几十秒：结束时再确认客户端还在，别再做预览/反思/落待确认方案
+        if (abortIfCancelled(ctx, "after-plan")) {
+            return aborted(ctx);
+        }
         if (plan.getOperations().isEmpty()) {
             return complete(ctx, AgentDtos.AgentResult.builder()
                     .planId(plan.getPlanId())
@@ -243,7 +381,9 @@ public class AgentEngine {
                     .filter(message::contains)
                     .findFirst().orElse(null);
         }
-        RagService.RagAnswer answer = ragService.answer(ctx.getMessage() == null ? "" : ctx.getMessage(), city);
+        // 带上当前用户：个人知识库只对本人可见，公共知识（userId 为空）所有人可见
+        RagService.RagAnswer answer = ragService.answer(
+                ctx.getMessage() == null ? "" : ctx.getMessage(), city, ctx.getUserId());
         ctx.emit("rag_result", Map.of("sources", answer.sources()));
         return complete(ctx, AgentDtos.AgentResult.builder()
                 .intent(intent.getIntent())
@@ -490,8 +630,21 @@ public class AgentEngine {
                     .warnings(new ArrayList<>())
                     .build());
         }
-        Object result = toolInvoker.invoke(ctx, toolName,
-                intent.getToolArgs() == null ? Map.of() : intent.getToolArgs());
+        Object result;
+        if (abortIfCancelled(ctx, "before-tool")) {
+            return aborted(ctx);
+        }
+        // tool 阶段：外部 MCP / 内置只读工具调用（ToolInvoker 内部含审计与 tool_call/tool_result 事件）
+        Timer.Sample toolSample = startStage();
+        try {
+            result = toolInvoker.invoke(ctx, toolName,
+                    intent.getToolArgs() == null ? Map.of() : intent.getToolArgs());
+        } finally {
+            stopStage(STAGE_TOOL, toolSample);
+        }
+        if (abortIfCancelled(ctx, "after-tool")) {
+            return aborted(ctx);
+        }
         return complete(ctx, AgentDtos.AgentResult.builder()
                 .intent(intent.getIntent())
                 .status(AgentDtos.STATUS_COMPLETED)
@@ -525,14 +678,27 @@ public class AgentEngine {
     // ==================== 确认 / 取消 / 撤销（Human-in-the-loop） ====================
 
     public AgentDtos.AgentResult confirm(String planId, Long userId) {
-        // 先 peek 再提交，提交成功后才移除：提交失败时用户仍可重试，不必重新发起规划
+        // 1) 先确认方案存在且属于当前用户（不存在 / 过期 → 业务失败）
         PendingPlanStore.PendingPlan pending = pendingPlans.peek(planId, userId);
         if (pending == null) {
             return AgentDtos.AgentResult.builder()
+                    .planId(planId)
                     .status(AgentDtos.STATUS_FAILED)
                     .message("确认会话不存在或已过期，请重新发起请求。")
                     .build();
         }
+        // 2) 抢所有权：条件更新 PENDING → CONFIRMING，只有成功者可以继续提交。
+        //    这一步把「读方案 → 提交 → 删除」串行化：并发确认同一方案时，
+        //    后到的请求拿到 0 行，直接返回业务失败（不是 500，也没有重复落库）。
+        if (!pendingPlans.claim(planId, userId)) {
+            return AgentDtos.AgentResult.builder()
+                    .planId(planId)
+                    .tripId(pending.tripId())
+                    .status(AgentDtos.STATUS_FAILED)
+                    .message("该方案正在处理中或已被确认/取消，请刷新后查看最新结果。")
+                    .build();
+        }
+        // claim 与 commit 之间不要插入其它写操作：越短窗口越安全
         // 版本校验：方案生成后行程若被改过（另一个标签页/设备），这份 Diff 已不可信
         if (pending.tripId() != null) {
             Trip current = tripService.getOwned(pending.tripId(), userId);
@@ -548,13 +714,37 @@ public class AgentEngine {
                         .build();
             }
         }
-        AgentDtos.AgentResult result = executorAgent.commit(pending.plan(), userId);
-        pendingPlans.remove(planId);
-        return result;
+        try {
+            // commit 阶段：真正落库（POST /api/agent/confirm → AgentEngine.confirm → executorAgent.commit）。
+            // 计时放在本类内，不跨范围改 ExecutorAgent；SSE 流里的 plan 预览不计入 commit。
+            Timer.Sample commitSample = startStage();
+            AgentDtos.AgentResult result;
+            try {
+                result = executorAgent.commit(pending.plan(), userId);
+            } finally {
+                stopStage(STAGE_COMMIT, commitSample);
+            }
+            // 成功：方案已被消费
+            pendingPlans.remove(planId);
+            return result;
+        } catch (RuntimeException e) {
+            // 提交失败：释放所有权、保留方案行，用户可用同一 planId 重试（原设计语义）
+            pendingPlans.release(planId);
+            throw e;
+        }
     }
 
     public AgentDtos.AgentResult cancel(String planId, Long userId) {
+        // 取消也要抢所有权：否则可能与正在提交的确认交错，
+        // 出现「已提示取消成功、但行程已被提交」的假取消。
         PendingPlanStore.PendingPlan pending = pendingPlans.peek(planId, userId);
+        if (pending != null && !pendingPlans.claim(planId, userId)) {
+            return AgentDtos.AgentResult.builder()
+                    .planId(planId)
+                    .status(AgentDtos.STATUS_FAILED)
+                    .message("该方案正在确认中，请稍后刷新查看结果。")
+                    .build();
+        }
         if (pending != null) {
             pendingPlans.remove(planId);
         }

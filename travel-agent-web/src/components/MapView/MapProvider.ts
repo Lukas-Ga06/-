@@ -1,8 +1,11 @@
 import type { ItineraryItem } from '../../types/trip';
 
 /**
- * 地图抽象层：支持替换不同地图服务商与渲染引擎
- * （MapLibre 3D / Leaflet 2D / 高德等），只需实现该接口。
+ * 地图抽象层：行程地图当前由高德 JS API 实现。
+ * 若需替换地图服务商，只需实现该接口。
+ *
+ * 坐标契约：所有实现接收并回传 **WGS-84**（与 OSM/MapLibre/GPS 一致）；
+ * 服务商自己的坐标系（如高德 GCJ-02）在实现内部转换，调用方无需感知。
  */
 export interface MapProvider {
   /**

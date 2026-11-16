@@ -43,6 +43,9 @@ public class WeChatOfficialAccountController {
     /** 配置了 appid+secret 时注入客服消息客户端（WeChatChannelConfig），异步回复解除 5s 窗口 */
     private final org.springframework.beans.factory.ObjectProvider<WeChatClient> weChatClient;
 
+    /** 微信签名时戳允许的偏差（秒）：POST 与 GET 共用，限制重放窗口 */
+    private static final long TIMESTAMP_TOLERANCE_SECONDS = 300;
+
     private volatile java.util.concurrent.ExecutorService replyExecutor;
 
     /** 单线程异步回复：微信场景低频，一个守护线程足够 */
@@ -75,17 +78,41 @@ public class WeChatOfficialAccountController {
         if (isBlank(signature) || isBlank(timestamp) || isBlank(nonce) || isBlank(echostr)) {
             return org.springframework.http.ResponseEntity.badRequest().body("missing params");
         }
-        return signature.equals(sign(token, timestamp, nonce))
+        // 恒时比较：避免按响应时间差逐字节猜签名
+        return constantTimeEquals(sign(token, timestamp, nonce), signature)
                 ? org.springframework.http.ResponseEntity.ok(echostr)
                 : org.springframework.http.ResponseEntity.status(403).body("signature mismatch");
     }
 
     /** 微信消息推送（POST XML）：text 消息交给 AgentEngine；event 转欢迎语；其余忽略 */
     @PostMapping
-    public org.springframework.http.ResponseEntity<String> receive(@RequestBody(required = false) String body) {
+    public org.springframework.http.ResponseEntity<String> receive(
+            @RequestParam(required = false) String signature,
+            @RequestParam(required = false) String timestamp,
+            @RequestParam(required = false) String nonce,
+            @RequestBody(required = false) String body) {
         String token = properties.getWechat().getToken();
         if (token == null || token.isBlank()) {
             return org.springframework.http.ResponseEntity.status(403).body("");
+        }
+        // 与 GET 握手同一套验签：微信真实推送一定带这三个参数（URL 不变，仍 /api/channels/wechat）。
+        // 修复前 POST 完全不验签，只要渠道启用，任何人伪造 XML 即可匿名建号、驱动 AgentEngine
+        //（消耗模型额度）并写入 pending_plan 污染数据。
+        if (isBlank(signature) || isBlank(timestamp) || isBlank(nonce)) {
+            return org.springframework.http.ResponseEntity.status(403).body("signature required");
+        }
+        if (!constantTimeEquals(sign(token, timestamp, nonce), signature)) {
+            return org.springframework.http.ResponseEntity.status(403).body("signature mismatch");
+        }
+        long sentAt;
+        try {
+            sentAt = Long.parseLong(timestamp.trim());
+        } catch (NumberFormatException e) {
+            return org.springframework.http.ResponseEntity.status(403).body("timestamp expired");
+        }
+        // ±5 分钟新鲜度：限定重放窗口（微信重试通常在分钟级内）
+        if (Math.abs(System.currentTimeMillis() / 1000 - sentAt) > TIMESTAMP_TOLERANCE_SECONDS) {
+            return org.springframework.http.ResponseEntity.status(403).body("timestamp expired");
         }
         if (isBlank(body)) {
             return org.springframework.http.ResponseEntity.ok("");
@@ -204,5 +231,14 @@ public class WeChatOfficialAccountController {
 
     private static boolean isBlank(String value) {
         return value == null || value.isBlank();
+    }
+
+    /** 恒时比较签名，避免按响应时间差逐字节猜测 */
+    private static boolean constantTimeEquals(String expected, String provided) {
+        if (expected == null || provided == null) {
+            return false;
+        }
+        return MessageDigest.isEqual(expected.getBytes(StandardCharsets.UTF_8),
+                provided.getBytes(StandardCharsets.UTF_8));
     }
 }

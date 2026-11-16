@@ -113,6 +113,9 @@ public class OperationHistoryService {
     /**
      * 快照 → 实体。时间只沿用「时刻」，日期按当前行程的第 N 天重新锚定：
      * 这样即使用户在两次操作之间改过行程日期，撤销也不会把条目恢复到旧日期上。
+     *
+     * 保留快照里的 id：撤销时 ItineraryService.replaceAll 靠 id 做 diff，
+     * 有 id 才能「就地更新」而不是「全删全插」（id 抖动会让历史快照与前端选中失效）。
      */
     public static ItineraryItem toEntity(Trip trip, ItineraryDtos.ItineraryItemDTO dto) {
         int day = dto.getDayIndex() == null ? 1 : dto.getDayIndex();
@@ -120,6 +123,7 @@ public class OperationHistoryService {
                 ? LocalDate.now()
                 : trip.getStartDate().plusDays(Math.max(day, 1) - 1L);
         return ItineraryItem.builder()
+                .id(dto.getId())
                 .tripId(trip.getId())
                 .dayIndex(day)
                 .itemType(dto.getItemType() == null ? "attraction" : dto.getItemType())

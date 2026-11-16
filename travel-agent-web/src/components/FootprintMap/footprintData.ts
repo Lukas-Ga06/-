@@ -1,3 +1,4 @@
+import type { Feature, LineString } from 'geojson';
 import type { TripMapPoint } from '../../types/trip';
 
 /** 足迹连线与标记的配色（与行程地图的 Day 配色区分开） */
@@ -34,7 +35,7 @@ export function routeCoordinates(points: TripMapPoint[]): [number, number][] {
   return orderedFootprints(points).map((p) => [p.lng as number, p.lat as number]);
 }
 
-export function routeGeoJson(points: TripMapPoint[]): GeoJSON.Feature<GeoJSON.LineString> | null {
+export function routeGeoJson(points: TripMapPoint[]): Feature<LineString> | null {
   const coordinates = routeCoordinates(points);
   if (coordinates.length < 2) {
     return null;

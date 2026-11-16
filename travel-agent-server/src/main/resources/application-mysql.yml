@@ -6,7 +6,19 @@ spring:
     password: ${MYSQL_PASSWORD:root}
   jpa:
     hibernate:
-      ddl-auto: update
+      # 生产：schema 一律由 Flyway（V1 基线 + V2.. 增量 + V13 幂等补齐）负责，
+      # Hibernate 只校验、绝不改结构。启动时缺列/类型不符会直接失败 —— 这是特性：
+      # 迁移脚本漏掉的列不可能再被 ddl-auto 悄悄补上（此前 update 掩盖过这个缺口）。
+      # 存量库升级：若某列当年由旧 ddl-auto 建过，V13 的 information_schema 探测会跳过它。
+      ddl-auto: validate
+  flyway:
+    # 生产 MySQL 额外加载 db/migration-mysql：那里放 MySQL 专属 DDL（information_schema 探测、
+    # PREPARE 动态语句、多表 DELETE 等 H2 无法解析的写法）。默认 H2 profile 只跑 db/migration，
+    # 因此 H2 侧不会因为 MySQL 方言脚本启动失败。
+    #   全新库：V1（sql/init.sql 等价基线）→ V2..V12（增量/便携）→ V13（MySQL 幂等补齐）→
+    #           再交给 ddl-auto=validate 校验，不需要再手工执行 sql/init.sql。
+    #   存量库：baseline-on-migrate 打在 V1，只执行未应用的 V2..V13。
+    locations: classpath:db/migration,classpath:db/migration-mysql
   h2:
     console:
       enabled: false

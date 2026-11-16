@@ -3,7 +3,11 @@ package com.travel.agent.service;
 import com.travel.agent.entity.Memo;
 import com.travel.agent.exception.BusinessException;
 import com.travel.agent.repository.MemoRepository;
+import com.travel.agent.util.Paging;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,8 +23,16 @@ public class MemoService {
         return memoRepository.findByUserIdOrderByDoneAscCreatedAtDesc(userId);
     }
 
+    /** 备忘列表分页：done asc, created_at desc（与旧列表顺序一致） */
+    public Page<Memo> page(Long userId, int offset, int limit) {
+        Pageable pageable = Paging.pageable(offset, limit,
+                Sort.by(Sort.Order.asc("done"), Sort.Order.desc("createdAt")));
+        return memoRepository.findByUserId(userId, pageable);
+    }
+
+    /** 未完成备忘数量：COUNT 下推，不再先取全量再 filter */
     public long openCount(Long userId) {
-        return list(userId).stream().filter(m -> !m.isDone()).count();
+        return memoRepository.countByUserIdAndDoneFalse(userId);
     }
 
     @Transactional

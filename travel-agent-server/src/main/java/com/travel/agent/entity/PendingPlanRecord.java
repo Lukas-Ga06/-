@@ -10,6 +10,11 @@ import java.time.LocalDateTime;
  *
  * 存库而不是放进程内存：确认请求可能被负载均衡打到任意实例，
  * 进程内存储在多实例下会直接失败（方案不在这台机器上）；落库同时获得重启不丢。
+ *
+ * status 是确认链路的「所有权令牌」：confirm/cancel 先用一条条件 UPDATE 把
+ * PENDING 改成 CONFIRMING，只有改成功（影响行数 = 1）的请求才允许提交，
+ * 从而把「peek → 校验 → commit → remove」四步收敛成单点串行化。
+ * 并发确认同一 plan 时，第二个请求拿到 0 行 → 返回业务失败，而不是重复落库。
  */
 @Entity
 @Table(name = "pending_plan", indexes = {
@@ -22,6 +27,11 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 @Builder
 public class PendingPlanRecord {
+
+    /** 等待用户确认：可被 claim */
+    public static final String STATUS_PENDING = "PENDING";
+    /** 已被某个请求抢到所有权（确认/取消进行中） */
+    public static final String STATUS_CONFIRMING = "CONFIRMING";
 
     /** planId 由 PlannerAgent 生成，直接作为主键 */
     @Id
@@ -44,6 +54,32 @@ public class PendingPlanRecord {
     @Column(name = "plan_revision", length = 64)
     private String planRevision;
 
+    /**
+     * 确认状态（PENDING / CONFIRMING）。
+     *
+     * 用 columnDefinition 带 DEFAULT：存量表由 ddl-auto 补列时，MySQL/H2 的
+     * 「ADD COLUMN ... NOT NULL」必须有默认值才能给已存在的行回填，否则加列直接失败。
+     * 默认值同时让「补列后旧行」自动变成 PENDING，可以被条件更新抢到。
+     */
+    @Column(name = "status", nullable = false, length = 16,
+            columnDefinition = "varchar(16) default 'PENDING'")
+    private String status;
+
+    /** 乐观锁：条件更新之外的第二道防线（同一行被并发 save 时直接失败） */
+    @Version
+    @Column(name = "version", columnDefinition = "bigint default 0")
+    private Long version;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
+
+    @PrePersist
+    void prePersist() {
+        if (status == null) {
+            status = STATUS_PENDING;
+        }
+        if (createdAt == null) {
+            createdAt = LocalDateTime.now();
+        }
+    }
 }

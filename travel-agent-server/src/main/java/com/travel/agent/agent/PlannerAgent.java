@@ -34,6 +34,10 @@ import java.util.stream.Collectors;
 /**
  * Planner Agent：Intent + 当前行程 + 用户偏好 + 预算 + 天气 + 交通 → 规划候选方案。
  * 只生成操作计划（不直接改库），Executor 确认后提交。
+ *
+ * <p>边界：规则路径<b>不读会话历史</b>（{@code AgentContext.getHistory()}），规划产物只由
+ * 「当前这条消息识别出的意图 + 行程上下文」决定；只有 LLM 结构化路径会把历史以受限摘要块
+ * 交给模型（见 {@link StructuredPlanner#historyBlock}），用于理解指代与偏好，不改变任何校验。
  */
 @Component
 @RequiredArgsConstructor
@@ -394,7 +398,7 @@ public class PlannerAgent {
                                            Trip trip, TripDraft draft, int days, BigDecimal budget, String message) {
         StructuredPlanner.TripDraftView view = new StructuredPlanner.TripDraftView(
                 city.name(), days, draft.getStartDate(), budget, draft.getPreferences());
-        StructuredPlanner.NewTripParse parse = structuredPlanner.planNewTrip(city, view, message);
+        StructuredPlanner.NewTripParse parse = structuredPlanner.planNewTrip(city, view, message, ctx.getHistory());
         if (parse == null || !parse.ok()) {
             if (parse != null && !parse.warnings().isEmpty()) {
                 log.info("结构化规划回落规则路径: {}", parse.warnings());
@@ -449,7 +453,8 @@ public class PlannerAgent {
                 : weather.condition() + "，降雨概率 " + weather.rainProbability()
                         + "%（" + (weather.isRainy() ? "雨天优先把户外景点换成室内" : "适合户外安排") + "）";
         StructuredPlanner.ModificationParse parse =
-                structuredPlanner.planModification(city, items, trip.getStartDate(), weatherHint, message);
+                structuredPlanner.planModification(city, items, trip.getStartDate(), weatherHint, message,
+                        ctx.getHistory());
         if (parse == null || !parse.ok()) {
             return null;
         }

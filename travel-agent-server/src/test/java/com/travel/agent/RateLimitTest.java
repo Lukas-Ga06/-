@@ -5,7 +5,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MvcResult;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -39,7 +41,7 @@ class RateLimitTest extends IntegrationTestSupport {
                     .andExpect(status().isUnauthorized());
         }
 
-        mockMvc.perform(post("/api/auth/login")
+        MvcResult limited = mockMvc.perform(post("/api/auth/login")
                         .with(request -> {
                             request.setRemoteAddr(ip);
                             return request;
@@ -48,7 +50,11 @@ class RateLimitTest extends IntegrationTestSupport {
                         .content(LOGIN_BODY))
                 .andExpect(status().isTooManyRequests())
                 .andExpect(jsonPath("$.code").value(429))
-                .andExpect(header().exists("Retry-After"));
+                .andExpect(header().exists("Retry-After"))
+                .andReturn();
+        // Retry-After: 0 会诱导客户端立刻重试，反而放大压力；必须 >= 1
+        assertThat(Integer.parseInt(limited.getResponse().getHeader("Retry-After")))
+                .isGreaterThanOrEqualTo(1);
     }
 
     @Test

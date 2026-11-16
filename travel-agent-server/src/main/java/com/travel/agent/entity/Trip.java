@@ -53,6 +53,16 @@ public class Trip {
     @Column(name = "departure_reminder_dismissed_at")
     private LocalDateTime departureReminderDismissedAt;
 
+    /**
+     * 乐观锁版本：两个请求同时改同一行程时，后提交的一方会拿到
+     * ObjectOptimisticLockingFailureException → 统一 409「请刷新后重试」，
+     * 而不是静默覆盖（例如一个标签页改日期、另一个标签页同时提交 Agent 方案）。
+     * columnDefinition 带 default 0：存量表由 ddl-auto 补列时能给已有行回填。
+     */
+    @Version
+    @Column(name = "version", columnDefinition = "bigint default 0")
+    private Long version;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 

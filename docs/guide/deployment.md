@@ -19,6 +19,7 @@
 | 必配变量 | 仅 `JWT_SECRET`（缺失时 compose 直接拒绝启动） | `docker-compose.yml` → `${JWT_SECRET:?JWT_SECRET is required}` |
 | 一条命令启动 | `JWT_SECRET=$(openssl rand -base64 48) docker compose up -d --build` | `docker-compose.yml` 头部注释 |
 | 探活 | `GET /actuator/health`（免登录）、`GET /api/system/status`（需登录） | `SecurityConfig`、`SystemController` |
+| 升级前置 | 已应用过旧 `V4` 的库（本地 H2 / 现网 MySQL）**先跑一次 `flyway repair`** | §6.3.1（V4 注释修复导致 checksum 变更） |
 
 ---
 
@@ -59,7 +60,7 @@ graph LR
 | 触发方式 | 不设 `SPRING_PROFILES_ACTIVE`（或启动参数不加 `--spring.profiles.active`） | `SPRING_PROFILES_ACTIVE=mysql` 或 `-Dspring-boot.run.profiles=mysql` |
 | 连接串 | `jdbc:h2:file:./data/travel-agent;MODE=MySQL;AUTO_SERVER=TRUE` | `jdbc:mysql://${MYSQL_HOST}:${MYSQL_PORT}/${MYSQL_DATABASE}`（参数见 `application-mysql.yml`） |
 | 账号 | `sa` / 空密码 | `${MYSQL_USERNAME}` / `${MYSQL_PASSWORD}` |
-| H2 控制台 `/h2-console` | **开启**（`spring.h2.console.enabled: true`） | **关闭** |
+| H2 控制台 `/h2-console` | 默认**关闭**（`spring.h2.console.enabled: ${H2_CONSOLE_ENABLED:false}`，调试时显式设 `H2_CONSOLE_ENABLED=true`） | **关闭** |
 | 适用 | 本地开发、单机试跑、MySQL 不可用时的兜底 | **生产**、多实例、可热备 |
 
 > **一句话决策**：生产一律 MySQL 模式。H2 的 `AUTO_SERVER=TRUE` 只保证「同机多进程」共享，不支持跨主机多实例，
@@ -108,13 +109,36 @@ MYSQL_PASSWORD=CHANGE_ME_APP
 # ---- 可选能力（留空即降级，不影响启动）----
 LLM_API_KEY=
 AMAP_KEY=
-WEATHER_REAL=false
+# 行程地图使用高德「Web 端(JS API)」，与上面的后端 Web 服务 Key 分开申请；构建镜像时注入
+VITE_AMAP_KEY=
+VITE_AMAP_SECURITY_CODE=
+# 高德 MCP server 的 Key：注意是 AMAP_MAPS_API_KEY（单数 KEY），与上面的 AMAP_KEY 不是一个变量
+# 配了它并且 MCP_ENABLED=true 才会拉起 npx 子进程；缺 Key 时 MCP 段只降级、不影响启动
+AMAP_MAPS_API_KEY=
 MCP_ENABLED=false
+WEATHER_REAL=false
+# 知识库历史版本块保留数（除 ACTIVE 版本外额外保留几个历史版本；0 = 只留 ACTIVE）
+RAG_CHUNK_VERSION_RETENTION=2
 TELEGRAM_BOT_TOKEN=
 CHANNEL_WEBHOOK_ENABLED=false
 CHANNEL_WEBHOOK_SECRET=
 EOF
 ```
+
+> ⚠️ **两个新变量目前没有经 `docker-compose.yml` 透传给容器**：`AMAP_MAPS_API_KEY` 与 `RAG_CHUNK_VERSION_RETENTION`。
+> 只写进 `.env` **不会**进 `backend` 容器的环境，结果就是 MCP 子进程拿不到 Key（只降级、不报错，容易误判成"配了没用"）、
+> 块保留数仍是默认 2。容器部署请加一个 override 文件（compose 会自动合并，**不要提交到仓库**）：
+>
+> ```yaml
+> # docker-compose.override.yml
+> services:
+>   backend:
+>     environment:
+>       AMAP_MAPS_API_KEY: ${AMAP_MAPS_API_KEY:-}
+>       RAG_CHUNK_VERSION_RETENTION: ${RAG_CHUNK_VERSION_RETENTION:-2}
+> ```
+>
+> 非容器方式（`mvn spring-boot:run` / systemd）直接设进程环境变量即可，无需这一步。
 
 生成密钥并写入（避免 Base64 里的 `+` `/` `=` 出错）：
 
@@ -268,7 +292,7 @@ docker compose down -v                # ⚠️ 连卷一起删：MySQL 数据与
 - **来源二**：`docs/DEVELOPMENT.md` 开头「环境变量」表（是否必需 / 未配置时的行为）。
 - **来源三（权威，已修复补齐）**：`application.yml` / `application-mysql.yml` 的 `${VAR:default}` 占位，
   以及 Java 的 `@Value("${...}")`；全仓库主代码**没有** `System.getenv`。
-- 合并去重后共 **51 个**变量（含 4 个仅 Docker 面变量，明细见 §5.8）；三源差异见 §5.9。
+- 合并去重后共 **59 个**变量（含 4 个仅 Docker 面变量；另有 2 个前端构建期变量单独列出，明细见 §5.8）；三源差异见 §5.9。
 
 > **默认值优先级**：环境变量 > `travel-agent-server/.env.local`（`spring.config.import` 加载，`[.properties]` 解析）
 > > `application.yml` 默认值。容器内不带 `.env.local`（已列入 `.dockerignore`），所以 compose 环境就是最终来源。
@@ -308,7 +332,11 @@ docker compose down -v                # ⚠️ 连卷一起删：MySQL 数据与
 
 | 变量 | 默认值 | 是否必需 | 作用 | 未配置时的降级行为 |
 | --- | --- | --- | --- | --- |
-| `AMAP_KEY` | 空 | 可选 | 高德「Web服务」Key；启用快路径（LLM 精简生成 + 高德批量定位，约 3-4 秒） | 退回兜底路径（LLM 生成坐标 + OSM Nominatim，约 6-15 秒），国内网络可能较慢 |
+| `AMAP_KEY` | 空 | 可选 | 后端高德「Web 服务」Key；启用快路径（LLM 精简生成 + 高德批量定位，约 3-4 秒） | 退回兜底路径（LLM 生成坐标 + OSM Nominatim，约 6-15 秒），国内网络可能较慢 |
+| `AMAP_MAPS_API_KEY` | 空 | 可选（启用高德 MCP 时必需） | **高德 MCP server 子进程**的 Key，经 `travel.mcp.servers[].env` 透传；与 `AMAP_KEY` 是两个变量（单数 `KEY`） | MCP 子进程启动即 `exit(1)`（包在模块加载期校验），本项目侧握手失败→ `WARN` 跳过；应用其余功能不受影响。详见 [高德 MCP 接入](mcp-amap.md) |
+| `VITE_AMAP_KEY` | 空 | 行程地图必需 | 前端高德「Web 端(JS API)」Key；作为 Docker 构建参数注入 | 行程地图不渲染，并显示配置提示 |
+| `VITE_AMAP_SECURITY_CODE` | 空 | 行程地图必需 | 与 Web 端 Key 配套的安全密钥；作为 Docker 构建参数注入 | 高德脚本可能校验失败，页面显示加载提示 |
+| `VITE_FOOTPRINT_BASEMAP` | `amap` | 可选 | 足迹地图底图：`amap`（高德栅格 + MapLibre 球体）或 `osm`（原 OSM/OpenFreeMap） | 默认高德；高德瓦片不可达时运行时回退 OSM。商用前确认高德瓦片授权 |
 | `WEATHER_REAL` | `false` | 可选 | `true` 时天气走 Open-Meteo 真实预报（免费无 Key，窗口为今天起 16 天） | 确定性模拟数据；真实模式下网络失败或超范围也自动降级模拟 |
 
 ### 5.5 渠道入口
@@ -336,6 +364,7 @@ docker compose down -v                # ⚠️ 连卷一起删：MySQL 数据与
 | `RATE_LIMIT_AGENT` | `30` | 可选 | `/api/agent/**`：同用户上限（直接影响模型花费） | 30 次 |
 | `RATE_LIMIT_UPLOAD` | `60` | 可选 | 照片与发票上传：同用户上限 | 60 次 |
 | `RATE_LIMIT_DEFAULT` | `600` | 可选 | 其它 `/api/**`：同用户上限 | 600 次 |
+| `RATE_LIMIT_SESSION` | `60` | 可选 | `GET /api/auth/me`（会话恢复）独立桶：同用户上限，避免刷新页面被登录桶（`RATE_LIMIT_AUTH`）踢成 429 | 60 次 |
 | `RATE_LIMIT_WINDOW_SECONDS` | `300` | 可选 | 限流窗口长度（秒） | 300 秒 |
 | `RATE_LIMIT_STORE` | `memory` | 可选 | 计数存储：`memory`（进程内）/ `redis`（多实例共享配额，Redis 故障 fail-open） | 进程内计数：重启清零，多实例各算各的 |
 | `PHOTOS_STORE` | `local` | 可选 | 照片存储：`local`（本地磁盘）/ `s3`（S3 兼容对象存储，需同时配 `travel.photos.s3.*`） | 本地磁盘 |
@@ -343,9 +372,9 @@ docker compose down -v                # ⚠️ 连卷一起删：MySQL 数据与
 > **限流的 `redis` 模式与照片/发票的 `s3` 模式还需要额外的连接配置**：前者需 `spring.data.redis.*`，
 > 后者需 `travel.photos.s3.*`（endpoint / region / bucket / access-key / secret-key）。
 > 这些连接项没有独立环境变量，用 §5.9 的 `SPRING_APPLICATION_JSON` 方式注入。
-> Redis 不可用时 `RedisRateCounter` 会记 WARN 并放行（fail-open），不会让整站不可用。
+> Redis 不可用时 `RedisRateCounter` 会记 WARN、计 `ratelimit.failopen` 指标并放行（fail-open），不会让整站不可用。
 
-### 5.7 数据库与其他
+### 5.7 数据库、会话记忆与其他
 
 | 变量 | 默认值 | 是否必需 | 作用 | 未配置时的降级行为 |
 | --- | --- | --- | --- | --- |
@@ -356,8 +385,11 @@ docker compose down -v                # ⚠️ 连卷一起删：MySQL 数据与
 | `MYSQL_USERNAME` | `root` | 可选 | 账号（compose 注入 `travel`） | `root` |
 | `MYSQL_PASSWORD` | `root`（yml）/ `travel_pw`（compose） | 可选（**生产必改**） | 密码 | 用弱默认值 |
 | `MCP_ENABLED` | `false` | 可选 | 是否接入 `travel.mcp.servers` 里的 MCP server（工具只读，前缀 `mcp_`） | 仅内置工具；日志 `MCP 未启用…仅使用内置工具` |
+| `RAG_CHUNK_VERSION_RETENTION` | `2` | 可选 | 知识库**历史版本知识块**的保留数（除 ACTIVE 外额外保留最近 N 个版本的块）；`0` = 只留 ACTIVE | 保留 2 个历史版本；其余由每日 04:30 的 `RagChunkRetentionJob` 清理（只删块，版本行与正文保留） |
 | `JAVA_OPTS` | 空 | 可选 | 传给 `java` 的 JVM 参数（Dockerfile `ENTRYPOINT` 使用），如 `-Xmx1g` | 由 JVM 默认堆策略决定 |
 | `TZ` | `Asia/Shanghai`（仅 mysql 服务） | 可选 | MySQL 容器时区 | — |
+| `CONVERSATION_HISTORY_LIMIT` | `10` | 可选 | 会话记忆喂给模型的最近消息**条数**（一轮问答 = 2 条，`10` 条 ≈ 5 轮，不是 10 轮） | 10 条 |
+| `CONVERSATION_RETENTION_DAYS` | `7` | 可选 | 会话消息保留天数；过期由写入侧快路径（每小时最多一次）+ 每日 04:30 定时任务清理 | 7 天 |
 
 > `travel.photos.dir`（照片落盘目录）**不是环境变量**：`LocalPhotoStore` 用 `@Value("${travel.photos.dir:data/photos}")` 读取，
 > 只能通过配置文件项覆盖。Docker 下容器工作目录是 `/app`，因此落在 `/app/data/photos`。
@@ -369,28 +401,31 @@ docker compose down -v                # ⚠️ 连卷一起删：MySQL 数据与
 | --- | --- | --- |
 | 认证与安全 | 9 | `JWT_SECRET` `JWT_EXPIRE_HOURS` `COOKIE_SECURE` `CORS_ALLOWED_ORIGINS` `DEMO_ACCOUNT` `APP_TIMEZONE` `MYSQL_ROOT_PASSWORD` `TESSERACT_CMD` `TESSDATA_PREFIX` |
 | LLM 与 Embedding | 12 | `LLM_ENABLED` `LLM_API_KEY` `LLM_BASE_URL` `LLM_MODEL` `LLM_TEMPERATURE` `LLM_CONNECT_TIMEOUT_MS` `LLM_READ_TIMEOUT_MS` `LLM_DAILY_QUOTA` `EMBEDDING_ENABLED` `EMBEDDING_BASE_URL` `EMBEDDING_API_KEY` `EMBEDDING_MODEL` |
-| 地图与天气 | 2 | `AMAP_KEY` `WEATHER_REAL` |
+| 地图与天气 | 5 | `AMAP_KEY` `AMAP_MAPS_API_KEY` `VITE_AMAP_KEY` `VITE_AMAP_SECURITY_CODE` `WEATHER_REAL` |
 | 渠道入口 | 7 | `TELEGRAM_BOT_TOKEN` `TELEGRAM_POLL_TIMEOUT` `CHANNEL_WEBHOOK_ENABLED` `CHANNEL_WEBHOOK_SECRET` `WECHAT_OA_TOKEN` `WECHAT_OA_APPID` `WECHAT_OA_SECRET` |
-| 存储与限流 | 12 | `INVOICE_DIR` `INVOICE_STORE` `PHOTO_MAX_PER_TRIP` `PHOTO_MAX_BYTES_PER_USER` `RATE_LIMIT_ENABLED` `RATE_LIMIT_AUTH` `RATE_LIMIT_AGENT` `RATE_LIMIT_UPLOAD` `RATE_LIMIT_DEFAULT` `RATE_LIMIT_WINDOW_SECONDS` `RATE_LIMIT_STORE` `PHOTOS_STORE` |
-| 数据库与其他 | 8 | `SPRING_PROFILES_ACTIVE` `MYSQL_HOST` `MYSQL_PORT` `MYSQL_DATABASE` `MYSQL_USERNAME` `MYSQL_PASSWORD` `MCP_ENABLED` `JAVA_OPTS` |
+| 存储与限流 | 13 | `INVOICE_DIR` `INVOICE_STORE` `PHOTO_MAX_PER_TRIP` `PHOTO_MAX_BYTES_PER_USER` `RATE_LIMIT_ENABLED` `RATE_LIMIT_AUTH` `RATE_LIMIT_AGENT` `RATE_LIMIT_UPLOAD` `RATE_LIMIT_DEFAULT` `RATE_LIMIT_SESSION` `RATE_LIMIT_WINDOW_SECONDS` `RATE_LIMIT_STORE` `PHOTOS_STORE` |
+| 数据库与其他 | 9 | `SPRING_PROFILES_ACTIVE` `MYSQL_HOST` `MYSQL_PORT` `MYSQL_DATABASE` `MYSQL_USERNAME` `MYSQL_PASSWORD` `MCP_ENABLED` `RAG_CHUNK_VERSION_RETENTION` `JAVA_OPTS` |
+| 会话记忆 | 2 | `CONVERSATION_HISTORY_LIMIT` `CONVERSATION_RETENTION_DAYS` |
 | 容器时区（仅 mysql 服务） | 1 | `TZ` |
-| **合计** | **51** | 应用侧 47（= yml 占位去重数）+ `SPRING_PROFILES_ACTIVE` + `JAVA_OPTS` + `TZ` + `MYSQL_ROOT_PASSWORD` |
+| **合计** | **59** | 应用侧 55（= 两份 yml 占位去重数，`node .docgen/list-env.mjs` 输出 `55`；其中 `H2_CONSOLE_ENABLED`、`TICKET_TTL_SECONDS`、`RATE_LIMIT_TRUSTED_PROXIES` 未在 §5.2–§5.7 单列）+ `SPRING_PROFILES_ACTIVE` + `JAVA_OPTS` + `TZ` + `MYSQL_ROOT_PASSWORD` |
+
+> 口径提示：上表分组明细合计 **58** = 已展开的 52 个 yml 占位 + 2 个**前端构建期**变量（`VITE_AMAP_KEY`、`VITE_AMAP_SECURITY_CODE`，不是后端运行期变量）+ 4 个仅 Docker 面变量；`合计` 的 **59** = 55 个 yml 占位（含未单列的 `H2_CONSOLE_ENABLED` / `TICKET_TTL_SECONDS` / `RATE_LIMIT_TRUSTED_PROXIES`）+ 同样 4 个仅 Docker 面变量。
 
 来源分布（按定义位置；一个变量可能出现于多份配置文件）：
 
 | 来源 | 数量 | 说明 |
 | --- | --- | --- |
-| `application.yml` 的 `${VAR:default}` 占位 | 42 | `AMAP_KEY` 在该文件里出现 2 次（`travel.amap.key` 与 MCP 示例），去重后计 1 |
+| `application.yml` 的 `${VAR:default}` 占位 | 50 | 50 处、50 个不同变量（全部一次性引用；`AMAP_KEY` 只在 `travel.amap.key`，`AMAP_MAPS_API_KEY` 只在 `travel.mcp.servers[].env`） |
 | `application-mysql.yml` 的占位 | 5 | `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_DATABASE` / `MYSQL_USERNAME` / `MYSQL_PASSWORD` |
-| 两份 yml 合计（去重） | **47** | 等价于 `node .docgen/list-env.mjs` 输出的「Distinct env vars in yml: 47」 |
-| Java 代码内独立占位 | 2 | `TESSERACT_CMD`、`TESSDATA_PREFIX`（`InvoiceTextExtractor` 的 `@Value("${travel.ocr.tesseract:${TESSERACT_CMD:}}")` 嵌套写法；yml 里也有同名占位，故已含在上面 47 个中） |
+| 两份 yml 合计（去重） | **55** | 等价于 `node .docgen/list-env.mjs` 输出的「Distinct env vars in yml: 55」 |
+| Java 代码内独立占位 | 2 | `TESSERACT_CMD`、`TESSDATA_PREFIX`（`InvoiceTextExtractor` 的 `@Value("${travel.ocr.tesseract:${TESSERACT_CMD:}}")` 嵌套写法；yml 里也有同名占位，故已含在上面 55 个中） |
 | 仅由 `docker-compose.yml` / Dockerfile 提供 | 4 | `MYSQL_ROOT_PASSWORD`、`TZ`（mysql 服务）、`SPRING_PROFILES_ACTIVE`、`JAVA_OPTS`（后端 `ENTRYPOINT` 消费） |
 | `System.getenv` 直接读取 | **0** | 全仓库主代码没有 `System.getenv`（测试代码只用 `System.getProperty`） |
 
-对账：47（yml 去重）+ 4（仅 Docker 面）= **51**。复核命令：
+对账：55（yml 去重）+ 4（仅 Docker 面）= **59**。复核命令：
 
 ```bash
-node .docgen/list-env.mjs                                     # 期望：Distinct env vars in yml: 47
+node .docgen/list-env.mjs                                     # 期望：Distinct env vars in yml: 55
 grep -rhoE '\$\{[A-Z_]+' travel-agent-server/src/main/resources/application*.yml | sort -u | wc -l
 grep -rhoE '\$\{[A-Z_]+' travel-agent-server/src/main/java | sort -u | wc -l
 ```
@@ -432,12 +467,15 @@ Docker 下容器工作目录为 `/app`，因此落在 `/app/data/photos`（已�
 
 | 关注点 | H2（默认 profile） | MySQL（`mysql` profile） |
 | --- | --- | --- |
-| 初始化 | `ddl-auto: update` 建表；Flyway 仅跑 `V2+` 增量 | 同左；库需先存在（compose 由 `MYSQL_DATABASE` 创建，本地用 `sql/init.sql`） |
-| 控制台 | `/h2-console` 可访问（`SecurityConfig` 放行） | 已禁用，且不应放行 |
+| 初始化 | Flyway 建 schema（`V1` 基线 → `V2`–`V11` → `V13`/`V14`(H2)）；`ddl-auto: validate` 只校验 | Flyway 全链 `V1`–`V13`（含 `V8`/`V12`/`V13`(MySQL)）；`ddl-auto: validate`；库需先存在（compose 由 `MYSQL_DATABASE` 创建） |
+| 控制台 | 默认关闭；显式设 `H2_CONSOLE_ENABLED=true` 后 `/h2-console` 可用（`SecurityConfig` 放行） | 已禁用，且不应放行 |
 | 文件锁 | `travel-agent.lock.db` + `AUTO_SERVER=TRUE`，同机可多进程 | 无；连接池管理 |
 | 备份 | 停服后复制 `*.mv.db` | `mysqldump` / `xtrabackup`，可热备 |
 | 多实例 | 不支持 | 支持（配合 `pending_plan` 落库、Redis 限流、S3 存储可横向扩展） |
 | 字符集 | 由 H2 `MODE=MySQL` 模拟 | `--character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci` |
+
+> **schema 只有一个权威：Flyway**。两边 `ddl-auto` 都是 `validate`，Hibernate 只校验不改结构——
+> 迁移脚本漏了表/列会**启动失败**而不是被悄悄补上（这是特性）。全新库**不再需要手工执行 `sql/init.sql`**（已弃用）。
 
 ### 6.2 切换方式
 
@@ -449,31 +487,119 @@ cd travel-agent-server
 mvn spring-boot:run -Dspring-boot.run.profiles=mysql # 或 --spring.profiles.active=mysql
 ```
 
-> `docker-compose.infra.yml` 的 MySQL 是 **8.0**（自动执行 `./sql/init.sql`，并对外发布 3306），
-> 与生产 compose 的 **8.4** 不同版本，仅用于本地开发。宿主机已被占用 3306 时先改该端口映射。
+> `docker-compose.infra.yml` 的 MySQL 是 **8.0**（并对外发布 3306），与生产 compose 的 **8.4** 不同版本，仅用于本地开发。
+> 宿主机已被占用 3306 时先改该端口映射。
+>
+> ⚠️ 该 compose 仍把**已弃用的** `sql/init.sql` 挂到 `docker-entrypoint-initdb.d/`：首次启动会用旧 schema 建表，
+> 而旧 schema 的 `health_record.weight`（`DECIMAL(5,1)`）与 `operation_history.*_state`（`JSON`）和实体不一致，
+> `ddl-auto=validate` 会因此启动失败。**要么先删掉 `mysql-data` 卷再让 Flyway 建 schema（推荐），
+> 要么用空库（只 `CREATE DATABASE`）**；不要用 init.sql 建出来的库跑新代码。
 
 **生产**：compose 已固定 `SPRING_PROFILES_ACTIVE=mysql` + `MYSQL_HOST=mysql`，无需改动。
 **反向切回 H2（应急）**：去掉 `SPRING_PROFILES_ACTIVE`/`MYSQL_*` 后重建 `backend`，后端改用容器内
 `/app/data/travel-agent.mv.db`（在 `backend-data` 卷里），代价是与 MySQL 数据不互通——只用于
 「MySQL 起不来、先让页面能登录」的临时兜底，不要当常态。
 
-### 6.3 Flyway 迁移时机与基线
+### 6.3 Flyway 迁移链、`validate` 与 checksum repair
 
 - **执行时机**：每次后端启动时、在 Hibernate 初始化**之前**执行未应用的迁移；记录在 `flyway_schema_history`。
-- **当前脚本**（`travel-agent-server/src/main/resources/db/migration/`）：
+- **迁移链**（`travel-agent-server/src/main/resources/db/`）：**14 个版本 / 15 个脚本**（V13 双方言各一份、V14 为 H2 专属）。
 
-  | 版本 | 脚本 | 内容 |
+  | 版本 | 脚本（目录） | 内容 |
   | --- | --- | --- |
-  | 1（基线） | 无脚本 | `baseline-version: 1`：存量库/全新库都从这里起算 |
+  | 1 | `V1__baseline.sql`（`migration`） | 「V2 之前」的 schema：15 张表 + 14 个索引，等价旧 `sql/init.sql` |
   | 2 | `V2__conversation_message.sql` | 会话消息表 |
-  | 3 | `V3__llm_quota.sql` | `llm_quota_usage`（用户名+日期唯一，LLM 每日配额） |
-  | 4 | `V4__rag_fingerprint.sql` | `rag_document.fingerprint`（知识库指纹增量同步） |
+  | 3 | `V3__llm_quota.sql` | `llm_quota_usage`（LLM 每日配额计数；唯一约束 `uk_llm_quota_user_date` 由 `V8` 在 MySQL 补） |
+  | 4 | `V4__rag_fingerprint.sql` | `rag_document.fingerprint`（**本批修过 1 个注释字符，checksum 已变，见下**） |
+  | 5 | `V5__rag_document_user.sql` | `rag_document.user_id`（公共 / 个人知识隔离） |
+  | 6 | `V6__pending_plan_status.sql` | `pending_plan` 补 `status` / `version`（确认原子化） |
+  | 7 | `V7__trip_version.sql` | `trip.version`（`@Version` 乐观锁） |
+  | 8 | `V8__llm_quota_unique.sql`（`migration-mysql`） | **MySQL 专属**：幂等补 `UNIQUE(user_name, usage_date)` |
+  | 9 | `V9__list_indexes.sql` | 列表查询复合索引 + 5 张基础表 `IF NOT EXISTS` 自足建表 |
+  | 10 | `V10__rag_document_version.sql` | `rag_document_version` + `rag_chunk.version_id` + 存量回填 |
+  | 11 | `V11__rag_document_key.sql` | `rag_document.doc_key` + `uk_rag_document_key`（并发首建去重） |
+  | 12 | `V12__rag_active_unique.sql`（`migration-mysql`） | **MySQL 专属**：生成列 `active_document_id` + 唯一索引（每文档至多一条 ACTIVE），幂等 |
+  | 13 | `V13__baseline_gap.sql`（`migration-mysql`） | **MySQL 专属**：幂等补齐 9 列 + `trip_photo` 表 + 6 个索引 |
+  | 13 | `V13__baseline_gap_h2.sql`（`migration-h2`） | 同一份缺口的 H2 方言版（原生 `IF NOT EXISTS`） |
+  | 14 | `V14__llm_quota_unique_h2.sql`（`migration-h2`） | **H2 专属**：`llm_quota_usage` 的唯一键（MySQL 侧由 V8 负责，H2 之前从未建过） |
 
-- **`baseline-on-migrate: true` + `baseline-version: 1`**：首次对「已有表但没有 `flyway_schema_history`」的库执行时，
-  自动插入基线记录并**跳过 V2 之前的脚本**，只跑增量脚本。脚本内部统一用 `CREATE TABLE IF NOT EXISTS`，
-  新列交给 `ddl-auto: update` 补齐（`V4` 注释即写明「自建表 + ddl-auto 兜底」策略）。
-- **运维纪律**：**已发布过的迁移脚本禁止修改**，否则 checksum 校验失败、后端启动直接报
-  `Migration checksum mismatch`（§8.4）。改 schema 一律新增 `V{n}__描述.sql`。
+- **两个 profile 的 `flyway.locations`**：默认（H2）= `classpath:db/migration,classpath:db/migration-h2`；
+  `mysql` = `classpath:db/migration,classpath:db/migration-mysql`。两边**各自只看到一个 V13**，不会撞重复版本号。
+  由此 **H2 库的 `flyway_schema_history` 会缺 V8 与 V12**——Flyway 允许版本号跳空，属预期行为；
+  H2 侧没有 `uk_llm_quota_user_date` 唯一约束、也没有「每文档至多一条 ACTIVE」的生成列：配额闸门本身是条件 UPDATE
+  （`used_count < limit`）不依赖唯一键，ACTIVE 唯一性由应用层 `SELECT … FOR UPDATE` + 同事务置位保证。
+- **`ddl-auto` 两个 profile 都是 `validate`**：Hibernate 只校验实体与库结构是否一致，缺表/缺列/类型不符直接启动失败。
+  这是本批最重要的变化——此前 `update` 会把迁移漏掉的列悄悄补上，把「脚本不完整」永久掩盖。
+- **`baseline-on-migrate: true` + `baseline-version: 1`**：首次对「已有表但没有 `flyway_schema_history`」的存量库执行时，
+  自动插入 V1 基线记录并**跳过 V1 本身**，只跑未应用的增量（V13 在该库上逐条命中「已存在」→ 空转）。
+- **索引写法两套**：便携脚本（`V9`/`V10`/`V11`）直接用 `CREATE INDEX`——每个版本只执行一次，不需要 `IF NOT EXISTS`；
+  只有「存量库可能已有该对象」的 MySQL 方言脚本（`V8`/`V12`/`V13`）才走 `information_schema` 探测 + `PREPARE` 的空转分支。
+
+#### 6.3.1 升级前必做：V4 checksum repair（一次）
+
+`V4__rag_fingerprint.sql` 第 4 行原写作 `--（…`。MySQL 要求 `--` 后必须是空白/控制字符，`--（` **不是注释**，
+Flyway 会把它和后面的 `CREATE TABLE` 拼成一条语句 → `SQLSyntaxErrorException`，**任何全新 MySQL 库都会在 V4 失败**
+（H2 容忍这种写法，所以本地一直没暴露）。本批把它改成 `-- （…`（只加一个空格）。
+
+改动让 **V4 的 checksum 变了**：所有**已应用过旧 V4** 的库（本地 H2 开发库、现网 MySQL）升级代码后必须先 `repair` 一次，
+否则启动直接报：
+
+```
+Migration checksum mismatch for migration version 4
+-> Applied to database : 826714073
+-> Resolved locally    : -231615481
+Either revert the changes to the migration, or run repair to update the schema history.
+```
+
+`repair` 只把 `flyway_schema_history` 记录的 checksum/状态对齐到当前脚本：**不执行 DDL、不改业务数据、不重跑迁移**。
+**千万不要删 `flyway_schema_history`**（那等于让 Flyway 把全部迁移重放一遍）。
+
+工具：`.tools/flyway-repair/`（`FlywayRepair.java` + `run.ps1` + `README.md`，在 `src/main` 之外、**不参与 mvn 构建**），
+子命令 `info | validate | repair | migrate`。空密码用 `-` 占位（PowerShell 会吞空串）：
+
+```powershell
+# 本地 H2 开发库（空密码）：必须「在 PowerShell 里用 & 调脚本」。
+# 不要写成 `powershell -File ... -DbPassword -`：那条路径下 PowerShell 会把裸 `-` 当参数前缀吞掉，
+# 脚本收到的参数不足，表现为 rc=2 且没有任何输出（实测）。
+powershell -NoProfile -ExecutionPolicy Bypass -Command "& 'D:\travel-agent\.tools\flyway-repair\run.ps1' -Command repair -JdbcUrl 'jdbc:h2:file:D:/travel-agent/travel-agent-server/data/travel-agent;MODE=MySQL' -DbUser sa -DbPassword - -Locations 'filesystem:D:/travel-agent/travel-agent-server/src/main/resources/db/migration,filesystem:D:/travel-agent/travel-agent-server/src/main/resources/db/migration-h2'"
+
+# 现网 MySQL（非空密码，-File 表单可直接用；-Locations 末尾换成 db/migration-mysql）
+powershell -NoProfile -ExecutionPolicy Bypass -File D:\travel-agent\.tools\flyway-repair\run.ps1 -Command repair `
+  -JdbcUrl "jdbc:mysql://HOST:3306/travel_agent?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai" `
+  -DbUser root -DbPassword 123456 `
+  -Locations "filesystem:D:/travel-agent/travel-agent-server/src/main/resources/db/migration,filesystem:D:/travel-agent/travel-agent-server/src/main/resources/db/migration-mysql"
+```
+
+`-Locations` 必须与对应 profile 的 `spring.flyway.locations` **一致**（H2 = `migration` + `migration-h2`；
+MySQL = `migration` + `migration-mysql`），否则工具会算出不同的 resolved checksum。`repair` 后跑一次 `-Command validate`，
+输出 `[OK] validate passed` 即恢复；已在验证中复现「旧 V4 启动失败 → repair → 启动成功」三段输出。
+
+#### 6.3.2 验证证据与已知遗留
+
+| 环境 | 已验证 |
+| --- | --- |
+| **真实 MySQL `8.0.46`**（本机，**不是 8.4**） | ① 全新库 `V1..V13` 13 个迁移 + `validate` 通过（21 表，启动 14.6s）；② 存量库（`flyway.target=10` 模拟现网）→ 只增量 V11/V12/V13 + `validate` 通过；③ `V8` 幂等：先手工建唯一键再跑，走「已存在 → 跳过」分支，无 `Duplicate key name` |
+| H2（2.3.232，`MODE=MySQL`） | 全新库 `V1..V13(h2)` + `validate` 通过；**现有 dev 库副本**升级只增量 V13(h2)（全部 `IF NOT EXISTS` 空转）+ `validate` 通过 |
+
+遗留风险两条：① **MySQL 8.4 未实机**（本机只有 8.0.46）；所有 DDL 都是 8.0/8.4 共同语法，风险低但未实证，
+升级 8.4 前建议先在预发跑一次全新库 + 存量库升级；② 极端旧库若 `health_record.weight` 还是 `DECIMAL(5,1)`、
+`operation_history.before_state`/`after_state` 还是 `JSON`，`validate` 会报类型不符，需手工收紧列类型（两处都只是
+「列更宽松」，不影响读写，可以择机处理）。
+
+#### 6.3.3 迁移失败后的处理
+
+若某次启动在迁移中途失败（例如把 MySQL 专属脚本放到默认目录、H2 解析不了），`flyway_schema_history` 里会留下
+`success=false` 的一行，之后**每次启动都会被拒绝**并报 `Detected failed migration to version N ... run repair`。步骤：
+
+1. 确认该迁移确实没有留下半完成的 DDL（PARSE 阶段的失败通常什么都没执行）；
+2. 删除失败记录：`DELETE FROM flyway_schema_history WHERE success = FALSE;`
+   （H2 文件库可用 `org.h2.tools.Shell`/JDBC；该表的表名与列名是以引号创建的**小写**标识符，
+   手写 SQL 需写成 `"flyway_schema_history"`、`"success"`）；
+3. 重新启动，Flyway 会从该版本继续。
+
+**运维纪律**：**已发布过的迁移脚本禁止修改**，否则 checksum 校验失败、后端启动直接报 `Migration checksum mismatch`（§8.4）。
+唯一例外是 6.3.1 那种「注释语法错误导致全新库必失败」的情形，改动必须配一轮 `repair` 并写进 CHANGELOG。
+改 schema 一律新增 `V{n}__描述.sql`；MySQL 方言写得放 `db/migration-mysql/`，H2 方言放 `db/migration-h2/`。
 
 ---
 
@@ -488,7 +614,7 @@ mvn spring-boot:run -Dspring-boot.run.profiles=mysql # 或 --spring.profiles.act
 | `/api/` 反代 | `proxy_pass http://backend:8080;` + `proxy_http_version 1.1` | 服务名即 compose 服务名 |
 | **SSE** | `proxy_buffering off; proxy_cache off;` | 不关缓冲 → 事件被攒批，聊天面板「半天不出字」或一闪出一整段 |
 | 超时 | `proxy_read_timeout 3600s; proxy_send_timeout 3600s;` | `SseEmitter` 超时 180 秒，但长连接与后续事件不可被 60 秒默认值截断 |
-| 透传头 | `Host` / `X-Real-IP` / `X-Forwarded-For` / `X-Forwarded-Proto` | `RateLimitFilter` 用 `X-Forwarded-For` 第一段做 IP 限流；登录限流依赖它才准 |
+| 透传头 | `Host` / `X-Real-IP` / `X-Forwarded-For` / `X-Forwarded-Proto` | `RateLimitFilter` **默认完全不读 `X-Forwarded-For`**，直接用 TCP 源地址计数；只有配置了 `RATE_LIMIT_TRUSTED_PROXIES`（命中受信代理）才从右往左取第一个非受信地址。反代部署必须同时配该变量，否则所有请求按代理 IP 共用一个桶 |
 | SPA 回退 | `try_files $uri $uri/ /index.html;` | React Router 深链刷新不 404 |
 | 静态缓存 | `/assets/` `expires 30d` + `immutable`；`= /index.html` `no-cache` | 带 hash 的资源长缓存，入口不缓存（保证版本切换立刻生效） |
 
@@ -560,6 +686,9 @@ server {
 | `rateLimitEnabled` | boolean | 限流是否开启 |
 | `llmQuotaUsed` / `llmQuotaLimit` | int（仅配额开启且已登录时出现） | 当前用户今日已用/上限 |
 
+> **MCP 的接入状态不在这个接口里**：`amapConfigured` 只反映 REST 用的 `AMAP_KEY`，与 MCP 子进程的 `AMAP_MAPS_API_KEY` 无关。
+> MCP 是否真的接上、注册了几个工具，看启动日志（[高德 MCP 接入](mcp-amap.md) §4.3）。
+
 ### 8.2 日志
 
 | 位置 | 内容 |
@@ -620,6 +749,8 @@ docker compose exec mysql mysql -uroot -p"${MYSQL_ROOT_PASSWORD}" travel_agent -
 | `llm.calls` | `result=ok` / `failed` / `skipped` / `quota` | ok=成功；failed=调用失败降级；**skipped=整条链路走规则引擎（没配 Key 或显式关闭）**；quota=配额耗尽 |
 | `llm.latency` | — | 模型调用耗时 |
 | `structured.planning` | `path` / `result` | 结构化规划的执行路径与结果（重试/回落看这里） |
+| `agent.stage` | `stage=intent` / `plan` / `tool` / `commit` | Agent 各阶段耗时（Timer）；**异常路径也会落样本**，所以看 P99 时要配合 `_count` 判断失败占比 |
+| `sse.disconnects` | `reason=complete` / `timeout` / `error` / `cancelled` | SSE 断连计数：`complete`=半途断开（正常结束不计）、`timeout`=`SseEmitter` 超时、`error`=发送/引擎异常、`cancelled`=阶段边界发现已取消。语义与取消边界见 [架构](architecture.md) §8.6 |
 
 ### 8.4 常见故障排查
 
@@ -629,8 +760,9 @@ docker compose exec mysql mysql -uroot -p"${MYSQL_ROOT_PASSWORD}" travel_agent -
 | 端口被占用（`Bind for 0.0.0.0:8081 failed`） | 宿主机已有服务占用 8081 | `ss -ltnp \| grep 8081`（Windows：`netstat -ano \| findstr 8081`）停掉占用，或把 `web.ports` 改为 `"18081:80"` |
 | `mysql` 一直 `unhealthy` | 首次初始化慢 / 密码变量改过 / 磁盘满 | `docker compose logs mysql`；`MYSQL_ROOT_PASSWORD` 在数据卷初始化后修改会导致 ping 失败，需改回原值或进容器 `ALTER USER` |
 | `backend` 反复重启 | 启动失败退出 | `docker compose logs --tail=200 backend` 看第一个异常：多为 DB 连接失败、`JWT_SECRET` 非 Base64、Flyway 校验失败 |
-| `Migration checksum mismatch for version X` | 已发布脚本被修改过 | 不要用 `flyway:repair` 掩盖；恢复脚本原文后重启。确需修正历史，走新增 `V{n}__` 脚本 |
-| `Detected failed migration to version X` | 迁移执行到一半失败 | 修好数据后清理 `flyway_schema_history` 失败记录或重跑；**操作前先备份** |
+| `Migration checksum mismatch for version X` | ① 本批修过 `V4` 的注释（checksum 变了）；② 已发布脚本被误改 | ① 跑一次 `repair`（§6.3.1，只对齐 checksum、不动数据）；② 恢复脚本原文后重启。**两种都绝不要删 `flyway_schema_history`**；确需修正历史，走新增 `V{n}__` 脚本 |
+| `Detected failed migration to version X` | 迁移执行到一半失败 | 先确认没有半完成的 DDL，再清理 `flyway_schema_history` 里的失败记录（§6.3.3）；**操作前先备份** |
+| `Schema-validation: missing table/column` 或 `wrong column type` | `ddl-auto=validate` 发现实体与库不一致：迁移脚本漏了对象，或极端旧库的列类型更宽松 | 补一个 `V{n}__` 脚本（不要指望 Hibernate 自动补）；类型不符按 §6.3.2 手工 `MODIFY` |
 | 页面登录成功但立刻 401 | `COOKIE_SECURE=true` 但实际走 HTTP；或反代丢 `X-Forwarded-Proto` | 纯 HTTP 部署设 `COOKIE_SECURE=false`；HTTPS 部署检查反代是否透传该头 |
 | 聊天不吐字、一次性刷完 | 某一层代理开了缓冲 | 按 §7.2 逐一关掉内层/外层/CDN 的 `proxy_buffering` |
 | 上传照片/发票报 413 | 体积超过限制 | 上限 10MB/文件、12MB/请求；后端 yml、nginx、外层反代三处都要对齐 |
@@ -638,8 +770,8 @@ docker compose exec mysql mysql -uroot -p"${MYSQL_ROOT_PASSWORD}" travel_agent -
 | 路书 PDF 中文变方块 | 容器缺 CJK 字体 | 镜像已装 `fonts-noto-cjk`；自建镜像补装，或把字体放到 `src/main/resources/fonts/cjk.ttf` |
 | 日期整体差一天 | 容器 UTC 且 `APP_TIMEZONE` 未生效 | 查 `/api/system/status` 的 `timezone`；显式设 `APP_TIMEZONE` 后重启 |
 | MCP 功能缺失但服务正常 | `MCP_ENABLED=false` 或单个 server 接入失败 | 属**设计内降级**，不影响启动；看日志 `MCP 服务器 [x] 接入失败` 的原因 |
-| 图片加载 401/403 | 短期票据过期（默认 600 秒） | 正常机制（`AccessTicketService`）；频繁出现时检查浏览器时钟 |
-| 注册/登录频繁 429 | 登录限流按 IP（默认 5 分钟 10 次） | 调 `RATE_LIMIT_AUTH`/`RATE_LIMIT_WINDOW_SECONDS`；反代后**必须**透传 `X-Forwarded-For` |
+| 图片加载 401/403 | 短期票据过期（默认 300 秒）；或票据 `purpose` 与路径不匹配（照片只认 `media-read`，SSE 只认 `agent-stream`） | 正常机制（`AccessTicketService`）；刷新页面重新签票即恢复；频繁出现时检查浏览器时钟 |
+| 注册/登录频繁 429 | 登录限流按 IP（默认 5 分钟 10 次） | 调 `RATE_LIMIT_AUTH`/`RATE_LIMIT_WINDOW_SECONDS`；反代部署除了透传 `X-Forwarded-For`，**还必须在后端配置 `RATE_LIMIT_TRUSTED_PROXIES`**（默认空 = 不信任任何代理、不读 XFF），否则按代理 IP 计数 |
 | 容器被 OOM Kill | JVM 默认堆按宿主比例 | 设 `JAVA_OPTS=-Xmx1g -XX:MaxRAMPercentage=70` |
 
 ---
@@ -664,15 +796,20 @@ docker compose exec mysql mysql -uroot -p"${MYSQL_ROOT_PASSWORD}" travel_agent -
 ```bash
 # 1) 生产发布（保留旧镜像以便快速回滚）
 git pull
+# 1.1) 只在本批（V4 checksum 变更）需要：先对齐历史记录，再启动
+powershell -NoProfile -ExecutionPolicy Bypass -File D:\travel-agent\.tools\flyway-repair\run.ps1 -Command repair `
+  -JdbcUrl "jdbc:mysql://HOST:3306/travel_agent?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai" `
+  -DbUser root -DbPassword 123456 `
+  -Locations "filesystem:D:/travel-agent/travel-agent-server/src/main/resources/db/migration,filesystem:D:/travel-agent/travel-agent-server/src/main/resources/db/migration-mysql"
 docker compose up -d --build
 docker compose ps
 
 # 2) 走一遍 3.4 验证清单，重点看 #3（探活）/#5（nginx→后端）/#6（页面）/#9（登录）
 ```
 
-**发布前自检**：`.env` 里 `JWT_SECRET` **未变**（改了会全体下线）；没有修改**已发布**的 Flyway 脚本；
-新增 schema 变更以 `V{n}__描述.sql` 提交并在 PR 中验证过 MySQL 模式启动；已备份 MySQL（§10.2）；
-改了 `application.yml` 默认值则同步更新本文 §5。
+**发布前自检**：`.env` 里 `JWT_SECRET` **未变**（改了会全体下线）；没有修改**已发布**的 Flyway 脚本
+（本批 V4 的注释修复是唯一例外，必须配 `repair`，见 §6.3.1）；新增 schema 变更以 `V{n}__描述.sql` 提交并在 PR 中
+验证过 MySQL 模式启动；已备份 MySQL（§10.2）；改了 `application.yml` 默认值则同步更新本文 §5。
 
 **回滚**：`git checkout <上一个 tag>` → `docker compose up -d --build`。
 **注意**：数据库迁移**不会自动回滚**；若新版本含破坏性变更（删列/改类型），回滚前需恢复发布前的备份。
@@ -776,8 +913,8 @@ docker compose start backend
 | 照片 | 单用户上限 `PHOTO_MAX_BYTES_PER_USER` 默认 500 MB；单行程张数 `PHOTO_MAX_PER_TRIP` 默认 200 | 按用户数 × 上限估算；逼近时下调配额或迁 S3 |
 | 发票原件 | 单文件受 10MB multipart 限制 | 定期归档；可切 `INVOICE_STORE=s3` |
 | `pending_plan` | 每次规划一条，TTL **30 分钟**，仅在写入新方案时清理过期行 | 量很小；量大时定期 `DELETE FROM pending_plan WHERE created_at < NOW() - INTERVAL 1 DAY` |
-| `conversation_message` | 按「用户 + 会话」保留最近 10 轮喂给模型（存储行数随使用增长） | 定期归档老会话 |
-| `rag_chunk` | 10 篇内置知识 × 段落数；**切换 Embedding 模型需重建** | 变更前清空 `rag_chunk` 与 `rag_document`，重启自动重建 |
+| `conversation_message` | 按「用户 + 会话」保留最近 10 条消息（约 5 轮）喂给模型；超过 `CONVERSATION_RETENTION_DAYS`（默认 7 天）的消息自动清理（写入侧快路径每小时最多一次 + 每日 04:30 定时任务） | 清理已自动化；需要时再定期归档 |
+| `rag_chunk` | 10 篇内置知识 × 段落数；版本化之后旧块不随指纹变化删除，但**只保留最近 `RAG_CHUNK_VERSION_RETENTION`（默认 2）个历史版本**，更老的块由每日 04:30 的 `RagChunkRetentionJob` 清理（版本行与正文保留）；**切换 Embedding 模型需重建** | 变更前清空 `rag_chunk`、`rag_document_version` 与 `rag_document`，重启自动重建（见 [数据模型](data-model.md) §7.3） |
 | MySQL 表空间 | `mysql-data` 卷 | 按 §10.2 备份并监控卷使用率 |
 
 **建议的监控阈值**（无内置告警，需外部接）：宿主机磁盘 > 80%、容器内存 > 85%、`/actuator/health` 连续失败、
@@ -789,14 +926,15 @@ docker compose start backend
 
 本文以仓库当前 HEAD 的源码为准做了逐项核对：
 
-- **环境变量总数：51**——应用侧 47（= 两份 yml 占位去重数，`node .docgen/list-env.mjs` 输出 `47`）
-  \+ 仅 Docker 面 4（`MYSQL_ROOT_PASSWORD`、`SPRING_PROFILES_ACTIVE`、`JAVA_OPTS`、`TZ`）。分组明细见 §5.8；
-- **来源分布**：`application.yml` 42 个不同占位（43 处，`AMAP_KEY` 引用两次）、`application-mysql.yml` 5 个、
+- **环境变量总数：59**——应用侧 55（= 两份 yml 占位去重数，`node .docgen/list-env.mjs` 输出 `55`）
+  \+ 仅 Docker 面 4（`MYSQL_ROOT_PASSWORD`、`SPRING_PROFILES_ACTIVE`、`JAVA_OPTS`、`TZ`）。分组明细见 §5.8，
+  其中 `H2_CONSOLE_ENABLED`、`TICKET_TTL_SECONDS`、`RATE_LIMIT_TRUSTED_PROXIES` 三个占位未在 §5.2–§5.7 单列；
+- **来源分布**：`application.yml` 50 个不同占位（50 处）、`application-mysql.yml` 5 个、
   Java 代码内独立占位 2 个（`TESSERACT_CMD`、`TESSDATA_PREFIX`，与 yml 同名重叠）、
   `docker-compose.yml`/Dockerfile 4 个、`System.getenv` 直接读取 **0** 个；
 - **刻意不进表的配置项**（无环境变量占位，只能走配置文件项或 `SPRING_APPLICATION_JSON`）：
-  `travel.photos.dir`、`travel.photos.s3.*`、`travel.mcp.servers`、`travel.jwt.ticket-ttl-seconds`、
-  MCP server 的 `command`/`url`/`env`——见 §5.7 末与 §5.9 的注入示例；
+  `travel.photos.dir`、`travel.photos.s3.*`、`travel.mcp.servers`、
+  MCP server 的 `command`/`url`/`env`——见 §5.7 末与 §5.9 的注入示例（`travel.jwt.ticket-ttl-seconds` 已改为环境变量 `TICKET_TTL_SECONDS`，默认 300）；
 - **Docker 服务/端口**：`mysql`（3306，仅容器网络）、`backend`（8080，仅容器网络）、`web`（宿主机 8081 → 容器 80），
   与 `docker-compose.yml` 逐字一致；镜像 `mysql:8.4`、`nginx:1.27-alpine`、`eclipse-temurin:17-jre`；
 - **README / DEVELOPMENT.md 差异**：`RATE_LIMIT_STORE`、`PHOTOS_STORE`、`WECHAT_OA_APPID`/`WECHAT_OA_SECRET`
@@ -804,4 +942,5 @@ docker compose start backend
   有意精简的「最小集」，完整清单元数据以本文 §5 为准。
 
 相关文档：[快速上手](getting-started.md)（本地开发）· [架构](architecture.md)（SSE 与 Agent 引擎）·
-[数据模型](data-model.md)（表结构与 Flyway 细节）· [开发约定](../DEVELOPMENT.md)。
+[数据模型](data-model.md)（表结构与 Flyway 细节）· [高德 MCP 接入](mcp-amap.md)（真实地图数据源）·
+[开发约定](../DEVELOPMENT.md)。

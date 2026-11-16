@@ -45,11 +45,19 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com/v1}
       LLM_MODEL: ${LLM_MODEL:-deepseek-chat}
       MCP_ENABLED: ${MCP_ENABLED:-false}
+      # 高德 MCP server 用的「Web 服务」Key，与上面的 AMAP_KEY 不是同一个变量（见 docs/guide/mcp-amap.md）
+      AMAP_MAPS_API_KEY: ${AMAP_MAPS_API_KEY:-}
+      # 知识库版本化：除 ACTIVE 外额外保留的历史版本块数（默认 2）
+      RAG_CHUNK_VERSION_RETENTION: ${RAG_CHUNK_VERSION_RETENTION:-2}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       CHANNEL_WEBHOOK_ENABLED: ${CHANNEL_WEBHOOK_ENABLED:-false}
       CHANNEL_WEBHOOK_SECRET: ${CHANNEL_WEBHOOK_SECRET:-}
       # Cookie 属性：经 https/域名访问时设 true
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      # 限流客户端 IP 只信受信代理：仅当后端只经 nginx 反代可达时才安全（默认未开放 ports）。
+      # 172.16.0.0/12 覆盖 Docker 默认桥接网段；若临时放开 backend 端口直连调试，应设空值，
+      # 否则直连方可用伪造 X-Forwarded-For 绕过限流。
+      RATE_LIMIT_TRUSTED_PROXIES: ${RATE_LIMIT_TRUSTED_PROXIES:-172.16.0.0/12}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:8081}
       INVOICE_DIR: /app/data/invoices
     volumes:
@@ -60,7 +68,12 @@ services:
     restart: unless-stopped
 
   web:
-    build: ./travel-agent-web
+    build:
+      context: ./travel-agent-web
+      args:
+        VITE_AMAP_KEY: ${VITE_AMAP_KEY:-}
+        VITE_AMAP_SECURITY_CODE: ${VITE_AMAP_SECURITY_CODE:-}
+        VITE_FOOTPRINT_BASEMAP: ${VITE_FOOTPRINT_BASEMAP:-amap}
     depends_on:
       - backend
     ports:

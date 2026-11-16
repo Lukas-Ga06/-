@@ -1,15 +1,21 @@
-import type { BudgetExecution } from '../../types/expense';
+import type { BudgetExecution, DailyBudget } from '../../types/expense';
 
+/** 金额展示：null/undefined → 占位；负数的符号放在 ¥ 之前（-¥50 而不是 ¥-50） */
 const money = (value: number | null | undefined) =>
-  value == null ? '—' : `¥${Math.round(value).toLocaleString()}`;
+  value == null ? '—' : `${value < 0 ? '-' : ''}¥${Math.round(Math.abs(value)).toLocaleString()}`;
 
-/** 预算执行摘要：计划成本 / 预算 / 实际支出 / 偏差，并给出分类对账 */
+/** 预算执行摘要：计划成本 / 预算 / 实际支出 / 偏差 / 使用率，并给出分类与按天对账 */
 export default function BudgetExecutionPanel({ data }: { data: BudgetExecution | null }) {
   if (!data) {
     return null;
   }
   const ratio = data.budget && data.budget > 0 ? Math.min(Math.max(data.actual / data.budget, 0), 1) : 0;
   const over = data.overBudget;
+  // executionRate 是 actual / budget 的比例（后端保留 4 位小数，例如 0.8523 = 85%），无预算时为 null
+  const ratePercent = data.executionRate == null ? null : data.executionRate * 100;
+  const rateOver = ratePercent != null && ratePercent > 100;
+  // daily 在契约里恒返回；旧后端可能缺失，这里按空数组兜底，避免直接 .length 崩掉整个面板
+  const daily: DailyBudget[] = Array.isArray(data.daily) ? data.daily : [];
 
   return (
     <div className="budget-exec">
@@ -31,6 +37,12 @@ export default function BudgetExecutionPanel({ data }: { data: BudgetExecution |
           <b className={data.variance > 0 ? 'over' : 'ok'}>
             {data.variance > 0 ? '+' : ''}
             {money(data.variance)}
+          </b>
+        </div>
+        <div className="be-item">
+          <span>预算使用率</span>
+          <b className={rateOver ? 'over' : ''}>
+            {ratePercent == null ? '—' : `${Math.round(ratePercent)}%`}
           </b>
         </div>
       </div>
@@ -63,9 +75,9 @@ export default function BudgetExecutionPanel({ data }: { data: BudgetExecution |
         </div>
       )}
 
-      {(data.daily?.length ?? 0) > 0 && (
+      {daily.length > 0 && (
         <div className="be-cats">
-          {data.daily!.map((d) => (
+          {daily.map((d) => (
             <div className="be-cat" key={d.day}>
               <span className="be-cat-name">{d.day === 0 ? '行程外' : `Day ${d.day}`}</span>
               <span className="be-cat-num">{d.day === 0 ? '—' : `计划 ${money(d.planned)}`}</span>

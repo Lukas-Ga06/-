@@ -7,6 +7,7 @@ import com.travel.agent.service.AuthService;
 import com.travel.agent.service.HealthService;
 import com.travel.agent.service.LlmAssistantService;
 import com.travel.agent.util.Dates;
+import com.travel.agent.util.Paging;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Min;
@@ -53,9 +54,15 @@ public class HealthController {
     }
 
     @GetMapping("/records")
-    public ApiResponse<List<HealthRecord>> records(Authentication authentication) {
+    public ApiResponse<List<HealthRecord>> records(
+            @RequestParam(defaultValue = "" + Paging.DEFAULT_PAGE_LIMIT) int limit,
+            @RequestParam(defaultValue = "0") int offset,
+            Authentication authentication) {
         User user = authService.requireUser(authentication.getName());
-        return ApiResponse.ok(healthService.last7Days(user.getId()));
+        int size = Paging.normalizeLimit(limit);
+        int from = Paging.normalizeOffset(offset);
+        var page = healthService.last7Days(user.getId(), from, size);
+        return ApiResponse.ok(page.getContent(), Paging.meta(page.getTotalElements(), size, from));
     }
 
     @GetMapping("/summary")

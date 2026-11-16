@@ -4,9 +4,11 @@ import com.travel.agent.dto.ApiResponse;
 import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -62,6 +64,21 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleMalformedRequest(Exception e) {
         log.warn("请求参数错误: {}", e.getMessage());
         return badRequest("请求参数格式不正确");
+    }
+
+    /**
+     * 乐观锁冲突：并发修改同一行（两个标签页/两次提交）时，后提交的一方拿到版本冲突。
+     * 这是「客户端应刷新后重试」而不是服务端故障，因此回 409 而不是落到 500 兜底。
+     * 同时覆盖 Spring 的 ObjectOptimisticLockingFailureException 与 JPA 原生 OptimisticLockException
+     * （两者互为替代：经过 Spring 事务/仓库异常翻译时是前者，直接被 JPA 抛出时是后者）。
+     */
+    @ExceptionHandler({ObjectOptimisticLockingFailureException.class,
+            OptimisticLockingFailureException.class,
+            jakarta.persistence.OptimisticLockException.class})
+    public ResponseEntity<ApiResponse<Void>> handleOptimisticLock(Exception e) {
+        log.warn("并发修改冲突: {}", e.getMessage());
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.error(409, "数据已被其他操作修改，请刷新后重试"));
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)

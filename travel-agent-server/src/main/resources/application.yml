@@ -24,18 +24,32 @@ spring:
     password:
   jpa:
     hibernate:
-      ddl-auto: update
+      # 与生产 MySQL 一致：schema 唯一权威是 Flyway，Hibernate 只校验、绝不改结构。
+      # 启动时缺列/类型不符会直接失败 —— 这是特性，迁移漏掉的列不可能再被 ddl-auto 悄悄补上。
+      #
+      # 方言差异靠「按 profile 各挂一个 V13」解决（Flyway 只对同一 locations 内重复版本报错）：
+      #   MySQL profile：db/migration + db/migration-mysql/V13（information_schema + PREPARE）
+      #   默认 profile：db/migration + db/migration-h2/V13（H2 原生 ADD COLUMN / CREATE INDEX IF NOT EXISTS）
+      # 两者补的是同一份缺口：trip.version/departure_reminder_dismissed_at、schedule_item 的
+      # 重复日程列、invoice 的来源/联动列、trip_photo 表、以及实体 @Index 声明但 V1/V9 未建的索引。
+      # 存量库（本地 H2 文件库 / 生产 MySQL）这些对象早已由 ddl-auto=update 建过 → V13 全部空转。
+      ddl-auto: validate
     open-in-view: false
   flyway:
     enabled: true
-    # 存量库（已有表）自动打 baseline，跳过历史版本，只执行增量脚本；
-    # 全新库由 ddl-auto 建表 + 顺序执行 db/migration 增量。今后改 schema 一律加 V*__ 脚本。
+    # schema 单一权威：全新库只需要 flyway migrate（V1 是 sql/init.sql 的等价基线，
+    # 不再需要手工执行 init.sql；sql/init.sql 已标注弃用）。
+    # 存量库（已有表）自动打 baseline 到 V1，V1 不会重跑，只执行未应用的 V2..V13。
+    # 默认 profile 额外加载 db/migration-h2：H2 方言的 V13 缺口补齐（MySQL 方言脚本 H2 无法解析）。
+    # 今后改 schema 一律新增 V*__ 脚本，不要再改 V1 或已发布脚本。
     baseline-on-migrate: true
     baseline-version: 1
-    locations: classpath:db/migration
+    locations: classpath:db/migration,classpath:db/migration-h2
   h2:
     console:
-      enabled: true
+      # 默认关闭：H2 控制台以 sa 空密码直连数据库，一旦暴露（尤其被 nginx 反代成 127.0.0.1 源地址）
+      # 等于匿名读写全库。本地调试需要时显式设 H2_CONSOLE_ENABLED=true。
+      enabled: ${H2_CONSOLE_ENABLED:false}
       path: /h2-console
   jackson:
     time-zone: Asia/Shanghai
@@ -89,7 +103,21 @@ travel:
     agent-limit: ${RATE_LIMIT_AGENT:30}
     upload-limit: ${RATE_LIMIT_UPLOAD:60}
     default-limit: ${RATE_LIMIT_DEFAULT:600}
+    # 会话恢复专用桶（GET /api/auth/me）：刷新页面/多标签页不该跟登录共用一个配额，
+    # 否则用户 5 分钟内多刷几次就会被 429 踢回登录页（前端只把 401 当登出）。
+    session-limit: ${RATE_LIMIT_SESSION:60}
     window-seconds: ${RATE_LIMIT_WINDOW_SECONDS:300}
+    # 受信代理（逗号分隔，精确 IP 或 IPv4 CIDR）。默认空 = 不信任任何代理，
+    # 直接用 TCP 源地址（RemoteAddr）计数，完全不读 X-Forwarded-For：
+    # 否则攻击者每次请求换一个伪造 XFF 就能无限绕过登录限流。
+    # 只有在后端"仅能经反代访问"时才配置，例如 docker compose 的 172.16.0.0/12。
+    trusted-proxies: ${RATE_LIMIT_TRUSTED_PROXIES:}
+  conversation:
+    # 会话记忆：按「用户 + conversationId」保留最近 N 条**消息**（不是轮数；一轮问答 = 2 条），
+    # 喂给 LLM 做指代消解（「那把第二天的酒店也换掉」）。历史只参与意图识别，不进入规划产物。
+    history-limit: ${CONVERSATION_HISTORY_LIMIT:10}
+    # 保留天数：写入侧每小时最多清理一次 + 每日 04:30 定时兜底（闲置账号也能被清掉）
+    retention-days: ${CONVERSATION_RETENTION_DAYS:7}
   amap:
     # 高德开放平台 Web服务 Key（lbs.amap.com 免费申请，类型选"Web服务"）。
     # 配置后启用快速路径：大模型精简生成(~2-3s) + 高德批量定位(~1s，国内可达)。
@@ -100,19 +128,25 @@ travel:
     # 网络失败或超出预报范围（过去 / 16 天外）自动降级为确定性模拟数据
     real: ${WEATHER_REAL:false}
   mcp:
-    # MCP（Model Context Protocol）工具生态：启动时把外部 MCP server 的工具注册进 ToolRegistry（只读，
-    # 名称前缀 mcp_）。LLM 意图识别会把「查外部数据」路由到这些工具；未启用或未接入时 LLM 被提示禁用
-    # INVOKE_TOOL，规则兜底路径也完全不受影响。单个 server 接入失败只告警，不影响应用。
+    # MCP（Model Context Protocol）工具生态：启动时把外部 MCP server 的工具注册进 ToolRegistry（只读）。
+    # 默认关闭；接入后模型可经 INVOKE_TOOL 调用 mcp_<server>_<tool>。单个 server 失败只告警、不影响启动。
     enabled: ${MCP_ENABLED:false}
-    servers: []
-    # 示例一：高德地图 MCP（stdio 子进程；Key 在 lbs.amap.com 免费申请，经环境变量注入，不落仓库）
-    # servers:
-    #   - name: amap
-    #     command: ["cmd", "/c", "npx", "-y", "@amap/amap-maps-mcp-server"]   # Linux/Mac 去掉 cmd /c 前缀
-    #     env: { AMAP_MAPS_API_KEYS: ${AMAP_KEY:} }
-    # 示例二：streamable HTTP 远端 MCP server
-    #   - name: wiki
-    #     url: http://localhost:8807/mcp
+    servers:
+      # 高德官方 MCP server（stdio）：真实工具名 maps_geo / maps_direction_driving / maps_text_search … 共 12 个，
+      # 注册后为 mcp_amap_maps_*。Key 用「Web 服务」类型，只放环境变量，绝不写进仓库。
+      # Windows 不用手写 cmd /c：StdioMcpTransport 会自动补（npx 实际是 npx.cmd）。
+      - name: amap
+        command: ["npx", "-y", "@amap/amap-maps-mcp-server"]
+        env:
+          AMAP_MAPS_API_KEY: ${AMAP_MAPS_API_KEY:}
+        read-only: true
+        # npx 首次冷启动要下载包，默认 20s 偏紧
+        timeout-ms: 30000
+  # 知识库版本化（batch10 / C）：见 docs/proposals/batch10-contract.md §3.2
+  rag:
+    # 除 ACTIVE 版本外，额外保留最近 N 个历史版本的 chunk（更老的 INACTIVE 版本块由每日任务清理；
+    # ACTIVE 版本与 version_id 为空的历史块永不清）。0 = 只保留 ACTIVE 版本的块。
+    chunk-version-retention: ${RAG_CHUNK_VERSION_RETENTION:2}
   channels:
     # 多渠道入口：同一个 AgentEngine 同时服务网页与外部渠道，数据与账号体系完全一致。
     telegram:
@@ -140,6 +174,9 @@ travel:
     # 生成方式：openssl rand -base64 48
     secret: ${JWT_SECRET:}
     expire-hours: ${JWT_EXPIRE_HOURS:72}
+    # 短期只读票据有效期（秒）：票据会出现在 SSE/照片 URL 里（进日志、历史、Referer），
+    # 因此默认只有 5 分钟；仅 SSE 与照片原图两个白名单路径接受票据。
+    ticket-ttl-seconds: ${TICKET_TTL_SECONDS:300}
     # 登录 Cookie 是否带 Secure（https 部署时设 true；本地 http 开发保持 false）
     cookie-secure: ${COOKIE_SECURE:false}
   cors:

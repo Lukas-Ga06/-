@@ -30,8 +30,8 @@ export default function CityDrawer({ city, points, spendByTrip, onClose, onOpenT
   const [uploading, setUploading] = useState(false);
   /** 浏览器解不了的格式（如 HEIC）：给占位提示而不是空白破图 */
   const [brokenPhotos, setBrokenPhotos] = useState<Set<number>>(new Set());
-  /** <img> 不能带请求头，原图靠短期只读票据鉴权 */
-  const ticket = useAccessTicket();
+  /** <img> 不能带请求头，原图靠短期只读票据鉴权；服务端按用途强校验，照片必须用 media-read */
+  const ticket = useAccessTicket('media-read');
 
   const trips = (city
     ? points.filter((p) => ((p.destination ?? p.name ?? '未命名').trim() || '未命名') === city)

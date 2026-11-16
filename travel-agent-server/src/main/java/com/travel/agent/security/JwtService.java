@@ -16,8 +16,9 @@ import java.util.Base64;
 import java.util.Date;
 
 /**
- * JWT 签发与校验。支持从 Authorization 头或 token 查询参数读取
- * （查询参数用于 EventSource SSE 连接，因为 EventSource 无法设置请求头）。
+ * JWT 签发与校验。登录 JWT 只从 Authorization 头或 httpOnly Cookie 读取——
+ * <b>不再接受查询参数</b>（72 小时凭证进 URL 等于写进代理日志、浏览器历史与 Referer）。
+ * EventSource / {@code <img>} 这类无法自定义请求头的场景改用短期只读票据（见 {@link AccessTicketService}）。
  *
  * 密钥来源：环境变量 JWT_SECRET（Base64，解码后 >= 32 字节）。
  * 未配置时生成一次性随机密钥，便于本地开箱即用，但重启后已签发的 token 全部失效。

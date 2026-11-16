@@ -4,7 +4,7 @@
 所有接口、字段、校验规则和错误码均取自 `travel-agent-server` 源码，未使用推测内容。
 
 - 源码根：`travel-agent-server/src/main/java/com/travel/agent/`
-- 接口总数：**69 个**（15 个业务 Controller 的 66 个 + 渠道包 3 个），清单见第 16、17 章
+- 接口总数：**72 个**（15 个业务 Controller 的 69 个 + 渠道包 3 个），清单见第 16、17 章
 - 每个接口标注 `类名#方法名:行号`，可直接回源码核对
 
 ---
@@ -31,7 +31,7 @@
 | --- | --- | --- | --- |
 | 1 | `Authorization: Bearer <JWT>` | curl / e2e 脚本 / 非浏览器客户端 | 请求头，优先级最高 |
 | 2 | Cookie `travel_agent_token`（httpOnly） | **浏览器主路径** | 登录/注册成功后由服务端 `Set-Cookie` 种下 |
-| 3 | 查询参数 `?ticket=<票据>` | `EventSource`（SSE）与 `<img>` 原图 | **只接受短期只读票据**，不接受登录 JWT |
+| 3 | 查询参数 `?ticket=<票据>` | `EventSource`（SSE）与 `<img>` 原图 | **只接受短期只读票据**，不接受登录 JWT；且只对 `GET /api/agent/stream`（`agent-stream` 用途）与 `GET /api/photos/{id}/raw`（`media-read` 用途）生效 |
 
 登录 Cookie 属性（`AuthCookieService`）：
 
@@ -61,22 +61,37 @@
 | --- | --- |
 | 签发接口 | `POST /api/access-ticket` |
 | 是否需要登录 | **需要**（Cookie 或 `Authorization` 头） |
-| 有效期 | `travel.jwt.ticket-ttl-seconds`，默认 `600` 秒 |
-| 用途（scope） | 固定 `media-read`，写入票据并参与校验 |
+| 有效期 | `travel.jwt.ticket-ttl-seconds`（环境变量 `TICKET_TTL_SECONDS`），默认 `300` 秒 |
+| 用途（`purpose`） | `agent-stream`（缺省）/ `media-read`，写入票据并参与校验 |
 | 传递位置 | 查询参数 `?ticket=<票据>` |
-| 是否落库 | 否，无状态校验：内容为 `scope\|expiresAt\|username` + HMAC-SHA256 |
+| 是否落库 | 否，无状态校验：内容为 `v2|aud|expiresAt|username` + HMAC-SHA256 |
 | 可否撤销 | 更换 JWT 密钥即全部失效 |
 
-票据格式为 `base64url(payload) + "." + base64url(HmacSHA256(payload))`（两段均无 padding），**不是 JWT**，不能用于 `Authorization` 头。签发后：
+**票据用途与路径必须匹配**（`AccessTicketService` 签发、`JwtAuthenticationFilter` 校验）：
+
+| `purpose` | 唯一可用路径 | 用途 |
+| --- | --- | --- |
+| `agent-stream`（缺省） | `GET /api/agent/stream` | `EventSource` 建流 |
+| `media-read` | `GET /api/photos/{id}/raw` | `<img>` 加载原图 |
+
+照片票据不能开 SSE，SSE 票据也不能读照片，用途不匹配一律 `401`；`purpose` 取其它值签发时返回 `400`。票据格式为
+`base64url(payload) + "." + base64url(HmacSHA256(payload))`（两段均无 padding），**不是 JWT**，不能用于 `Authorization` 头，
+也不能用于任何写接口或自我续期。签发后：
 
 ```
-POST /api/access-ticket
+POST /api/access-ticket?purpose=agent-stream
 Cookie: travel_agent_token=<JWT>
-→ {"code":0,"message":"success","data":{"ticket":"bWVkaWEtcmVhZHw...","expiresInSeconds":600}}
+→ {"code":0,"message":"success","data":{"ticket":"djJ8YWdlbnQtc3RyZWFt...","expiresInSeconds":300,"purpose":"agent-stream"}}
 
-GET /api/agent/stream?message=你好&ticket=...        # SSE 不能自定义请求头
-GET /api/photos/12/raw?ticket=...                    # <img> 不能自定义请求头
+GET /api/agent/stream?message=你好&ticket=...        # 只能用 agent-stream 票据
+GET /api/photos/12/raw?ticket=...                    # 只能用 media-read 票据
 ```
+
+**仅凭票据认证（没有 Cookie / `Authorization`）的请求 = 只读会话**：记账 / 备忘 / 日程 / 日报四类直接写入意图被拒绝，
+`message` 为 `当前连接为只读票据会话，记账/备忘/日程/日报请在网页端操作。`（`status` 仍是 `COMPLETED`，不按错误处理）；
+规划与改行程仍可用（只产出待确认方案，提交需 `POST /api/agent/confirm`，而 POST 不接受票据）。带 Cookie 的浏览器请求行为不变。
+
+**升级注意**：旧版票据没有 `purpose` 段，服务端一律按 `agent-stream` 处理——上线后最多 5 分钟内，旧的图片链接会 `401`，刷新页面重新签票即恢复。
 
 ### 1.4 统一响应包
 
@@ -87,9 +102,11 @@ GET /api/photos/12/raw?ticket=...                    # <img> 不能自定义请�
 | `code` | `int` | 成功恒为 `0`；失败时与 HTTP 状态码一致 |
 | `message` | `String` | 成功为 `"success"`；失败为可直接展示的中文提示 |
 | `data` | `T` | 业务数据；失败时为 `null` |
+| `pagination` | `Object`（可选） | **仅列表接口**出现（见 §1.6）；未分页的响应不输出该键（`@JsonInclude(NON_NULL)`） |
 
 ```json
 {"code":0,"message":"success","data":{}}
+{"code":0,"message":"success","data":[...],"pagination":{"total":123,"limit":20,"offset":0,"hasMore":true}}
 {"code":404,"message":"行程不存在或无权访问","data":null}
 ```
 
@@ -117,11 +134,53 @@ GET /api/photos/12/raw?ticket=...                    # <img> 不能自定义请�
 | `429` | 触发限流（响应带 `Retry-After`） | `操作过于频繁，请 N 秒后再试` |
 | `500` | 未捕获异常（不返回内部细节） | `服务端异常，请稍后重试` |
 
-### 1.6 分页、上传与限流
+### 1.6 列表分页契约（第九批新增）
 
-- 列表接口统一用内存分页：`limit`（默认 `500`，上限 `1000`）、`offset`（默认 `0`，负数按 `0`）；`Paging.slice` 实现。
+**请求参数**（query，全部可选，对下表中的列表接口生效）：
+
+| 参数 | 默认 | 归一化规则 |
+| --- | --- | --- |
+| `limit` | `20` | `> 200` 夹到 `200`；`<= 0` 用默认 `20` |
+| `offset` | `0` | 负数按 `0` |
+
+**响应**：`ApiResponse` 顶层新增**可选** `pagination` 键，`data` 仍是数组（不是 `{items:[]}`）；未分页的响应不输出该键
+（`dto/ApiResponse.java` 的 `@JsonInclude(NON_NULL)`）。信封仍是 `code`（不是 `success`）：
+
+```json
+{"code":0,"message":"success","data":[...],"pagination":{"total":123,"limit":20,"offset":0,"hasMore":true}}
+```
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `total` | `long` | 满足条件的总条数 |
+| `limit` / `offset` | `int` | 归一化后的生效值（服务端回显） |
+| `hasMore` | `boolean` | 是否还有下一页 |
+
+**已接入数据库分页（`Pageable` + `Page`）的 5 个端点**（`util/Paging` 的 `pageable` / `normalizeLimit` / `normalizeOffset`）：
+
+| 端点 | 说明 |
+| --- | --- |
+| `GET /api/trips` | 行程列表（§3.1） |
+| `GET /api/trips/{id}/expenses` | 行程支出列表（§6.1） |
+| `GET /api/memos` | 备忘列表（§9.1） |
+| `GET /api/health/records` | 健康记录（§13.3） |
+| `GET /api/reminders` | 提醒板（§8.1）；`data` 仍是 `{items,count,serverTime}`，`items` 分页、`count` 为总数 |
+
+> **行为变化（重要）**：这 5 个端点默认条数从 `500` 降为 **20**。不传 `limit` / `offset` 的老客户端只会拿到第一页 20 条，
+> 必须读 `pagination.hasMore` 翻页（或显式传更大的 `limit`，上限 `200`）。
+
+**仍走服务端兜底截断、无分页元数据**的端点：`/api/photos**`、`/api/schedule`、`/api/office/{mail,minutes,invoice}`、
+`/api/office/report`、`/api/learning/artifacts` 等（`util/Paging.slice`，默认 `500`、上限 `1000`，响应不带 `pagination`）。
+
+**聚合下推**（响应 JSON 结构不变，只是改成数据库聚合）：`GET /api/expenses/overview` 的分类 / 支付方式 / 行程维度改为
+`GROUP BY` 聚合 + 最近 8 条单独查询；`ExpenseService.totalOf` 改 `SUM`；备忘待办数改 `COUNT`；健康 7 天窗口与均值改数据库聚合。
+
+### 1.7 上传与限流
+
 - 上传上限：Spring multipart `max-file-size=10MB` / `max-request-size=12MB`；照片单张 ≤10MB、单行程 ≤200 张、单用户 ≤500MB；发票文件 ≤10MB。
 - 限流（`RateLimitFilter`，默认开启、窗口 300 秒）：`/api/auth/**` 按 IP 10 次；`/api/agent/**` 按用户 30 次；照片/发票上传 60 次；其余 `/api/**` 按用户 600 次。
+  - `GET /api/auth/me` 走**独立会话桶** `RATE_LIMIT_SESSION`（默认 60/窗口），避免刷新页面被登录桶（`RATE_LIMIT_AUTH`，默认 10）踢回登录页；前端只把 `401` 当登出。
+  - `Retry-After` 最小为 `1`（不再出现 `Retry-After: 0`）；Redis fail-open 时打 WARN 并计 `ratelimit.failopen` 指标。
 - 所有失败响应中 `data` 均为 `null`；成功但无返回值的接口 `data` 也为 `null`。
 
 ---
@@ -172,11 +231,18 @@ GET /api/photos/12/raw?ticket=...                    # <img> 不能自定义请�
 错误：`500`（极少数 Cookie 写失败场景）
 
 ### 2.5 POST /api/access-ticket — 签发短期只读票据
-鉴权：登录 ｜ 源码：`AccessTicketController#issue:21` ｜ 无参数
+鉴权：登录 ｜ 源码：`AccessTicketController#issue:21`
+
+| 参数 | 必填 | 说明 |
+| --- | --- | --- |
+| `purpose` | 否 | `agent-stream`（缺省，给 `GET /api/agent/stream`）/ `media-read`（给 `GET /api/photos/{id}/raw`）；其它值 `400` |
+
 ```json
-{"code":0,"message":"success","data":{"ticket":"bWVkaWEtcmVhZHwxNzYyNTk4Mjg0fHRyYXZlbGVy.5tG...","expiresInSeconds":600}}
+// 请求：POST /api/access-ticket?purpose=media-read
+// 响应（data 多一个 purpose 字段）
+{"code":0,"message":"success","data":{"ticket":"djJ8bWVkaWEtcmVhZHwxNzYyNTk4Mjg0fHRyYXZlbGVy.5tG...","expiresInSeconds":300,"purpose":"media-read"}}
 ```
-错误：`401` 未登录；票据仅用于 `?ticket=`，不能配合 `Authorization` 使用
+错误：`400` `purpose 不合法，仅支持 media-read 或 agent-stream`；`401` 未登录。票据仅用于 `?ticket=`，不能配合 `Authorization` 使用。
 
 ---
 
@@ -184,9 +250,9 @@ GET /api/photos/12/raw?ticket=...                    # <img> 不能自定义请�
 
 ### 3.1 GET /api/trips — 行程列表
 鉴权：登录 ｜ 源码：`TripController#list:40` ｜ 错误：`401`
-参数：`limit`（默认 500，上限 1000）、`offset`（默认 0）
+参数：`limit`（默认 20，上限 200）、`offset`（默认 0）；响应带 `pagination`（见 §1.6）
 ```json
-{"code":0,"message":"success","data":[{"id":1,"name":"杭州三日","destination":"杭州","startDate":"2026-11-20","endDate":"2026-11-22","budget":5000.00,"status":"PLANNING","phase":"UPCOMING","daysUntilStart":12,"createdAt":"2026-11-01"}]}
+{"code":0,"message":"success","data":[{"id":1,"name":"杭州三日","destination":"杭州","startDate":"2026-11-20","endDate":"2026-11-22","budget":5000.00,"status":"PLANNING","phase":"UPCOMING","daysUntilStart":12,"createdAt":"2026-11-01"}],"pagination":{"total":1,"limit":20,"offset":0,"hasMore":false}}
 ```
 `phase` 由日期派生：`UPCOMING` / `ONGOING` / `PAST` / `CANCELLED`；`daysUntilStart` 仅 `UPCOMING` 有值。
 
@@ -365,7 +431,7 @@ GET /api/photos/12/raw?ticket=...                    # <img> 不能自定义请�
 | 参数 | 必填 | 说明 |
 | --- | --- | --- |
 | `message` | 是 | 用户消息 |
-| `ticket` | 否* | 短期只读票据；浏览器 EventSource 必须提供 |
+| `ticket` | 否* | 短期只读票据，**用途必须是 `agent-stream`**（见 §1.3）；浏览器 EventSource 必须提供 |
 | `tripId` / `currentDay` | 否 | 同 §5.2 |
 | `conversationId` | 否 | 非法值（超长/非法字符）按单轮处理 |
 | `selType` / `selId` / `selTitle` | 否 | 选中元素三元组（`selType` 存在才算） |
@@ -386,7 +452,10 @@ event:complete
 data:{"planId":"plan-8f3c","tripId":null,"message":"…","intent":"PLAN_TRIP","status":"NEED_CONFIRMATION"}
 ```
 其余事件：`plan_update`（`{diff,budget}`）、`focus`、`confirmation`、`rag_result`（`{sources}`）、`error`（`{message}`）。
-错误：`401`（票据无效/过期）；线程池满时推送 `event:error` 后关闭。
+错误：`401`（票据无效/过期，含用途不匹配）；线程池满时推送 `event:error` 后关闭。
+
+> 响应头带 `Referrer-Policy: no-referrer`，避免 `?ticket=` 随 Referer 外泄。
+> 仅凭票据认证（不带 Cookie）的请求是**只读会话**：记账/备忘/日程/日报四类写意图会被拒绝，`message` 见 §1.3，规划仍可用。
 
 ### 5.4 POST /api/agent/stream — SSE 流式对话（结构化表单入口）
 鉴权：登录 ｜ 源码：`AgentController#streamPost:75`
@@ -459,12 +528,23 @@ data:{"planId":"plan-8f3c","tripId":null,"message":"…","intent":"PLAN_TRIP","s
 ```
 错误：`400` 校验失败；`401`
 
+### 5.10 目的地城市名匹配（`util/CityNames`）
+
+规划链路判断「目的地是否在目录内」统一走 `util/CityNames`（纯静态工具类，`OnlineCityService.matchesCity` 的唯一实现）：
+
+- **包含关系且较短一方长度 ≥ 2 才算命中**；完全相等直接命中。归一化会剥掉「市 / 地区 / 特别行政区 / 自治州」后缀。
+- **单字永不命中**：「阳」不再命中「洛阳」，「州」不再命中「杭州」，「北」不再命中「北京」。
+- 目录内 4 城（上海 / 北京 / 杭州 / 石家庄）支持**非首位单字笔误**容错（`杭洲` → 杭州、`石家庒` → 石家庄）；
+  **首位笔误一律不兜底**（`广州` / `苏州` / `南京` 不会被判成杭州 / 北京），继续走「不支持该目的地」兜底。
+- 在线地理编码（Nominatim / 高德）返回的城市名会与查询城市名比对：既不 `matches` 也不是「非首位单笔误」时按失败处理并打 `WARN`，
+  避免静默采用异城坐标。
+
 ---
 
 ## 6. 记账（4 个）
 
 ### 6.1 GET /api/trips/{tripId}/expenses — 行程支出列表
-鉴权：登录 ｜ 源码：`ExpenseController#list:30` ｜ 参数：路径 `tripId`、`limit`、`offset`
+鉴权：登录 ｜ 源码：`ExpenseController#list:30` ｜ 参数：路径 `tripId` + `limit`（默认 20，上限 200）、`offset`（默认 0）；响应带 `pagination`（见 §1.6）
 ```json
 {"code":0,"message":"success","data":[{"id":31,"tripId":1,"tripName":null,"category":"餐饮","amount":45.00,"note":"午餐","paymentMethod":"微信支付","spentAt":"2026-11-08","createdAt":"2026-11-08 12:30"}]}
 ```
@@ -492,7 +572,7 @@ data:{"planId":"plan-8f3c","tripId":null,"message":"…","intent":"PLAN_TRIP","s
 ```json
 {"code":0,"message":"success","data":{"totalSpent":3560.00,"monthSpent":1240.00,"count":18,"byPaymentMethod":{"微信支付":2200.00,"现金":1360.00},"byCategory":{"餐饮":800.00,"住宿":2400.00,"其他":360.00},"byTrip":[{"tripId":1,"tripName":"杭州三日","total":2400.00}],"recent":[{"id":31,"tripId":1,"tripName":"杭州三日","category":"餐饮","amount":45.00,"note":"午餐","paymentMethod":"微信支付","spentAt":"2026-11-08","createdAt":"2026-11-08 12:30"}]}}
 ```
-错误：`401`。`recent` 最多 8 条；已删除行程的支出归入 `tripId=0` / `已删除的行程`。
+错误：`401`。`recent` 最多 8 条；已删除行程的支出归入 `tripId=0` / `已删除的行程`。第九批起分类 / 支付方式 / 行程维度改为数据库 `GROUP BY` 聚合、`recent` 单独查询，**响应 JSON 结构不变**。
 
 ### 6.4 DELETE /api/expenses/{id} — 删除支出
 鉴权：登录 ｜ 源码：`ExpenseController#delete:61` ｜ 参数：路径 `id`
@@ -524,8 +604,8 @@ data:{"planId":"plan-8f3c","tripId":null,"message":"…","intent":"PLAN_TRIP","s
 错误：`401`；`404`
 
 ### 7.3 GET /api/photos/{id}/raw — 读取原图
-鉴权：登录（`<img>` 用 `?ticket=` 票据）｜ 源码：`PhotoController#raw:52` ｜ 参数：路径 `id`
-响应：图片字节流，`Content-Type` 由文件头推导；带 `X-Content-Type-Options: nosniff`、`Content-Security-Policy: default-src 'none'; sandbox`、`Cache-Control: private, max-age=86400`。
+鉴权：登录（`<img>` 用 `?ticket=` 票据，**用途必须是 `media-read`**，见 §1.3）｜ 源码：`PhotoController#raw:52` ｜ 参数：路径 `id`
+响应：图片字节流，`Content-Type` 由文件头推导；带 `X-Content-Type-Options: nosniff`、`Content-Security-Policy: default-src 'none'; sandbox`、`Cache-Control: private, no-store`、`Referrer-Policy: no-referrer`。
 错误：`401`；`404` `照片不存在` / `照片文件不存在（可能已被清理）`
 
 ### 7.4 DELETE /api/photos/{id} — 删除照片
@@ -540,7 +620,7 @@ data:{"planId":"plan-8f3c","tripId":null,"message":"…","intent":"PLAN_TRIP","s
 ## 8. 提醒（3 个）
 
 ### 8.1 GET /api/reminders — 提醒板
-鉴权：登录 ｜ 源码：`ReminderController#board:22` ｜ 参数：无（服务端按当前时间实时计算）
+鉴权：登录 ｜ 源码：`ReminderController#board:22` ｜ 参数：`limit`（默认 20，上限 200）、`offset`（默认 0）；服务端按当前时间实时计算，`items` 分页、`count` 为提醒总数（见 §1.6）
 ```json
 {"code":0,"message":"success","data":{"items":[{"type":"SCHEDULE","refId":5,"title":"产品评审会","detail":"2026-11-09 15:00 · 产品评审会","remindAt":"2026-11-09T14:30:00","eventAt":"2026-11-09T15:00:00","overdue":false,"minutesUntil":1458}],"count":1,"serverTime":"2026-11-08T19:38:04"}}
 ```
@@ -565,7 +645,7 @@ data:{"planId":"plan-8f3c","tripId":null,"message":"…","intent":"PLAN_TRIP","s
 ## 9. 备忘（5 个）
 
 ### 9.1 GET /api/memos — 备忘列表
-鉴权：登录 ｜ 源码：`MemoController#list:32` ｜ 参数：`limit`、`offset`（未完成在前，同状态按创建时间倒序）
+鉴权：登录 ｜ 源码：`MemoController#list:32` ｜ 参数：`limit`（默认 20，上限 200）、`offset`（默认 0），响应带 `pagination`（未完成在前，同状态按创建时间倒序）
 ```json
 {"code":0,"message":"success","data":[{"id":12,"userId":2,"content":"明天办签证","done":false,"createdAt":"2026-11-08T10:20:00"}]}
 ```
@@ -755,7 +835,7 @@ data:{"planId":"plan-8f3c","tripId":null,"message":"…","intent":"PLAN_TRIP","s
 
 ---
 
-## 12. 学习（5 个）
+## 12. 学习与知识库（8 个）
 
 ### 12.1 POST /api/learning/generate — 生成学习产物
 鉴权：登录 ｜ 源码：`LearningController#generate:52`
@@ -795,13 +875,13 @@ data:{"planId":"plan-8f3c","tripId":null,"message":"…","intent":"PLAN_TRIP","s
 ```json
 // 请求
 {"title":"签证材料","content":"申根签证需要：护照、照片、行程单…\n\n保险需覆盖全程…"}
-// 响应
-{"code":0,"message":"success","data":{"documentId":7,"chunks":2}}
+// 响应（第九批起多一个 versionNo：本次写入的版本号，首次录入为 1）
+{"code":0,"message":"success","data":{"documentId":7,"chunks":2,"versionNo":1}}
 ```
 错误：`400` 校验失败；`401`
 
 ### 12.5 POST /api/learning/knowledge/search — 知识库检索
-鉴权：登录 ｜ 源码：`LearningController#searchKnowledge:133`（返回分数最高的 5 条，全库检索）
+鉴权：登录 ｜ 源码：`LearningController#searchKnowledge:133`（返回分数最高的 5 条；检索范围 = 公共知识 + 本人个人知识，不含他人私有文档）
 | 参数 | 必填 | 说明 |
 | --- | --- | --- |
 | `query` | 是 | ≤500 字符 |
@@ -812,6 +892,35 @@ data:{"planId":"plan-8f3c","tripId":null,"message":"…","intent":"PLAN_TRIP","s
 {"code":0,"message":"success","data":[{"title":"签证材料","snippet":"申根签证需要：护照、照片、行程单…","score":0.83}]}
 ```
 错误：`400` 校验失败；`401`
+
+### 12.6 GET /api/knowledge/documents/{id}/versions — 版本列表
+鉴权：登录 ｜ 源码：`LearningController.KnowledgeVersionController#versions:168` ｜ 参数：路径 `id`（文档 ID）
+```json
+{"code":0,"message":"success","data":[{"versionNo":2,"status":"ACTIVE","fingerprint":"9f2c…","createdAt":"2026-11-08T15:00:00","active":true},{"versionNo":1,"status":"INACTIVE","fingerprint":"3a71…","createdAt":"2026-11-01T09:00:00","active":false}]}
+```
+错误：`401`；`404` `文档不存在`。按 `versionNo` 倒序；他人个人文档同样返回 `404`（不暴露存在性）。
+
+### 12.7 GET /api/knowledge/documents/{id}/versions/{versionNo} — 版本详情
+鉴权：登录 ｜ 源码：`KnowledgeVersionController#version:179` ｜ 参数：路径 `id`、`versionNo`
+```json
+{"code":0,"message":"success","data":{"versionNo":1,"status":"INACTIVE","fingerprint":"3a71…","createdAt":"2026-11-01T09:00:00","active":false,"content":"申根签证需要：护照、照片、行程单…"}}
+```
+错误：`401`；`404` `文档不存在` / `版本不存在`
+
+### 12.8 POST /api/knowledge/documents/{id}/rollback/{versionNo} — 回滚到指定版本
+鉴权：登录 ｜ 源码：`KnowledgeVersionController#rollback:190` ｜ 参数：路径 `id`、`versionNo`
+```json
+{"code":0,"message":"success","data":{"activeVersionNo":1}}
+```
+错误：`400` `公共知识库文档不支持回滚`；`401`；`404` `文档不存在` / `版本不存在`。成功后服务端立即重建向量索引（`RagService.reload`）。
+
+**版本化语义与已知限制**（表 `rag_document_version`，迁移 `V10`）：
+
+- 同一文档任意时刻**至多一条 `ACTIVE`**；内容指纹变化时旧版置 `INACTIVE` 并**追加**新版本，旧正文与旧知识块不再删除（可审计、可回滚）。
+- 向量检索只装载「`version_id` 为空（历史块）」或「所属版本为 `ACTIVE`」的块。
+- **回滚不改 `rag_document.content` / `fingerprint`**（它仍是「源同步游标」）：源文件（`rag/knowledge.json`）下次变更会再产生新版本，覆盖回滚结果。
+- 历史块不会被自动清理，`rag_chunk` 会随时间单调增长。
+- 公共知识库文档（`user_id` 为空）任何登录用户都可读版本，但回滚返回 `400`（项目没有管理员语义）。
 
 ---
 
@@ -842,7 +951,7 @@ data:{"planId":"plan-8f3c","tripId":null,"message":"…","intent":"PLAN_TRIP","s
 错误：`401`
 
 ### 13.3 GET /api/health/records — 最近 7 天记录
-鉴权：登录 ｜ 源码：`HealthController#records:56` ｜ 参数：无（按日期升序）
+鉴权：登录 ｜ 源码：`HealthController#records:56` ｜ 参数：`limit`（默认 20，上限 200）、`offset`（默认 0），响应带 `pagination`（窗口为最近 7 天，按日期升序）
 ```json
 {"code":0,"message":"success","data":[{"id":3,"userId":2,"date":"2026-11-08","steps":8120,"sleepHours":7.5,"restingHeartRate":64,"weight":65.4,"createdAt":"2026-11-08T08:10:00"}]}
 ```
@@ -976,6 +1085,9 @@ data:{"planId":"plan-8f3c","tripId":null,"message":"…","intent":"PLAN_TRIP","s
 | 67 | POST | `/api/channels/webhook` | 渠道密钥 | 通用 Webhook | `WebhookChannelController#handle:43` |
 | 68 | GET | `/api/channels/wechat` | 微信签名 | 公众号接入验证 | `WeChatOfficialAccountController#verify:66` |
 | 69 | POST | `/api/channels/wechat` | 微信平台 | 公众号消息推送 | `WeChatOfficialAccountController#receive:85` |
+| 70 | GET | `/api/knowledge/documents/{id}/versions` | 登录 | 知识库版本列表（第九批） | `LearningController#versions:168` |
+| 71 | GET | `/api/knowledge/documents/{id}/versions/{versionNo}` | 登录 | 版本详情含正文（第九批） | `LearningController#version:179` |
+| 72 | POST | `/api/knowledge/documents/{id}/rollback/{versionNo}` | 登录 | 回滚到指定版本（第九批） | `LearningController#rollback:190` |
 
 ---
 
@@ -997,12 +1109,12 @@ data:{"planId":"plan-8f3c","tripId":null,"message":"…","intent":"PLAN_TRIP","s
 | `ScheduleController` | 4 | `controller/ScheduleController.java` |
 | `OfficeController` | 8 | `controller/OfficeController.java` |
 | `ReportController` | 2 | `controller/ReportController.java` |
-| `LearningController` | 5 | `controller/LearningController.java` |
+| `LearningController` | 8 | `controller/LearningController.java`（含内嵌 `KnowledgeVersionController`） |
 | `HealthController` | 4 | `controller/HealthController.java` |
 | `SystemController` | 1 | `controller/SystemController.java` |
 | `WeChatOfficialAccountController` | 2 | `channel/WeChatOfficialAccountController.java` |
 | `WebhookChannelController` | 1 | `channel/WebhookChannelController.java` |
-| **合计** | **69** | 15 个 controller 包文件 + 3 个 channel 包接口 |
+| **合计** | **72** | 15 个 controller 包文件 + 3 个 channel 包接口 |
 
 ### 17.2 按业务模块
 
@@ -1018,15 +1130,15 @@ data:{"planId":"plan-8f3c","tripId":null,"message":"…","intent":"PLAN_TRIP","s
 | 备忘 | §9 | 5 |
 | 日程 | §10 | 4 |
 | 办公 | §11 | 10 |
-| 学习 | §12 | 5 |
+| 学习与知识库 | §12 | 8 |
 | 健康 | §13 | 4 |
 | 系统 | §14 | 1 |
 | 渠道 | §15 | 3 |
-| **合计** | — | **69** |
+| **合计** | — | **72** |
 
 ### 17.3 自检结论与 README 差异
 
-- 源码映射注解统计（`node .docgen/count-endpoints.mjs`）：**66（controller）+ 3（channel）= 69**，与本文第 16 章清单逐条一致，无遗漏、无臆造。
+- 源码映射注解统计（`node .docgen/count-endpoints.mjs`）：**69（controller）+ 3（channel）= 72**，与本文第 16 章清单逐条一致，无遗漏、无臆造（第九批新增知识库版本化 3 个接口）。
 - 与 README 第 5 节「REST API 一览」的差异：README 清单为 **65 个**，**未列出**以下 4 个已上线接口：
   1. `POST /api/agent/stream`（结构化规划表单的 SSE 入口，`AgentController#streamPost:75`）
   2. `GET /api/memos/open-count`（未完成备忘数，`MemoController#openCount:60`）

@@ -157,7 +157,7 @@ export function compilePlanPrompt(form: PlanFormState): string {
     });
     lines.push(
       `以上共 ${usable.length} 篇参考攻略：请把攻略内容与我的需求合并、筛选并重新安排成一份完整可执行的行程，` +
-        '去掉重复项，保留攻略里独特且可靠的推荐，并按上面的节奏与优化目标排布。',
+        '合并重复项，保留攻略里独特且可靠的推荐，并按上面的节奏与优化目标排布。',
     );
   } else {
     if (form.locked.trim()) {

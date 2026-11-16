@@ -42,31 +42,36 @@ export default function PlanDiff({ open, result, onConfirm, onCancel, loading }:
       onOk={onConfirm}
       onCancel={onCancel}
       confirmLoading={loading}
-      okButtonProps={{ danger: highRisk }}
+      // 确认按钮的 data-testid 交给 antd Button：它会透传到真实 <button>，e2e 直接点
+      okButtonProps={{ danger: highRisk, 'data-testid': 'plan-diff-confirm' }}
       width={580}
     >
-      {result?.confirmation?.summary && (
-        <Alert
-          type={highRisk ? 'warning' : 'info'}
-          showIcon
-          message={result.confirmation.summary}
-          description={highRisk ? '本次调整会超出原预算，属于高风险操作，请确认后再提交。' : undefined}
-          style={{ marginBottom: 14, marginTop: 4 }}
-        />
-      )}
-      <div style={{ maxHeight: 320, overflowY: 'auto' }}>{changes.map((c, idx) => renderChange(c, idx))}</div>
-      <div className="diff-budget-box">
-        <div>
-          <div className="db-label">调整前</div>
-          <div className="db-value" style={{ color: 'var(--ink-3)' }}>
-            ¥{Number(before).toFixed(0)}
+      {/* data-testid 必须放在有实际尺寸的内容容器上：antd 的 .ant-modal-root 只是零尺寸包裹层，
+          零尺寸元素会被 Playwright 判为 hidden，把 testid 标在 Modal 上会让 e2e 永远不可见 */}
+      <div data-testid="plan-diff-dialog">
+        {result?.confirmation?.summary && (
+          <Alert
+            type={highRisk ? 'warning' : 'info'}
+            showIcon
+            message={result.confirmation.summary}
+            description={highRisk ? '本次调整会超出原预算，属于高风险操作，请确认后再提交。' : undefined}
+            style={{ marginBottom: 14, marginTop: 4 }}
+          />
+        )}
+        <div style={{ maxHeight: 320, overflowY: 'auto' }}>{changes.map((c, idx) => renderChange(c, idx))}</div>
+        <div className="diff-budget-box">
+          <div>
+            <div className="db-label">调整前</div>
+            <div className="db-value" style={{ color: 'var(--ink-3)' }}>
+              ¥{Number(before).toFixed(0)}
+            </div>
           </div>
-        </div>
-        <ArrowRightOutlined style={{ fontSize: 20, color: 'var(--primary)' }} />
-        <div style={{ textAlign: 'right' }}>
-          <div className="db-label">调整后（{(after - before >= 0 ? '+' : '') + Number(after - before).toFixed(0)}）</div>
-          <div className="db-value" style={{ color: after > before ? 'var(--danger)' : 'var(--success)' }}>
-            ¥{Number(after).toFixed(0)}
+          <ArrowRightOutlined style={{ fontSize: 20, color: 'var(--primary)' }} />
+          <div style={{ textAlign: 'right' }}>
+            <div className="db-label">调整后（{(after - before >= 0 ? '+' : '') + Number(after - before).toFixed(0)}）</div>
+            <div className="db-value" style={{ color: after > before ? 'var(--danger)' : 'var(--success)' }}>
+              ¥{Number(after).toFixed(0)}
+            </div>
           </div>
         </div>
       </div>

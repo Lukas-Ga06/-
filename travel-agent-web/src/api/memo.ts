@@ -1,8 +1,18 @@
-import { request } from './client';
+import { request, getPage, type PageResult } from './client';
 import type { Memo } from '../types/memo';
 
 export function getMemos(): Promise<Memo[]> {
   return request<Memo[]>({ url: '/memos' });
+}
+
+/**
+ * 备忘列表（分页）：GET /api/memos?limit=20&offset=N
+ * 响应 data 仍是数组；pagination 缺失时 pagination 为 null（按单页降级）。
+ */
+export function getMemosPage(
+  page: { limit?: number; offset?: number } = {},
+): Promise<PageResult<Memo>> {
+  return getPage<Memo>('/memos', { limit: page.limit, offset: page.offset });
 }
 
 export function addMemo(content: string): Promise<Memo> {

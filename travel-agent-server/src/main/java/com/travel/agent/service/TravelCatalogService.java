@@ -8,6 +8,7 @@ import com.travel.agent.model.CityCatalog;
 import com.travel.agent.model.Hotel;
 import com.travel.agent.model.Restaurant;
 import com.travel.agent.model.RouteInfo;
+import com.travel.agent.util.CityNames;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.ClassPathResource;
@@ -15,8 +16,11 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.stream.Collectors;
 
 /**
@@ -57,16 +61,67 @@ public class TravelCatalogService {
         return cities;
     }
 
-    /** 从自然语言中匹配城市 */
+    /**
+     * 从自然语言中匹配城市。
+     *
+     * <p>先用共享规则取「最长命中」（不再按目录数组顺序 first-match）；完全没命中时，
+     * 再用 {@link CityNames#nearest} 的收紧 typo 兜底（「杭洲」→杭州、「石家庒」→石家庄）。
+     * 兜底只认「等长 + 仅 1 处不同 + 不同位置不在首位」：首字不同的「广州/苏州/常州」到「杭州」、
+     * 「南京/东京」到「北京」都是目录外的真实城市，一律不认，继续走「不支持该目的地」/联网查询；
+     * typo 兜底出现多解也返回 null，绝不静默换成另一个城市。
+     */
     public CityCatalog matchCity(String text) {
-        if (text != null) {
-            for (CityCatalog city : cities) {
-                if (text.contains(city.name())) {
-                    return city;
-                }
+        if (text == null || text.isBlank() || cities.isEmpty()) {
+            return null;
+        }
+        List<String> names = cities.stream().map(CityCatalog::name).toList();
+        String matched = CityNames.longestMatch(text, names);
+        if (matched == null) {
+            matched = nearestCityName(text, names);
+        }
+        return matched == null ? null : cityByName(matched);
+    }
+
+    private CityCatalog cityByName(String name) {
+        for (CityCatalog city : cities) {
+            if (city.name().equals(name)) {
+                return city;
             }
         }
         return null;
+    }
+
+    /**
+     * typo 兜底：先对整段文本做一次收紧笔误匹配；再在文本上按「候选城市名长度」滑窗，
+     * 这样「我想去杭洲」这类带前后缀的输入也能纠正成「杭州」。
+     * 收紧边界与 {@link CityNames#nearest} 一致：等长、仅 1 处不同且不在首位（首位笔误不兜底），
+     * 所以滑窗只用与候选名完全等长的窗口；多解返回 null，不猜。
+     */
+    private String nearestCityName(String text, List<String> names) {
+        String query = CityNames.normalize(text);
+        if (query.isEmpty()) {
+            return null;
+        }
+        Set<String> hits = new LinkedHashSet<>();
+        CityNames.nearest(query, names, 1).ifPresent(hits::add);
+
+        Set<Integer> windowLengths = new TreeSet<>();
+        for (String name : names) {
+            windowLengths.add(Math.max(2, normalizedLength(name)));
+        }
+        int[] codePoints = query.codePoints().toArray();
+        for (int window : windowLengths) {
+            for (int start = 0; start + window <= codePoints.length; start++) {
+                String fragment = new String(codePoints, start, window);
+                CityNames.nearest(fragment, names, 1).ifPresent(hits::add);
+            }
+        }
+        return hits.size() == 1 ? hits.iterator().next() : null;
+    }
+
+    private int normalizedLength(String name) {
+        String normalized = CityNames.normalize(name);
+        return normalized.codePointCount(0, normalized.length());
     }
 
     public CityCatalog requireCity(String text) {

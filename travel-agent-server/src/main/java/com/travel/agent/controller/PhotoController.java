@@ -45,8 +45,9 @@ public class PhotoController {
     }
 
     /**
-     * 原图。前端用 &lt;img&gt; 展示，而 img 不能自定义请求头，
-     * 因此沿用 SSE 的做法：token 通过查询参数传递（JwtAuthenticationFilter 已支持）。
+     * 原图。前端用 &lt;img&gt; 展示，而 img 不能自定义请求头，因此浏览器主路径靠 httpOnly Cookie；
+     * 只有"连 Cookie 都没有"时才用 {@code ?ticket=}（用途必须为 {@code media-read}）兜底，
+     * 且仅凭票据认证的请求是只读会话（票据不能挪去调写接口）。
      */
     @GetMapping("/api/photos/{id}/raw")
     public ResponseEntity<org.springframework.core.io.Resource> raw(@PathVariable Long id, Authentication authentication) {
@@ -62,7 +63,11 @@ public class PhotoController {
                 .header("X-Content-Type-Options", "nosniff")
                 .header("Content-Security-Policy", "default-src 'none'; sandbox")
                 .header("Content-Disposition", "inline")
-                .header("Cache-Control", "private, max-age=86400")
+                // 票据可能出现在 URL 里：不缓存（避免带凭证的响应留在共享缓存/磁盘），
+                // 同时不发 Referer，防止 URL 经第三方链接二次泄漏。
+                // 注意：这里覆盖了早期 "private, max-age=86400"，缓存换安全是有意取舍。
+                .header("Cache-Control", "private, no-store")
+                .header("Referrer-Policy", "no-referrer")
                 .body(stored.resource());
     }
 

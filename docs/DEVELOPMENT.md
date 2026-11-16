@@ -8,7 +8,8 @@
 | --- | --- | --- |
 | `JWT_SECRET` | 生产必需 | 启动时生成一次性随机密钥并打印 WARN：本地开箱即用，但**服务重启后所有已签发 token 失效**；生产不配置则每次发布都会强制全体用户重新登录 |
 | `LLM_API_KEY` | 可选 | Agent 全部走规则引擎：意图识别、方案生成、文案润色使用内置模板与规则，功能完整但效果弱于模型 |
-| `AMAP_KEY` | 可选 | 城市 POI 走「大模型生成坐标 + OSM Nominatim」兜底路径，速度较慢 |
+| `AMAP_KEY` | 可选 | 后端城市 POI 走「大模型生成坐标 + OSM Nominatim」兜底路径，速度较慢；类型为高德「Web 服务」Key |
+| `VITE_AMAP_KEY` / `VITE_AMAP_SECURITY_CODE` | 行程地图必需 | 高德「Web 端(JS API)」Key 与配套安全密钥，写入 `travel-agent-web/.env.local`；未配置时行程地图显示配置提示 |
 | `APP_TIMEZONE` | 可选（已设默认） | 默认 `Asia/Shanghai`；若部署在其他时区需显式覆盖，否则「今天/明天」会按上海时间计算 |
 | `travel.photos.dir` | 可选（已设默认） | 行程照片落盘目录，默认 `data/photos`（已 gitignore）；换对象存储时只需替换 `PhotoStorage` |
 
@@ -57,8 +58,8 @@ cd travel-agent-web && npm run typecheck    # 仅类型检查
 ```
 
 当前规模：后端 199 个用例（认证/越权、Agent 计划与撤销、工具层契约、RAG 过滤、日期映射、意图路由、
-冲突检查、记账对账、时区、微信渠道、POST 流式端点），前端 55 个用例（agent store、SSE 客户端、
-axios 401 分流、足迹数据、规划表单、浏览器通知、地图标记、票据），e2e 4 个（Playwright：登录建行程路书、
+冲突检查、记账对账、时区、微信渠道、POST 流式端点），前端 68 个用例（agent store、SSE 客户端、
+axios 401 分流、足迹数据、规划表单、浏览器通知、高德地图 Provider、地图标记、票据），e2e 4 个（Playwright：登录建行程路书、
 PWA 资源、结构化表单攻略/从零闭环）。
 
 > 在 Linux/macOS 或 CI 上 `mvn test` 可全绿；**Windows 本地若出现 `Could not self-attach to current VM`**，
@@ -219,12 +220,16 @@ UI 登出必须走 `api/auth.ts` 的 `signOut()`（先清服务端 Cookie 再清
 **校验**：DTO 使用 `jakarta.validation` 注解，控制器参数加 `@Valid`；
 「格式正确但值非法」的日期（如 2026-02-30）通过 `util/Dates` 统一转 400。
 
-**前端分包**：路由全部懒加载（`React.lazy`），重依赖（echarts / maplibre / leaflet / antd）在 `vite.config.ts` 中显式分 chunk。
-页面上新增重型组件时请用 `lazy` + `Suspense`，避免回到单包 3MB。
+**前端分包**：路由全部懒加载（`React.lazy`），重依赖（echarts / maplibre / antd）在 `vite.config.ts` 中显式分 chunk。
+页面上新增重型组件时请用 `lazy` + `Suspense`，避免回到单包 3MB。行程地图的高德 JS API 由 `amapLoader.ts`
+按页面从官方地址加载，2D/3D 切换共享同一脚本实例；足迹地图仍使用 MapLibre 球体投影，底图默认用高德栅格
+（`FootprintMap/basemap.ts`），`VITE_FOOTPRINT_BASEMAP=osm` 可退回原 OSM/OpenFreeMap。
 
 **地图组件**：`.fp-map` / `.maplibregl-map` 是 maplibre 的容器，maplibre 会给它加 `position: relative`，
 其样式在懒加载后才注入且优先级不低——给容器设尺寸时不要用 `absolute + inset`，**必须显式写 height**，否则容器塌成 0 高、地图完全不渲染（已踩过一次）。
 足迹地图的球体投影依赖 maplibre v5+，代码里做了运行时探测，旧版本自动退回平面 3D。
+坐标约定：业务数据存 WGS-84；高德底图/JS API 用 GCJ-02，只在渲染前转换（`src/lib/coords.ts` 与后端
+`util/CoordinateTransform.java` 同一套公式）。不要在两个坐标系之间直接混用坐标，否则国内会偏几百米。
 
 ## 设计系统（方向 B：内容优先）
 
@@ -289,28 +294,80 @@ antd 侧同步切 `darkAlgorithm`（`main.tsx` 的 `PALETTE`）。
 
 ## 待办清单（按优先级）
 
-1. **P0 真实数据源**：经 MCP 通道接高德 POI / 路径规划（stdio 接 `@amap/amap-maps-mcp-server`），
-   酒店/餐厅开放平台同理（天气已接 Open-Meteo）；
-2. **P1 前端组件测试**：ChatPanel 核心交互的 jsdom 组件测试（PlanDiff 确认流程已由 e2e 覆盖）；
-   jsdom 依赖 `require(ESM)`，需 Node ≥ 20.19（本机 20.17 暂跑 node 环境纯逻辑测试）；
-3. **P2 PWA 离线数据**：当前仅预缓存 app shell（离线打得开页面、不白屏），行程数据离线查看待做
-   （API 一律不缓存，需引入只读行程的 runtime 缓存 + 失效策略）；
-4. **P2 二期工具**：`compare_hotel` / `check_opening_hours` / `search_ticket`。
+1. **P0 真实数据源联调**：高德 MCP 通道已接通（见 [guide/mcp-amap.md](guide/mcp-amap.md)），
+   还差后端「Web 服务」Key（`AMAP_MAPS_API_KEY`）做真实 POI/路径/天气与 GCJ-02 坐标联调；
+   酒店/餐厅开放平台同理由 `travel.mcp.servers` 扩展；
+2. **P1 MySQL 8.4 实机回归**：本机是 8.0.46，`V1–V13`（MySQL 侧）全链与 `validate` 都在 8.0 上验证；
+   8.4 的认证插件/弃用项差异需实机确认；顺带在现网库上验收 V13 的大表 DDL 影响（建议低峰窗口）；
+3. **P1 极端旧库列类型收敛**：若某库自 `init.sql` 之后从未跑过 `ddl-auto=update`，
+   `health_record.weight` 可能还是 `DECIMAL(5,1)`、`operation_history.*_state` 还是 `JSON`，
+   `validate` 会报类型不符——需按 deployment 文档清单手工 `MODIFY`；
+4. **P1 前端组件测试**：ChatPanel 核心交互的 jsdom 组件测试（PlanDiff 确认流程已由 e2e 覆盖；
+   `BudgetExecution`、`themeStore`、`OfflineBanner` 已有单测）；
+5. **P2 暗色深水区**：echarts/maplibre 读不到 CSS 变量，目前是页内手写配色，个别图表/弹窗仍硬编码；
+6. **P2 Safari/iOS**：`viewport-fit`/`safe-area`/PWA 安装仅 Chromium 模拟，需真机验证；
+7. **P2 会话记忆纵深**：历史已进规划 Prompt（最近 4 条、每条 120 字，仅 LLM 路径），
+   但"旧方案数字"只靠 Prompt 软约束，未做结构化摘要/指代消解；
+8. **P2 SSE 用例改真容器**：4 个 SSE 集成用例目前靠 `sseDispatch()` 的"等待 + 仅对 CME 重试"绕开
+   MockMvc 的 `MockHttpServletResponse` 线程安全限制；彻底方案是改成 `webEnvironment=RANDOM_PORT` + 真容器；
+9. **P2 二期工具**：`compare_hotel` / `check_opening_hours` / `search_ticket`。
 
-（已完成：结构化规划线上指标（重试命中率/回落率，9f67a56）；`@MockBean` → `@MockitoBean` 全面迁移
-（测试已无 `@MockBean` 残留）；e2e 挂 CI（Playwright smoke + 结构化规划表单闭环，`ci.yml` e2e job）；
-结构化规划表单/参考攻略整合 + `POST /api/agent/stream` 流式端点；PWA app shell 预缓存。
-更早批次见 CHANGELOG：会话记忆、方案文案润色、真实天气、httpOnly Cookie、Flyway、路书 PDF、
-多渠道入口、MCP 生态、LLM 结构化规划与配额、真实 Embedding、知识库指纹同步、限流 Redis 计数、
-照片/发票 S3、按天预算偏差、Spring Boot 3.5.7、全栈 Docker 化。）
+（已完成：第十批——高德 MCP 接成一等配置（12 个工具、Windows npx 兼容、失败降级、语义适配层）；
+schema 单一权威（`V1__baseline.sql` + V13 双方言 + V14(H2 配额唯一键) + 双 profile `ddl-auto=validate` + V4 语法修复与 repair 工具）；
+知识库不变量（MySQL 生成列 ACTIVE 唯一、旧版本块保留窗口与每日清理、`doc_key` 消除并发首建重复）；
+可观测性（`agent.stage`、`sse.disconnects`、断连取消后续阶段）；会话历史进规划 Prompt；
+前端暗色模式 / 390px 移动端 / PWA 离线查看行程。
+第九批——票据分用途 + 仅凭票据只读会话、`/me` 独立限流桶、配额唯一键 V8、列表分页与聚合下推 +
+`pagination` 契约 + V9 索引、知识库版本化 + 回滚 API + V10、城市名匹配统一、会话记忆配置化 + 每日清理。
+更早：结构化规划线上指标；`@MockBean` → `@MockitoBean`；e2e 挂 CI；结构化规划表单 + `POST /api/agent/stream`；
+PWA app shell 预缓存；会话记忆、方案润色、真实天气、httpOnly Cookie、Flyway、路书 PDF、多渠道入口、
+MCP 生态、LLM 结构化规划与配额、真实 Embedding、限流 Redis 计数、照片/发票 S3、按天预算偏差、
+Spring Boot 3.5.7、全栈 Docker 化。）
+
+## 迁移脚本约定（第十批更新）
+
+- 通用脚本放 `src/main/resources/db/migration/V*.sql`（H2 与 MySQL 都会执行）；
+- **MySQL 专属语法**放 `db/migration-mysql/V*.sql`（`information_schema` 探测、`PREPARE`、生成列、多表 DELETE）；
+- **H2 专属语法**放 `db/migration-h2/V*.sql`（H2 原生 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`、
+  `ADD CONSTRAINT IF NOT EXISTS` 等）；现有 `V13__baseline_gap_h2.sql`、`V14__llm_quota_unique_h2.sql`；
+- 两个 profile 的 `flyway.locations` 各自只加载「migration + 自己那一份方言目录」，因此**同一版本号可以
+  在 `migration-mysql` 与 `migration-h2` 中各有一份**（例如 `V13`），不会冲突；
+- **方言目录里只放该方言需要的约束**：H2 侧没有 `llm_quota_usage` 唯一键（V8 在 MySQL 目录）曾是真实缺口，
+  由 `V14`(H2) 补上——新增 MySQL 专属约束时要自问「H2 是否也需要等价物」，反之亦然；
+- **`V1__baseline.sql` 是「V2 之前」的等价比基线**（等价旧 `sql/init.sql`），语义上不能包含 V2+ 新增的
+  列/表/索引；全新库只需要 `flyway migrate`，不再手工跑 `init.sql`（该文件已弃用）；
+- **两个 profile 都是 `ddl-auto=validate`**：漏列会启动失败，不再被 `update` 掩盖；
+- 已发布脚本**原则上不改**（checksum）。例外：会导致某方言**直接跑不通**的语法错误可以改，
+  但必须同时提供 repair 流程（V4 的 `--（` → `-- （` 就是这个例外，见下）；
+- **改过任何已发布脚本后**：本地 H2 与现网 MySQL 都要跑一次 repair，否则启动报 checksum mismatch：
+  `powershell -NoProfile -ExecutionPolicy Bypass -File .tools\flyway-repair\run.ps1 -Command repair -JdbcUrl "<url>" -DbUser <u> -DbPassword <p|-> -Locations "<migration>,<方言目录>"`。
+  **不要删 `flyway_schema_history`**。
+
+## 构建与测试的本地注意事项（第十批补充）
+
+- 本机只有 Windows PowerShell 5.1（**没有 `pwsh` 7**）。PS 5.1 把无 BOM 的 UTF-8 脚本按 ANSI 解码，
+  中文注释会吞掉下一行——脚本一律纯 ASCII，或存成 UTF-8 with BOM；**PowerShell 传空密码会被吞**，
+  repair 工具用 `-` 占位；
+- 并行跑 maven 会争抢 `target/`：用 `.tools/mvn-lock.ps1`（命名互斥体）串行化；
+- 大部分 `@SpringBootTest` 需要 `-DargLine=-Djdk.attach.allowAttachSelf=true`（Mockito 自附加）；
+- 前端 `vitest`/`vite build` 需要 Node 子进程管道，在 **workspace-write 沙箱**下会 `EPERM spawn`，
+  需在 unrestricted 会话里跑；
+- **本机有真实 MySQL 8.0.46**：`127.0.0.1:3306`，`root/123456`（仅本地开发）。做迁移验证时**只建
+  `travel_agent_b10_*` 这类临时库、用完 DROP**，不要碰 `lab3_*`/`lab4_mall`/`sky_take_out` 等库；
+- e2e 本地跑法：先起后端（`RATE_LIMIT_ENABLED=false` 便于连跑）+ `cd travel-agent-web && npx playwright test`
+  （配置里的 `webServer` 会自己起 preview 4173）。
 
 ## 已完成的加固（2026-10 批次）
 
 1. **SSE / 照片凭证**：登录 JWT 不再出现在 URL，改为短期只读票据（`AccessTicketService` + `api/ticket.ts`）；
+   第九批再收窄为「分用途 + 仅凭票据=只读会话 + `Referrer-Policy: no-referrer`」；
 2. **接口限流**：`RateLimitFilter`（登录注册按 IP、Agent 与上传按用户），超限 429 + Retry-After；
+   第九批补 `/api/auth/me` 独立会话桶、`Retry-After ≥ 1`、Redis fail-open 可观测；
 3. **照片安全**：MIME 白名单 + 文件头嗅探 + 服务端推导响应类型，堵住 SVG 存储型 XSS；
 4. **照片运维**：张数与容量配额、先写库后落盘（消除孤儿文件）、HEIC 前端可读提示；
 5. **列表边界**：`Paging` 统一 limit/offset（默认 500、上限 1000），覆盖全部列表接口；
+   第九批把 5 个高频列表改成 DB 层 `Pageable`（默认 20、上限 200）并新增 `pagination` 元数据；
 6. **数据库索引**：trip / trip_photo / itinerary_item / expense / operation_history / health_record 等高频查询字段；
+   第九批新增 `V9` 的 7 条复合索引（等值列在前、排序列在后）；
 7. **线程池**：Agent、联网城市生成、足迹定位统一走 `agentTaskExecutor`，不再占用 ForkJoin commonPool；
 8. **单机状态**：`PendingPlanStore` 从进程内 Map 改为 `pending_plan` 表，确认流程可跨实例、可重启。

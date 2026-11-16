@@ -28,8 +28,9 @@
 | [architecture.md](architecture.md) | 分层架构、8 状态机、Intent/Planner/Executor/Reflect 四 Agent、AgentPlan 与 PlanOperation、三级风险 Human-in-the-loop、工具层只读闸门与 8 个内置工具、RAG 与 Embedding 降级、SSE 事件协议与 focus、会话记忆、待确认方案落库、MCP 生态、LLM 配额 | 后端 / Agent 能力开发 |
 | [api-reference.md](api-reference.md) | 通用约定（认证、短期票据、统一响应、错误码）、按业务模块逐接口的真实契约（参数 / 请求体 / 响应 / 错误码 / 源码位置）、接口总表 | 前端 / 第三方集成 |
 | [data-model.md](data-model.md) | ER 总览、全部实体与表结构（字段 / 类型 / 索引 / 约束）、Flyway 迁移策略、数据一致性不变量、引导数据、常用 SQL 手册 | 后端 / 数据 |
-| [frontend.md](frontend.md) | 技术栈、目录结构、路由表、页面清单、zustand 状态管理、API 层与 SSE 消费链路、核心组件、地图双引擎抽象、构建与测试 | 前端 |
+| [frontend.md](frontend.md) | 技术栈、目录结构、路由表、页面清单、zustand 状态管理、API 层与 SSE 消费链路、核心组件、高德地图 Provider 抽象、构建与测试 | 前端 |
 | [deployment.md](deployment.md) | 部署拓扑、Docker 全栈部署步骤、**生产必改项清单**、环境变量权威表、H2/MySQL 切换、卷与备份恢复、反代与 HTTPS、监控与排障、CI 与发布 | 运维 |
+| [mcp-amap.md](mcp-amap.md) | 高德 MCP：包身份与两个 Key 的区别、开启步骤、12 个工具与 `mcp_amap_*` 注册名、语义适配层、排障与降级、已验证/未验证边界 | 后端 / 运维 |
 
 补充材料：
 
@@ -80,15 +81,15 @@
 | `channel` | 7 | 多渠道入口：Telegram / 微信公众号 / 通用 Webhook |
 | `dto` / `model` / `util` / `exception` | 10 / 6 / 4 / 2 | 传输对象、领域模型、通用工具、全局异常 |
 
-### 前端（`travel-agent-web`，React 18 + TypeScript + Vite，79 个源文件）
+### 前端（`travel-agent-web`，React 18 + TypeScript + Vite，86 个源文件）
 
 | 目录 | 文件数 | 职责 |
 | --- | --- | --- |
 | `pages` | 18 | 16 个页面目录（各含 `index.tsx`）+ 规划表单逻辑 `planForm.ts` 与其测试 |
-| `components` | 29 | ChatPanel / MapView(双引擎) / Timeline / ItineraryCard / PlanDiff / BudgetChart / FootprintMap / ReminderBell … |
-| `api` | 13 | axios 封装、SSE 客户端、票据、各业务接口（含测试） |
-| `store` | 6 | zustand：auth / trip / agent / ui / theme（含 `agentStore.test.ts`） |
-| `types` / `lib` / `hooks` / `styles` / `test` | 5 / 2 / 1 / 1 / 1 | 与后端对齐的 TS 类型、`reminderNotify`（浏览器通知）、`useIntersection`、`global.css` 样式令牌、vitest 环境 `setup.ts` |
+| `components` | 34 | ChatPanel / MapView(高德 2D/3D) / Timeline / ItineraryCard / PlanDiff / BudgetChart / FootprintMap / ReminderBell … |
+| `api` | 14 | axios 封装、SSE 客户端、票据、各业务接口（含测试） |
+| `store` | 7 | zustand：auth / trip / agent / ui / theme（含 `agentStore.test.ts`） |
+| `types` / `lib` / `hooks` / `styles` / `test` | 5 / 2 / 2 / 1 / 1 | 与后端对齐的 TS 类型、`reminderNotify`（浏览器通知）、`useIntersection` / `useOnlineStatus`、`global.css` 样式令牌、vitest 环境 `setup.ts` |
 
 ---
 

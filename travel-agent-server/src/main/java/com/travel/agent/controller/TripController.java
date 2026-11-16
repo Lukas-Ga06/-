@@ -38,11 +38,14 @@ public class TripController {
 
     @GetMapping
     public ApiResponse<List<TripDtos.TripResponse>> list(
-            @RequestParam(defaultValue = "" + Paging.DEFAULT_LIMIT) int limit,
+            @RequestParam(defaultValue = "" + Paging.DEFAULT_PAGE_LIMIT) int limit,
             @RequestParam(defaultValue = "0") int offset,
             Authentication authentication) {
         User user = authService.requireUser(authentication.getName());
-        return ApiResponse.ok(Paging.slice(tripService.list(user.getId()), offset, limit));
+        int size = Paging.normalizeLimit(limit);
+        int from = Paging.normalizeOffset(offset);
+        var page = tripService.page(user.getId(), from, size);
+        return ApiResponse.ok(page.getContent(), Paging.meta(page.getTotalElements(), size, from));
     }
 
     /** 首页足迹地图：各行程目的地坐标 */

@@ -1,5 +1,6 @@
 package com.travel.agent.service;
 
+import com.travel.agent.util.CityNames;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
@@ -112,12 +113,15 @@ public class CityAtlas {
             Map.entry("恩施", new double[]{30.2721, 109.4881}),
             Map.entry("稻城", new double[]{29.0376, 100.2982}));
 
-    /** 解析城市坐标：名称归一（去“市/地区”后缀）后精确匹配 */
+    /**
+     * 解析城市坐标：名称归一（去“市/地区/特别行政区/自治州”后缀）后精确匹配；
+     * 未精确命中时走共享匹配规则 {@link CityNames#longestMatch}（如 “杭州西湖” → 杭州）。
+     *
+     * <p>旧实现是无长度守卫的双向包含，导致 resolve("阳") 命中「洛阳」；
+     * 现在单字一律不命中，等长多解也不猜（返回 null，交给上层兜底）。
+     */
     public double[] resolve(String name) {
-        if (name == null) {
-            return null;
-        }
-        String key = name.trim().replaceAll("(市|地区)$", "").trim();
+        String key = CityNames.normalize(name);
         if (key.isEmpty()) {
             return null;
         }
@@ -125,12 +129,7 @@ public class CityAtlas {
         if (direct != null) {
             return direct;
         }
-        // 模糊：城市名包含图集条目（如 “杭州西湖” → 杭州）
-        for (Map.Entry<String, double[]> e : CITIES.entrySet()) {
-            if (key.contains(e.getKey()) || e.getKey().contains(key)) {
-                return e.getValue();
-            }
-        }
-        return null;
+        String matched = CityNames.longestMatch(key, CITIES.keySet());
+        return matched == null ? null : CITIES.get(matched);
     }
 }

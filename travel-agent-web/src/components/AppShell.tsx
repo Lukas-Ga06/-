@@ -80,7 +80,7 @@ export default function AppShell({ active, children }: { active: NavModule; chil
     <InsideShell.Provider value={true}>
       <div className="app-shell">
         <aside className="app-sidebar">
-        <div className="sb-brand" onClick={() => navigate('/')} style={{ cursor: 'pointer' }}>
+        <div className="sb-brand" data-testid="app-shell-brand" onClick={() => navigate('/')} style={{ cursor: 'pointer' }}>
           <span className="hn-logo">🧠</span>
           <span className="sb-brand-text">AI 个人助理</span>
         </div>
@@ -141,6 +141,8 @@ export default function AppShell({ active, children }: { active: NavModule; chil
               type="text"
               size="small"
               title={themeMode === 'dark' ? '切换到浅色' : '切换到暗色'}
+              aria-label={themeMode === 'dark' ? '切换到浅色模式' : '切换到暗色模式'}
+              data-testid="theme-toggle-sidebar"
               onClick={toggleTheme}
             >
               {themeMode === 'dark' ? '☀️' : '🌙'}
@@ -160,7 +162,13 @@ export default function AppShell({ active, children }: { active: NavModule; chil
               <span>{t.label}</span>
             </a>
           ))}
-          <a onClick={toggleTheme} title={themeMode === 'dark' ? '切换到浅色' : '切换到暗色'}>
+          <a
+            onClick={toggleTheme}
+            role="button"
+            title={themeMode === 'dark' ? '切换到浅色' : '切换到暗色'}
+            aria-label={themeMode === 'dark' ? '切换到浅色模式' : '切换到暗色模式'}
+            data-testid="theme-toggle-tabbar"
+          >
             <span className="tb-icon">{themeMode === 'dark' ? '☀️' : '🌙'}</span>
             <span>主题</span>
           </a>

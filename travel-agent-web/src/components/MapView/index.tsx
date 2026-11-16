@@ -2,8 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { ItineraryItem } from '../../types/trip';
 import type { AgentFocus } from '../../types/agent';
 import type { MapProvider } from './MapProvider';
-import { LeafletMapProvider } from './LeafletMapProvider';
-import { MapLibre3DProvider } from './MapLibre3DProvider';
+import { AMapProvider } from './AMapProvider';
 
 interface Props {
   items: ItineraryItem[];
@@ -14,29 +13,25 @@ interface Props {
 type Engine = '3d' | '2d';
 
 /**
- * 地图组件：默认 MapLibre 3D（倾斜透视 + 辉光路线 + 沿行程巡航），
- * 可一键切回 Leaflet 2D；Agent Focus 事件驱动自动飞行定位。
+ * 地图组件：统一使用高德 JS API，支持 3D/2D、辉光路线与沿行程巡航；
+ * Agent Focus 事件驱动自动飞行定位。
  */
 export default function MapView({ items, focus, focusDay }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const providerRef = useRef<MapProvider | null>(null);
-  const renderedKeyRef = useRef('');
   const [engine, setEngine] = useState<Engine>('3d');
   const [touring, setTouring] = useState(false);
-  /** 底图瓦片加载失败（弱网/外网受限）：标记与路线仍可用，给出降级提示 */
-  const [tileFailed, setTileFailed] = useState(false);
+  const [mapLoadFailed, setMapLoadFailed] = useState(false);
 
-  // 初始化 / 引擎切换
+  // 初始化 / 视角切换。高德 SDK 只加载一次，Provider 负责挂起异步加载期间的渲染请求。
   useEffect(() => {
     if (!containerRef.current || providerRef.current) return;
-    setTileFailed(false);
-    const provider: MapProvider =
-      engine === '3d' ? new MapLibre3DProvider() : new LeafletMapProvider();
+    setMapLoadFailed(false);
+    const provider: MapProvider = new AMapProvider(engine === '3d' ? '3D' : '2D');
     provider.init(containerRef.current, (status) => {
-      if (status === 'failed') setTileFailed(true);
+      setMapLoadFailed(status === 'failed');
     });
     providerRef.current = provider;
-    renderedKeyRef.current = '';
     return () => {
       provider.destroy();
       providerRef.current = null;
@@ -44,14 +39,9 @@ export default function MapView({ items, focus, focusDay }: Props) {
     };
   }, [engine]);
 
-  // 数据渲染（MapLibre 首帧 load 后才注册图层，Provider 内部已做挂起处理）
+  // 数据渲染（Provider 内部按完整行程内容去重）
   useEffect(() => {
-    const provider = providerRef.current;
-    if (!provider) return;
-    const key = `${items.map((i) => `${i.id ?? i.title}@${i.dayIndex}`).join('|')}#${focusDay ?? ''}`;
-    if (renderedKeyRef.current === key) return;
-    renderedKeyRef.current = key;
-    provider.render(items, focusDay);
+    providerRef.current?.render(items, focusDay);
   }, [items, focusDay, engine]);
 
   // Agent Focus：切换 Day 后飞行定位
@@ -73,7 +63,7 @@ export default function MapView({ items, focus, focusDay }: Props) {
       }
     }
     if (target) provider.flyTo(target.lat, target.lng, 16);
-  }, [focus, items]);
+  }, [focus, items, engine]);
 
   // 切换 Day 时停止巡航
   useEffect(() => {
@@ -97,7 +87,9 @@ export default function MapView({ items, focus, focusDay }: Props) {
       provider.stopTour?.();
       setTouring(false);
     } else {
-      provider.startTour(items.filter((i) => i.dayIndex === focusDay));
+      const stops = focusDay == null ? items : items.filter((i) => i.dayIndex === focusDay);
+      if (!stops.some((i) => i.latitude != null && i.longitude != null)) return;
+      provider.startTour(stops);
       setTouring(true);
     }
   };
@@ -109,9 +101,9 @@ export default function MapView({ items, focus, focusDay }: Props) {
   return (
     <>
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
-      {tileFailed && (
-        <div className="map-tile-hint" role="status">
-          ⚠️ 底图瓦片加载失败或不稳定，地图可能显示不全
+      {mapLoadFailed && (
+        <div className="map-tile-hint" role="alert">
+          高德地图加载失败，请检查 VITE_AMAP_KEY、VITE_AMAP_SECURITY_CODE 和网络连接
         </div>
       )}
       <div className="map-controls">

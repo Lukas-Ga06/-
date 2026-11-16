@@ -17,7 +17,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 
-/** Intent Agent：理解「用户到底想干什么」。LLM 优先，规则兜底。 */
+/**
+ * Intent Agent：理解「用户到底想干什么」。LLM 优先，规则兜底。
+ *
+ * <p>会话历史只在这里被消费（{@link #renderHistory}）：用于理解指代/省略
+ * （「那把第二天的酒店也换掉」要知道上一轮聊的是哪趟行程），
+ * 它<b>不进入规划产物</b>——PlannerAgent / StructuredPlanner 不读 history。
+ */
 @Component
 @RequiredArgsConstructor
 @Slf4j
@@ -152,7 +158,13 @@ public class IntentAgent {
         return sb.toString();
     }
 
-    /** 最近对话渲染成简短的历史块；无历史返回空串，提示词里不出现多余空行 */
+    /**
+     * 最近对话渲染成简短的历史块；无历史返回空串，提示词里不出现多余空行。
+     *
+     * <p>条数由 {@code travel.conversation.history-limit} 决定（默认 10 条 ≈ 5 轮），
+     * 由 ConversationService.recent() 截断后放进 AgentContext；这里每条再截 200 字控制提示词体积。
+     * 历史只参与意图判断，不会被写进任何规划/操作计划。
+     */
     private String renderHistory(AgentContext ctx) {
         List<com.travel.agent.entity.ConversationMessage> history = ctx.getHistory();
         if (history == null || history.isEmpty()) {

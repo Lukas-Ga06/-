@@ -2,21 +2,37 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- viewport-fit=cover：让 iOS 安全区生效，底部标签栏/抽屉用 env(safe-area-inset-*) 留出刘海与home指示条 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>AI 个人助理 · 旅行规划 · 记账 · 备忘</title>
     <script>
-      // 首帧前定主题：读 zustand persist 的本地记录，没有就跟系统
+      // 首帧前定主题（在样式表加载前执行，避免浅色闪一帧）：
+      // ① 有合法存储值 → 用它；② 存了但非法/损坏 → 回落 light（与 themeStore 的 merge 一致）；
+      // ③ 没存过 → 跟随系统 prefers-color-scheme。
       (function () {
+        var mode = null;
         try {
           var raw = localStorage.getItem('travel-agent-theme');
-          var mode = raw ? JSON.parse(raw).state.mode : null;
-          if (mode !== 'light' && mode !== 'dark') {
-            mode = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+          if (raw) {
+            var parsed = null;
+            try {
+              parsed = JSON.parse(raw);
+            } catch (e) {
+              parsed = null;
+            }
+            var stored = parsed && parsed.state ? parsed.state.mode : null;
+            // 存了但非法：回落 light，绝不把非法值写进 data-theme
+            mode = stored === 'light' || stored === 'dark' ? stored : 'light';
+          } else {
+            mode =
+              window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+                ? 'dark'
+                : 'light';
           }
-          document.documentElement.dataset.theme = mode;
         } catch (e) {
-          document.documentElement.dataset.theme = 'light';
+          mode = 'light';
         }
+        document.documentElement.dataset.theme = mode;
       })();
     </script>
   </head>

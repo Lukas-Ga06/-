@@ -54,9 +54,7 @@ class ChannelWeChatTest extends IntegrationTestSupport {
                 <MsgType><![CDATA[text]]></MsgType>
                 <Content><![CDATA[记一下明天办签证]]></Content></xml>
                 """.formatted(openid);
-        MvcResult result = mockMvc.perform(post("/api/channels/wechat")
-                        .contentType(MediaType.APPLICATION_XML)
-                        .content(xml))
+        MvcResult result = mockMvc.perform(signedPost(xml))
                 .andExpect(status().isOk())
                 .andReturn();
         String body = result.getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
@@ -72,9 +70,7 @@ class ChannelWeChatTest extends IntegrationTestSupport {
                 <xml><FromUserName><![CDATA[%s]]></FromUserName><ToUserName><![CDATA[gh_demo]]></ToUserName>
                 <MsgType><![CDATA[event]]></MsgType><Event><![CDATA[subscribe]]></Event></xml>
                 """.formatted(openid);
-        MvcResult result = mockMvc.perform(post("/api/channels/wechat")
-                        .contentType(MediaType.APPLICATION_XML)
-                        .content(subscribe))
+        MvcResult result = mockMvc.perform(signedPost(subscribe))
                 .andExpect(status().isOk())
                 .andReturn();
         assertTrue(result.getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8)
@@ -84,9 +80,7 @@ class ChannelWeChatTest extends IntegrationTestSupport {
                 <xml><FromUserName><![CDATA[%s]]></FromUserName><ToUserName><![CDATA[gh_demo]]></ToUserName>
                 <MsgType><![CDATA[event]]></MsgType><Event><![CDATA[CLICK]]></Event></xml>
                 """.formatted(openid);
-        MvcResult ignored = mockMvc.perform(post("/api/channels/wechat")
-                        .contentType(MediaType.APPLICATION_XML)
-                        .content(click))
+        MvcResult ignored = mockMvc.perform(signedPost(click))
                 .andExpect(status().isOk())
                 .andReturn();
         assertEquals("", ignored.getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8));
@@ -94,10 +88,78 @@ class ChannelWeChatTest extends IntegrationTestSupport {
 
     @Test
     void malformedXmlIsIgnoredWithoutError() throws Exception {
-        mockMvc.perform(post("/api/channels/wechat")
-                        .contentType(MediaType.APPLICATION_XML)
-                        .content("<xml>这不是有效消息"))
+        mockMvc.perform(signedPost("<xml>这不是有效消息"))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void postWithoutSignatureIsRejected() throws Exception {
+        String xml = """
+                <xml><FromUserName><![CDATA[o-attacker]]></FromUserName><ToUserName><![CDATA[gh_demo]]></ToUserName>
+                <MsgType><![CDATA[text]]></MsgType><Content><![CDATA[你好]]></Content></xml>
+                """;
+        MvcResult result = mockMvc.perform(post("/api/channels/wechat")
+                        .contentType(MediaType.APPLICATION_XML)
+                        .content(xml))
+                .andExpect(status().isForbidden())
+                .andReturn();
+        assertEquals("signature required",
+                result.getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8));
+        // 未验签的推送不能创建账号
+        assertTrue(!userRepository.existsByUsername("wx_o-attacker"), "未验签请求不应创建账号");
+    }
+
+    @Test
+    void postWithBadSignatureIsRejected() throws Exception {
+        String timestamp = String.valueOf(System.currentTimeMillis() / 1000);
+        String xml = """
+                <xml><FromUserName><![CDATA[o-attacker2]]></FromUserName><ToUserName><![CDATA[gh_demo]]></ToUserName>
+                <MsgType><![CDATA[text]]></MsgType><Content><![CDATA[你好]]></Content></xml>
+                """;
+        MvcResult result = mockMvc.perform(post("/api/channels/wechat")
+                        .param("signature", "0".repeat(40))
+                        .param("timestamp", timestamp)
+                        .param("nonce", "nonce-bad")
+                        .contentType(MediaType.APPLICATION_XML)
+                        .content(xml))
+                .andExpect(status().isForbidden())
+                .andReturn();
+        assertEquals("signature mismatch",
+                result.getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8));
+    }
+
+    @Test
+    void postWithStaleTimestampIsRejected() throws Exception {
+        // 签名本身正确，但时间戳超出 ±5 分钟窗口（防重放）
+        String staleTimestamp = String.valueOf(System.currentTimeMillis() / 1000 - 3600);
+        String nonce = "nonce-stale";
+        String xml = """
+                <xml><FromUserName><![CDATA[o-attacker3]]></FromUserName><ToUserName><![CDATA[gh_demo]]></ToUserName>
+                <MsgType><![CDATA[text]]></MsgType><Content><![CDATA[你好]]></Content></xml>
+                """;
+        MvcResult result = mockMvc.perform(post("/api/channels/wechat")
+                        .param("signature", sign(TOKEN, staleTimestamp, nonce))
+                        .param("timestamp", staleTimestamp)
+                        .param("nonce", nonce)
+                        .contentType(MediaType.APPLICATION_XML)
+                        .content(xml))
+                .andExpect(status().isForbidden())
+                .andReturn();
+        assertEquals("timestamp expired",
+                result.getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8));
+    }
+
+    /** 带合法签名（当前秒级时间戳 + 随机 nonce）的 POST 构造器，模拟微信真实推送 */
+    private static org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder signedPost(String xml)
+            throws Exception {
+        String timestamp = String.valueOf(System.currentTimeMillis() / 1000);
+        String nonce = "n" + System.nanoTime();
+        return post("/api/channels/wechat")
+                .param("signature", sign(TOKEN, timestamp, nonce))
+                .param("timestamp", timestamp)
+                .param("nonce", nonce)
+                .contentType(MediaType.APPLICATION_XML)
+                .content(xml);
     }
 
     private static String sign(String token, String timestamp, String nonce) throws Exception {

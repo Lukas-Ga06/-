@@ -275,6 +275,7 @@ export default function Planner() {
                 </div>
                 <div className="plan-row">
                   <Input
+                    data-testid="planner-destination"
                     placeholder="目的地，例如：东京、巴黎、伦敦"
                     value={form.destination}
                     maxLength={60}
@@ -444,7 +445,7 @@ export default function Planner() {
                 >
                   清空全部需求
                 </Button>
-                <Button type="primary" size="large" onClick={submit} loading={streaming}>
+                <Button type="primary" size="large" data-testid="planner-submit" onClick={submit} loading={streaming}>
                   {form.mode === 'guides' ? '整合攻略并生成计划' : '根据我的需求生成计划'}
                 </Button>
               </div>

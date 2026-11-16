@@ -11,9 +11,16 @@ import com.travel.agent.repository.OperationHistoryRepository;
 import com.travel.agent.repository.TripPhotoRepository;
 import com.travel.agent.repository.TripRepository;
 import com.travel.agent.util.Dates;
+import com.travel.agent.util.Paging;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -23,6 +30,7 @@ import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class TripService {
 
     private final TripRepository tripRepository;
@@ -37,6 +45,13 @@ public class TripService {
         return tripRepository.findByUserIdOrderByCreatedAtDesc(userId).stream()
                 .map(TripDtos.TripResponse::from)
                 .toList();
+    }
+
+    /** 行程列表分页：排序与旧实现一致（created_at desc），分页/排序下推数据库 */
+    public Page<TripDtos.TripResponse> page(Long userId, int offset, int limit) {
+        Pageable pageable = Paging.pageable(offset, limit,
+                Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id")));
+        return tripRepository.findByUserId(userId, pageable).map(TripDtos.TripResponse::from);
     }
 
     public Trip getOwned(Long tripId, Long userId) {
@@ -127,17 +142,57 @@ public class TripService {
         return trip;
     }
 
+    /**
+     * 删除行程：DB 级联清理在一个事务里完成；
+     * 照片文件属于外部副作用（磁盘/S3 不参与 JDBC 事务），改成事务提交后再删。
+     *
+     * 旧实现先删文件再删行：一旦后续 DB 删除失败回滚，行还在而照片已被永久删除（不可逆裂图）。
+     * 现在回滚只会留下孤儿文件（可后台补偿清理），不再丢用户数据。
+     */
     @Transactional
     public void delete(Long tripId, Long userId) {
         Trip trip = getOwned(tripId, userId);
-        // 级联清理：条目、账单、操作历史、照片（含磁盘文件）
-        tripPhotoRepository.findByTripIdOrderByCreatedAtDesc(trip.getId())
-                .forEach(photo -> photoStorage.deleteQuietly(photo.getStoredName()));
+        List<String> photoFiles = tripPhotoRepository.findByTripIdOrderByCreatedAtDesc(trip.getId()).stream()
+                .map(com.travel.agent.entity.TripPhoto::getStoredName)
+                .filter(java.util.Objects::nonNull)
+                .toList();
+        // 级联清理元数据：照片、账单、操作历史、行程项
         tripPhotoRepository.deleteByTripId(trip.getId());
         expenseRepository.deleteByTripId(trip.getId());
         operationHistoryRepository.deleteByTripId(trip.getId());
         itineraryItemRepository.deleteByTripId(trip.getId());
         tripRepository.delete(trip);
+        // 文件删除安排在 afterCommit：提交成功才删，失败只记日志
+        deletePhotoFilesAfterCommit(photoFiles);
+    }
+
+    /** 把「删照片文件」挂到当前事务提交之后；没有事务时直接执行（保持方法单独调用也能工作） */
+    private void deletePhotoFilesAfterCommit(List<String> storedNames) {
+        if (storedNames == null || storedNames.isEmpty()) {
+            return;
+        }
+        if (TransactionSynchronizationManager.isSynchronizationActive()
+                && TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    deletePhotoFilesQuietly(storedNames);
+                }
+            });
+        } else {
+            deletePhotoFilesQuietly(storedNames);
+        }
+    }
+
+    /** 删除失败只告警：DB 已提交，残留文件不影响功能，也不能再影响删除结果 */
+    private void deletePhotoFilesQuietly(List<String> storedNames) {
+        for (String storedName : storedNames) {
+            try {
+                photoStorage.deleteQuietly(storedName);
+            } catch (RuntimeException e) {
+                log.warn("照片文件删除失败（行程记录已删除，残留文件待清理）: {}", storedName, e);
+            }
+        }
     }
 
     /** Agent 确认后创建行程（含完整行程条目） */

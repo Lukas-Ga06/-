@@ -65,6 +65,40 @@ public class PendingPlanStore {
         return found;
     }
 
+    /**
+     * 抢占确认/取消的所有权：条件更新 PENDING → CONFIRMING。
+     *
+     * 返回 true 的调用方是这份方案唯一的处理者（并发下数据库行锁保证只有一个成功）；
+     * 返回 false 说明方案不存在、不属于该用户，或已被别的请求确认/取消。
+     * 独立事务：必须让「抢到所有权」这一步立即提交，否则后续长事务提交前
+     * 其它请求看到的仍是 PENDING，原子性就失效了。
+     */
+    @Transactional
+    public boolean claim(String planId, Long userId) {
+        if (planId == null || userId == null) {
+            return false;
+        }
+        boolean claimed = repository.claim(planId, userId) == 1;
+        if (!claimed) {
+            log.debug("待确认方案已被抢占或不存在: planId={} userId={}", planId, userId);
+        }
+        return claimed;
+    }
+
+    /**
+     * 释放所有权：提交失败时把 CONFIRMING 放回 PENDING，
+     * 让用户可以用同一个 planId 重试（不用重新发起规划）。
+     */
+    @Transactional
+    public void release(String planId) {
+        if (planId == null) {
+            return;
+        }
+        if (repository.release(planId) == 0) {
+            log.debug("待确认方案无需释放（已不是 CONFIRMING）: planId={}", planId);
+        }
+    }
+
     /** 查看待确认计划：过期即删除并返回 null */
     public PendingPlan peek(String planId, Long userId) {
         if (planId == null) {

@@ -29,12 +29,15 @@ public class ExpenseController {
     @GetMapping("/api/trips/{tripId}/expenses")
     public ApiResponse<List<ExpenseDtos.ExpenseDTO>> list(
             @PathVariable Long tripId,
-            @RequestParam(defaultValue = "" + Paging.DEFAULT_LIMIT) int limit,
+            @RequestParam(defaultValue = "" + Paging.DEFAULT_PAGE_LIMIT) int limit,
             @RequestParam(defaultValue = "0") int offset,
             Authentication authentication) {
         User user = authService.requireUser(authentication.getName());
         tripService.getOwned(tripId, user.getId());
-        return ApiResponse.ok(Paging.slice(expenseService.list(tripId), offset, limit));
+        int size = Paging.normalizeLimit(limit);
+        int from = Paging.normalizeOffset(offset);
+        var page = expenseService.page(tripId, from, size);
+        return ApiResponse.ok(page.getContent(), Paging.meta(page.getTotalElements(), size, from));
     }
 
     @PostMapping("/api/trips/{tripId}/expenses")

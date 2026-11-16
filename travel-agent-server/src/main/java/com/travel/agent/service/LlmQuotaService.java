@@ -18,6 +18,11 @@ import java.time.LocalDate;
  * - 超限时返回 false，调用方（DelegatingLlmClient）把该次调用视为不可用返回 null，
  *   下游全部走既有降级路径（规则引擎/模板），用户体验无中断；
  * - 计数落库（用户名 + 日期唯一行，原子自增），重启不丢、多实例共享。
+ *
+ * 判断本身也必须原子：旧实现是「读 used → 比 limit → 自增」，N 个并发请求同时读到
+ * used=limit-1 就全部放行，实际调用可达 N 倍超发（配额控成本，超发即真金白银）。
+ * 现在闸门是条件自增 UPDATE 的影响行数：只有真正把 used_count 从 &lt;limit 加一的那次
+ * 调用返回 1 并放行，并发下放行次数严格等于 limit。
  */
 @Service
 @RequiredArgsConstructor
@@ -38,15 +43,32 @@ public class LlmQuotaService {
             return true; // 系统级调用（无用户上下文）不限额
         }
         LocalDate today = LocalDate.now();
+
+        // 快路径：一条条件 UPDATE 同时完成「判断 + 占位」，rowcount=1 才算抢到名额
+        if (repository.incrementIfBelow(username, today, limit) == 1) {
+            logAcquired(username, today, limit, true);
+            return true;
+        }
+
+        // rowcount=0 有两种可能：① 当日还没有计数行（首次调用）；② 已达上限。
+        // 先幂等补行消除分支 ①，再走一次条件自增——放行与否仍然只由条件自增的行数决定，
+        // 因此并发首调（两个事务同时补行）也能收敛到正确结果，不会重复放行。
+        repository.insertIfAbsent(username, today);
+        boolean allowed = repository.incrementIfBelow(username, today, limit) == 1;
+        logAcquired(username, today, limit, allowed);
+        return allowed;
+    }
+
+    /** 回读当日已用次数，用于日志与前端展示 */
+    private void logAcquired(String username, LocalDate today, int limit, boolean allowed) {
         int used = repository.findByUserNameAndUsageDate(username, today)
                 .map(LlmQuotaUsage::getUsedCount)
                 .orElse(0);
-        if (used >= limit) {
+        if (allowed) {
+            log.debug("LLM 配额放行 user={} used={}/{}", username, used, limit);
+        } else {
             log.debug("LLM 日配额已用尽 user={} used={} limit={}", username, used, limit);
-            return false;
         }
-        repository.increment(username, today);
-        return true;
     }
 
     /** 当日已用次数（诊断/展示用，与闸门无关） */

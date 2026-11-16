@@ -55,7 +55,7 @@ travel-agent/
 │   │   ├── util/                       # 通用工具（日期解析等）
 │   │   └── exception/                  # 全局异常处理
 │   └── src/test/                       # JUnit + MockMvc 集成测试（内存 H2，不触网）
-└── travel-agent-web/                   # 前端（React 18 + TypeScript + Vite + AntD + ECharts + Leaflet/MapLibre）
+└── travel-agent-web/                   # 前端（React 18 + TypeScript + Vite + AntD + ECharts + 高德/MapLibre）
     ├── vitest.config.ts                # 前端单元测试配置
     └── src/
         ├── components/                 # ChatPanel / MapView(MapProvider) / Timeline / ItineraryCard / BudgetChart / PlanDiff / VoiceButton
@@ -96,6 +96,11 @@ export LLM_API_KEY="sk-你的key"
 mvn spring-boot:run
 ```
 
+> 需要 H2 控制台（`http://localhost:8080/h2-console`）时设 `H2_CONSOLE_ENABLED=true` 再启动；
+> 默认关闭——控制台用 `sa` 空密码直连数据库，暴露到公网等于匿名读写全库。
+> 生产部署（`mysql`/`prod` profile）下若仍开启 H2 控制台、demo 账号或 `COOKIE_SECURE=false`，
+> 启动日志会打印 `[SECURITY]` 告警，请按提示关闭。
+
 > 更省事的方式（推荐）：把密钥写进 `travel-agent-server/.env.local`（该文件已被 gitignore），
 > 然后 `.\run-dev.ps1` 启动——脚本会逐条注入环境变量，并在首次运行时自动生成并固定 `JWT_SECRET`。
 
@@ -111,6 +116,11 @@ cd travel-agent-web
 npm install
 npm run dev
 ```
+
+行程地图已接入高德 JS API；足迹地图默认也是高德栅格底图（MapLibre 球体保留），
+`VITE_FOOTPRINT_BASEMAP=osm` 可回退 OSM。首次开发前，将 `.env.example` 复制为 `.env.local`，填写高德开放平台的
+**Web 端(JS API)** Key（`VITE_AMAP_KEY`）及配套安全密钥（`VITE_AMAP_SECURITY_CODE`）。
+它与后端用于 POI 定位的 **Web 服务** Key（`AMAP_KEY`）是两种不同凭据，不能混用。
 
 打开 http://localhost:5173 ，使用 **demo / demo123** 登录。
 
@@ -140,9 +150,10 @@ RECEIVE → UNDERSTAND → PLAN → EXECUTE → REFLECT → PRESENT → CONFIRM 
 > 精确的状态转移与「哪些状态真正被 set」见 [docs/guide/architecture.md](docs/guide/architecture.md) §2。
 
 - **会话记忆**：前端生成 `conversationId`（sessionStorage，跨页面切换保持同一对话），
-  后端按「用户 + 会话」存最近 10 轮消息，喂给 LLM 做指代消解——「那把第二天的酒店也换掉」
-  这类追问能接住；聊天面板「新对话」按钮开新会话并清掉服务端历史（保留 7 天后定期清理）。
-  未配置 LLM 时规则路径行为不变；
+  后端按「用户 + 会话」存最近 **10 条消息（约 5 轮）**，喂给 LLM 做指代消解——「那把第二天的酒店也换掉」
+  这类追问能接住；聊天面板「新对话」按钮开新会话并清掉服务端历史（保留 7 天后由每日定时任务清理）。
+  历史只参与意图识别，不进入规划产物；未配置 LLM 时规则路径行为不变；条数与保留天数可配
+  （`CONVERSATION_HISTORY_LIMIT` / `CONVERSATION_RETENTION_DAYS`）；
 - **IntentAgent**：LLM 优先（带会话历史）+ 规则兜底，输出 `{intent, target, constraints}`（规则边界见 4.7）；
 - **PlannerAgent**：结合行程/预算/偏好/天气/交通生成 `AgentPlan`（操作列表，不直接落库）；
 - **ExecutorAgent**：preview（生成 Diff + 确认请求）→ 用户确认 → commit（单事务内 Service → Repository + 操作历史）；
@@ -363,18 +374,27 @@ POST   /api/channels/webhook      # 多渠道通用入口（X-Webhook-Secret 即
 | `LLM_BASE_URL` | `https://api.deepseek.com/v1` | 任意 OpenAI-compatible 端点 |
 | `LLM_MODEL` | `deepseek-chat` | 模型名，可换 `qwen-plus`、`gpt-4o-mini` 等 |
 | `LLM_ENABLED` | true | 设 false 可强制关闭模型调用 |
-| `AMAP_KEY` | 空 | 高德 Web 服务 Key，配置后城市 POI 定位走真实数据 |
+| `AMAP_KEY` | 空 | 后端高德「Web 服务」Key，配置后城市 POI 定位走真实数据 |
+| `VITE_AMAP_KEY` / `VITE_AMAP_SECURITY_CODE` | 空 | 前端高德「Web 端(JS API)」Key 与配套安全密钥；写入 `travel-agent-web/.env.local`，Docker 部署时作为 web 构建参数传入 |
+| `VITE_FOOTPRINT_BASEMAP` | amap | 足迹地图底图：`amap`（高德栅格 + MapLibre 球体）或 `osm`（原 OSM/OpenFreeMap）。高德瓦片直连商用前需确认授权 |
 | `TELEGRAM_BOT_TOKEN` | 空 | Telegram Bot token（@BotFather 创建）。配置即启用该渠道（长轮询），留空渠道关闭 |
 | `CHANNEL_WEBHOOK_ENABLED` | false | true 时启用通用 Webhook 渠道入口 |
 | `WECHAT_OA_TOKEN` | 空 | 微信公众号服务器配置 Token（明文模式），配置即启用该渠道 |
 | `WECHAT_OA_APPID` / `WECHAT_OA_SECRET` | 空 | 公众号客服消息凭据（需已认证公众号）；配置后微信渠道改异步回复，解除被动回复 5s 窗口 |
 | `LLM_DAILY_QUOTA` | 0 | 每用户每日 LLM 调用上限（0 不限），超限自动降级规则引擎 |
+| `AMAP_MAPS_API_KEY` | 空 | 高德官方 MCP server（`@amap/amap-maps-mcp-server`）的「Web 服务」Key，**与后端 REST 的 `AMAP_KEY` 不是一个变量**；同时需 `MCP_ENABLED=true`。未配置时 MCP 段保持关闭、行为不变 |
+| `RAG_CHUNK_VERSION_RETENTION` | 2 | 知识库版本化：除 ACTIVE 版本外额外保留最近 N 个历史版本的 chunk（每日 04:30 清理更老的 INACTIVE 块；ACTIVE 与历史无版本块永不删） |
 | `EMBEDDING_ENABLED` | false | true 时 RAG 走真实 Embedding（`EMBEDDING_BASE_URL`/`EMBEDDING_API_KEY`/`EMBEDDING_MODEL`，OpenAI 兼容） |
 | `RATE_LIMIT_STORE` | memory | 限流计数存储：`redis` 时多实例共享（需配置 spring.data.redis） |
+| `RATE_LIMIT_SESSION` | 60 | `GET /api/auth/me` 的**独立**会话恢复配额（每用户/窗口）。与登录桶（`RATE_LIMIT_AUTH`，默认 10/IP）分开，否则刷新几次页面就会被 429 踢回登录页 |
+| `CONVERSATION_HISTORY_LIMIT` | 10 | 喂给 LLM 的会话历史**消息条数**（不是轮数；一轮问答 = 2 条 ≈ 5 轮），参与意图识别/指代消解 |
+| `CONVERSATION_RETENTION_DAYS` | 7 | 会话消息保留天数；写入侧每小时快路径 + 每日 04:30 定时兜底清理 |
 | `PHOTOS_STORE` | local | 照片存储：`s3` 时用 S3 兼容对象存储（`travel.photos.s3.*`：endpoint/region/bucket/access-key/secret-key） |
 | `CHANNEL_WEBHOOK_SECRET` | 空 | Webhook 渠道密钥（X-Webhook-Secret 头，恒时比较）；未配置时端点始终 401 |
 | `MCP_ENABLED` | false | true 时启动接入 `travel.mcp.servers` 里的 MCP server（见 §4.10 与 application.yml 示例） |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | 允许的前端来源 |
+| `H2_CONSOLE_ENABLED` | false | 是否启用 H2 控制台 `/h2-console`。默认**关闭**（控制台以 `sa` 空密码直连数据库，暴露即等于匿名读写全库）；本地调试需显式设 `true`，生产必须保持 false |
+| `RATE_LIMIT_TRUSTED_PROXIES` | 空 | 限流客户端 IP 的受信代理（精确 IP 或 IPv4 CIDR，逗号分隔）。默认空 = **不信任任何代理、完全不读 `X-Forwarded-For`**（否则换伪造 XFF 即可绕过登录限流）；仅后端只能经反代访问时配置，docker compose 默认 `172.16.0.0/12` |
 | `APP_TIMEZONE` | `Asia/Shanghai` | 应用时区。代码里的「今天/明天」与日报、记账日期都基于它；容器默认 UTC 时必须显式确认 |
 | `TESSERACT_CMD` | 空 | 图片发票 OCR 的 Tesseract 可执行文件路径；不配置时 PDF 电子发票与粘贴文本仍可正常识别 |
 | `TESSDATA_PREFIX` | 空 | Tesseract 语言包目录，需包含 `chi_sim.traineddata` 与 `eng.traineddata`；仅在语言包装在非默认目录时需要 |
@@ -441,6 +461,7 @@ JWT_SECRET=$(openssl rand -base64 48) docker compose up -d --build
 - 数据持久化卷：`mysql-data`、`backend-data`（H2 兜底文件/照片/发票均落 `/app/data`）；
 - 密钥与开关全部经环境变量注入：`JWT_SECRET` 必配；`DEMO_ACCOUNT` 默认 false；
   `LLM_API_KEY` / `AMAP_KEY` / `WEATHER_REAL` / `TELEGRAM_BOT_TOKEN` 等可选（留空功能降级）；
+  行程地图需另配 `VITE_AMAP_KEY` / `VITE_AMAP_SECURITY_CODE`（compose 会作为 web 构建参数传入）；
 - 本机未安装 Docker 时无法本地验证镜像构建，首次部署请留意 `docker compose build` 输出。
 
 ## 7. 测试与 CI
@@ -453,7 +474,7 @@ cd travel-agent-server && mvn test
 cd travel-agent-web && npm run typecheck && npm test && npm run build
 ```
 
-当前覆盖（后端 199 个 / 前端 55 个 / e2e 4 个）：
+当前覆盖（后端 330 个 / 前端 105 个 / e2e 5 个，以 CI 输出为准）：
 
 - 认证与授权：401 契约、跨用户读写与删除行程；
 - Agent 计划落地：ADD_ITEM / MODIFY_ITEM / REMOVE_ITEM、跨行程操作守卫、确认提交与撤销（含撤销新建行程）；
@@ -473,24 +494,34 @@ Playwright chromium：登录建行程路书、PWA 资源、结构化规划表单
 
 已完成的工程化改造：密钥外置、版本控制、测试与 CI、原子化提交、参数校验、错误语义对齐、前端路由懒加载与分包、
 3D 足迹地图、多轮会话记忆、方案文案 LLM 润色、真实天气（Open-Meteo）、httpOnly Cookie 登录态、Flyway 增量迁移、
-SSE/照片短期票据、接口限流、待确认方案落库（多实例可用）、数据库索引与分页、路书 PDF 导出、
+SSE/照片短期票据（票据分用途，仅凭票据=只读会话）、接口限流、待确认方案落库（多实例可用）、
+数据库分页与聚合下推（5 个列表端点 + `pagination` 契约）、**schema 单一权威**（V1 基线 + `ddl-auto=validate`）、
+**高德 MCP 工具接入**（stdio，12 个工具）、**暗色模式 / 390px 移动端 / PWA 离线查看行程**、
+`agent.stage` 与 `sse.disconnects` 指标（断连即取消后续阶段）、路书 PDF 导出、
 多渠道入口（Telegram / 微信公众号 / 通用 Webhook）、MCP 外部工具生态、LLM 结构化规划（模型选实体编排 +
 规则校验兜底 + 失败带反馈重试）、LLM 每日配额（含用量展示）、真实 Embedding（失败锁定降级）、
-限流 Redis 计数与照片/发票 S3 兼容存储（多实例）、知识库指纹增量同步、按天预算偏差视图、
+限流 Redis 计数与照片/发票 S3 兼容存储（多实例）、知识库指纹增量同步与版本化（可审计可回滚）、按天预算偏差视图、
 Spring Boot 3.5、全栈 Docker 化，以及若干轮逻辑缺陷修复与安全加固
 （详见 [docs/CHANGELOG.md](docs/CHANGELOG.md)）。
 
 按优先级继续推进：
 
-**P0 产品力**
-- 真实数据源：优先经 §4.10 的 MCP 通道接高德 POI / 路径规划（stdio 接 @amap/amap-maps-mcp-server），
-  酒店/餐厅开放平台同理（天气已接 Open-Meteo）。
+**P0 产品力（第十批已把通道铺好，剩"真 Key 联调"）**
+- 高德 MCP 已接成一等配置（`travel.mcp.servers`，12 个 `mcp_amap_*` 工具 + Windows `npx` 兼容 + 失败降级），
+  见 [docs/guide/mcp-amap.md](docs/guide/mcp-amap.md)；**还差后端「Web 服务」Key 做真实 POI/路径/坐标联调**；
+  酒店/餐厅开放平台同理由同一套 MCP 配置扩展（天气已接 Open-Meteo）。
 
-**P1 健壮性**
-- 前端：核心交互组件测试（ChatPanel / PlanDiff 确认流程），e2e 脚本挂进 CI；
-- `@MockBean` → `@MockitoBean` 全面迁移（Boot 3.6 移除前）。
+**P1 数据层与部署可信度（第十批已完成主体）**
+- schema 单一权威已落地：`V1__baseline.sql` + `V13` 双方言补齐 + 两个 profile `ddl-auto=validate`；
+  已在真实 MySQL **8.0.46** 上验通「全新库 / 存量库升级 / V8 幂等」三条路径（8.4 未实机）；
+- 知识库不变量已落地：ACTIVE 唯一（MySQL 生成列 + 唯一索引）、旧版本块保留窗口与每日清理、
+  `doc_key` 唯一键消除并发首建重复入库；
+- **仍待办**：MySQL 8.4 实机回归；极端旧库的列类型（`health_record.weight` / `operation_history.*_state`）
+  若从未被旧 `ddl-auto` 收敛过，需要手工 `MODIFY`。
 
-**P2 部署与运营**
-- 结构化规划线上效果评估（重试命中率/回落率的指标采集）；
-- 会话与预算：PWA 离线查看行程；
-- 二期工具：compare_hotel / check_opening_hours / search_ticket。
+**P2 体验与运营（第十批已完成）**
+- 可观测性：`agent.stage{intent|plan|tool|commit}` Timer、`sse.disconnects{complete|timeout|error|cancelled}`；
+- 会话历史已进规划 Prompt（最近 4 条、每条 120 字，仅 LLM 路径）；
+- 暗色模式、390px 移动端无横向溢出（7 个场景实测）、PWA 离线查看行程（只读三条 API 走 NetworkFirst）；
+- **仍待办**：Safari/iOS 真机与 PWA、echarts/maplibre 暗色配色、二期工具
+  （compare_hotel / check_opening_hours / search_ticket）。

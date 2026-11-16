@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { systemStatus, type SystemStatus } from '../../api/assistant';
 import { signOut } from '../../api/auth';
 import { useAuthStore } from '../../store/authStore';
+import { useThemeStore } from '../../store/themeStore';
 import { useTripStore } from '../../store/tripStore';
 import AppShell from '../../components/AppShell';
 
@@ -14,6 +15,8 @@ export default function Profile() {
   const user = useAuthStore((s) => s.user);
   const trips = useTripStore((s) => s.trips);
   const loadTrips = useTripStore((s) => s.loadTrips);
+  const themeMode = useThemeStore((s) => s.mode);
+  const toggleTheme = useThemeStore((s) => s.toggle);
   const [status, setStatus] = useState<SystemStatus | null>(null);
 
   useEffect(() => {
@@ -88,6 +91,33 @@ export default function Profile() {
                 正在检测…
               </>
             )}
+          </div>
+
+          {/* 外观：移动端（底部标签栏之外的）第二处主题入口，桌面侧栏底部也有一个 */}
+          <div
+            style={{
+              background: 'var(--grad-card)',
+              border: '1px solid var(--line)',
+              borderRadius: 'var(--radius-md)',
+              padding: 16,
+              marginBottom: 16,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+              <div style={{ minWidth: 0 }}>
+                <b style={{ color: 'var(--ink)', fontSize: 12.5 }}>外观</b>
+                <div style={{ marginTop: 4, fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.6 }}>
+                  当前：{themeMode === 'dark' ? '暗色' : '浅色'} · 选择会保存在本机，首次进入跟随系统
+                </div>
+              </div>
+              <Button
+                aria-label={themeMode === 'dark' ? '切换到浅色模式' : '切换到暗色模式'}
+                data-testid="theme-toggle-profile"
+                onClick={toggleTheme}
+              >
+                {themeMode === 'dark' ? '☀️ 浅色' : '🌙 暗色'}
+              </Button>
+            </div>
           </div>
 
           <div

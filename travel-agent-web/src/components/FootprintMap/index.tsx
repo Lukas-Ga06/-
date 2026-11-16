@@ -1,7 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { TripMapPoint } from '../../types/trip';
+import { wgs84ToGcj02 } from '../../lib/coords';
+import {
+  buildAmapRasterStyle,
+  buildOsmRasterStyle,
+  defaultFootprintBasemap,
+  type FootprintBasemap,
+} from './basemap';
 import {
   cityFootprints,
   footprintColor,
@@ -22,47 +29,16 @@ export type FootprintMode = 'trip' | 'city';
 /** 免 Key 的深色矢量底图（OpenFreeMap）；不可达时会自动退回「压暗的 OSM 栅格」 */
 const DARK_STYLE_URL = 'https://tiles.openfreemap.org/styles/dark';
 
-function buildRasterStyle(theme: FootprintTheme): maplibregl.StyleSpecification {
-  const dark = theme === 'dark';
-  return {
-    version: 8,
-    sources: {
-      base: {
-        type: 'raster',
-        tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-        tileSize: 256,
-        attribution: '© OpenStreetMap contributors',
-      },
-    },
-    layers: [
-      {
-        // 纸底：瓦片未加载或留白处也是"纸"的颜色，而不是刺眼的纯白
-        id: 'paper',
-        type: 'background',
-        paint: { 'background-color': dark ? '#12151b' : '#f3ead8' },
-      },
-      {
-        id: 'base',
-        type: 'raster',
-        source: 'base',
-        paint: dark
-          ? {
-              // 深色兜底：不做反转，只压暗并降饱和，配合深色面板形成 20% 的深色块
-              'raster-saturation': -0.4,
-              'raster-brightness-min': 0.02,
-              'raster-brightness-max': 0.42,
-              'raster-contrast': 0.18,
-            }
-          : {
-              // 纸质地图观感：强降饱和 + 略降对比 + 提亮暗部，把底图退成一张描线纸
-              'raster-saturation': -0.45,
-              'raster-brightness-min': 0.08,
-              'raster-brightness-max': 1,
-              'raster-contrast': -0.12,
-            },
-      },
-    ],
-  };
+/**
+ * 业务坐标是 WGS-84；高德瓦片是 GCJ-02。
+ * 只在「底图 = 高德」时把展示坐标偏移一次，业务数据本身不被改写。
+ */
+function toDisplayPoint(point: TripMapPoint): TripMapPoint {
+  if (point.lat == null || point.lng == null) {
+    return point;
+  }
+  const [lat, lng] = wgs84ToGcj02(point.lat, point.lng);
+  return { ...point, lat, lng };
 }
 
 interface Props {
@@ -70,6 +46,8 @@ interface Props {
   /** trip：每个行程一个节点；city：按城市聚合，节点上显示到访次数 */
   mode?: FootprintMode;
   theme?: FootprintTheme;
+  /** 底图：默认高德栅格；`osm` 为原 OSM 底图（含 OpenFreeMap 深色矢量） */
+  basemap?: FootprintBasemap;
   /** trip 模式点击节点：进入对应行程 */
   onSelect?: (tripId: number) => void;
   /** city 模式点击节点：打开该城市详情 */
@@ -100,6 +78,7 @@ export default function FootprintMap({
   points,
   mode = 'trip',
   theme = 'light',
+  basemap = defaultFootprintBasemap(),
   onSelect,
   onCityClick,
   showControls = true,
@@ -118,17 +97,28 @@ export default function FootprintMap({
   const tourTimerRef = useRef<number | null>(null);
   const spinTimerRef = useRef<number | null>(null);
   const introDoneRef = useRef(false);
+  const [activeBasemap, setActiveBasemap] = useState<FootprintBasemap>(basemap);
 
-  const pointsRef = useRef(points);
+  // 高德底图用 GCJ-02，OSM 用 WGS-84；业务 points 始终是 WGS-84。
+  const geoPoints = useMemo(
+    () => (activeBasemap === 'amap' ? points.map(toDisplayPoint) : points),
+    [points, activeBasemap],
+  );
+
+  const pointsRef = useRef(geoPoints);
   const modeRef = useRef(mode);
   const selectRef = useRef(onSelect);
   const cityClickRef = useRef(onCityClick);
   const tourStateRef = useRef(onTourStateChange);
-  pointsRef.current = points;
+  pointsRef.current = geoPoints;
   modeRef.current = mode;
   selectRef.current = onSelect;
   cityClickRef.current = onCityClick;
   tourStateRef.current = onTourStateChange;
+
+  useEffect(() => {
+    setActiveBasemap(basemap);
+  }, [basemap]);
 
   const [engine, setEngine] = useState<'3d' | '2d'>('3d');
   const [spinning, setSpinning] = useState(false);
@@ -475,8 +465,13 @@ export default function FootprintMap({
 
     const map = new maplibregl.Map({
       container,
-      // 深色主题优先用免 Key 的矢量样式；加载失败会退回压暗的 OSM 栅格
-      style: theme === 'dark' ? DARK_STYLE_URL : buildRasterStyle('light'),
+      // 高德底图用栅格样式以保留球体投影；OSM 深色仍优先用免 Key 的矢量样式
+      style:
+        activeBasemap === 'amap'
+          ? buildAmapRasterStyle(theme)
+          : theme === 'dark'
+            ? DARK_STYLE_URL
+            : buildOsmRasterStyle('light'),
       center: CHINA_OVERVIEW,
       zoom: initialZoom,
       pitch: initialPitch,
@@ -496,15 +491,24 @@ export default function FootprintMap({
 
     let styleFallbackApplied = false;
     map.on('error', (event: unknown) => {
-      if (theme !== 'dark' || styleFallbackApplied) {
+      const message = String((event as unknown as { error?: { message?: string } })?.error?.message ?? '');
+      if (!/style|fetch|load|network|tile/i.test(message)) {
         return;
       }
-      const message = String((event as unknown as { error?: { message?: string } })?.error?.message ?? '');
-      if (/style|fetch|load|network/i.test(message)) {
+      // 高德瓦片不可达时整块回退到 OSM，避免首页只看到纸底。
+      if (activeBasemap === 'amap' && !styleFallbackApplied) {
         styleFallbackApplied = true;
-        console.warn('[footprint] 深色底图加载失败，已退回压暗的 OSM 栅格底图');
-        map.setStyle(buildRasterStyle('dark'));
+        console.warn('[footprint] 高德底图加载失败，已回退 OSM 底图');
+        setActiveBasemap('osm');
+        return;
       }
+      // OSM 深色矢量样式不可达时，退回压暗的 OSM 栅格。
+      if (activeBasemap !== 'osm' || theme !== 'dark' || styleFallbackApplied) {
+        return;
+      }
+      styleFallbackApplied = true;
+      console.warn('[footprint] 深色底图加载失败，已退回压暗的 OSM 栅格底图');
+      map.setStyle(buildOsmRasterStyle('dark'));
     });
 
     // style.load 在每次样式加载完成后都会触发（含上面的兜底切换），因此图层在这里注册
@@ -576,7 +580,7 @@ export default function FootprintMap({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
     // 初始视角只在首次初始化时生效；pitch/bearing 变化会重建地图（首页给的是固定值）
-  }, [theme, initialPitch, initialBearing, initialZoom]);
+  }, [theme, activeBasemap, initialPitch, initialBearing, initialZoom]);
 
   // 数据或模式变化时重绘
   useEffect(() => {
@@ -588,7 +592,7 @@ export default function FootprintMap({
       map.once('load', () => draw());
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [points, mode]);
+  }, [geoPoints, mode]);
 
   // 外部指定聚焦行程
   useEffect(() => {

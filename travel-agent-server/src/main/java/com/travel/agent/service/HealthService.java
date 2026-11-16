@@ -2,17 +2,23 @@ package com.travel.agent.service;
 
 import com.travel.agent.entity.HealthRecord;
 import com.travel.agent.repository.HealthRecordRepository;
+import com.travel.agent.util.Paging;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
-import java.util.Comparator;
 import java.util.List;
 
 @Service
 @RequiredArgsConstructor
 public class HealthService {
+
+    /** 「最近 7 天」窗口：含今天在内的 7 个自然日 */
+    private static final int WINDOW_DAYS = 7;
 
     private final HealthRecordRepository repository;
 
@@ -20,8 +26,15 @@ public class HealthService {
         return repository.findByUserIdOrderByDateDesc(userId);
     }
 
+    /** 最近 7 天记录分页：窗口过滤、排序、分页都下推数据库（按日期升序，便于前端画曲线） */
+    public Page<HealthRecord> last7Days(Long userId, int offset, int limit) {
+        LocalDate since = LocalDate.now().minusDays(WINDOW_DAYS - 1L);
+        Pageable pageable = Paging.pageable(offset, limit, Sort.by(Sort.Order.asc("date"), Sort.Order.asc("id")));
+        return repository.findByUserIdAndDateGreaterThanEqual(userId, since, pageable);
+    }
+
     public HealthRecord latest(Long userId) {
-        return list(userId).stream().findFirst().orElse(null);
+        return repository.findFirstByUserIdOrderByDateDescIdDesc(userId).orElse(null);
     }
 
     @Transactional
@@ -36,22 +49,29 @@ public class HealthService {
         return repository.save(record);
     }
 
-    /** 最近 7 天均值（不足 7 天按已有数据） */
+    /**
+     * 最近 7 天均值（不足 7 天按已有数据）。
+     * AVG 与 COUNT 全部下推数据库，不再把窗口内记录读进内存再统计。
+     *
+     * @return {平均步数, 平均睡眠小时, 窗口内记录天数}
+     */
     public double[] weeklyAverages(Long userId) {
-        LocalDate since = LocalDate.now().minusDays(6);
-        List<HealthRecord> recent = list(userId).stream()
-                .filter(r -> !r.getDate().isBefore(since))
-                .toList();
-        double steps = recent.stream().filter(r -> r.getSteps() != null).mapToInt(HealthRecord::getSteps).average().orElse(0);
-        double sleep = recent.stream().filter(r -> r.getSleepHours() != null).mapToDouble(HealthRecord::getSleepHours).average().orElse(0);
-        return new double[]{steps, sleep, recent.size()};
+        LocalDate since = LocalDate.now().minusDays(WINDOW_DAYS - 1L);
+        Double steps = repository.averageStepsSince(userId, since);
+        Double sleep = repository.averageSleepHoursSince(userId, since);
+        long days = repository.countByUserIdAndDateGreaterThanEqual(userId, since);
+        return new double[]{
+                steps == null ? 0 : steps,
+                sleep == null ? 0 : sleep,
+                days
+        };
     }
 
     /** 模拟小米手环导入：生成最近 7 天演示数据（已有数据不覆盖） */
     @Transactional
     public int seedDemo(Long userId) {
         int created = 0;
-        for (int i = 6; i >= 0; i--) {
+        for (int i = WINDOW_DAYS - 1; i >= 0; i--) {
             LocalDate date = LocalDate.now().minusDays(i);
             if (repository.findByUserIdAndDate(userId, date).isPresent()) {
                 continue;
@@ -68,13 +88,5 @@ public class HealthService {
             created++;
         }
         return created;
-    }
-
-    public List<HealthRecord> last7Days(Long userId) {
-        LocalDate since = LocalDate.now().minusDays(6);
-        return list(userId).stream()
-                .filter(r -> !r.getDate().isBefore(since))
-                .sorted(Comparator.comparing(HealthRecord::getDate))
-                .toList();
     }
 }

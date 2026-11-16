@@ -32,7 +32,8 @@ export async function streamAgentChat(
   params: AgentStreamParams,
   handlers: AgentStreamHandlers,
 ): Promise<() => void> {
-  const ticket = await getAccessTicket();
+  // 票据按用途签发：SSE 必须用 agent-stream，照片原图用 media-read，不能互相挪用
+  const ticket = await getAccessTicket('agent-stream');
   const qs = new URLSearchParams();
   qs.set('message', params.message);
   if (params.tripId) qs.set('tripId', String(params.tripId));

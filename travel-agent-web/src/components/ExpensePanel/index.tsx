@@ -3,7 +3,10 @@ import { App, Button, DatePicker, Empty, Form, Input, InputNumber, List, Popconf
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import * as echarts from 'echarts';
-import { addExpense, deleteExpense, getExpenses } from '../../api/expense';
+import { addExpense, deleteExpense, getExpensesPage } from '../../api/expense';
+import { getBudgetExecution } from '../../api/trip';
+import { DEFAULT_PAGE_SIZE } from '../../api/client';
+import PaginationBar from '../PaginationBar';
 import { CATEGORY_COLORS, EXPENSE_CATEGORIES, PAYMENT_COLORS, PAYMENT_METHODS, type Expense } from '../../types/expense';
 
 const TEXT = 'rgba(28, 28, 30, 0.9)';
@@ -15,38 +18,78 @@ interface Props {
   planned: number; // 行程预估花费
 }
 
-/** 行程记账面板：实际支出记录 + 分类统计 + 预算对比 */
-export default function ExpensePanel({ tripId, budget, planned }: Props) {
-  const { message } = App.useApp();
-  const [items, setItems] = useState<Expense[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [form] = Form.useForm();
-  const chartElRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<echarts.ECharts | null>(null);
+interface ExpenseSummary {
+  total: number;
+  byCategory: Record<string, number>;
+}
 
-  const load = async () => {
-    setLoading(true);
-    try {
-      setItems(await getExpenses(tripId));
-    } catch (e: any) {
-      message.error(e.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tripId]);
-
+/** 本页合计（服务端预算执行拿不到时的兜底口径） */
+function summarize(items: Expense[]): ExpenseSummary {
   const byCategory: Record<string, number> = {};
   let total = 0;
   items.forEach((i) => {
     byCategory[i.category] = (byCategory[i.category] ?? 0) + (i.amount ?? 0);
     total += i.amount ?? 0;
   });
+  return { total, byCategory };
+}
+
+/** 行程记账面板：实际支出记录 + 分类统计 + 预算对比 */
+export default function ExpensePanel({ tripId, budget, planned }: Props) {
+  const { message } = App.useApp();
+  const [items, setItems] = useState<Expense[]>([]);
+  const [summary, setSummary] = useState<ExpenseSummary>({ total: 0, byCategory: {} });
+  const [loading, setLoading] = useState(false);
+  /** 翻页/静默刷新的请求态：只禁用翻页按钮，不动列表（保留滚动位置与当前行） */
+  const [paging, setPaging] = useState(false);
+  const [offset, setOffset] = useState(0);
+  const [meta, setMeta] = useState({ total: 0, hasMore: false, paged: false, limit: DEFAULT_PAGE_SIZE });
+  const [submitting, setSubmitting] = useState(false);
+  const [form] = Form.useForm();
+  const chartElRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<echarts.ECharts | null>(null);
+
+  const load = async (nextOffset: number, options: { silent?: boolean } = {}) => {
+    if (options.silent) setPaging(true);
+    else setLoading(true);
+    try {
+      // 列表按契约分页（limit=20&offset=N）；汇总单独取服务端预算执行（全量口径），
+      // 否则「实际支出 / 分类饼图 / 预算对比」会被截断成当前页合计。
+      const [page, execution] = await Promise.all([
+        getExpensesPage(tripId, { limit: DEFAULT_PAGE_SIZE, offset: nextOffset }),
+        getBudgetExecution(tripId).catch(() => null),
+      ]);
+      setItems(page.items);
+      setOffset(nextOffset);
+      setMeta({
+        total: page.pagination?.total ?? page.items.length,
+        hasMore: page.pagination?.hasMore ?? false,
+        paged: page.pagination != null,
+        limit: page.pagination?.limit ?? DEFAULT_PAGE_SIZE,
+      });
+      const categories = Array.isArray(execution?.categories) ? execution!.categories : [];
+      setSummary(
+        execution
+          ? {
+              total: Number(execution.actual ?? 0),
+              byCategory: Object.fromEntries(categories.map((c) => [c.category, Number(c.actual ?? 0)])),
+            }
+          : summarize(page.items),
+      );
+    } catch (e: any) {
+      message.error(e.message);
+    } finally {
+      setLoading(false);
+      setPaging(false);
+    }
+  };
+
+  useEffect(() => {
+    load(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tripId]);
+
+  const { total, byCategory } = summary;
 
   // 分类饼图
   useEffect(() => {
@@ -95,7 +138,7 @@ export default function ExpensePanel({ tripId, budget, planned }: Props) {
       ],
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items]);
+  }, [summary]);
 
   const over = budget != null && total > budget;
   const percent = budget ? Math.min((total / budget) * 100, 100) : 0;
@@ -114,7 +157,8 @@ export default function ExpensePanel({ tripId, budget, planned }: Props) {
       message.success('已记账 ✓');
       form.setFieldValue('amount', undefined);
       form.setFieldValue('note', undefined);
-      await load();
+      // 新记录在列表最前，回到第一页（筛选/其它页面状态不受影响）
+      await load(0, { silent: true });
     } catch (e: any) {
       message.error(e.message);
     } finally {
@@ -126,10 +170,22 @@ export default function ExpensePanel({ tripId, budget, planned }: Props) {
     try {
       await deleteExpense(id);
       message.success('已删除');
-      load();
+      // 删掉当前页最后一条时回退一页，避免停在空页
+      const nextOffset = items.length === 1 && offset > 0 ? Math.max(offset - meta.limit, 0) : offset;
+      await load(nextOffset, { silent: true });
     } catch (e: any) {
       message.error(e.message);
     }
+  };
+
+  const onPrev = () => {
+    if (paging || offset <= 0) return;
+    load(Math.max(offset - meta.limit, 0), { silent: true });
+  };
+
+  const onNext = () => {
+    if (paging || !meta.hasMore) return;
+    load(offset + meta.limit, { silent: true });
   };
 
   return (
@@ -239,6 +295,20 @@ export default function ExpensePanel({ tripId, budget, planned }: Props) {
           </List.Item>
         )}
       />
+
+      {/* 翻页：共 N 条 · 上一页/下一页；后端没返回 pagination 时降级为单页 */}
+      {items.length > 0 && (
+        <PaginationBar
+          total={meta.total}
+          offset={offset}
+          limit={meta.limit}
+          hasMore={meta.hasMore}
+          paged={meta.paged}
+          loading={paging}
+          onPrev={onPrev}
+          onNext={onNext}
+        />
+      )}
     </div>
   );
 }

@@ -14,7 +14,10 @@ services:
     ports:
       - "3306:3306"
     volumes:
-      - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      # 不再挂载 sql/init.sql：schema 的唯一权威已改为 Flyway（V1 基线 + V2.. 增量）。
+      # 若仍用它初始化，会建出旧列型（health_record.weight=DECIMAL、operation_history.*=JSON 等），
+      # 与 application-mysql.yml 的 ddl-auto=validate 冲突 → 后端直接启动失败。
+      # 库本身由下面的 MYSQL_DATABASE 创建，表由后端首次启动的 Flyway 建。
       - mysql-data:/var/lib/mysql
 
   redis:

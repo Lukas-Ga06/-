@@ -30,11 +30,14 @@ public class MemoController {
 
     @GetMapping
     public ApiResponse<List<Memo>> list(
-            @RequestParam(defaultValue = "" + Paging.DEFAULT_LIMIT) int limit,
+            @RequestParam(defaultValue = "" + Paging.DEFAULT_PAGE_LIMIT) int limit,
             @RequestParam(defaultValue = "0") int offset,
             Authentication authentication) {
         User user = authService.requireUser(authentication.getName());
-        return ApiResponse.ok(Paging.slice(memoService.list(user.getId()), offset, limit));
+        int size = Paging.normalizeLimit(limit);
+        int from = Paging.normalizeOffset(offset);
+        var page = memoService.page(user.getId(), from, size);
+        return ApiResponse.ok(page.getContent(), Paging.meta(page.getTotalElements(), size, from));
     }
 
     @PostMapping

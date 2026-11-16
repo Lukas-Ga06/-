@@ -83,5 +83,6 @@ export interface BudgetExecution {
   overBudget: boolean;
   planOverBudget: boolean;
   categories: CategoryBudget[];
-  daily?: DailyBudget[];
+  /** 按天偏差明细（服务端恒返回，可能是空数组） */
+  daily: DailyBudget[];
 }

@@ -134,14 +134,13 @@
 }
 
 /* 暗色下几处需要单独收一下的硬编码：地图底衬、表单占位、滚动条 */
-[data-theme='dark'] .map-card .leaflet-container,
-[data-theme='dark'] .map-card .maplibregl-canvas,
+[data-theme='dark'] .map-card .amap-container,
 [data-theme='dark'] .trip-map-body {
   /* 底图是浅色栅格：容器仍用浅色衬底，避免暗色卡片里出现一块"漂浮的白图" */
   background: #e8ecf1;
 }
 
-[data-theme='dark'] .map-card .maplibregl-ctrl-group,
+[data-theme='dark'] .map-card .amap-controlbar,
 [data-theme='dark'] .maplibregl-popup-content {
   background: var(--surface-2);
   color: var(--text);
@@ -1015,10 +1014,11 @@ body {
   position: relative;
 }
 
-.map-card .leaflet-container,
-.map-card .maplibregl-canvas { background: #e8ecf1; }
+.map-card .amap-container { background: #e8ecf1; }
 
-.map-card .maplibregl-ctrl-group {
+.map-card .amap-marker-content { overflow: visible; }
+
+.map-card .amap-controlbar {
   background: var(--surface);
 }
 
@@ -1499,7 +1499,7 @@ body {
 
 .be-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 10px;
 }
 
@@ -2912,6 +2912,59 @@ body {
   line-height: 1;
 }
 
+/* ---------- 离线提示条（PWA 离线查看缓存数据） ----------
+   固定在视口顶部、不占文档流：离线时出现，恢复在线自动消失，可手动关闭。
+   顶部内边距吃掉 iOS 刘海（viewport-fit=cover 之后才拿得到 safe-area-inset-top）。 */
+.offline-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: calc(6px + env(safe-area-inset-top)) 12px 6px;
+  font-size: 12.5px;
+  color: var(--warn);
+  background: var(--warn-weak);
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow-1);
+}
+
+.offline-banner .ob-dot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--warn);
+}
+
+.offline-banner .ob-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.offline-banner .ob-close {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.offline-banner .ob-close:hover {
+  background: var(--surface-3);
+}
+
 /* ---------- 窄屏：≤1080 收成图标栏，≤720 换底部标签栏 ---------- */
 @media (max-width: 1080px) {
   .app-sidebar {
@@ -2986,7 +3039,8 @@ body {
 
   .app-content {
     margin-left: 0;
-    padding: var(--sp-4) var(--sp-4) 92px;
+    /* 92px 让出底部标签栏；再叠加 iOS home 指示条的安全区 */
+    padding: var(--sp-4) var(--sp-4) calc(92px + env(safe-area-inset-bottom));
   }
 
   .app-tabbar {
@@ -2999,6 +3053,63 @@ body {
     padding: 4px var(--sp-2) calc(4px + env(safe-area-inset-bottom));
     background: var(--surface);
     border-top: 1px solid var(--border);
+  }
+
+  /* ---------- 390px 窄屏防横向滚动（契约 §6） ----------
+     1) antd Drawer 的 width 是按桌面写死的 480/560，窄屏下会超出视口：
+        用 max-width 夹住内容宽度（inline width 不会覆盖 max-width）。
+     2) 抽屉底部留出安全区，避免最后一排按钮被 home 指示条压住。 */
+  .ant-drawer-content-wrapper {
+    max-width: 100vw;
+  }
+
+  .ant-drawer-body {
+    padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  }
+
+  .ant-drawer-mask,
+  .ant-modal-wrap {
+    max-width: 100vw;
+  }
+
+  /* 3) 长标题/长文本：允许在任意位置断行，父容器允许收缩（flex 默认 min-width:auto 会撑破） */
+  .dash-greeting,
+  .dash-greeting .dg-left,
+  .trip-header,
+  .trip-header .th-title {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .dash-greeting h1,
+  .trip-header .th-title b,
+  .trip-header .th-meta {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  /* 4) 列表行 / 账单行 / 表格：都能收缩并断行 */
+  .tr-title,
+  .tr-sub,
+  .memo-content,
+  .recent-expense-row .tr-title,
+  .ant-list-item,
+  .ant-list-item-meta,
+  .ant-list-item-meta-content {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  /* antd Table 在窄屏可能自带最小宽度：允许容器内部横滚，而不是把整页撑宽 */
+  .ant-table-wrapper {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  /* 5) 表单页脚/页头操作区放不下时换行，而不是溢出 */
+  .plan-footer,
+  .page-actions {
+    flex-wrap: wrap;
   }
 }
 

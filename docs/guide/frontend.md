@@ -23,12 +23,16 @@
 | antd / @ant-design/icons | ^5.21.4 / ^5.5.1 | 组件库（`ConfigProvider` + `zh_CN`）与图标 |
 | axios | ^1.7.7 | REST 请求，`baseURL: '/api'` |
 | echarts | ^6.1.0 | 预算图、记账分类图、健康 7 天趋势 |
-| leaflet / maplibre-gl | ^1.9.4 / ^6.15.0 | 2D 地图引擎 / 3D 倾斜地图 + 足迹球体投影 |
+| 高德 JS API / maplibre-gl | 2.0 / **6.15.0**（精确锁定，无 `^`） | 行程页 2D/3D 地图（高德）/ 足迹球体投影（MapLibre + 高德栅格底图） |
 | zustand | ^4.5.5 | 全局状态（5 个 store，见第 5 节） |
 | dayjs | ^1.11.13 | 日期格式化与 Day 映射 |
 | vitest / happy-dom | ^4.1.11 / ^21.0.4 | 单元测试；组件类用例的 DOM 环境 |
 | @testing-library/react | ^16.3.3 | 组件测试（现有用例偏逻辑，见第 9 节） |
 | @playwright/test | ^1.64.1 | e2e 冒烟 |
+
+**依赖安全结论（第九批更正）**：`maplibre-gl` 固定为精确 `6.15.0`（去掉 `^`，`npm install` 不会漂移）。`npm audit --omit=dev` 为 **0 条**；
+相关 CVE 的影响区间是 `<= 6.4.0`，当前 `6.15.0` **不受影响**。旧文档写的「官方暂无修复、通过不用 HTML 字符串接口规避」**已过期且理由不准确**
+（该公告的 sink 在 attribution 控件，不是 `Popup.setHTML`）。代码侧仍保持「用 `setDOMContent` / `textContent`、不用 HTML 字符串」的写法。
 
 运行时硬约束：**Node ≥ 20**（`.github/workflows/ci.yml` 固定 20）。
 
@@ -44,11 +48,12 @@ travel-agent-web/
 ├── vitest.config.ts / playwright.config.ts
 ├── nginx.conf / Dockerfile    # 生产静态托管（/api 需反代到后端 8080）
 ├── e2e/smoke.spec.ts          # 冒烟：守卫跳转 → API 登录 → 建行程 → 行程页 → PWA 资源
+├── e2e/planner-form.spec.ts   # 结构化规划表单两条闭环（规则路径，不依赖 LLM）
 └── src/
     ├── main.tsx               # ConfigProvider（色板/暗色算法）+ AntApp + 挂载 Root
     ├── App.tsx                # 路由表、Protected、登录态恢复、ErrorBoundary、Suspense
     ├── global.d.ts            # Web Speech API 等缺失类型补声明
-    ├── api/                   # 13 个文件（9 个模块 + 4 个测试）
+    ├── api/                   # 14 个文件（10 个模块 + 4 个测试）
     │   ├── client.ts          # axios 实例、{code,message,data} 解包、401 分流
     │   ├── agent.ts           # SSE（GET EventSource / POST fetch）与方案确认接口
     │   ├── auth.ts            # 登录/注册/me/登出；signOut() 是唯一登出入口
@@ -56,12 +61,12 @@ travel-agent-web/
     │   ├── trip.ts / expense.ts / memo.ts      # 行程与条目、记账、备忘
     │   ├── assistant.ts       # 日程/邮件/纪要/日报/发票/学习/健康/系统状态
     │   ├── reminder.ts / photo.ts              # 提醒看板、行程照片（原图带票据）
-    ├── components/            # 29 个文件（22 个组件 + 7 个接口/工具/测试），见第 7 节
-    ├── hooks/useIntersection.ts   # IntersectionObserver 封装（CountUp 入视口才动画）
+    ├── components/            # 34 个文件（24 个组件 + 10 个接口/工具/测试），见第 7 节
+    ├── hooks/                 # useIntersection（CountUp 入视口才动画）、useOnlineStatus（离线提示条）
     ├── lib/                   # reminderNotify.ts + 其测试
     ├── pages/                 # 16 个页面目录，见第 4 节
-    ├── store/                 # 6 个文件（5 个 store + agentStore 测试）
-    ├── styles/global.css      # 4272 行设计系统：:root 令牌 + 暗色覆盖 + 页面样式
+    ├── store/                 # 7 个文件（5 个 store + themeStore/agentStore 测试）
+    ├── styles/global.css      # 4382 行设计系统：:root 令牌 + 暗色覆盖 + 页面样式
     ├── test/setup.ts          # node 环境补内存 Storage，供 zustand persist 使用
     └── types/                 # 5 个类型文件：trip / agent / expense / memo / assistant
 ```
@@ -146,16 +151,22 @@ API：不直接调 REST，全部经 `useAgentStore.send({ transport: 'post' })`�
 底部聊天面板可对当前行程发起修改；顶部可撤销、导出路书、打开预算抽屉。
 API：`getTrip`/`getItinerary`/`getBudgetExecution`、`undoTrip`。
 组件：`MapView`、`Timeline`、`ChatPanel`、`PlanDiff`、`BudgetChart`、`BudgetExecution`、`ExpensePanel`。
+`BudgetExecution` 展示预算 / 计划 / 实际 / 偏差，并新增**预算使用率**（`executionRate = actual / budget`，后端保留 4 位小数，
+无预算时为 `null`，前端 ×100 显示百分比）；`daily` 在 `types/expense.ts` 里是**必填**字段（旧后端缺失时组件按空数组兜底，不会崩）。
 
 ### 4.5 Expenses（`/expenses`）
 
 跨行程支出总览，按分类/支付方式聚合，进度条对照预算。API：`getExpenseOverview`。
 组件：`CountUp`、`Skeleton`；颜色常量在 `types/expense.ts`（`CATEGORY_COLORS`/`PAYMENT_COLORS`）。
 
+> 行程页里的**账单列表**是 `components/ExpensePanel`（按行程分页，默认 20 条 + 底部 `PaginationBar`），
+> 与本节的总览聚合接口不是一回事（见 6.5）。
+
 ### 4.6 Memos（`/memos`）
 
 新增、勾选完成、删除备忘，左滑露出操作按钮。勾选做并发保护 —— `pending` Set 挡住连点，
-因为 toggle 是取反语义，连点两次会互相抵消。API：`getMemos`/`addMemo`/`toggleMemo`/`deleteMemo`。
+因为 toggle 是取反语义，连点两次会互相抵消。API：`getMemosPage`/`addMemo`/`toggleMemo`/`deleteMemo`。
+列表分页：默认 20 条，底部「共 N 条 · 第 k 页」+ 上一页 / 下一页（`PaginationBar`，见 6.5）；后端没返回 `pagination` 时降级为「单页、无更多」，两个按钮禁用。
 组件：`SwipeRow`、`Skeleton`、`AppShell`。
 
 ### 4.7 Office（`/office`）
@@ -186,7 +197,8 @@ API：`listSchedule`/`addSchedule`/`toggleSchedule`/`deleteSchedule`。组件：
 ### 4.11 Footprint（`/travel?tab=footprint`）
 
 全屏足迹地图 + 行程列表 + 按时间回放；统计由 `footprintData.ts` 在本地算。API：`getTripsMap`。
-组件：`FootprintMap`（maplibre 球体投影，运行时探测 `setProjection`，旧版本退回平面 3D）。
+组件：`FootprintMap`（maplibre 球体投影 + 高德栅格底图，运行时探测 `setProjection`，旧版本退回平面 3D；
+底图由 `VITE_FOOTPRINT_BASEMAP` 控制，默认 `amap`，设 `osm` 可退回原 OSM/OpenFreeMap）。
 
 ### 4.12 Assistant（`/assistant`）
 
@@ -324,6 +336,8 @@ http.interceptors.response.use(unwrapApiResponse, handleResponseError);
   少了任一，刷新受保护页面都会闪一下登录页。
 - **登出必须用 `signOut()`**：先 `POST /api/auth/logout` 清服务端 Cookie，再 `logout()` 清本地态；
   服务端失败也照常本地登出（Cookie 可能早已失效）。导航由调用方负责。
+- `authStore.logout()` 里会调用 `clearAccessTicketCache()`：票据按 `authKey|purpose` 分桶缓存，登出必须整体清掉，
+  否则换账号/重新登录后仍可能命中上一会话的票据。
 
 ### 6.3 SSE 客户端：消费 `/api/agent/stream`（主线二）
 
@@ -384,30 +398,55 @@ ChatPanel 输入 → doSend()
 ### 6.4 ticket.ts：为什么需要短期票据
 
 `EventSource` 与 `<img>` 都**无法自定义请求头**，只能把凭证塞进 URL。而 URL 会进访问日志、浏览器历史、Referer，
-所以绝不能放登录 JWT。方案是换一张**短期只读票据**（后端 `AccessTicketService`，默认 10 分钟，scope `media-read`）：
+所以绝不能放登录 JWT。方案是换一张**短期只读票据**（后端 `AccessTicketService`，默认 **300 秒**）：
 
 ```ts
-export async function getAccessTicket(): Promise<string>;   // POST /api/access-ticket
-export function useAccessTicket(): string | null;           // 组件用，随登录态自动获取
-export function clearAccessTicketCache(): void;             // 登录态变化时清缓存
+export type AccessTicketPurpose = 'agent-stream' | 'media-read';
+export async function getAccessTicket(purpose?: AccessTicketPurpose): Promise<string>; // 缺省 'agent-stream'
+export function useAccessTicket(purpose?: AccessTicketPurpose): string | null;          // 组件用，随登录态自动取
+export function clearAccessTicketCache(): void;                                        // 登出/登录态变化时清空
 ```
 
-三个易被忽略的设计点：① **缓存键是 `authKey = user.id + '|' + token`**，换账号必须重新签票；
+**票据按用途签发，且用途与路径必须匹配**（后端强校验，用错一律 401）：`agent-stream` → `GET /api/agent/stream`（GET 版 SSE），
+`media-read` → `GET /api/photos/{id}/raw`（照片墙、`CityDrawer`）。前端因此**按 `purpose` 分桶缓存**：`cached` / `inflight` 的键是
+`authKey|purpose`，两种票据互不覆盖、也不会互相串用。
+
+四个易被忽略的设计点：① **缓存键是 `authKey = user.id + '|' + token`（再拼用途）**，换账号必须重新签票；
 ② **提前 30 秒续期**（`REFRESH_MARGIN_MS`），避免踩在过期边界上；
-③ **并发合并在途请求**（`inflight` Promise），否则照片墙每张图都会各签一次票据。
-使用方：`api/agent.ts`（GET 版 SSE）、`api/photo.ts` 的 `photoSrc(photo, ticket)`、`CityDrawer` 的照片列表。
+③ **并发合并在途请求**（`inflight` Promise），否则照片墙每张图都会各签一次票据；
+④ **登出要清缓存**（`authStore.logout()` → `clearAccessTicketCache()`），否则重新登录后可能命中上一会话的票据。
+使用方：`api/agent.ts`（GET 版 SSE，`agent-stream`）、`api/photo.ts` 的 `photoSrc(photo, ticket)`、`CityDrawer` 的照片墙（`media-read`）。
+
+### 6.5 列表分页：`getPage` + `PaginationBar`
+
+后端列表接口新增可选 `limit`（默认 `20`、上限 `200`）/ `offset`（默认 `0`），并在响应顶层带可选
+`pagination`（`{total, limit, offset, hasMore}`），`data` 仍是数组。前端分两层接：
+
+**API 层**（`api/client.ts`）：
+
+- `getPage<T>(path, params)` → `PageResult<T> = { items, pagination }`；`pagination` 缺失或格式非法时为 `null`（`readPagination`
+  归一化，`hasMore` 缺失时用 `offset + 本页条数 < total` 推断）。
+- `DEFAULT_PAGE_SIZE = 20`、`MAX_PAGE_SIZE = 200`；`compactParams` 剔除 `undefined` / `null`，避免拼出 `?offset=undefined`。
+
+**UI 层**（`components/PaginationBar`）：文案「共 N 条 · 第 k 页」+ 上一页 / 下一页；`paged=false`（后端没返回 `pagination`）时
+文案降级为「共 N 条 · 单页」、两个按钮都禁用——**老后端不会让页面报错**。翻页请求在途只禁用按钮、不动列表，
+避免翻页时整块骨架屏导致滚动位置丢失。
+
+已接入的列表：备忘页（`pages/Memos`，`getMemosPage`）与行程页记账面板（`components/ExpensePanel`，`getExpensesPage`），
+都是 `limit=20` + `offset` 翻页。
 
 ---
 
 ## 7. 核心组件
 
-`src/components/` 共 **29 个文件** = 下表 22 个组件 + 7 个非组件文件（见 7.2）。
+`src/components/` 的核心组件如下，地图与足迹辅助文件见 7.2。
 
 ### 7.1 组件清单
 
 | 组件 | 路径 | props | 职责 |
 | --- | --- | --- | --- |
 | `AppShell` | `AppShell.tsx` | `active: NavModule`, `children` | 应用外壳：分组侧栏（备忘角标、提醒铃铛、用户区、主题切换）、内容区、窄屏底部标签栏；已在壳内（`InsideShell` context）时**只渲染 children** |
+| `OfflineBanner` | `OfflineBanner/index.tsx` | 无 | 断网时置顶显示「离线：显示缓存数据」，恢复在线自动消失（`useOnlineStatus` + 原生 `online`/`offline` 事件）；可手动关闭，恢复在线后重置关闭状态（见 11.3） |
 | `AssistantNav` | `AssistantNav.tsx` | `active: NavModule` | 旧版顶部导航，保留给需要顶栏的页面 |
 | `ChatPanel` | `ChatPanel/index.tsx` | `tripId?`, `placeholder?` | 聊天面板：消息列表 + 语音输入 + 发送；自动滚到底；带 `tripId`/`currentDay`/`selectedElement` 上下文 |
 | `MapView` | `MapView/index.tsx` | `items`, `focus`, `focusDay` | 地图容器与引擎切换（见第 8 节），含底图失败降级提示与 3D 巡航按钮 |
@@ -428,14 +467,18 @@ export function clearAccessTicketCache(): void;             // 登录态变化�
 | `Collapse` | `Collapse/index.tsx` | `open`, `children`, `duration?=280`, `unmountOnClose?=false`, `className?` | 高度 0→auto 的平滑折叠（先测真实高度再转 px 动画） |
 | `CountUp` | `CountUp/index.tsx` | `value`, `duration?=900`, `easing?`, `decimals?`, `prefix?`, `suffix?`, `thousandSeparator?`, `playOnVisible?=true`, `className?`, `style?` | 数字滚动动画，默认 `easeOutExpo`，进入视口才开始 |
 | `PageTransition` | `PageTransition/index.tsx` | `children`, `variant?='fade'\|'slide'\|'scale'`, `duration?=300` | 路由切换过渡，按 `pathname` 换 key 重新挂载 |
+| `PaginationBar` | `PaginationBar/index.tsx` | `total`, `offset`, `limit`, `hasMore`, `paged`, `loading?`, `onPrev`, `onNext` | 列表底部翻页条：「共 N 条 · 第 k 页」+ 上一页/下一页；`paged=false` 时降级为单页、按钮禁用（见 6.5） |
 | `ErrorBoundary` | `ErrorBoundary/index.tsx` | `children` | 路由级错误边界（class 组件）：渲染 `Result status="error"` + 刷新按钮，不再白屏 |
 
-### 7.2 其余 7 个文件
+### 7.2 其余 10 个文件
 
-`MapView/MapProvider.ts`（地图抽象接口）、`MapView/LeafletMapProvider.ts`（2D 实现）、
-`MapView/MapLibre3DProvider.ts`（3D 实现）、`MapView/markerElement.ts`（标记 DOM 纯函数）、
-`MapView/markerElement.test.ts`（3 用例，happy-dom）、`FootprintMap/footprintData.ts`（足迹统计纯函数，180 行）、
-`FootprintMap/footprintData.test.ts`（14 用例）。
+`MapView/MapProvider.ts`（地图抽象接口）、`MapView/AMapProvider.ts`（高德 2D/3D 实现）、
+`MapView/amapLoader.ts`（高德脚本单例加载与最小类型声明）、`MapView/markerElement.ts`（标记 DOM 纯函数）、
+`MapView/markerElement.test.ts`（3 用例）、`MapView/AMapProvider.test.ts`（6 用例，happy-dom）、
+`FootprintMap/basemap.ts`（高德/OSM 底图样式与回退开关）、`FootprintMap/footprintData.ts`（足迹统计纯函数）、
+`FootprintMap/footprintData.test.ts`、`lib/coords.ts`（WGS-84 ↔ GCJ-02）、`lib/coords.test.ts`、
+`BudgetExecution/index.test.tsx`（预算使用率百分比、行程外与正负号断言）、
+`OfflineBanner/index.test.tsx`（离线提示条的显示/关闭/恢复在线后重置，4 用例）。
 
 ### 7.3 FootprintMap 的 props
 
@@ -443,7 +486,8 @@ export function clearAccessTicketCache(): void;             // 登录态变化�
 | --- | --- | --- |
 | `points` | `TripMapPoint[]` | 所有已定位行程点 |
 | `mode` | `'trip' \| 'city'` | 按行程或按城市聚合 |
-| `theme` | `'light' \| 'dark'` | 由 `buildRasterStyle()` 生成对应底图样式 |
+| `theme` | `'light' \| 'dark'` | 由 `basemap.ts` 生成高德/OSM 对应底图样式 |
+| `basemap` | `'amap' \| 'osm'` | 底图；默认取 `VITE_FOOTPRINT_BASEMAP`（缺省 `amap`） |
 | `focusTripId` | `number \| null` | 要高亮的行程 |
 | `playSignal` | `number` | 递增即触发「按时间回放」 |
 | `onCityClick` | `(city: string) => void` | 点城市标记 → 打开 `CityDrawer` |
@@ -451,9 +495,16 @@ export function clearAccessTicketCache(): void;             // 登录态变化�
 
 ---
 
-## 8. 地图双引擎抽象
+## 8. 行程地图：高德 Provider 抽象
 
-两套引擎（Leaflet 2D / MapLibre 3D）共享一个 24 行的接口 `MapProvider`，组件只依赖接口。
+行程页统一使用**高德 JS API 2.0**，`AMapProvider` 实现 `MapProvider`；2D/3D 只是同一服务商的两种视角。
+`FootprintMap` 是独立组件，仍用 MapLibre 提供球体投影，不走这个接口；底图默认换成高德栅格瓦片
+（`basemap.ts` 的 `buildAmapRasterStyle`），因此它是“高德底图 + MapLibre 球体”，不是高德 JS API 渲染的球体。
+
+**坐标契约**：存储 / API / 业务计算一律 **WGS-84**；只在渲染边界转换。`AMapProvider` 把入参转成 GCJ-02；
+足迹地图在 `basemap=amap` 时把展示点转成 GCJ-02，`basemap=osm` 时保持 WGS-84。转换函数在
+`src/lib/coords.ts`（后端对应 `util/CoordinateTransform.java`），两端公式一致。高德瓦片直连不是面向第三方
+引擎的正式开放服务，商用前需确认高德授权；`VITE_FOOTPRINT_BASEMAP=osm` 是一键回退开关。
 
 ```ts
 export interface MapProvider {
@@ -461,32 +512,32 @@ export interface MapProvider {
   render(items: ItineraryItem[], focusDay: number | null): void;
   flyTo(lat: number, lng: number, zoom?: number): void;
   destroy(): void;
-  // 可选扩展：3D 才有
+  // 可选扩展：巡航与俯仰角
   startTour?(items: ItineraryItem[]): void;
   stopTour?(): void;
   setPitched?(pitched: boolean): void;
 }
 ```
 
-| | `MapLibre3DProvider`（278 行） | `LeafletMapProvider`（105 行） |
-| --- | --- | --- |
-| 底图 | OSM 栅瓦片 + `raster-saturation: -0.12` 降饱和贴合浅色主题 | OSM 瓦片 |
-| 视角 | `pitch: 55`、`bearing: -18`，辉光路线 + 脉冲标记 | 平面俯视 |
-| 扩展能力 | `startTour`（沿当天各点自动巡航）、`stopTour`、`setPitched` | 无 |
-| 首帧 | `load` 事件前先挂起 `pendingItems`，load 后补渲染 | 直接建 `LayerGroup` |
-| 主题色 | `DAY_COLORS = ['#007aff','#34c759','#ff9500','#af52de','#ff2d55']` | `['#1677ff','#52c41a','#fa8c16','#722ed1','#eb2f96']` |
+**实现要点**（`MapView/index.tsx`、`AMapProvider.ts`、`amapLoader.ts`）：
 
-**选择逻辑**（`MapView/index.tsx`）：
-
-- **默认 `'3d'`**；用户点 `🗺 2D` 才切 Leaflet。`useEffect(…, [engine])` 负责建与毁：
-  `provider.init(containerRef.current, statusCb)`，cleanup 里 `provider.destroy()` 并清 `providerRef`。
-  **切换引擎 = 销毁重建**，不做原地换皮。
-- 渲染去重靠 `renderedKeyRef`：`items` 的 `id@dayIndex` 拼串 + `focusDay`，key 不变不重绘。
-- **Focus 联动**：`focus.latitude/longitude` 优先；缺失时退回 `focus.itemId` 在 `items` 里找坐标（`flyTo(lat, lng, 16)`）；巡航中来了 focus 会先 `stopTour()`。
-- **底图失败降级**：两个 Provider 共用同一套判定 —— 成功占多数判 `ok`；失败达 5 次且多于成功、或长时间无响应判 `failed`。
-  `failed` 时 `MapView` 显示「⚠️ 底图瓦片加载失败或不稳定」提示条，但**标记与路线仍可用**（弱网/外网受限场景）。
-- **新增引擎**：实现 `MapProvider` 四件套即可，`MapView` 里加一个 `Engine` 分支。`setPitched`/`startTour`
-  是可选方法，组件侧统一 `provider.startTour?.(…)` 可选调用，不需要改已有实现。
+- **配置**：`travel-agent-web/.env.local` 提供 `VITE_AMAP_KEY` 与 `VITE_AMAP_SECURITY_CODE`。
+  前者必须是高德「Web 端(JS API)」Key，不能复用后端的「Web 服务」`AMAP_KEY`。
+- **按需加载**：`amapLoader` 在脚本执行前写入 `_AMapSecurityConfig`，再从 `webapi.amap.com` 加载 2.0 SDK；
+  Promise 单例保证 2D/3D 切换不重复下载，失败或 15 秒超时会清理脚本并允许重试。
+- **默认 `'3d'`**：`pitch: 55`、`rotation: -18`、3D 楼块；切到 2D 时销毁当前地图并以 `viewMode: '2D'` 重建。
+  `Scale`、`ToolBar` 两种视角都有，`ControlBar` 只在 3D 加载。
+- **路线与标记**：按 `dayIndex` 分组，以两条 `AMap.Polyline` 叠加辉光与实线，当前 Day 加粗；
+  标记继续使用 `buildMarkerElement` 的 DOM + `textContent` 安全构造，颜色沿用 `DAY_COLORS`。
+- **异步挂起**：SDK 未就绪时保存 `pendingItems`、`pendingDay`、定位目标与巡航请求，初始化后补齐；
+  加载完成前 destroy 不会继续建图。
+- **渲染去重**：Provider 对完整渲染内容（含标题、简介、类型、坐标、时间与 `focusDay`）生成 key；
+  同一 id 的坐标或标题被 Agent 修改后也会重绘。
+- **Focus 联动**：`focus.latitude/longitude` 优先；缺失时退回 `focus.itemId` 在 `items` 里找坐标，
+  通过 `setZoomAndCenter` 定位；巡航中来了 focus 会先 `stopTour()`。
+- **失败与恢复**：加载异常或 12 秒无 `complete` 时显示高德配置/网络提示；失败后若底图恢复，
+  `complete` 会再次上报 `ok` 并清除提示。成功之后忽略个别瓦片错误。
+- **替换服务商**：新实现满足 `MapProvider` 即可；`setPitched`/`startTour` 仍是可选扩展。
 
 **两条必须遵守的样式约束**（来自 `docs/DEVELOPMENT.md`）：`.fp-map` / `.maplibregl-map` 是 maplibre 容器，
 maplibre 会给它加 `position: relative`，设尺寸**必须显式写 `height`**，不能用 `absolute + inset`、也不能只给
@@ -516,7 +567,7 @@ maplibre 会给它加 `position: relative`，设尺寸**必须显式写 `height`
 
 ```ts
 if (id.includes('echarts') || id.includes('zrender'))     return 'echarts';
-if (id.includes('maplibre-gl') || id.includes('leaflet')) return 'maps';
+if (id.includes('maplibre-gl')) return 'maps';
 if (id.includes('antd') || id.includes('@ant-design') || id.includes('rc-')) return 'antd';
 return undefined;
 ```
@@ -524,8 +575,9 @@ return undefined;
 - `echarts` / `maps` / `antd` 体积大但更新频率低，可长期缓存；配合路由懒加载，首屏只下 react + 当前页。
 - **其余依赖刻意不塞进 `vendor`**：早期把剩余依赖统一归到 vendor，会与 react chunk 互相引用，形成 `vendor → react → vendor` 循环。
 - `target: 'esnext'`、`minify: 'terser'`：该 Windows 环境下 esbuild 压缩时清理临时目录会被系统拒绝（Access is denied），故改用 Terser。
-- PWA 只预缓存 app shell：`navigateFallback: '/index.html'`，`navigateFallbackDenylist: [/^\/api\//]`，
-  **整个 `/api` 前缀都不做 runtime 缓存**（数据带登录态且实时性强，SSE 更不能缓存）。
+- PWA 只预缓存 app shell：`navigateFallback: '/index.html'`，`navigateFallbackDenylist: [/^\/api\//]`；
+  **`/api` 不做导航回退、SSE 不进任何缓存**；运行时缓存只有一条 `NetworkFirst` 规则、显式 `method: 'GET'`，
+  覆盖 **3 个只读端点**（行程列表 / 行程安排 / 预算执行）；写操作一律不缓存，详见 **11.3**。
 
 ### 9.3 单元测试（vitest）
 
@@ -534,13 +586,17 @@ return undefined;
 
 **node / DOM 环境差异**：默认 node 覆盖 store、API 客户端等纯逻辑，快且无需 DOM。需要 DOM 时在文件顶部加 `// @vitest-environment happy-dom`（见 `MapView/markerElement.test.ts` 第一行）—— 仓库用 `happy-dom` 而非 jsdom（jsdom 依赖 `require(ESM)`，对 Node 版本更敏感）。另外 `src/test/setup.ts` 在 node 环境补了一个**内存版 `Storage`**：zustand 的 `persist` 中间件依赖 `localStorage`/`sessionStorage`，node 环境下不存在，不补就会在导入 store 时抛错。
 
-当前 **8 个测试文件、55 个用例**（按 `it(...)` 计数，无 `.skip`）：`agentStore.test.ts` 12
-（发送/流式回调/确认/取消/reset/新会话/序号竞态）、`footprintData.test.ts` 14（足迹统计、年月筛选、城市聚合）、
-`planForm.test.ts` 9（表单编译、摘要、截断）、`reminderNotify.test.ts` 5（通知筛选：权限/后台/去重）、
-`api/agent.test.ts` 4（SSE 事件分发，complete/error/onerror 只回调一次）、`api/client.test.ts` 4（`{code}` 解包与 401 分流）、
-`api/ticket.test.ts` 4（票据缓存、并发合并、登录态失效）、`markerElement.test.ts` 3（标记 DOM 结构）。
+当前 **13 个测试文件、105 个用例**（`npm test` 实测，全部通过）：`api/client.test.ts` 20
+（`{code}` 解包、401 分流、`pagination` 透传等）、`footprintData.test.ts` 14（足迹统计、年月筛选、城市聚合）、
+`agentStore.test.ts` 12（发送/流式回调/确认/取消/reset/新会话/序号竞态）、`BudgetExecution/index.test.tsx` 9
+（预算使用率百分比、行程外与正负号）、`planForm.test.ts` 9（表单编译、摘要、截断）、
+`themeStore.test.ts` 8（新增：持久化读写、非法值回落 light、跟随系统偏好、`applyTheme` 写 `data-theme`）、
+`api/ticket.test.ts` 6（票据缓存、并发合并、登录态失效）、`AMapProvider.test.ts` 6
+（高德 3D/2D、内容更新、定位巡航、失败恢复、异步销毁、Key 校验）、`api/pagination.test.ts` 5、
+`reminderNotify.test.ts` 5（通知筛选：权限/后台/去重）、`api/agent.test.ts` 4（SSE 事件分发，complete/error/onerror 只回调一次）、
+`OfflineBanner/index.test.tsx` 4（新增：断网显示、手动关闭、恢复在线后重置、在线时不渲染）、`markerElement.test.ts` 3（标记 DOM 结构）。
 
-> `docs/DEVELOPMENT.md` 里写「前端 28 个用例」是旧数据；按当前源码统计为 **55**。
+> 测试数量以 `npm test` 的实际汇总为准（本次实测 `Test Files 13 passed (13)` / `Tests 105 passed (105)`）。
 > 测试写法上的一个坑：`api/agent.test.ts` 的 mock 用**普通函数**而非 `vi.fn()`，
 > 因为全局开了 `restoreMocks: true`，`vi.fn()` 的实现会在每个用例前被重置。
 
@@ -549,7 +605,14 @@ return undefined;
 `playwright.config.ts`：`testDir: './e2e'`、`baseURL: 'http://localhost:4173'`、`trace: 'retain-on-failure'`、`locale: 'zh-CN'`、单 chromium project、`timeout: 30_000`；`webServer.command = 'npm run preview'` 自动起 preview（CI 下 `reuseExistingServer: false`）。
 跑法：终端 1 `cd travel-agent-server && mvn spring-boot:run`；终端 2 `cd travel-agent-web && npm run build && npm run e2e`。
 
-`e2e/smoke.spec.ts` 两个用例：① **登录 → 建行程 → 行程页与路书可达** —— `goto('/')` 断言跳 `/login`（守卫生效），用 `page.request.post('/api/auth/login')` **通过 API 登录**（`page.request` 与浏览器共享 Cookie），回首页断言 AppShell，API 建行程，`/trip/:id` 断言标题与「路书」按钮，再 `GET /api/trips/:id/guidebook.pdf` 断言首字节 `0x25`（`%PDF`）；刻意不走 UI 表单登录，只断言稳定区域，避免与登录页重构互相拖累。② **PWA 资源可达** —— `/manifest.webmanifest` 的 `name` 为「AI 个人助理」，`/sw.js` 含 `precache`。
+当前 **2 个 spec、5 个用例**（`npm run e2e` 实测 5/5 通过；本批未改动 e2e）：
+
+- `e2e/smoke.spec.ts` **3 例**：① **未登录访问首页 → 跳登录页**（`browser.newContext()` 显式空 `storageState`，才是真正的匿名访客）；
+  ② **登录 → 建行程 → 行程页与路书可达** —— 登录态来自 `globalSetup` 写入的 `storageState`，用 `page.request.post` 建行程（数据准备不走 UI 表单），
+  `/trip/:id` 断言标题与「路书」按钮，再 `GET /api/trips/:id/guidebook.pdf` 断言首字节 `0x25`（`%PDF`）；
+  ③ **PWA 资源可达** —— `/manifest.webmanifest` 的 `name` 为「AI 个人助理」，`/sw.js` 含 `precache`。
+- `e2e/planner-form.spec.ts` **2 例**：**攻略整合模式**（空提交校验 → 填表 → POST 流式 → 确认 → 新行程）与
+  **从零规划模式**（填目的地与天数 → 生成 → 确认 → 新行程），都走规则路径、不依赖 LLM 与外部服务。
 
 ---
 
@@ -565,14 +628,100 @@ return undefined;
 | **URL 凭证** | 只能用 `api/ticket.ts` 的票据，**禁止把登录 JWT 拼进 URL** |
 | **懒加载** | 新页面一律 `React.lazy` + `Suspense`；页面内重型组件（echarts/地图）再 `lazy` 一层，别回到单包 3MB |
 | **样式令牌** | `styles/global.css` 顶部 `:root` 是唯一来源。主用名 `--bg/--surface/--border/--text/--text-2/--text-3/--accent/--ok/--warn/--danger/--r-*/--sp-*`，旧名（`--ink/--line/--blue/--lg-*`）是别名 |
-| **色板与暗色** | `main.tsx` 的 `PALETTE` 与 `global.css` 是同一套值（主色 `#1f6feb`、圆角 8、边框 `#e4e6eb`），**改色板两处一起改**；`[data-theme='dark']` 只覆盖令牌层，`index.html` 首帧前预设属性避免闪白；canvas 图表（echarts）读不到 CSS 变量，**必须按主题给两套色值** |
-| **响应式** | ≥1080px 侧栏 232px；720–1080px 收成 76px 图标栏；<720px 换底部标签栏 `.app-tabbar`。**新增窄屏规则写在 `global.css` 末尾**，否则会被旧的 `@media (max-width: 900px)` 抢先覆盖 |
+| **色板与暗色** | `main.tsx` 的 `PALETTE` 与 `global.css` 是同一套值（主色 `#1f6feb`、圆角 8、边框 `#e4e6eb`），**改色板两处一起改**；`[data-theme='dark']` 只覆盖令牌层，`index.html` 首帧前预设属性避免闪白；canvas 图表（echarts）读不到 CSS 变量，**必须按主题给两套色值**。完整机制（含 `localStorage` 键、三处入口）见 **11.1** |
+| **响应式** | ≥1080px 侧栏 232px；720–1080px 收成 76px 图标栏；<720px 换底部标签栏 `.app-tabbar`。**新增窄屏规则写在 `global.css` 末尾**，否则会被旧的 `@media (max-width: 900px)` 抢先覆盖；390px 实测场景与溢出修复清单见 **11.2** |
 | **外壳复用** | 子页面（`Schedule`/`Footprint`/`Office`/`Learning`）自带 `AppShell`，被嵌套复用时靠 `InsideShell` context 退化为纯内容，不必删壳 |
 | **纯逻辑抽离** | 复杂计算抽成同目录 `.ts`（`planForm.ts`、`footprintData.ts`、`reminderNotify.ts`、`markerElement.ts`），组件只做渲染 —— 这些也是单测的主要目标 |
 
 **设计预览**：`docs/design/preview/index.html` + `preview.css` 是「方向 B：内容优先」改版的**静态视觉稿**
 （纯 HTML/CSS，不含 React），用于动代码前对齐版式与信息密度；`global.css` 的令牌层是它的落地实现。
 它不参与构建，只在改界面时作为参照。
+
+---
+
+## 11. 暗色主题、窄屏适配与离线（PWA）
+
+三件事都在本批落地，互不依赖：暗色只改**令牌层**，窄屏只加**末尾 `@media` 规则**，离线只加**workbox 的 3 条 GET 运行时缓存**。
+
+### 11.1 暗色主题
+
+| 项 | 实现 | 位置 |
+| --- | --- | --- |
+| 颜色令牌 | 浅色在 `:root` 定义，暗色由 `[data-theme='dark']` **只覆盖令牌层**（组件样式一律引用变量） | `src/styles/global.css` |
+| antd 组件 | `ConfigProvider` 在 `darkAlgorithm` / `defaultAlgorithm` 间切换，同时切一套 `PALETTE` token | `src/main.tsx` |
+| 持久化 | zustand `persist`，key **`localStorage['travel-agent-theme']`**，值形如 `{"state":{"mode":"dark"}}` | `src/store/themeStore.ts` |
+| 无存值 | 跟随系统 `prefers-color-scheme`（没有 `matchMedia` 时按浅色） | `themeStore.systemPrefersDark` |
+| 存了但非法/损坏 | **回落 light**（绝不把非法值写进 `data-theme`） | `themeStore.readStoredTheme` |
+| 首帧不闪白 | `index.html` 的 `<head>` 内联脚本在样式表加载**之前**写 `document.documentElement.dataset.theme`；三条规则与 `themeStore` 逐条一致 | `index.html` |
+| 入口 | 侧栏/底栏的主题按钮（`AppShell`）+「我的 → 外观」（`pages/Profile`） | `AppShell.tsx`、`pages/Profile/index.tsx:96-110` |
+
+对外 API（`themeStore.ts`）：`mode` / `setMode` / `toggle`、`THEME_STORAGE_KEY`、`isThemeMode`、`readStoredTheme`、
+`resolveInitialMode`、`applyTheme(mode)`。`main.tsx` 在 `useEffect` 里把 `mode` 同步到 `<html data-theme>`。
+
+> **canvas 图表读不到 CSS 变量**：echarts（预算图、健康趋势）必须按主题给两套色值，不能指望 `var(--...)`。
+> 目前仍有个别图表是页内手写配色，新增图表请照 `BudgetChart`/`Health` 的做法从 `themeStore.mode` 取色。
+
+### 11.2 窄屏（390px）防横向滚动
+
+- **安全区**：`index.html` 的 `<meta name="viewport" ... viewport-fit=cover>` 让 iOS 安全区生效；
+  顶部栏用 `env(safe-area-inset-top)` 吃掉刘海，底栏/抽屉底部用 `env(safe-area-inset-bottom)` 避开 home 指示条。
+- **实测口径**：390×844 视口下 **7 个场景** `document.documentElement.scrollWidth == clientWidth == 390`
+  （规划页、行程页、账单抽屉、预算抽屉、备忘页、账单总览、暗色行程页）。
+- **修掉的溢出点**（都在 `global.css` 末尾的窄屏 `@media` 块里）：
+
+| 溢出源 | 修法 |
+| --- | --- |
+| antd `Drawer` 的宽度是桌面写死的 480/560，窄屏超出视口 | `.ant-drawer-content-wrapper { max-width: 100vw }`（inline `width` 不覆盖 `max-width`）；`.ant-drawer-mask` / `.ant-modal-wrap` 同样夹住 |
+| 长标题/长文本把父容器撑破（flex 子项默认 `min-width: auto`） | `.dash-greeting`、`.trip-header`、`.th-title` 等 `min-width: 0` + `overflow-wrap: anywhere` |
+| 列表行 / 账单行 / 表格单元格 | `.tr-title`、`.tr-sub`、`.memo-content`、`.ant-list-item(-meta)` 加 `min-width: 0` + 断行；`.ant-table-wrapper` 允许容器内部横滚而不是撑宽整页 |
+| 表单页脚/页头操作区放不下 | `.plan-footer`、`.page-actions { flex-wrap: wrap }` |
+| 抽屉底部被 home 指示条压住 | `.ant-drawer-body { padding-bottom: calc(16px + env(safe-area-inset-bottom)) }` |
+
+> **新窄屏规则必须写在 `global.css` 末尾**：否则会被更早的 `@media (max-width: 900px)` 块抢先覆盖（同优先级后写胜出）。
+
+### 11.3 PWA 离线：只缓存 3 条只读 GET
+
+`vite.config.ts` 的 `workbox.runtimeCaching` **只注册一条路由规则、只匹配 GET**，URL 正则同时覆盖三个只读端点：
+
+```ts
+// 整串匹配 URL（含 query）
+const ITINERARY_API_PATTERN =
+  /^https?:\/\/[^/]+\/api\/trips(?:\/\d+\/(?:itinerary|budget))?(?:\?[^#]*)?$/;
+```
+
+| 命中端点 | 含义 |
+| --- | --- |
+| `GET /api/trips` | 行程列表 |
+| `GET /api/trips/<id>/itinerary` | 某趟行程的安排 |
+| `GET /api/trips/<id>/budget` | 某趟行程的预算执行 |
+
+**故意不匹配** `GET /api/trips/<id>`（行程详情）：契约没要求，少缓存一类就少一类脏数据。
+
+| 参数 | 值 | 为什么 |
+| --- | --- | --- |
+| `method` | `'GET'`（**显式写死**） | 不写的话 workbox 会为非 GET 也注册路由，一旦 POST/PUT/DELETE 被缓存，离线时会拿旧响应冒充「写入成功」 |
+| `handler` | `NetworkFirst` | 在线优先拿最新数据，弱网才回缓存 |
+| `networkTimeoutSeconds` | `3` | 网络 3 秒拿不到就走缓存（弱网下不让用户干等 30 秒） |
+| `cacheName` | `'itinerary-v1'` | 改缓存策略/数据结构时 **+1**，旧容器由 `cleanupOutdatedCaches` 清 |
+| `expiration` | `{ maxEntries: 50, maxAgeSeconds: 300 }` | 行程数据实时性要求高，宁可只离线可用 5 分钟、最多 50 条 |
+| `cacheableResponse` | `{ statuses: [200] }` | **只缓存 200**：401/5xx 不进缓存，避免把「登录失效」页面缓存下来反复出现 |
+| `cleanupOutdatedCaches` | `true` | 版本升级后自动清掉上一版 precache / runtime 容器（只清 workbox 自己建的），用户不用手清站点数据 |
+
+**写操作不缓存**：`dist/sw.js` 里搜不到 `POST` / `PUT` / `DELETE`（发布前可自查），SSE 的 `/api/agent` 更不进任何缓存。
+
+**离线提示**：`components/OfflineBanner`（挂在 App 顶部）+ `hooks/useOnlineStatus`（`navigator.onLine` 初值 + 原生
+`online`/`offline` 事件，挂载时再校准一次真实状态），断网时显示 **「离线：显示缓存数据」**，恢复在线自动消失并重置手动关闭状态。
+
+边界：离线**只能看已经打开过**的行程（列表/安排/预算三者之一被请求过才会进缓存）；离线写操作照常失败并报错；
+超过 5 分钟或超过 50 条的缓存会被淘汰。iOS/Safari 的 `viewport-fit` / `safe-area` 行为**未实机验证**（只有 Chromium 模拟）。
+
+### 11.4 相关测试
+
+| 覆盖 | 用例 |
+| --- | --- |
+| 主题持久化与首帧规则 | `store/themeStore.test.ts` **8** 用例（读写、非法值回落 light、跟随系统、`applyTheme`） |
+| 离线提示条 | `components/OfflineBanner/index.test.tsx` **4** 用例（显示/关闭/恢复在线后重置/在线不渲染） |
+| 全量 | **13 个文件 / 105 用例**（见 9.3），`npm test` 全绿；e2e 5 例未随本批改动 |
 
 ---
 
@@ -583,15 +732,17 @@ return undefined;
 | 加一个页面 | `pages/<Name>/index.tsx` + `App.tsx` 加 lazy 与 `<Protected>` 路由 + `AppShell` 的 `NavModule` / `GROUPS` |
 | 改聊天阶段文案 / SSE 事件处理 | `store/agentStore.ts` 的 `STAGE_TEXT` / `api/agent.ts` 的 `EVENT_NAMES` 与 handlers |
 | 改确认弹窗 | `components/PlanDiff/index.tsx` |
-| 换地图底图/加引擎 | `components/MapView/` 下的 `MapProvider` 与两个 Provider |
+| 改列表分页 | `api/client.ts` 的 `getPage` / `DEFAULT_PAGE_SIZE` + `components/PaginationBar` |
+| 换行程地图服务商 | `components/MapView/` 下的 `MapProvider`；当前高德实现见 `AMapProvider` 与 `amapLoader` |
 | 改登录态逻辑 | `App.tsx` 的 `Protected` + `api/auth.ts` + `api/client.ts` 的 401 分流 |
 | 改配色 | `styles/global.css` 的 `:root` + `main.tsx` 的 `PALETTE`（两处一起） |
 
-**组件统计**：`src/components/` 共 **29 个文件** = **22 个组件**（`AppShell`、`AssistantNav`、`BudgetChart`、
+**组件统计**：`src/components/` 共 **34 个文件** = **24 个组件**（`AppShell`、`AssistantNav`、`BudgetChart`、
 `BudgetExecution`、`ChatPanel`、`CityDrawer`、`Collapse`、`CountUp`、`DraggableList`、`ErrorBoundary`、`ExpensePanel`、
-`FootprintMap`、`ItineraryCard`、`MapView`、`PageTransition`、`PlanDiff`、`ReminderBell`、`Skeleton`、`SwipeRow`、
-`Timeline`、`Toast`、`VoiceButton`）+ **7 个非组件文件**（3 个地图 Provider/接口、`markerElement.ts`、
-`footprintData.ts`、2 个测试文件）。
+`FootprintMap`、`ItineraryCard`、`MapView`、`OfflineBanner`、`PageTransition`、`PaginationBar`、`PlanDiff`、`ReminderBell`、
+`Skeleton`、`SwipeRow`、`Timeline`、`Toast`、`VoiceButton`）+ **10 个非组件文件**（`MapProvider.ts`、`AMapProvider.ts`、
+`amapLoader.ts`、`markerElement.ts`、`footprintData.ts` + 5 个测试文件，含 `BudgetExecution/index.test.tsx` 与
+`OfflineBanner/index.test.tsx`）。
 
 **页面统计**：`src/pages/` 共 **16 个目录**；`App.tsx` 共 **17 条 `<Route>`** —— 15 条渲染页面组件
 （14 个受保护页 + `/login`）、2 条重定向（`/schedule`、`/footprint`）、1 条通配兜底 `*`。

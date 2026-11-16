@@ -6,7 +6,11 @@ import com.travel.agent.entity.ItineraryItem;
 import com.travel.agent.entity.Trip;
 import com.travel.agent.exception.BusinessException;
 import com.travel.agent.repository.ItineraryItemRepository;
+import com.travel.agent.util.Paging;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,10 +24,19 @@ import java.util.List;
 @RequiredArgsConstructor
 public class ItineraryService {
 
+    /**
+     * 单行程条目响应上限（DB 层 limit 兜底）。
+     * 行程条目量受行程天数约束，正常远小于该值；这里只用数据库 LIMIT 防止异常数据把响应撑爆，
+     * 不改变「返回该行程全部安排」的语义，也不引入分页元数据。
+     */
+    private static final int MAX_ITINERARY_ROWS = Paging.MAX_LIMIT;
+
     private final ItineraryItemRepository repository;
 
     public List<ItineraryDtos.ItineraryItemDTO> listByTrip(Long tripId) {
-        return repository.findByTripIdOrderByDayIndexAscStartTimeAsc(tripId).stream()
+        Pageable pageable = PageRequest.of(0, MAX_ITINERARY_ROWS,
+                Sort.by(Sort.Order.asc("dayIndex"), Sort.Order.asc("startTime"), Sort.Order.asc("id")));
+        return repository.findByTripId(tripId, pageable).stream()
                 .map(ItineraryDtos.ItineraryItemDTO::from)
                 .toList();
     }
@@ -131,17 +144,54 @@ public class ItineraryService {
                 .orElseThrow(() -> new BusinessException(404, "行程条目不存在或不属于该行程"));
     }
 
-    /** 用快照整体替换行程（撤销用） */
+    /**
+     * 用快照整体替换行程（撤销用）。
+     *
+     * 按 id 做 diff，而不是「deleteByTripId + saveAll」：
+     * - 快照里带 id 且该条目仍属于本行程 → 就地更新（id 保持不变，不会让历史快照/前端选中失效）；
+     * - 快照里带 id 但条目已不存在（例如中途被手工删掉）→ 作为新增插入；
+     * - 当前存在但快照里没有的条目 → 删除。
+     * 全删全插除了 id 抖动之外，还会把「撤销期间新写入但不在旧快照里的条目」一起抹掉。
+     */
     @Transactional
     public void replaceAll(Long tripId, List<ItineraryItem> items) {
-        repository.deleteByTripId(tripId);
-        List<ItineraryItem> toSave = new ArrayList<>();
-        for (ItineraryItem item : items) {
-            item.setId(null);
-            item.setTripId(tripId);
-            toSave.add(item);
+        List<ItineraryItem> existing = repository.findByTripIdOrderByDayIndexAscStartTimeAsc(tripId);
+        java.util.Map<Long, ItineraryItem> existingById = existing.stream()
+                .filter(item -> item.getId() != null)
+                .collect(java.util.stream.Collectors.toMap(ItineraryItem::getId,
+                        java.util.function.Function.identity()));
+        java.util.Set<Long> kept = new java.util.HashSet<>();
+        for (ItineraryItem desired : items) {
+            Long id = desired.getId();
+            ItineraryItem target = id == null ? null : existingById.get(id);
+            // kept.add 返回 false = 同一快照里重复出现的 id，按新增处理，避免两条快照条目合并成一条
+            if (target == null || !kept.add(id)) {
+                desired.setId(null);
+                desired.setTripId(tripId);
+                repository.save(desired);
+            } else {
+                copyFields(desired, target, tripId);
+                repository.save(target);
+            }
         }
-        repository.saveAll(toSave);
+        existing.stream()
+                .filter(item -> item.getId() != null && !kept.contains(item.getId()))
+                .forEach(repository::delete);
+    }
+
+    /** 把快照条目（desired）的字段就地写到已有实体（target）上，保持 id 与 tripId 归属 */
+    private void copyFields(ItineraryItem desired, ItineraryItem target, Long tripId) {
+        target.setTripId(tripId);
+        target.setDayIndex(desired.getDayIndex() == null ? 1 : desired.getDayIndex());
+        target.setItemType(desired.getItemType());
+        target.setTitle(desired.getTitle());
+        target.setStartTime(desired.getStartTime());
+        target.setEndTime(desired.getEndTime());
+        target.setLatitude(desired.getLatitude());
+        target.setLongitude(desired.getLongitude());
+        target.setCost(desired.getCost());
+        target.setTags(desired.getTags());
+        target.setDescription(desired.getDescription());
     }
 
     /**

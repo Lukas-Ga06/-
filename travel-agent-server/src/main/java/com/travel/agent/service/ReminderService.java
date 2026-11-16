@@ -5,6 +5,7 @@ import com.travel.agent.entity.ScheduleItem;
 import com.travel.agent.entity.Trip;
 import com.travel.agent.repository.ScheduleItemRepository;
 import com.travel.agent.repository.TripRepository;
+import com.travel.agent.util.Paging;
 import com.travel.agent.util.Recurrence;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -41,6 +42,14 @@ public class ReminderService {
 
     public ReminderDtos.ReminderBoard board(Long userId) {
         return board(userId, LocalDateTime.now());
+    }
+
+    /**
+     * 分页版提醒板：提醒条目由当前时间实时计算（不是数据库列表，来源查询已按 user 收敛），
+     * 这里只把「已排序的完整提醒列表」按 limit/offset 切片返回；count 仍是提醒总数（前端角标用）。
+     */
+    public ReminderDtos.ReminderBoard board(Long userId, int offset, int limit) {
+        return board(userId, LocalDateTime.now(), offset, limit);
     }
 
     /** now 可注入，便于测试固定时间 */
@@ -120,6 +129,19 @@ public class ReminderService {
                 .items(items)
                 .count(items.size())
                 .serverTime(now)
+                .build();
+    }
+
+    /** now 可注入的分页版（测试用固定时间，避免依赖系统时钟） */
+    public ReminderDtos.ReminderBoard board(Long userId, LocalDateTime now, int offset, int limit) {
+        ReminderDtos.ReminderBoard full = board(userId, now);
+        List<ReminderDtos.Reminder> all = full.getItems();
+        int from = Math.min(Paging.normalizeOffset(offset), all.size());
+        int to = Math.min(from + Paging.normalizeLimit(limit), all.size());
+        return ReminderDtos.ReminderBoard.builder()
+                .items(List.copyOf(all.subList(from, to)))
+                .count(all.size())
+                .serverTime(full.getServerTime())
                 .build();
     }
 

@@ -146,6 +146,14 @@ npm install
 npm run dev
 ```
 
+行程地图使用高德 JS API。将 `.env.example` 复制为 `.env.local`，填写 `VITE_AMAP_KEY` 与
+`VITE_AMAP_SECURITY_CODE`（高德「Web 端(JS API)」Key 及配套安全密钥），然后重启 Vite。
+不要复用后端 `AMAP_KEY`，后者是另一种「Web 服务」凭据。
+
+足迹地图默认也是高德栅格底图（MapLibre 球体保留）；如果高德瓦片不可达或想回退，设
+`VITE_FOOTPRINT_BASEMAP=osm` 后重启。高德瓦片直连商用前需确认授权，详见
+[前端地图说明](frontend.md)。
+
 打开 <http://localhost:5173>，用 **demo / demo123** 登录。
 
 dev server 的关键配置在 [vite.config.ts](../../travel-agent-web/vite.config.ts) 第 64-72 行：

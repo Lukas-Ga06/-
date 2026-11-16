@@ -42,8 +42,19 @@ public class SecurityConfig {
     @Value("${travel.cors.allowed-origins}")
     private String allowedOrigins;
 
+    /** H2 控制台默认关闭（H2_CONSOLE_ENABLED）；只有显式开启时才加入白名单 */
+    @Value("${spring.h2.console.enabled:false}")
+    private boolean h2ConsoleEnabled;
+
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        // 免登录路径。H2 控制台以 sa 空密码直连数据库，默认绝不能放行：
+        // 未启用时该路径不在白名单里，任何请求都会先被认证拦截（避免"匿名读写全库"）。
+        String[] publicPaths = h2ConsoleEnabled
+                ? new String[]{"/api/auth/login", "/api/auth/register", "/api/auth/logout",
+                        "/api/channels/**", "/h2-console/**", "/error", "/actuator/health"}
+                : new String[]{"/api/auth/login", "/api/auth/register", "/api/auth/logout",
+                        "/api/channels/**", "/error", "/actuator/health"};
         http
                 .csrf(csrf -> csrf.disable())
                 .cors(Customizer.withDefaults())
@@ -57,11 +68,9 @@ public class SecurityConfig {
                         // SSE/异步请求结束时容器会发起 ASYNC dispatch，必须放行，否则连接被安全链拒绝
                         .dispatcherTypeMatchers(jakarta.servlet.DispatcherType.ASYNC).permitAll()
                         // 登录/注册/登出无需登录；/api/auth/me 必须认证（凭 Cookie 或头恢复登录态）
-                        // /api/channels/** 多渠道入口：secret 即凭证（WebhookChannelController 恒时比较，未配置密钥一律拒绝）
+                        // /api/channels/** 多渠道入口：secret/签名即凭证（恒时比较，未配置密钥一律拒绝）
                         // /actuator/health 给探活；其余 actuator 端点仍需登录
-                        .requestMatchers("/api/auth/login", "/api/auth/register", "/api/auth/logout",
-                                "/api/channels/**",
-                                "/h2-console/**", "/error", "/actuator/health").permitAll()
+                        .requestMatchers(publicPaths).permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.OPTIONS).permitAll()
                         .anyRequest().authenticated())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)

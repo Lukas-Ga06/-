@@ -78,8 +78,12 @@ jobs:
           cache-dependency-path: travel-agent-web/package-lock.json
 
       # 后端：H2 文件库 + demo 账号（默认开启），后台常驻供 e2e 使用
+      # RATE_LIMIT_ENABLED=false：/api/auth/login 与 /api/auth/me 共用 10 次/300 秒的 IP 限流桶，
+      # e2e 反复刷新页面会把它打满 → 429 → 前端当未登录 → 用例崩溃。e2e 专用后端必须关限流。
       - name: Start backend
         working-directory: travel-agent-server
+        env:
+          RATE_LIMIT_ENABLED: 'false'
         run: nohup mvn -B spring-boot:run > backend.log 2>&1 &
 
       - name: Wait for backend health

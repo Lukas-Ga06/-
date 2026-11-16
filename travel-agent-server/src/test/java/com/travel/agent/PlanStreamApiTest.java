@@ -46,15 +46,11 @@ class PlanStreamApiTest extends IntegrationTestSupport {
         // 攻略整合形态的长文本：正文 + 需求说明，裁到 15000 字
         String guideBody = "上午去外滩，中午吃生煎，下午逛豫园。".repeat(1400);
         String message = ("请整合以下参考攻略为我规划上海行程：\n【攻略1】" + guideBody).substring(0, 15000);
-        MvcResult started = mockMvc.perform(post("/api/agent/stream")
-                        .header("Authorization", user.bearer())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(java.util.Map.of("message", message))))
-                .andExpect(request().asyncStarted())
-                .andReturn();
-
-        mockMvc.perform(asyncDispatch(started))
-                .andExpect(status().isOk())
-                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM));
+        MvcResult done = sseDispatch(post("/api/agent/stream")
+                .header("Authorization", user.bearer())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(java.util.Map.of("message", message))));
+        org.assertj.core.api.Assertions.assertThat(done.getResponse().getContentType())
+                .startsWith(MediaType.TEXT_EVENT_STREAM_VALUE);
     }
 }

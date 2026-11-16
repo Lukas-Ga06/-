@@ -1,5 +1,6 @@
 package com.travel.agent.security;
 
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -14,12 +15,18 @@ import java.util.List;
  *
  * INCR + 首次 PEXPIRE 用 Lua 保证原子；计数跨实例共享，任一实例超限全集群生效。
  * Redis 不可用时按"限流不可用"放行并告警——限流是保护措施，不应反过来把服务打挂。
+ *
+ * <p>fail-open 不是静默降级：每次放行都要留痕（WARN 日志带 bucket/key 与异常类型，
+ * 并累加 {@code ratelimit.failopen} 计数器），否则"Redis 挂了三天没人发现"就是下一次事故的伏笔。
  */
 @Component
 @ConditionalOnProperty(prefix = "travel.rate-limit", name = "store", havingValue = "redis")
 @RequiredArgsConstructor
 @Slf4j
 public class RedisRateCounter implements RateCounter {
+
+    /** fail-open 计数指标：触发即代表本轮限流并未生效 */
+    static final String FAIL_OPEN_METRIC = "ratelimit.failopen";
 
     /** KEYS[1]=计数键，ARGV[1]=窗口毫秒；返回窗口内计数 */
     private static final DefaultRedisScript<Long> INCR_SCRIPT = new DefaultRedisScript<>("""
@@ -31,6 +38,7 @@ public class RedisRateCounter implements RateCounter {
             """, Long.class);
 
     private final StringRedisTemplate redisTemplate;
+    private final MeterRegistry meterRegistry;
 
     @Override
     public boolean tryAcquire(String key, int limit, long windowMillis, long nowMillis) {
@@ -39,7 +47,7 @@ public class RedisRateCounter implements RateCounter {
                     String.valueOf(windowMillis));
             return count == null || count <= limit;
         } catch (Exception e) {
-            log.warn("Redis 限流计数失败，本次放行: {}", e.getMessage());
+            failOpen("tryAcquire", key, e);
             return true;
         }
     }
@@ -50,11 +58,20 @@ public class RedisRateCounter implements RateCounter {
             Long remainMillis = redisTemplate.getExpire("ratelimit:" + key,
                     java.util.concurrent.TimeUnit.MILLISECONDS);
             if (remainMillis == null || remainMillis <= 0) {
-                return 0;
+                // 窗口已结束或 TTL 读不到：至少让客户端等 1 秒，避免 Retry-After: 0
+                return 1;
             }
             return Math.max(1, (remainMillis + 999) / 1000);
         } catch (Exception e) {
-            return 0;
+            failOpen("retryAfterSeconds", key, e);
+            return 1;
         }
+    }
+
+    /** Redis 异常：告警 + 计数 + 放行（限流不可用时不能让业务跟着挂） */
+    private void failOpen(String operation, String bucket, Exception e) {
+        log.warn("Redis 限流不可用，本次 fail-open 放行: bucket={} operation={} error={}: {}",
+                bucket, operation, e.getClass().getSimpleName(), e.getMessage());
+        meterRegistry.counter(FAIL_OPEN_METRIC).increment();
     }
 }

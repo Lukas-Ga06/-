@@ -8,6 +8,8 @@ import com.travel.agent.model.Attraction;
 import com.travel.agent.model.CityCatalog;
 import com.travel.agent.model.Hotel;
 import com.travel.agent.model.Restaurant;
+import com.travel.agent.util.CityNames;
+import com.travel.agent.util.CoordinateTransform;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -123,7 +125,7 @@ public class OnlineCityService {
             return null;
         }
         if (amapKeyUsable()) {
-            double[] c = amapGeocode(name, null);
+            double[] c = amapGeocode(name, null, true);
             if (c != null) {
                 return c;
             }
@@ -151,8 +153,8 @@ public class OnlineCityService {
     private CityCatalog loadViaAmap(String name) {
         long start = System.currentTimeMillis();
         try {
-            // 1. 高德定位城市本身（校验城市存在）
-            double[] center = amapGeocode(name, null);
+            // 1. 高德定位城市本身（校验城市存在，且返回的确实是这个城市）
+            double[] center = amapGeocode(name, null, true);
             if (center == null) {
                 log.warn("高德定位城市失败，退回兜底路径: {}", name);
                 return null;
@@ -261,7 +263,7 @@ public class OnlineCityService {
     private CityCatalog loadViaLlmCoords(String name) {
         // 并行执行：联网定位（失败/超时不阻塞）+ 大模型生成目录（关键路径）
         CompletableFuture<double[]> geoFuture = CompletableFuture.supplyAsync(
-                () -> amapGeocode(name, null), agentTaskExecutor);
+                () -> amapGeocode(name, null, true), agentTaskExecutor);
         CompletableFuture<String> llmFuture = CompletableFuture.supplyAsync(() -> {
             if (!llmClient.available()) {
                 return null;
@@ -327,10 +329,21 @@ public class OnlineCityService {
 
     /** 单点定位；cityHint 可选（限定城市提高准确率）。返回 [lat, lng] */
     private double[] amapGeocode(String address, String cityHint) {
+        return amapGeocode(address, cityHint, false);
+    }
+
+    /**
+     * 单点定位。
+     *
+     * @param verifyCity true 表示 address 本身就是城市名：此时校验高德返回的
+     *                   province/city/district 与它是否同一城市，避免「搜 A 城返回 B 城」被静默采用。
+     *                   POI 反查坐标时必须传 false（POI 名当然不等于城市名）。
+     */
+    private double[] amapGeocode(String address, String cityHint, boolean verifyCity) {
         try {
             JsonNode resp = geoClient().get().uri(URI.create(amapGeoUri(
                     URLEncoder.encode(address, StandardCharsets.UTF_8), cityHint))).retrieve().body(JsonNode.class);
-            return firstLocation(resp);
+            return firstLocation(resp, verifyCity ? address : null);
         } catch (Exception e) {
             log.info("高德定位失败: {} - {}", address, e.getMessage());
             return null;
@@ -381,15 +394,77 @@ public class OnlineCityService {
         return uri;
     }
 
-    private double[] firstLocation(JsonNode resp) {
+    /**
+     * 取首个地理编码结果。
+     *
+     * @param expectedQuery 非空时校验结果：高德返回的省/市/区县名与查询名既不 {@link CityNames#matches}
+     *                      也不在 {@link CityNames#nearest} 距离 1 范围内 → 视为定位失败（返回 null），
+     *                      避免「搜 A 城返回 B 城却静默采用」。注意「杭州市」与「杭州」是同一城市，不算不符。
+     */
+    private double[] firstLocation(JsonNode resp, String expectedQuery) {
         JsonNode geocodes = resp == null ? null : resp.path("geocodes");
         if (geocodes != null && geocodes.isArray() && geocodes.size() > 0) {
-            return parseLocation(geocodes.get(0).path("location").asText(""));
+            JsonNode first = geocodes.get(0);
+            if (expectedQuery != null && !expectedQuery.isBlank() && !geoResultMatchesCity(expectedQuery, first)) {
+                log.warn("在线地理编码结果与查询城市不符，按定位失败处理: 查询={} 返回 province={} city={} district={}",
+                        expectedQuery,
+                        textValue(first.path("province")), textValue(first.path("city")),
+                        textValue(first.path("district")));
+                return null;
+            }
+            return parseLocation(first.path("location").asText(""));
         }
         return null;
     }
 
-    /** 高德 location 格式为 "经度,纬度" */
+    /**
+     * 高德返回的省/市/区县任一与查询城市匹配，即视为同一城市。
+     * 除 {@link CityNames#matches} 外只接受收紧笔误：等长、仅 1 处不同且不在首位
+     * （「杭洲」→杭州 可接受；「广州」→杭州 这类首位笔误不认，宁可判不符，因为无法与真实异城区分）。
+     */
+    private boolean geoResultMatchesCity(String expected, JsonNode geocode) {
+        List<String> returned = geoResultNames(geocode);
+        if (returned.isEmpty()) {
+            // 没有任何城市字段可比对：不能据此判定「不符」，不误杀
+            return true;
+        }
+        for (String name : returned) {
+            if (CityNames.matches(expected, name)) {
+                return true;
+            }
+        }
+        return CityNames.nearest(expected, returned, 1).isPresent();
+    }
+
+    private List<String> geoResultNames(JsonNode geocode) {
+        List<String> names = new ArrayList<>();
+        for (String field : List.of("province", "city", "district")) {
+            String value = textValue(geocode.path(field));
+            if (!value.isEmpty()) {
+                names.add(value);
+            }
+        }
+        return names;
+    }
+
+    /** 高德字段可能是字符串，也可能是空数组（直辖市/省直辖时 city 为 []），统一取首个非空文本 */
+    private String textValue(JsonNode node) {
+        if (node == null || node.isNull()) {
+            return "";
+        }
+        if (node.isArray()) {
+            for (JsonNode item : node) {
+                String text = item.asText("").trim();
+                if (!text.isEmpty()) {
+                    return text;
+                }
+            }
+            return "";
+        }
+        return node.asText("").trim();
+    }
+
+    /** 高德 location 格式为 "经度,纬度"（GCJ-02）；对外统一转成 WGS-84 再返回 */
     private double[] parseLocation(String location) {
         String[] parts = location.split(",");
         if (parts.length != 2) {
@@ -398,7 +473,10 @@ public class OnlineCityService {
         try {
             double lng = Double.parseDouble(parts[0].trim());
             double lat = Double.parseDouble(parts[1].trim());
-            return (lat != 0 && lng != 0) ? new double[]{lat, lng} : null;
+            if (lat == 0 && lng == 0) {
+                return null;
+            }
+            return CoordinateTransform.gcj02ToWgs84(lat, lng);
         } catch (NumberFormatException e) {
             return null;
         }
@@ -503,25 +581,17 @@ public class OnlineCityService {
     }
 
     /**
-     * 城市名模糊匹配。
+     * 城市名模糊匹配：完全相等，或一方包含另一方且较短一方长度 ≥ 2。
      *
-     * 只允许"包含"关系，且较短的一方至少 2 个字：
-     * 否则「阳」会命中「洛阳」、「州」会命中「杭州」，把用户带到一个完全无关的城市。
+     * <p>规则唯一实现在 {@link CityNames#matches}（本方法只保留包级入口给既有测试与调用方）。
+     * 单字查询（「阳」「州」「北」）在任何情况下都不会命中城市，避免把用户带到无关城市。
      */
     static boolean matchesCity(String known, String query) {
-        if (known == null || query == null) {
-            return false;
-        }
-        if (known.equals(query)) {
-            return true;
-        }
-        String shorter = known.length() <= query.length() ? known : query;
-        String longer = known.length() <= query.length() ? query : known;
-        return shorter.length() >= 2 && longer.contains(shorter);
+        return CityNames.matches(known, query);
     }
 
     private String cleanName(String raw) {
-        return raw == null ? "" : raw.trim().replaceAll("(市|地区)$", "").trim();
+        return CityNames.normalize(raw);
     }
 
     private String stripFences(String raw) {
