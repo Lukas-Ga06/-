@@ -2,6 +2,67 @@
 
 按主题记录行为变化。**第四节是最需要注意的**：其中几项改变了原有的使用习惯。
 
+## 第十五批：任务图（FR-02 / FR-04：依赖、并行、委派与回收重派，2026-11-18）
+
+> 承接第十四批 §7：一次运行的任务只能被「记录」不能「编排」——任务之间没有依赖关系，
+> `REPLAN` 由引擎在审核体内内联调用，`PREVIEW` 与 `REVIEW` 明明互不依赖却串行。
+> 本批把阶段序升级成一张**确定性任务图**：依赖边落库、互不依赖的任务并行、失败/冲突可回收重派，
+> 委派与回收过程态进 SSE 时间线。
+> **有 Flyway 迁移 V18**（`agent_task.depends_on / attempt / replaces_task_id`）；
+> **不改**确认门、commit 事务、预算三口径、只读门禁与既有红线，**不改**任何既有 REST 字段含义。
+> 契约见 [docs/proposals/batch15-contract.md](proposals/batch15-contract.md)。
+
+### 一、任务图（`agent_task` + `Coordinator`）
+
+- `AgentTask` 新增 `dependsOn`（前置任务 id 列表）、`attempt`（第几次尝试）、`replacesTaskId`
+  （被本次重派替换的旧任务）与 `CONFLICT` 状态；V18 迁移为 H2/MySQL 中性 `ALTER TABLE`。
+- 新增确定性 `Coordinator`：`dispatch`（前置必须全部 `SUCCEEDED`，否则落一条 CONFLICT 并拒绝执行 body）、
+  `dispatchAll`（并行组：先按声明顺序建任务行，再并行执行 body）、
+  `redispatch`（重派总是新行：`attempt+1`、`replacesTaskId=旧行`，旧行保留失败证据）。
+- **不让 LLM 参与调度**：依赖边由引擎写死，模型只执行任务内容（ADR-011）。
+  追踪不可用（`runId` 为空）时全部退化为直接执行，与升级前行为一致。
+
+### 二、引擎与审核闭环（并行与重规划）
+
+- 一次规划的图为：`INTENT → PLAN → {PREVIEW ‖ REVIEW} → (REPLAN → REVIEW)* → COMMIT`。
+  - `PREVIEW` 与 `REVIEW` 互不依赖，作为同一并行组执行（时间区间真实重叠；任务行按声明顺序创建，
+    `agent_task.id` 顺序稳定）。
+  - 审核发现问题 → **派发 REPLAN 任务**（`dependsOn=[REVIEW]`）而不是内联调用修复器；复审
+    `dependsOn=[REPLAN]`；第二次重规划是**回收重派**（发 `recover` 事件、替换上一轮 REPLAN 行）。
+  - 重规划改过计划后，Diff 由 `PREVIEW` 的**重派**重建（`attempt=1`、`replacesTaskId=首轮预览`），
+    首轮预览结果作废——用户确认的始终是最后一份内容。
+- `AgentContext.currentTaskId` 改为 ThreadLocal：并行任务各自关联自己的工具调用，互不覆盖。
+- `agent.stage{reflect}` 指标自本批起覆盖「并行预览 + 审核 + 有限重规划」整段（已无法从时间上拆开）。
+
+### 三、查询与事件（纯增量）
+
+- SSE 新增 `delegate`（`{taskId, receiver, taskType, dependsOn[], attempt}`）、
+  `recover`（`{taskId, receiver, taskType, replacesTaskId, attempt, reason}`）、
+  `conflict`（`{receiver, taskType, missingDeps[], reason}`）；既有事件名/负载/语义不变。
+- `GET /api/agent/runs/{runId}` 的任务节点新增 `dependsOn` / `attempt` / `replacesTaskId`；
+  `status` 新增 `CONFLICT`。旧数据行自动呈现为空依赖 / attempt=0 / 无替换。
+- 前端：过程时间线渲染「委派 / 重派 / 冲突」三类行；运行记录抽屉展示依赖数量、尝试次数与被替换关系；
+  旧后端（无这些字段）下展示不变。
+
+### 四、测试与验证
+
+- 后端 389 → **394** 用例全绿（`mvn clean test`）。新增 `TaskDagTest`（2，依赖边/并行重叠/闲聊单节点）、
+  `CoordinatorConflictTest`（3，冲突拒绝/重派单结果/无 runId 退化）；`AgentReplanTest` 扩断言
+  （REPLAN 依赖 REVIEW、复审依赖 REPLAN、预览重派）；`SseDisconnectTest` 扩断言（委派后取消只发 start/run/delegate）。
+- `MigrationBaselineTest` 版本面更新到 V18。
+- 前端 157 → **166** 用例全绿（`typecheck` + `test` + `build`）：新增 `stageText.test.ts`（6）、
+  `AgentActivityPanel` 2 个用例，以及 `agent.test.ts` 1 个「SSE 事件白名单含 delegate/recover/conflict」回归用例
+  （EventSource 只能按登记名监听，漏登记会静默丢事件——这是本批自查发现并修掉的真实缺陷）。
+- 真实 HTTP 冒烟：见 [docs/guide/v2.2-iteration.md](guide/v2.2-iteration.md) §6.4。
+
+### 五、需要注意的行为变化
+
+1. **过程时间线更细**：每次规划会多出若干「委派 / 重派」行（INTENT/PLAN/PREVIEW/REVIEW…），
+   这是任务图的执行过程，不是新增失败项。
+2. **`/api/agent/runs/{runId}` 任务 status 可能为 `CONFLICT`**：表示该任务因前置未完成被拒绝启动，
+   只有证据行、没有执行体；前端按「冲突」展示。
+3. **对旧前端兼容**：三个新事件旧前端忽略即可；新字段缺失时旧后端行为不变（前端已做可选处理）。
+
 ## 第十四批：需求槽位与最少追问（FR-01，2026-11-18）
 
 > 承接第十三批 §7：`MessageParser` 能解析城市/天数/预算/日期，但**人数完全没解析**；

@@ -99,10 +99,15 @@ public class AgentEngine {
     private final PlanConfirmationService planConfirmation;
     /** V2.2 追踪：run / 任务 / 工具调用落库（内部吞异常，绝不反噬主流程） */
     private final com.travel.agent.service.AgentTraceService traceService;
-    /** 阶段任务记录器（引擎与规划器共用的任务包装样板） */
-    private final AgentTaskRecorder taskRecorder;
+    /**
+     * 任务图调度器（第十五批 FR-02/FR-04）：按依赖派发、并行、回收重派。
+     * 依赖关系由引擎写死（确定性编排），模型只执行任务内容，不参与调度。
+     */
+    private final Coordinator coordinator;
     /** V2.2 FR-06：审核 → 有限重规划 → 再审的闭环（REPLAN 状态首次真正启用） */
     private final PlanReviewLoop planReviewLoop;
+    /** 审核 Agent：第十五批起首轮审核由引擎作为任务图节点并行派出（重规划仍由 PlanReviewLoop 驱动） */
+    private final ReflectAgent reflectAgent;
     /** 指标：sse.disconnects（注入方式与 StructuredPlanner、LlmClient 一致） */
     private final MeterRegistry meterRegistry;
 
@@ -159,23 +164,14 @@ public class AgentEngine {
         traceService.finishRun(ctx.getRunId(), result == null ? null : result.getIntent(), status, error);
     }
 
-    /**
-     * 以独立任务记录包裹一段阶段逻辑（V2.2 FR-04 最小任务形态）：
-     * 任务开始/结束各落一行（REQUIRES_NEW，主流程失败痕迹仍在），
-     * 执行期间把 taskId 挂到 ctx 上，工具调用追踪据此关联触发任务。
-     */
-    private <T> T traced(AgentContext ctx, String receiver, String taskType,
-                         java.util.function.Supplier<T> body, java.util.function.Function<T, String> summary) {
-        return taskRecorder.around(ctx, receiver, taskType, body, summary);
-    }
-
     private AgentDtos.AgentResult doHandle(AgentContext ctx) {
         try {
             Trip trip = ctx.getTripId() != null ? tripService.getOwned(ctx.getTripId(), ctx.getUserId()) : null;
             if (abortIfCancelled(ctx, "before-intent")) {
                 return aborted(ctx);
             }
-            IntentResult intent = timedIntent(ctx, trip);
+            Coordinator.Receipt<IntentResult> intentReceipt = timedIntent(ctx, trip);
+            IntentResult intent = intentReceipt.value();
             // FR-01：上一轮是需求追问时，「上海」「三天」这类短回答续到同一次规划里，
             // 而不是落进 CHITCHAT 把追问状态丢掉（改问别的意图则不劫持，按新意图处理）
             intent = resumeRequirementCollection(ctx, intent);
@@ -207,8 +203,9 @@ public class AgentEngine {
                 case IntentResult.QUERY_SCHEDULE -> assistantHandler.querySchedule(ctx, intent);
                 case IntentResult.GEN_DAILY_REPORT -> assistantHandler.dailyReport(ctx, intent);
                 case IntentResult.QUERY_HEALTH -> assistantHandler.queryHealth(ctx, intent);
-                case IntentResult.INVOKE_TOOL -> answerInvokeTool(ctx, intent);
-                case IntentResult.PLAN_TRIP, IntentResult.MODIFY_ITINERARY -> planAndPresent(ctx, intent, trip);
+                case IntentResult.INVOKE_TOOL -> answerInvokeTool(ctx, intent, intentReceipt.handle());
+                case IntentResult.PLAN_TRIP, IntentResult.MODIFY_ITINERARY ->
+                        planAndPresent(ctx, intent, trip, intentReceipt.handle());
                 default -> complete(ctx, AgentDtos.AgentResult.builder()
                         .intent(IntentResult.CHITCHAT)
                         .status(AgentDtos.STATUS_COMPLETED)
@@ -252,10 +249,12 @@ public class AgentEngine {
     // ==================== 阶段计时（agent.stage） ====================
 
     /** intent 阶段：意图识别（LLM 优先，规则兜底）；异常也计时，失败次数看 count */
-    private IntentResult timedIntent(AgentContext ctx, Trip trip) {
+    private Coordinator.Receipt<IntentResult> timedIntent(AgentContext ctx, Trip trip) {
         Timer.Sample sample = stageTimer.start();
         try {
-            return traced(ctx, com.travel.agent.entity.AgentTask.RECEIVER_INTENT, "INTENT",
+            // 任务图根节点：无前置依赖；后续 PLAN / TOOL 都依赖它
+            return coordinator.dispatch(ctx,
+                    Coordinator.TaskSpec.of(com.travel.agent.entity.AgentTask.RECEIVER_INTENT, "INTENT"),
                     () -> intentAgent.detect(ctx, trip),
                     intent -> "识别意图: " + (intent == null ? "?" : intent.getIntent()));
         } finally {
@@ -320,7 +319,8 @@ public class AgentEngine {
         return result;
     }
 
-    private AgentDtos.AgentResult planAndPresent(AgentContext ctx, IntentResult intent, Trip trip) {
+    private AgentDtos.AgentResult planAndPresent(AgentContext ctx, IntentResult intent, Trip trip,
+                                                 Coordinator.TaskHandle intentTask) {
         if (abortIfCancelled(ctx, "before-plan")) {
             return aborted(ctx);
         }
@@ -354,17 +354,21 @@ public class AgentEngine {
         ctx.emit("planning", Map.of("message",
                 IntentResult.PLAN_TRIP.equals(intent.getIntent()) ? "正在为你规划行程…" : "正在重新规划行程…"));
 
-        // plan 阶段：规则路径 + LLM 结构化规划都在 plannerAgent.plan 内部，一并计时
+        // plan 阶段：规则路径 + LLM 结构化规划都在 plannerAgent.plan 内部，一并计时。
+        // 任务图：PLAN 依赖 INTENT（意图没定就不该规划）——依赖边由 Coordinator 强制校验。
         Timer.Sample planSample = stageTimer.start();
-        AgentPlan plan;
+        Coordinator.Receipt<AgentPlan> planReceipt;
         try {
-            plan = traced(ctx, com.travel.agent.entity.AgentTask.RECEIVER_PLANNER, "PLAN",
+            planReceipt = coordinator.dispatch(ctx,
+                    Coordinator.TaskSpec.after(com.travel.agent.entity.AgentTask.RECEIVER_PLANNER, "PLAN", intentTask),
                     () -> plannerAgent.plan(ctx, intent, trip),
                     p -> p.getOperations().isEmpty() ? "未产出操作：" + truncateForTask(p.getReasoning())
                             : "生成 " + p.getOperations().size() + " 项操作");
         } finally {
             stageTimer.stop(AgentStageTimer.STAGE_PLAN, planSample);
         }
+        AgentPlan plan = planReceipt.value();
+        Coordinator.TaskHandle planTask = planReceipt.handle();
         // 计划携带 runId：确认提交（REST 线程）据此把 COMMIT 任务挂回同一运行
         if (plan != null && plan.getRunId() == null) {
             plan.setRunId(ctx.getRunId());
@@ -385,32 +389,57 @@ public class AgentEngine {
                     .build());
         }
 
+        // 预览与审核互不依赖（都只依赖 PLAN）：第十五批起作为同一并行组执行。
+        // 两行任务在 body 开始之前按声明顺序建好 —— id 顺序稳定可回查，时间区间必然重叠。
+        // 指标口径：reflect 自本批起覆盖「并行预览 + 审核 + 有限重规划」整段（预览与审核无法
+        // 再从时间上拆开，硬拆只会让同一段耗时被记两次）。
         ctx.setState(AgentState.EXECUTE);
-        // 规划产物在审核阶段可能被重规划改写，lambda 需要一个「当时确定」的引用
         final AgentPlan candidate = plan;
-        AgentDtos.AgentResult preview = traced(ctx, com.travel.agent.entity.AgentTask.RECEIVER_EXECUTOR,
-                "PREVIEW", () -> executorAgent.preview(ctx, candidate, trip),
-                p -> "生成 Diff 预览：" + (p.getDiff() == null ? 0 : p.getDiff().getChanges().size()) + " 项变更");
-
-        // 反思（V2.2 FR-06）：审核发现 HIGH 级硬约束问题 → 进入 REPLAN 做有限重规划，再审一遍。
-        // 之前这里只把 review() 的警告拼到消息上，用户照样能确认超预算/赶不上的方案——
-        // 审核发现问题却不改变结果，等于没有审核。
-        ctx.setState(AgentState.REFLECT);
-        Timer.Sample reflectSample = stageTimer.start();
+        AgentDtos.AgentResult preview;
         PlanReviewLoop.Outcome outcome;
+        Timer.Sample reflectSample = stageTimer.start();
         try {
-            outcome = traced(ctx, com.travel.agent.entity.AgentTask.RECEIVER_REVIEWER,
-                    "REVIEW", () -> planReviewLoop.run(ctx, candidate, trip),
-                    o -> (o.verdict().passed() ? "审核通过" : "审核未通过：" + o.verdict().highIssues().size() + " 项高风险")
-                            + (o.attempts() == 0 ? "" : "，已重规划 " + o.attempts() + " 次"));
+            java.util.List<Coordinator.Receipt<?>> parallel = coordinator.dispatchAll(ctx, java.util.List.of(
+                    new Coordinator.ParallelTask<>(
+                            Coordinator.TaskSpec.after(com.travel.agent.entity.AgentTask.RECEIVER_EXECUTOR,
+                                    "PREVIEW", planTask),
+                            () -> executorAgent.preview(ctx, candidate, trip),
+                            p -> "生成 Diff 预览："
+                                    + (p.getDiff() == null ? 0 : p.getDiff().getChanges().size()) + " 项变更"),
+                    new Coordinator.ParallelTask<>(
+                            Coordinator.TaskSpec.after(com.travel.agent.entity.AgentTask.RECEIVER_REVIEWER,
+                                    "REVIEW", planTask),
+                            () -> reflectAgent.reviewVerdict(candidate, trip),
+                            v -> v.passed() ? "审核通过"
+                                    : "审核未通过：" + v.highIssues().size() + " 项高风险")));
+            preview = (AgentDtos.AgentResult) parallel.get(0).value();
+            Coordinator.TaskHandle previewTask = parallel.get(0).handle();
+            Coordinator.TaskHandle reviewTask = parallel.get(1).handle();
+            ReflectAgent.ReviewVerdict initialVerdict = (ReflectAgent.ReviewVerdict) parallel.get(1).value();
+
+            // 反思（V2.2 FR-06）：审核发现 HIGH 级硬约束问题 → 派 REPLAN 任务（依赖 REVIEW）做有限
+            // 重规划，再审一遍。之前这里只把审核警告拼到消息上，用户照样能确认超预算/赶不上的方案——
+            // 审核发现问题却不改变结果，等于没有审核。
+            ctx.setState(AgentState.REFLECT);
+            outcome = planReviewLoop.run(ctx, candidate, trip, reviewTask, initialVerdict);
+            // 重规划可能改过条目/时间/费用：用最终计划重建 Diff，保证用户看到的就是最后要提交的内容。
+            // 这次预览是「回收重派」（replacesTaskId=首轮预览，发 recover 事件）：首轮结果作废，
+            // 同一逻辑工作只留一份最终结果。
+            if (outcome.attempts() > 0) {
+                final AgentPlan repairedPlan = outcome.plan();
+                preview = coordinator.redispatch(ctx,
+                        Coordinator.TaskSpec.after(com.travel.agent.entity.AgentTask.RECEIVER_EXECUTOR,
+                                        "PREVIEW", outcome.reviewTask())
+                                .replacing(previewTask, 1, "重规划后重建 Diff 预览"),
+                        () -> executorAgent.preview(ctx, repairedPlan, trip),
+                        p -> "重建 Diff 预览："
+                                + (p.getDiff() == null ? 0 : p.getDiff().getChanges().size()) + " 项变更")
+                        .value();
+            }
         } finally {
             stageTimer.stop(AgentStageTimer.STAGE_REFLECT, reflectSample);
         }
-        // 重规划可能改过条目/时间/费用：用最终计划重建 Diff，保证用户看到的就是最后要提交的内容
         final AgentPlan planned = outcome.attempts() > 0 ? outcome.plan() : candidate;
-        if (outcome.attempts() > 0) {
-            preview = executorAgent.preview(ctx, planned, trip);
-        }
         // 模板事实 + 模型润色：润色失败或不可用时原样返回模板（必须在修复之后，数字才是最终值）
         preview.setMessage(planNarrationService.polish(composePlanMessage(planned)));
         applyReview(preview, outcome);
@@ -601,7 +630,8 @@ public class AgentEngine {
      * INVOKE_TOOL：LLM 选中一个已注册的 MCP 外部工具并给出参数，直接执行（工具层保证只读）。
      * 仅 LLM 路径可产出该意图；规则兜底路径不会走到这里。
      */
-    private AgentDtos.AgentResult answerInvokeTool(AgentContext ctx, IntentResult intent) {
+    private AgentDtos.AgentResult answerInvokeTool(AgentContext ctx, IntentResult intent,
+                                                   Coordinator.TaskHandle intentTask) {
         String toolName = intent.getToolName();
         AgentTool tool = toolRegistry.get(toolName);
         if (tool == null) {
@@ -617,12 +647,14 @@ public class AgentEngine {
             return aborted(ctx);
         }
         // tool 阶段：外部 MCP / 内置只读工具调用（ToolInvoker 内部含审计与 tool_call/tool_result 事件）
+        // 任务图：TOOL 依赖 INTENT（先知道要调什么，才谈得上调工具）
         Timer.Sample toolSample = stageTimer.start();
         try {
-            result = traced(ctx, "tool-invoker", "TOOL",
+            result = coordinator.dispatch(ctx,
+                    Coordinator.TaskSpec.after("tool-invoker", "TOOL", intentTask),
                     () -> toolInvoker.invoke(ctx, toolName,
                             intent.getToolArgs() == null ? Map.of() : intent.getToolArgs()),
-                    r -> "调用外部工具 " + toolName);
+                    r -> "调用外部工具 " + toolName).value();
         } finally {
             stageTimer.stop(AgentStageTimer.STAGE_TOOL, toolSample);
         }

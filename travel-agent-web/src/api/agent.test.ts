@@ -104,4 +104,20 @@ describe('streamAgentChat', () => {
     close();
     expect(FakeEventSource.last().readyState).toBe(FakeEventSource.CLOSED);
   });
+
+  it('任务图事件（delegate / recover / conflict）也在监听白名单内，不会被静默丢弃', async () => {
+    const onEvent = vi.fn();
+    await streamAgentChat({ message: '规划行程' }, { onEvent });
+
+    const es = FakeEventSource.last();
+    // EventSource 只能按登记过的事件名监听：漏登记的 SSE 事件浏览器直接丢弃，
+    // 过程时间线就会缺这几类行（Batch 15 回归点）
+    es.emit('delegate', { taskId: 't1', receiver: 'planner-agent', taskType: 'PLAN', dependsOn: [], attempt: 0 });
+    es.emit('recover', { taskId: 't2', taskType: 'PREVIEW', replacesTaskId: 't1', attempt: 1, reason: '重派' });
+    es.emit('conflict', { receiver: 'reflect-agent', taskType: 'REVIEW', missingDeps: ['t9'], reason: '前置未完成' });
+
+    expect(onEvent).toHaveBeenCalledWith('delegate', expect.objectContaining({ taskType: 'PLAN' }));
+    expect(onEvent).toHaveBeenCalledWith('recover', expect.objectContaining({ attempt: 1 }));
+    expect(onEvent).toHaveBeenCalledWith('conflict', expect.objectContaining({ taskType: 'REVIEW' }));
+  });
 });

@@ -21,7 +21,21 @@ const EVENT_ICON: Record<string, string> = {
   confirmation: '⏸',
   complete: '🏁',
   error: '⚠️',
+  // Batch 15：任务 DAG 的委派 / 重派 / 冲突
+  delegate: '📤',
+  recover: '♻️',
+  conflict: '🚫',
 };
+
+/** 事件字段取文案：非空字符串才采用（缺失时由 stageText 的占位文案兜底） */
+function field(value: unknown): string {
+  return typeof value === 'string' && value ? value : '';
+}
+
+/** 尝试次数：缺省或非法值一律按 0（首次）处理 */
+function attemptOf(data: any): number {
+  return typeof data?.attempt === 'number' && data.attempt >= 0 ? data.attempt : 0;
+}
 
 /**
  * 敏感参数红线：工具调用只展示工具名与参数的「字段名列表」（Object.keys），
@@ -52,6 +66,23 @@ function eventText(ev: ActivityEvent): string | null {
       return '本轮运行完成';
     case 'error':
       return typeof d?.message === 'string' && d.message ? d.message : 'Agent 执行出错';
+    // Batch 15：任务 DAG 的委派 / 重派 / 冲突；字段缺失时退回 stageText 的占位文案
+    case 'delegate': {
+      const receiver = field(d?.receiver);
+      const taskType = field(d?.taskType);
+      return receiver && taskType ? `委派 ${receiver}：${taskType}` : stageText(ev.event, d);
+    }
+    case 'recover': {
+      const taskType = field(d?.taskType);
+      return taskType ? `重派 ${taskType}（第 ${attemptOf(d) + 1} 次尝试）` : stageText(ev.event, d);
+    }
+    case 'conflict': {
+      const receiver = field(d?.receiver);
+      const taskType = field(d?.taskType);
+      return receiver && taskType
+        ? `任务冲突：${receiver}/${taskType} 前置未完成，已回收`
+        : stageText(ev.event, d);
+    }
     default:
       // 其余事件复用既有 STAGE_TEXT 映射；未映射的事件（如 focus）不单独成行
       return stageText(ev.event, d);
@@ -69,7 +100,8 @@ function relativeTime(time: number): string {
 
 /**
  * Agent 过程时间线（V2.2 §9.1 过程可视化）：消费 agentStore.activity，
- * 渲染 run/intent/planning/replan/tool_call/tool_result/rag_result/plan_update/confirmation/complete/error。
+ * 渲染 run/intent/planning/replan/tool_call/tool_result/rag_result/plan_update/confirmation/complete/error，
+ * 以及 Batch 15 任务 DAG 的 delegate/recover/conflict。
  * activity 为空时整块不渲染，ChatPanel 退化为既有单行 stage 动画。
  */
 export default function AgentActivityPanel({ activity }: Props) {
@@ -109,7 +141,7 @@ export default function AgentActivityPanel({ activity }: Props) {
           {rows.map((r, i) => (
             <div
               key={`${r.ev.time}-${i}`}
-              className={`aa-row ${r.ev.event === 'error' ? 'error' : ''}`}
+              className={`aa-row ${r.ev.event === 'error' || r.ev.event === 'conflict' ? 'error' : ''}`}
               data-event={r.ev.event}
             >
               <span className="aa-icon">{EVENT_ICON[r.ev.event] ?? '•'}</span>

@@ -73,6 +73,46 @@ describe('AgentActivityPanel', () => {
     expect(screen.getByText('规划失败：天气服务不可用')).toBeTruthy();
   });
 
+  it('Batch 15：delegate/recover/conflict 渲染委派、重派、冲突文案', () => {
+    const { container } = render(
+      <AgentActivityPanel
+        activity={[
+          ev('delegate', {
+            taskId: 't-plan',
+            receiver: 'planner-agent',
+            taskType: 'PLAN',
+            dependsOn: ['t-intent'],
+            attempt: 0,
+          }),
+          ev('recover', { taskId: 't-replan', replacesTaskId: 't-plan', taskType: 'REPLAN', attempt: 1 }),
+          ev('conflict', {
+            receiver: 'reflect-agent',
+            taskType: 'REVIEW',
+            missingDeps: ['t-preview'],
+            reason: '前置未完成',
+          }),
+        ]}
+      />,
+    );
+
+    expect(screen.getByText('委派 planner-agent：PLAN')).toBeTruthy();
+    expect(screen.getByText('重派 REPLAN（第 2 次尝试）')).toBeTruthy();
+    expect(screen.getByText('任务冲突：reflect-agent/REVIEW 前置未完成，已回收')).toBeTruthy();
+    // data-event 仍然输出事件名
+    expect(container.querySelector('[data-event="delegate"]')).toBeTruthy();
+    expect(container.querySelector('[data-event="recover"]')).toBeTruthy();
+    // 冲突行沿用既有 error 高亮类
+    expect(container.querySelector('[data-event="conflict"]')?.className).toContain('error');
+  });
+
+  it('Batch 15：三类事件的字段缺失时退回 stageText 占位文案（不抛错、不空行）', () => {
+    render(<AgentActivityPanel activity={[ev('delegate', {}), ev('recover', {}), ev('conflict', {})]} />);
+
+    expect(screen.getByText('委派 …：…')).toBeTruthy();
+    expect(screen.getByText('重派 …（第 1 次尝试）')).toBeTruthy();
+    expect(screen.getByText('任务冲突：…/… 前置未完成，已回收')).toBeTruthy();
+  });
+
   it('未映射的事件（focus）不单独渲染成行', () => {
     const { container } = render(
       <AgentActivityPanel activity={[ev('focus', { type: 'itinerary', day: 2 })]} />,

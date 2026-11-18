@@ -28,8 +28,17 @@ public class AgentContext {
      */
     private String runId;
 
-    /** 当前正在执行的阶段任务标识（工具调用追踪用它关联触发任务） */
-    private String currentTaskId;
+    /**
+     * 当前正在执行的阶段任务标识（工具调用追踪用它关联触发任务）。
+     *
+     * <p>第十五批起用 ThreadLocal 承载：任务图允许 PREVIEW / REVIEW 这类互不依赖的任务
+     * 在同一 run 内并行，共享一个字段会互相覆盖、把工具调用挂到别人的任务上。
+     * 对外访问方法签名不变（{@link #getCurrentTaskId()} / {@link #setCurrentTaskId(String)}）。
+     */
+    @JsonIgnore
+    @lombok.EqualsAndHashCode.Exclude
+    @lombok.ToString.Exclude
+    private final transient ThreadLocal<String> taskIdHolder = new ThreadLocal<>();
 
     /**
      * 会话记忆：前端生成的会话标识（跨页面切换保持），为空表示单轮对话。
@@ -75,6 +84,20 @@ public class AgentContext {
 
     public void addListener(Consumer<AgentEvent> listener) {
         listeners.add(listener);
+    }
+
+    /** 当前线程正在执行的任务 id（无则 null）；并行任务各自独立，互不覆盖 */
+    public String getCurrentTaskId() {
+        return taskIdHolder.get();
+    }
+
+    /** 设置当前线程的任务 id；传 null 表示退出该任务（清理 ThreadLocal，避免池线程串味） */
+    public void setCurrentTaskId(String taskId) {
+        if (taskId == null) {
+            taskIdHolder.remove();
+        } else {
+            taskIdHolder.set(taskId);
+        }
     }
 
     /** 请求取消本轮 Agent 执行：幂等，可被任意线程（Servlet 容器回调）调用。 */

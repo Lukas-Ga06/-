@@ -269,6 +269,14 @@ claim（PENDING→CONFIRMING）语义与 TTL 30 分钟都不许动。
 模块级失败不回滚已保存的行程（用户需求要先满足），失败模块靠 `POST /api/agent/executions/{id}/retry` 单独重试，
 成功项靠幂等键保证不重复创建。`plan_execution.plan_id` 唯一 = 同一方案只有一份逻辑执行。
 
+**任务图是确定性编排（第十五批）**：依赖边由引擎写死（`INTENT → PLAN → {PREVIEW ‖ REVIEW} → (REPLAN → REVIEW)*`），
+`Coordinator` 只执行图，**运行期不改图、不让 LLM 选择下一个任务**。前置任务不是 `SUCCEEDED` 时
+`AgentTraceService.startTask` 抛 `TaskDependencyException`：Coordinator 落一条 `CONFLICT` 任务（没有执行体）
+并拒绝执行 body——**不要**改成「阻塞等待依赖」（会占死线程池）。重派一律新行
+（`attempt+1`、`replacesTaskId=旧行`），旧行保留失败证据；同一逻辑工作只允许一份可用结果。
+并行只允许发生在无共享可变状态的任务间：`AgentContext.currentTaskId` 是 ThreadLocal，
+新增并行任务前先确认它不写共享状态（尤其不要并行写库/发 SSE）。
+
 ## 设计系统（方向 B：内容优先）
 
 **令牌**：`travel-agent-web/src/styles/global.css` 顶部的 `:root` 是唯一来源。
@@ -370,6 +378,9 @@ Spring Boot 3.5.7、全栈 Docker 化。）
   `ADD CONSTRAINT IF NOT EXISTS` 等）；现有 `V13__baseline_gap_h2.sql`、`V14__llm_quota_unique_h2.sql`；
 - 两个 profile 的 `flyway.locations` 各自只加载「migration + 自己那一份方言目录」，因此**同一版本号可以
   在 `migration-mysql` 与 `migration-h2` 中各有一份**（例如 `V13`），不会冲突；
+- **V15 起的追踪/任务表都在共享核心目录**：V15 `agent_run/agent_task/tool_call_trace`、V16 `content_hash/plan_execution/source_key`、
+  V17 `trip.party_size`、V18 `agent_task.depends_on/attempt/replaces_task_id` 全是双方言中性 SQL，
+  新增同类列时不要放进方言目录；
 - **方言目录里只放该方言需要的约束**：H2 侧没有 `llm_quota_usage` 唯一键（V8 在 MySQL 目录）曾是真实缺口，
   由 `V14`(H2) 补上——新增 MySQL 专属约束时要自问「H2 是否也需要等价物」，反之亦然；
 - **`V1__baseline.sql` 是「V2 之前」的等价比基线**（等价旧 `sql/init.sql`），语义上不能包含 V2+ 新增的

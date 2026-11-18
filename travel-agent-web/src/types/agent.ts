@@ -116,7 +116,8 @@ export type TaskReceiver =
 /** REPLAN 是 V2.2 FR-06 新增的任务类型：审核发现 HIGH 问题后的一次有限重规划 */
 export type TaskType = 'INTENT' | 'RESEARCH' | 'PLAN' | 'PREVIEW' | 'REVIEW' | 'REPLAN' | 'TOOL' | 'COMMIT';
 
-export type TaskViewStatus = 'RUNNING' | 'SUCCEEDED' | 'FAILED';
+/** CONFLICT（Batch 15）：前置任务未完成，本次派发被拒绝（不执行任务体） */
+export type TaskViewStatus = 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CONFLICT';
 
 /** GET /api/agent/runs/{runId} 的任务链节点 */
 export interface TaskView {
@@ -129,6 +130,12 @@ export interface TaskView {
   startedAt: string;
   endedAt?: string | null;
   durationMs?: number | null;
+  /** 前置任务 id 列表（Batch 15）；旧数据/无前置为 [] 或缺失 */
+  dependsOn?: string[];
+  /** 第几次尝试：0 = 首次，>0 = 重派（Batch 15）；旧数据缺失 */
+  attempt?: number;
+  /** 本次替换掉的任务 id（失败/冲突/旧版本）；首次为 null（Batch 15） */
+  replacesTaskId?: string | null;
 }
 
 /** 运行内的一次工具调用（摘要已由后端脱敏为 digest） */

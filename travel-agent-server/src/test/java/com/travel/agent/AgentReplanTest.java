@@ -13,6 +13,8 @@ import com.travel.agent.dto.AgentDtos;
 import com.travel.agent.dto.TripDtos;
 import com.travel.agent.entity.ItineraryItem;
 import com.travel.agent.entity.Trip;
+import com.travel.agent.entity.AgentTask;
+import com.travel.agent.service.AgentTraceService;
 import com.travel.agent.service.TravelCatalogService;
 import com.travel.agent.service.TripService;
 import com.travel.agent.support.IntegrationTestSupport;
@@ -55,6 +57,9 @@ class AgentReplanTest extends IntegrationTestSupport {
 
     @Autowired
     private TripService tripService;
+
+    @Autowired
+    private AgentTraceService traceService;
 
     @Autowired
     private TravelCatalogService catalog;
@@ -167,6 +172,32 @@ class AgentReplanTest extends IntegrationTestSupport {
         // 审核通过时确认不需要风险确认，可正常提交
         AgentDtos.AgentResult committed = agentEngine.confirm(result.getPlanId(), account.id(), null, null);
         assertThat(committed.getStatus()).isEqualTo(AgentDtos.STATUS_COMPLETED);
+
+        // 第十五批：重规划是任务图上的委派节点——
+        // REPLAN 依赖首轮 REVIEW；复审依赖 REPLAN；重建的 PREVIEW 是「回收重派」
+        // （attempt=1、replacesTaskId=首轮预览），旧行保留为证据、结果只留最后一份。
+        List<AgentTask> tasks = traceService.tasksOf(ctx.getRunId());
+        List<String> taskTypes = tasks.stream().map(AgentTask::getTaskType).toList();
+        assertThat(taskTypes).containsSubsequence(
+                "INTENT", "PLAN", "PREVIEW", "REVIEW", "REPLAN", "REVIEW", "PREVIEW");
+        AgentTask firstReview = tasks.stream()
+                .filter(t -> "REVIEW".equals(t.getTaskType())).findFirst().orElseThrow();
+        AgentTask replan = tasks.stream()
+                .filter(t -> "REPLAN".equals(t.getTaskType())).findFirst().orElseThrow();
+        AgentTask secondReview = tasks.stream()
+                .filter(t -> "REVIEW".equals(t.getTaskType())).skip(1).findFirst().orElseThrow();
+        AgentTask firstPreview = tasks.stream()
+                .filter(t -> "PREVIEW".equals(t.getTaskType())).findFirst().orElseThrow();
+        AgentTask rebuiltPreview = tasks.stream()
+                .filter(t -> "PREVIEW".equals(t.getTaskType())).skip(1).findFirst().orElseThrow();
+        assertThat(replan.getDependsOn()).contains(firstReview.getTaskId());
+        assertThat(replan.getAttempt()).isZero();
+        assertThat(secondReview.getDependsOn()).contains(replan.getTaskId());
+        assertThat(rebuiltPreview.getAttempt()).isEqualTo(1);
+        assertThat(rebuiltPreview.getReplacesTaskId()).isEqualTo(firstPreview.getTaskId());
+        assertThat(tasks).allMatch(task -> AgentTask.STATUS_SUCCEEDED.equals(task.getStatus()));
+        // 委派与回收重派都进了 SSE 过程时间线
+        assertThat(events).extracting(AgentEvent::event).contains("delegate", "recover");
     }
 
     @Test

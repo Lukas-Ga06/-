@@ -43,5 +43,8 @@ travel-agent-web/playwright-report/
 # e2e 登录态（含有效会话 Cookie，绝不能入库）
 travel-agent-web/e2e/.auth/
 
+# ---- 真实 Key 联调证据（.e2e/amap-real-key-probe.ps1 的输出，含临时库与实例日志）----
+.e2e/amap-key-*/
+
 # ---- 导出/打包产物（含密钥快照风险，不入库） ----
 /travel-agent-*.zip

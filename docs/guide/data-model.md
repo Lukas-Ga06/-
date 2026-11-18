@@ -84,8 +84,12 @@ erDiagram
 | `rag_chunk`（`RagChunk`） | RAG | `id` |
 | `rag_document_version`（`RagDocumentVersion`） | RAG | `id` |
 | `llm_quota_usage`（`LlmQuotaUsage`） | 配额 | `id` |
+| `agent_run`（`AgentRun`） | Agent 追踪 | `id` |
+| `agent_task`（`AgentTask`） | Agent 任务图 | `id` |
+| `tool_call_trace`（`ToolCallTrace`） | Agent 追踪 | `id` |
+| `plan_execution`（`PlanExecution`） | Agent 同步台账 | `id` |
 
-19 张表用 `@GeneratedValue(strategy = GenerationType.IDENTITY)` 自增。唯一例外是 `pending_plan`：`@Id @Column(name = "plan_id", length = 64) private String planId`，由 `PlannerAgent` 生成后直接作主键，**没有 `id` 列**，仓库为 `JpaRepository<PendingPlanRecord, String>`。
+23 张表用 `@GeneratedValue(strategy = GenerationType.IDENTITY)` 自增。唯一例外是 `pending_plan`：`@Id @Column(name = "plan_id", length = 64) private String planId`，由 `PlannerAgent` 生成后直接作主键，**没有 `id` 列**，仓库为 `JpaRepository<PendingPlanRecord, String>`。
 
 ## 2. 核心业务表
 
@@ -504,6 +508,33 @@ MySQL 的唯一索引允许多个 `NULL`，所以同一文档只可能有一行 
 （清理幂等，重试不会多删）。核心方法是包可见的 `RagVersionService#purgeOldVersionChunks(int)`，
 `RagChunkRetentionTest` 覆盖它；调度类只负责触发。
 
+### 4.6 Agent 运行追踪与任务图（`agent_run` / `agent_task` / `tool_call_trace` / `plan_execution`）
+
+V2.2 的三张追踪表 + 一张同步台账，**全部由 `AgentTraceService` 写入**（每笔独立事务，追踪失败静默降级；
+详见 [DEVELOPMENT.md](../DEVELOPMENT.md)「追踪不反噬主流程」）。保留期 14 天，每日 04:40 由
+`AgentTraceRetentionJob` 清理（`deleteByStartedAtBefore`，批量幂等）。
+
+| 表 | 关键列 | 说明 |
+| --- | --- | --- |
+| `agent_run` | `run_id`（唯一）、`user_id`、`trip_id`、`message`、`intent`、`status`、`started_at`、`ended_at` | 一次对话 = 一次 run；`status`：RUNNING / SUCCEEDED / FAILED / CANCELLED |
+| `agent_task` | `task_id`（唯一）、`run_id`、`receiver`、`task_type`、`status`、`summary`、`error`、`started_at`、`ended_at`、**`depends_on`**、**`attempt`**、**`replaces_task_id`** | 任务图节点；`status`：RUNNING / SUCCEEDED / FAILED / **CONFLICT**（V15 建表，V18 补后三列） |
+| `tool_call_trace` | `run_id`、`task_id`（关联触发任务）、`tool_name`、`args_digest`/`result_digest`（截断摘要）、`success`、`error_code`、`latency_ms` | 每次工具调用一条；摘要不含密钥 |
+| `plan_execution` | `execution_id`（唯一）、`plan_id`（唯一）、`user_id`、`trip_id`、`modules_json` | 确认提交后的跨模块同步台账；`plan_id` 唯一 = 同一方案只有一份逻辑执行 |
+
+**任务图字段（V18，批次 15 / FR-02/FR-04）**：
+
+| 列 | 类型 | 语义 |
+| --- | --- | --- |
+| `depends_on` | `VARCHAR(1000)` | 前置任务 id 列表（逗号分隔存储；DTO 为数组）。全部前置 `SUCCEEDED` 才允许启动 |
+| `attempt` | `INT NOT NULL DEFAULT 0` | 第几次尝试：0 = 首次，>0 = 回收重派 |
+| `replaces_task_id` | `VARCHAR(64)` | 本次重派替换掉的旧任务 id；旧行保留失败/冲突原值，不覆盖 |
+
+- 依赖边与内部状态**只由 `Coordinator` 写**：`startTask` 在启动前校验前置，未满足则抛
+  `TaskDependencyException` 并记一条 `CONFLICT` 行（无执行体，`started_at = ended_at`）。
+- 一次规划的任务图形状：`INTENT → PLAN → {PREVIEW ‖ REVIEW} → (REPLAN → REVIEW)*`；
+  `PREVIEW` 与 `REVIEW` 并行执行（时间区间重叠），任务行按声明顺序创建（`id` 顺序稳定）。
+- 表之间没有外键：`run_id` / `task_id` 是逻辑关联，追踪表随保留期清理，不影响业务表。
+
 ## 5. 跨表一致性约束
 
 以下约束**全部由代码保证，数据库层面没有外键或 CHECK**，绕过 Service 层改数据会破坏它们。
@@ -573,10 +604,10 @@ b=<budget>|s=<startDate>|e=<endDate>
 
 ## 6. Flyway 迁移策略与 `ddl-auto`
 
-### 6.1 迁移链：V1 基线 → V2–V11（便携）→ V12/V13/V14（按方言分目录）→ V15–V17（便携）
+### 6.1 迁移链：V1 基线 → V2–V11（便携）→ V12/V13/V14（按方言分目录）→ V15–V18（便携）
 
 **schema 的唯一权威是 Flyway**，两个 profile 的 `ddl-auto` 都是 `validate`（见 6.2）：Hibernate 只校验、不改结构。
-共 **17 个版本 / 18 个脚本**（V13 三份、V8/V12 在 MySQL 目录、V14 在 H2 目录）：
+共 **18 个版本 / 19 个脚本**（V13 三份、V8/V12 在 MySQL 目录、V14 在 H2 目录）：
 
 | 版本 | 脚本 | 目录 | 内容 | 策略 |
 | --- | --- | --- | --- | --- |
@@ -598,13 +629,14 @@ b=<budget>|s=<startDate>|e=<endDate>
 | 15 | `V15__agent_trace.sql` | `db/migration` | 建 `agent_run` / `agent_task` / `tool_call_trace` 三张追踪表 | 双方言中性 SQL；全新库自足建表 |
 | 16 | `V16__plan_execution.sql` | `db/migration` | `pending_plan.content_hash`、建 `plan_execution`、`schedule_item.source_key` | 中性 `ALTER ... ADD COLUMN`（Flyway 每库只跑一次） |
 | 17 | `V17__trip_party_size.sql` | `db/migration` | `trip.party_size`（同行人数，FR-01） | `INT NOT NULL DEFAULT 1`：存量行回填 1，与升级前单人成本口径一致 |
+| 18 | `V18__agent_task_dag.sql` | `db/migration` | `agent_task` 补 `depends_on` / `attempt` / `replaces_task_id`（任务图，FR-02/FR-04） | 中性 `ALTER ... ADD COLUMN`；`attempt INT NOT NULL DEFAULT 0` 回填存量行（视为首次尝试） |
 
 **目录与加载**（`application.yml` / `application-mysql.yml` 的 `spring.flyway.locations`）：
 
 | profile | `locations` | 实际看到的版本 |
 | --- | --- | --- |
-| 默认（H2） | `classpath:db/migration,classpath:db/migration-h2` | V1–V11 + V13（H2 版）+ V14 + V15–V17；**没有 V12**，且缺口 V8 是预期 |
-| `mysql` | `classpath:db/migration,classpath:db/migration-mysql` | V1–V13 全链（V8 / V12 / V13 是 MySQL 版）+ V15–V17；没有 V14（H2 专属） |
+| 默认（H2） | `classpath:db/migration,classpath:db/migration-h2` | V1–V11 + V13（H2 版）+ V14 + V15–V18；**没有 V12**，且缺口 V8 是预期 |
+| `mysql` | `classpath:db/migration,classpath:db/migration-mysql` | V1–V13 全链（V8 / V12 / V13 是 MySQL 版）+ V15–V18；没有 V14（H2 专属） |
 
 两个 profile 各自只看到**一个** V13，不会出现「同一 locations 内重复版本号」（`MigrationBaselineTest` 守住这条）。
 `db/migration-mysql/` 与 `db/migration-h2/` 里的脚本含 `information_schema` 探测、会话变量、`PREPARE` 动态语句或方言化

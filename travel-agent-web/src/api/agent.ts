@@ -27,8 +27,11 @@ export interface AgentStreamHandlers {
 const EVENT_NAMES = [
   // run：连接建立后紧跟 start 事件下发，data 为 { runId }（本轮运行的追踪标识，V2.2）
   // replan：审核未通过进入重规划时下发，data 为 { attempt, issues[] }（Batch 13）
+  // delegate / recover / conflict：任务图事件（Batch 15），委派 / 回收重派 / 前置未完成被拒
+  //   —— EventSource 只能按固定事件名监听，漏登记就等于静默丢弃，过程时间线会缺这三类行
   'run', 'start', 'intent', 'planning', 'replan', 'tool_call', 'tool_result',
   'rag_result', 'plan_update', 'focus', 'confirmation', 'complete', 'error',
+  'delegate', 'recover', 'conflict',
 ];
 
 /**

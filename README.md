@@ -366,13 +366,13 @@ POST   /api/agent/cancel          # 取消方案
 POST   /api/agent/undo            # 撤销上一次修改
 GET    /api/agent/plans/{planId}  # 取回待确认方案（刷新页面后恢复确认弹窗）
 GET    /api/agent/runs            # 最近运行列表（V2.2 追踪：状态/意图/耗时）
-GET    /api/agent/runs/{runId}    # 一次运行的完整追踪：任务链 + 工具调用（他人 404）
+GET    /api/agent/runs/{runId}    # 一次运行的完整追踪：任务图（依赖边）+ 工具调用（他人 404）
 GET    /api/agent/executions/{executionId}        # 确认后日程/预算/足迹同步台账
 POST   /api/agent/executions/{executionId}/retry  # 只重试失败模块（成功项不重复创建）
 POST   /api/agent/conversation/clear  # 开新会话：清掉当前用户在该会话下的历史消息
 
 GET    /api/agent/runs               # 最近的 Agent 运行（V2.2 追踪）
-GET    /api/agent/runs/{runId}       # 运行明细：任务链 + 工具调用
+GET    /api/agent/runs/{runId}       # 运行明细：任务图（依赖边/尝试/替换）+ 工具调用
 GET    /api/agent/executions/{id}    # 确认后同步台账（日程/预算/足迹逐模块状态）
 POST   /api/agent/executions/{id}/retry  # 只重试失败的同步模块（幂等）
 
@@ -533,7 +533,7 @@ cd travel-agent-server && mvn test
 cd travel-agent-web && npm run typecheck && npm test && npm run build
 ```
 
-当前覆盖（后端 389 个 / 前端 157 个 / e2e 5 个，以 CI 输出为准）：
+当前覆盖（后端 394 个 / 前端 166 个 / e2e 5 个，以 CI 输出为准）：
 
 - 认证与授权：401 契约、跨用户读写与删除行程；
 - Agent 计划落地：ADD_ITEM / MODIFY_ITEM / REMOVE_ITEM、跨行程操作守卫、确认提交与撤销（含撤销新建行程）；
@@ -543,6 +543,9 @@ cd travel-agent-web && npm run typecheck && npm test && npm run build
   修不好时确认门要求 `acknowledgeIssues`（未勾选被拒且方案不被消费）；
 - **FR-01 需求槽位**：缺目的地/天数/人数先合并追问、跨轮补槽、拒绝回答才兜底且兜底值明示、
   人数贯通行程/预算/路书（酒店双人间计房数、餐饮门票按人头）；
+- **FR-02/FR-04 任务图**：依赖边落库可查（PLAN→INTENT、PREVIEW/REVIEW→PLAN）、PREVIEW 与 REVIEW 并行
+  （时间区间重叠、任务行顺序稳定）、前置未完成拒绝启动并记 CONFLICT、回收重派只产生一份结果、
+  delegate/recover/conflict 三类过程事件；
 - 工具层契约：只读工具才允许注册、风险评估等级、业务错误原样透出；
 - 理解精度：日期→行程天映射、意图路由（闲聊不被误写成日程）、时间冲突检查（含 MODIFY）；
 - 数据一致性：删除行程的级联清理、记账分项与总支出对账；
@@ -586,17 +589,18 @@ Spring Boot 3.5、全栈 Docker 化，以及若干轮逻辑缺陷修复与安全
 合并追问，用户答多少补多少（跨轮续槽），拒绝回答才按默认值继续且**明示兜底项**；`trip.party_size`（V17）
 把人数贯通到预算：酒店双人间计房数、餐饮/门票按人头、交通整车不放大；路书与行程页同步展示人数/房数。
 
+**任务图与委派（第十五批，FR-02/FR-04）**：阶段序升级成确定性任务图
+`INTENT → PLAN → {PREVIEW ‖ REVIEW} → (REPLAN → REVIEW)*`——依赖边落库可查（V18 `agent_task.depends_on`），
+`PREVIEW` 与 `REVIEW` 并行执行，审核结论委派 `REPLAN` 任务、复审依赖它，重规划后的 Diff 由预览重派重建；
+前置未完成拒绝启动并记 `CONFLICT`，回收重派只产生一份结果；`delegate` / `recover` / `conflict`
+三类事件进 SSE 过程时间线，运行记录抽屉展示依赖与尝试次数。编排规则由引擎写死、模型不参与调度（ADR-011）。
+
 按优先级继续推进：
 
-**P0 自主编排（下一迭代首选：FR-02/FR-04 任务 DAG 与委派）**
-- 现在一次运行的任务链是固定阶段序（`INTENT → PLAN → RESEARCH → PREVIEW → REVIEW → REPLAN → COMMIT`），
-  `AgentTask` 只有状态没有依赖；REPLAN 由引擎内联调用修复器，不是「派给负责的 Agent」。
-- 下一批给 `AgentTask` 补 `dependsOn` + `CONFLICT` 态，并引入确定性的 `Coordinator` 派发/回收/重派，
-  让任务图可查、可并行、可重派。方案见 [docs/guide/v2.2-iteration.md](docs/guide/v2.2-iteration.md) §7。
-
-**P0 产品力（第十批已把通道铺好，剩"真 Key 联调"）**
+**P0 产品力（下一迭代首选：真实数据源联调）**
 - 高德 MCP 已接成一等配置（`travel.mcp.servers`，12 个 `mcp_amap_*` 工具 + Windows `npx` 兼容 + 失败降级），
-  见 [docs/guide/mcp-amap.md](docs/guide/mcp-amap.md)；**还差后端「Web 服务」Key 做真实 POI/路径/坐标联调**；
+  见 [docs/guide/mcp-amap.md](docs/guide/mcp-amap.md)；**还差后端「Web 服务」Key 做真实 POI/路径/GCJ-02 联调**，
+  拿到 Key 后按该文档「真实 Key 联调（一键验证）」跑 `.tools/amap-real-key-probe.ps1` 即可产出证据；
   酒店/餐厅开放平台同理由同一套 MCP 配置扩展（天气已接 Open-Meteo）。
 
 **P1 数据层与部署可信度（第十批已完成主体）**

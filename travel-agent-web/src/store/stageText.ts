@@ -7,12 +7,22 @@
  */
 
 export interface ActivityEvent {
-  /** SSE 事件名：run / start / intent / planning / replan / tool_call / tool_result / rag_result / plan_update / focus / confirmation / complete / error */
+  /** SSE 事件名：run / start / intent / planning / replan / tool_call / tool_result / rag_result / plan_update / focus / confirmation / complete / error / delegate / recover / conflict（后三个为 Batch 15 任务 DAG 新增） */
   event: string;
   /** 事件负载（原样保存；渲染时只取白名单字段，工具参数绝不透出原文） */
   data: any;
   /** 收到事件的时间（epoch ms） */
   time: number;
+}
+
+/** 事件字段取文案：非空字符串才采用，缺失时回退占位符（新事件缺字段不抛错） */
+function pick(value: unknown, fallback = '…'): string {
+  return typeof value === 'string' && value ? value : fallback;
+}
+
+/** 尝试次数：缺省或非法值一律按 0（首次）处理 */
+function attemptOf(data: any): number {
+  return typeof data?.attempt === 'number' && data.attempt >= 0 ? data.attempt : 0;
 }
 
 const STAGE_TEXT: Record<string, (data: any) => string> = {
@@ -36,6 +46,13 @@ const STAGE_TEXT: Record<string, (data: any) => string> = {
     return `第 ${attempt} 次重规划：${first}`;
   },
   confirmation: () => '等待你的确认…',
+  // Batch 15：任务 DAG 的委派 / 重派 / 冲突（data 见 batch15 契约 §4）
+  // delegate: { taskId, receiver, taskType, dependsOn[], attempt }
+  delegate: (d) => `委派 ${pick(d?.receiver)}：${pick(d?.taskType)}`,
+  // recover: { taskId, replacesTaskId, attempt, reason }
+  recover: (d) => `重派 ${pick(d?.taskType)}（第 ${attemptOf(d) + 1} 次尝试）`,
+  // conflict: { receiver, taskType, missingDeps[], reason }
+  conflict: (d) => `任务冲突：${pick(d?.receiver)}/${pick(d?.taskType)} 前置未完成，已回收`,
 };
 
 /**

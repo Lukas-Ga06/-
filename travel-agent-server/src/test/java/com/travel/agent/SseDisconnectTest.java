@@ -124,8 +124,10 @@ class SseDisconnectTest extends IntegrationTestSupport {
         AgentDtos.AgentResult result = agentEngine.handle(ctx);
 
         assertThat(result.getIntent()).isEqualTo(AgentEngine.CANCELLED_INTENT);
-        assertThat(events).as("只有 start 与 run（V2.2 追踪标识）；取消后不再规划、不再 complete")
-                .containsExactly("start", "run");
+        // 第十五批起 intent 阶段是任务图根节点：delegate 在任务启动前发出（任务行已落库，
+        // 委派事实必须可见）；取消发生在该任务 body 内，所以之后不再规划、不再 complete。
+        assertThat(events).as("只有 start / run / delegate；取消后不再规划、不再 complete")
+                .containsExactly("start", "run", "delegate");
         assertThat(disconnectCount("cancelled")).isEqualTo(cancelledBefore + 1.0);
     }
 

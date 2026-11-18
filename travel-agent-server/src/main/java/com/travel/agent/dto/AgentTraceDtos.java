@@ -42,6 +42,12 @@ public class AgentTraceDtos {
         private String receiver;
         private String taskType;
         private String status;
+        /** 前置任务 id 列表（第十五批；无前置为空数组，旧数据同样为空数组） */
+        private List<String> dependsOn;
+        /** 第几次尝试：0 = 首次；>0 = 回收重派（第十五批） */
+        private Integer attempt;
+        /** 本次任务替换掉的旧任务 id（第十五批；首次为 null） */
+        private String replacesTaskId;
         private String summary;
         private String error;
         private LocalDateTime startedAt;
@@ -95,6 +101,9 @@ public class AgentTraceDtos {
                 .receiver(task.getReceiver())
                 .taskType(task.getTaskType())
                 .status(task.getStatus())
+                .dependsOn(task.dependencies())
+                .attempt(task.getAttempt() == null ? 0 : task.getAttempt())
+                .replacesTaskId(task.getReplacesTaskId())
                 .summary(task.getSummary())
                 .error(task.getError())
                 .startedAt(task.getStartedAt())

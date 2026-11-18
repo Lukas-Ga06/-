@@ -29,6 +29,9 @@ function taskStatusMeta(status: string): { text: string; tone: 'ok' | 'fail' | '
       return { text: '成功', tone: 'ok' };
     case 'FAILED':
       return { text: '失败', tone: 'fail' };
+    // Batch 15：前置未完成、任务被拒绝启动
+    case 'CONFLICT':
+      return { text: '冲突', tone: 'fail' };
     default:
       return { text: '运行中', tone: 'run' };
   }
@@ -72,6 +75,16 @@ function RunRow({ run, onClick }: { run: RunSummary; onClick: () => void }) {
 
 function TaskRow({ task }: { task: TaskView }) {
   const meta = taskStatusMeta(task.status);
+  // Batch 15 任务 DAG：依赖数 / 重派次数 / 是否替代前序任务（旧后端字段缺失时整行不出现）
+  const dependsOn = Array.isArray(task.dependsOn) ? task.dependsOn : [];
+  const attempt = typeof task.attempt === 'number' && task.attempt > 0 ? task.attempt : 0;
+  const replacesTaskId =
+    typeof task.replacesTaskId === 'string' && task.replacesTaskId ? task.replacesTaskId : '';
+  const dagBits = [
+    dependsOn.length > 0 ? `依赖 ${dependsOn.length} 项` : null,
+    attempt > 0 ? `第 ${attempt + 1} 次尝试` : null,
+    replacesTaskId ? '替代前序任务' : null,
+  ].filter((v): v is string => v != null);
   return (
     <div className="task-row" data-testid={`agent-task-${task.taskId}`}>
       <span className="task-chain">
@@ -80,6 +93,15 @@ function TaskRow({ task }: { task: TaskView }) {
       <span className={`run-badge ${meta.tone}`}>{meta.text}</span>
       <span className="task-body">
         {task.summary && <span className="task-summary">{task.summary}</span>}
+        {dagBits.length > 0 && (
+          // 依赖 id 全文只放 title，不铺在行内
+          <span
+            className="run-sub"
+            title={dependsOn.length > 0 ? `依赖：${dependsOn.join('、')}` : undefined}
+          >
+            {dagBits.join(' · ')}
+          </span>
+        )}
         {task.error && <span className="run-error">{task.error}</span>}
         <span className="run-sub">
           {formatClock(task.startedAt)} · {formatDuration(task.durationMs)}

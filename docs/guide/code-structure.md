@@ -10,9 +10,9 @@
 ```
 travel-agent/
 ├── travel-agent-server/          # 后端：Spring Boot 3 / Java 17
-│   ├── src/main/java/com/travel/agent/   # 业务代码（210 个文件，16 个包）
+│   ├── src/main/java/com/travel/agent/   # 业务代码（231 个文件，16 个包）
 │   ├── src/main/resources/                # application*.yml、RAG 知识库、Flyway 迁移
-│   ├── src/test/java/com/travel/agent/    # JUnit + MockMvc（86 个文件，内存 H2）
+│   ├── src/test/java/com/travel/agent/    # JUnit + MockMvc（98 个文件，内存 H2）
 │   ├── data/                              # 本地 H2 库 + 联网城市缓存（gitignore）
 │   └── run-dev.ps1 / run-dev.cmd          # 本地启动脚本（注入 .env.local）
 ├── travel-agent-web/             # 前端：React 18 + TypeScript + Vite
@@ -35,7 +35,7 @@ HTTP / SSE / MCP / 渠道
 controller · channel · mcp          ← 只做协议适配，不写业务规则
         │
         ▼
-agent（状态机 + Intent/Planner/Executor/Reflect + 确认编排）
+agent（状态机 + 任务图 + Intent/Planner/Executor/Reflect + 确认编排）
         │
         ├──────────────┬──────────────┐
         ▼              ▼              ▼
@@ -62,26 +62,26 @@ agent（状态机 + Intent/Planner/Executor/Reflect + 确认编排）
 
 ---
 
-## 3. 包职责（后端 210 个主代码文件）
+## 3. 包职责（后端 231 个主代码文件）
 
 | 包 | 文件数 | 职责 | 关键类 |
 | --- | --- | --- | --- |
-| `agent` | 21 | Agent 引擎：状态机、四个 Agent、上下文、计划、会话记忆、待确认方案 | `AgentEngine`、`PlannerAgent`、`StructuredPlanner`、`PlanConfirmationService` |
+| `agent` | 28 | Agent 引擎：状态机、四个 Agent、任务图调度、上下文、计划、会话记忆、待确认方案 | `AgentEngine`、`Coordinator`、`PlanReviewLoop`、`PlannerAgent`、`StructuredPlanner`、`PlanConfirmationService` |
 | `controller` | 15 | REST API + SSE 流式接口 | `AgentController`、`TripController`、`SystemController` |
-| `service` | 36 | 行程 / 预算 / 操作历史 / 目录 / 天气 / 路线 / 办公 / 学习 / 健康 / 提醒 / 路书 / 存储 | `TripService`、`ItineraryService`、`OnlineCityService`、`AmapDataService` |
+| `service` | 40 | 行程 / 预算 / 操作历史 / 目录 / 天气 / 路线 / 办公 / 学习 / 健康 / 提醒 / 路书 / 存储 | `TripService`、`ItineraryService`、`OnlineCityService`、`AmapDataService` |
 | `tool` | 13 | `AgentTool` 契约、只读注册表、风险分级、调用入口、8 个内置只读工具 | `ToolRegistry`、`ToolInvoker`、`SafetyInterceptor` |
 | `rag` | 14 | Embedding（本地哈希 / OpenAI 兼容）、向量库、检索、知识库引导与版本化 | `RagService`、`InMemoryVectorStore`、`RagBootstrap` |
-| `repository` | 20 | Spring Data JPA 仓储 | — |
-| `entity` | 20 | JPA 实体（表结构以 Flyway 迁移为准） | `Trip`、`ItineraryItem`、`Expense` |
+| `repository` | 24 | Spring Data JPA 仓储 | — |
+| `entity` | 24 | JPA 实体（表结构以 Flyway 迁移为准） | `Trip`、`ItineraryItem`、`AgentTask` |
 | `mcp` | 7 | MCP 外部工具桥接（streamable HTTP / 本机 stdio） | `McpToolBridge`、`StdioMcpTransport` |
 | `config` | 13 | 配置属性、安全/异步/时区/追踪、引导数据 | `AmapProperties`、`SecurityConfig`、`DataInitializer` |
 | `security` | 11 | JWT、Cookie、访问票据、限流、用户上下文 | `JwtService`、`RateLimitFilter`、`AccessTicketService` |
-| `dto` | 10 | 传输对象（请求/响应），按业务模块聚合 | `AgentDtos`、`TripDtos`、`ApiResponse` |
+| `dto` | 11 | 传输对象（请求/响应），按业务模块聚合 | `AgentDtos`、`AgentTraceDtos`、`TripDtos`、`ApiResponse` |
 | `model` | 8 | 领域模型（不落库的只读数据） | `CityCatalog`、`Attraction`、`WeatherInfo` |
 | `channel` | 7 | 多渠道入口：Telegram / 微信公众号 / 通用 Webhook | `TelegramBotService`、`WebhookChannelController` |
 | `llm` | 6 | 统一 LLM 接口（OpenAI-compatible）+ 规则实现 + 委派降级 | `LlmClient`、`DelegatingLlmClient` |
 | `util` | 6 | 通用工具（城市名、坐标、日期、分页、重复规则） | `CityNames`、`CoordinateTransform`、`Paging` |
-| `exception` | 2 | 业务异常 + 全局异常处理 | `BusinessException`、`GlobalExceptionHandler` |
+| `exception` | 3 | 业务异常 + 任务依赖异常 + 全局异常处理 | `BusinessException`、`TaskDependencyException`、`GlobalExceptionHandler` |
 
 ---
 
@@ -89,30 +89,32 @@ agent（状态机 + Intent/Planner/Executor/Reflect + 确认编排）
 
 ### 4.1 Agent 引擎
 
-`AgentEngine` 只保留**状态机与编排**（361 行）：取消边界、会话记忆、规划 → 预览 → 反思 → 待确认链路、外部工具调用、确认接口的委托入口。具体职责拆到：
+`AgentEngine` 只保留**状态机与编排**（732 行）：取消边界、会话记忆、规划 → 并行预览/审核 → 待确认链路、任务图节点派发（经 `Coordinator`）、外部工具调用、确认接口的委托入口。具体职责拆到：
 
 | 类 | 行数 | 职责 |
 | --- | --- | --- |
-| `AssistantIntentHandler` | 185 | 备忘 / 日程 / 日报 / 健康的答复与直写 |
-| `TravelQueryHandler` | 128 | 知识问答（RAG）/ 预算 / 记账 |
-| `PlanConfirmationService` | 116 | 确认 / 取消 / 取回 / 撤销（Human-in-the-loop 并发语义） |
-| `AgentStageTimer` | 37 | `agent.stage{stage=intent\|plan\|tool\|commit}` 计时 |
-| `PlannerAgent` | 538 | 规划规则与结构化规划入口（新行程 / 行程修改） |
-| `PlannerDraftSupport` | 115 | 候选选择（景点/餐厅/替换） + 条目草稿 + 打车成本（两条路径共用口径） |
+| `AssistantIntentHandler` | 200 | 备忘 / 日程 / 日报 / 健康的答复与直写 |
+| `TravelQueryHandler` | 138 | 知识问答（RAG）/ 预算 / 记账 |
+| `PlanConfirmationService` | 271 | 确认 / 取消 / 取回 / 撤销（Human-in-the-loop 并发语义） |
+| `AgentStageTimer` | 53 | `agent.stage{stage=intent\|plan\|tool\|reflect\|commit}` 计时 |
+| `Coordinator` | 382 | 任务图执行：依赖校验、并行组、回收重派、CONFLICT |
+| `PlanReviewLoop` | 141 | 审核 → 有限重规划 → 再审闭环（派发 REPLAN / 复审） |
+| `PlannerAgent` | 725 | 规划规则与结构化规划入口（新行程 / 行程修改） |
+| `PlannerDraftSupport` | 128 | 候选选择（景点/餐厅/替换） + 条目草稿 + 打车成本（两条路径共用口径） |
 
 > 拆分原则：**新增协作类、不改公开签名**。`AgentEngine.confirm/cancel/pendingPreview/undo` 保留为委托入口，
 > 既有调用方与测试（`AgentStageMetricsTest`、`PendingPlanRevisionTest` 等）无需改动。
 
 ### 4.2 联网城市数据
 
-`OnlineCityService`（205 行）只做**编排与缓存决策**（内存 24h / 文件 7 天），能力委托给：
+`OnlineCityService`（243 行）只做**编排与缓存决策**（内存 24h / 文件 7 天），能力委托给：
 
 | 类 | 行数 | 职责 |
 | --- | --- | --- |
-| `CityGeoLocator` | 86 | 城市坐标定位：高德优先、Nominatim 兜底 |
-| `AmapGeocodeClient` | 193 | 高德地理编码（单点 / 批量 / 城市校验），包内协作类，不注册 Bean |
-| `OnlineCityCatalogReader` | 214 | 两套提示词 + 模型 JSON → `CityCatalog`（默认值与脏数据过滤） |
-| `CityCatalogDiskCache` | 69 | `data/online-cities/<城市>.json` 文件缓存（7 天） |
+| `CityGeoLocator` | 102 | 城市坐标定位：高德优先、Nominatim 兜底 |
+| `AmapGeocodeClient` | 221 | 高德地理编码（单点 / 批量 / 城市校验），包内协作类，不注册 Bean |
+| `OnlineCityCatalogReader` | 254 | 两套提示词 + 模型 JSON → `CityCatalog`（默认值与脏数据过滤） |
+| `CityCatalogDiskCache` | 82 | `data/online-cities/<城市>.json` 文件缓存（7 天） |
 
 ### 4.3 高德配置与坐标解析
 
@@ -129,6 +131,7 @@ agent（状态机 + Intent/Planner/Executor/Reflect + 确认编排）
 | --- | --- | --- |
 | 新 REST 接口 | `controller/XxxController` + `service/XxxService` + `dto/XxxDtos` | 响应统一 `ApiResponse`；鉴权走 `userId`/票据边界 |
 | 新 Agent 意图 | `IntentResult` 常量 → `IntentAgent`（LLM 提示 + 规则兜底）→ `AgentEngine` 路由 → 对应 Handler | 会落库的意图要同步票据只读拦截集合 `TICKET_READONLY_BLOCKED_INTENTS` |
+| 新任务图节点 | 引擎/审核闭环的调用点用 `Coordinator.dispatch` / `dispatchAll` 声明 `TaskSpec` | 依赖写死、运行期不改图、模型不参与调度（ADR-011） |
 | 新只读工具 | `tool/impl/XxxTool implements AgentTool`，在 `ToolRegistry` 注册 | `readOnly=true`；写操作必须走 `AgentPlan` + 确认 |
 | 新外部数据源 | `service/Xxx...Service`（REST）或 `mcp/`（MCP 通道） | 一律 fail-soft，失败降级不阻断规划 |
 | 新配置项 | `config/XxxProperties` + `application.yml`（环境变量占位） | 不新增散落的 `@Value` |
@@ -177,6 +180,8 @@ agent（状态机 + Intent/Planner/Executor/Reflect + 确认编排）
 ---
 
 ## 9. 本次整理变更清单（第十一批）
+
+> 下表行数是第十一批整理当时的快照；当前行数见 §4（第十五批后 `AgentEngine` 732 行、`PlannerAgent` 725 行、`OnlineCityService` 243 行）。
 
 | 项 | 之前 | 之后 |
 | --- | --- | --- |

@@ -482,6 +482,17 @@ data:{"planId":"plan-8f3c","tripId":null,"message":"…","intent":"PLAN_TRIP","s
 `confirmation`（含 `contentHash`，确认时回传见 §5.5）、`rag_result`（`{sources}`）、`error`（`{message}`）、
 `replan`（**V2.2 FR-06**：审核发现 HIGH 级问题、进入有限重规划时发一次，`data={attempt, issues:[摘要]}`，
 最多 2 次；修复动作随最终 `complete.review.repairs` 下发）。
+
+**任务图事件（批次 15 / FR-02/FR-04，纯增量）**：
+
+| 事件 | data | 时机 |
+| --- | --- | --- |
+| `delegate` | `{taskId, receiver, taskType, dependsOn[], attempt}` | 每次任务真正启动前（意图/规划/预览/审核/重规划/工具） |
+| `recover` | `{taskId, receiver, taskType, replacesTaskId, attempt, reason}` | 回收重派（取代旧任务）时 |
+| `conflict` | `{receiver, taskType, missingDeps[], reason}` | 前置任务未完成、派发被拒绝时 |
+
+旧前端不认识这三个事件可安全忽略（事件名与既有语义不变）；新前端在过程时间线里渲染为
+「委派 / 重派 / 冲突」三类行。
 错误：`401`（票据无效/过期，含用途不匹配）；线程池满时推送 `event:error` 后关闭。
 
 > 响应头带 `Referrer-Policy: no-referrer`，避免 `?ticket=` 随 Referer 外泄。
@@ -579,17 +590,27 @@ data:{"planId":"plan-8f3c","tripId":null,"message":"…","intent":"PLAN_TRIP","s
 `status`：`RUNNING` / `SUCCEEDED` / `FAILED` / `CANCELLED`（`NEED_CONFIRMATION` 记为 `SUCCEEDED`——规划已完成，等待用户动作）。
 错误：`401`
 
-### 5.11 GET /api/agent/runs/{runId} — 运行明细（任务链 + 工具调用）
+### 5.11 GET /api/agent/runs/{runId} — 运行明细（任务图 + 工具调用）
 鉴权：登录 ｜ 源码：`AgentController#runDetail` ｜ 参数：路径 `runId`
 ```json
 {"code":0,"message":"success","data":{
   "run":{"runId":"8f3c…","status":"SUCCEEDED","intent":"PLAN_TRIP","durationMs":8123,"error":null},
-  "tasks":[{"taskId":"t1","receiver":"intent-agent","taskType":"INTENT","status":"SUCCEEDED","summary":"识别意图: PLAN_TRIP","error":null,"durationMs":210},
-           {"taskId":"t2","receiver":"planner-agent","taskType":"PLAN","status":"SUCCEEDED","summary":"生成 9 项操作","error":null,"durationMs":6200}],
+  "tasks":[{"taskId":"t1","receiver":"intent-agent","taskType":"INTENT","status":"SUCCEEDED","dependsOn":[],"attempt":0,"replacesTaskId":null,"summary":"识别意图: PLAN_TRIP","error":null,"durationMs":210},
+           {"taskId":"t2","receiver":"planner-agent","taskType":"PLAN","status":"SUCCEEDED","dependsOn":["t1"],"attempt":0,"replacesTaskId":null,"summary":"生成 9 项操作","error":null,"durationMs":6200},
+           {"taskId":"t3","receiver":"executor-agent","taskType":"PREVIEW","status":"SUCCEEDED","dependsOn":["t2"],"attempt":0,"replacesTaskId":null,"summary":"生成 Diff 预览：9 项变更","error":null,"durationMs":35},
+           {"taskId":"t4","receiver":"reflect-agent","taskType":"REVIEW","status":"SUCCEEDED","dependsOn":["t2"],"attempt":0,"replacesTaskId":null,"summary":"审核通过","error":null,"durationMs":1820}],
   "toolCalls":[{"id":1,"taskId":"t2","toolName":"search_hotel","success":true,"errorCode":null,"latencyMs":12,"argsDigest":"{\"city\":\"杭州\"}","resultDigest":"[…]","startedAt":"2026-11-18 12:03:14"}]}}
 ```
 `receiver`：`intent-agent` / `research-agent` / `planner-agent` / `executor-agent` / `reflect-agent` / `tool-invoker`；
-`taskType`：`INTENT` / `RESEARCH` / `PLAN` / `PREVIEW` / `REVIEW` / `TOOL` / `COMMIT`。
+`taskType`：`INTENT` / `RESEARCH` / `PLAN` / `PREVIEW` / `REVIEW` / `REPLAN` / `TOOL` / `COMMIT`；
+`status`：`RUNNING` / `SUCCEEDED` / `FAILED` / `CONFLICT`（批次 15 新增：前置未完成、任务被拒绝启动）。
+
+**任务图字段（批次 15 / FR-02/FR-04，纯增量）**：`dependsOn`（前置任务 id 列表）、`attempt`
+（0 = 首次，>0 = 回收重派）、`replacesTaskId`（被本次重派替换的旧任务 id）。
+一次规划的任务图形状：`INTENT → PLAN → {PREVIEW ‖ REVIEW} → (REPLAN → REVIEW)*`；
+`PREVIEW` 与 `REVIEW` 并行执行（时间区间重叠，`agent_task.id` 顺序按声明顺序稳定）。
+`CONFLICT` 行只作证据、没有执行体（`endedAt` 与 `startedAt` 同时写入）。
+
 摘要字段为截断 JSON（不含密钥）。错误：`401`；`404` `运行记录不存在`（他人的 run 同样 404）
 
 ### 5.12 GET /api/agent/executions/{executionId} — 同步台账（V2.2 FR-09）

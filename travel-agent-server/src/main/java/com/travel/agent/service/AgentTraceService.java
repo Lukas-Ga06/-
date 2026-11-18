@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.travel.agent.entity.AgentRun;
 import com.travel.agent.entity.AgentTask;
 import com.travel.agent.entity.ToolCallTrace;
+import com.travel.agent.exception.TaskDependencyException;
 import com.travel.agent.repository.AgentRunRepository;
 import com.travel.agent.repository.AgentTaskRepository;
 import com.travel.agent.repository.ToolCallTraceRepository;
@@ -136,6 +137,26 @@ public class AgentTraceService {
 
     /** 开始一个任务，返回 taskId（失败返回 null，后续 finish 静默跳过） */
     public String startTask(String runId, Long userId, String receiver, String taskType) {
+        return startTask(runId, userId, receiver, taskType, List.of(), null, 0);
+    }
+
+    /**
+     * 开始一个任务图节点（第十五批 FR-02/FR-04）：
+     * 前置任务必须全部 SUCCEEDED 才允许启动，否则抛 {@link TaskDependencyException} 拒绝启动。
+     *
+     * <p>依赖边 / attempt / replacesTaskId 随任务一起落库，构成「任务图可查询」的数据面；
+     * 拒绝启动时不写 RUNNING 行（只有一条由 Coordinator 记的 CONFLICT 行）。
+     * runId 为空（追踪不可用）时退化为 null，调用方直接执行 body，行为与升级前一致。
+     */
+    public String startTask(String runId, Long userId, String receiver, String taskType,
+                            List<String> dependsOn, String replacesTaskId, int attempt) {
+        if (runId == null) {
+            return null;
+        }
+        List<String> missing = unsatisfiedDependencies(dependsOn);
+        if (!missing.isEmpty()) {
+            throw new TaskDependencyException(receiver, taskType, missing);
+        }
         try {
             return inNewTx(() -> taskRepository.save(AgentTask.builder()
                     .taskId(UUID.randomUUID().toString())
@@ -144,12 +165,63 @@ public class AgentTraceService {
                     .receiver(receiver)
                     .taskType(taskType)
                     .status(AgentTask.STATUS_RUNNING)
+                    .dependsOn(AgentTask.joinDependencies(dependsOn))
+                    .attempt(attempt)
+                    .replacesTaskId(replacesTaskId)
                     .startedAt(LocalDateTime.now())
                     .build()).getTaskId());
         } catch (RuntimeException e) {
             log.debug("记录 Agent 任务失败: {}", e.getMessage());
             return null;
         }
+    }
+
+    /**
+     * 记录一个冲突任务（第十五批）：前置未完成 / 任务被拒绝启动。
+     * 该行只作证据，没有执行体；结束后即可查询，不需要 finish。
+     */
+    public String recordConflict(String runId, Long userId, String receiver, String taskType,
+                                 List<String> dependsOn, String reason, int attempt, String replacesTaskId) {
+        if (runId == null) {
+            return null;
+        }
+        try {
+            LocalDateTime now = LocalDateTime.now();
+            return inNewTx(() -> taskRepository.save(AgentTask.builder()
+                    .taskId(UUID.randomUUID().toString())
+                    .runId(runId)
+                    .userId(userId)
+                    .receiver(receiver)
+                    .taskType(taskType)
+                    .status(AgentTask.STATUS_CONFLICT)
+                    .dependsOn(AgentTask.joinDependencies(dependsOn))
+                    .attempt(attempt)
+                    .replacesTaskId(replacesTaskId)
+                    .summary(truncate(reason, SUMMARY_MAX))
+                    .startedAt(now)
+                    .endedAt(now)
+                    .build()).getTaskId());
+        } catch (RuntimeException e) {
+            log.debug("记录任务冲突失败: receiver={} type={} err={}", receiver, taskType, e.getMessage());
+            return null;
+        }
+    }
+
+    /** 依赖校验：返回不存在或未成功的前置任务 id（顺序与入参一致） */
+    private List<String> unsatisfiedDependencies(List<String> dependsOn) {
+        if (dependsOn == null || dependsOn.isEmpty()) {
+            return List.of();
+        }
+        List<String> missing = new java.util.ArrayList<>();
+        for (String taskId : dependsOn) {
+            boolean ok = taskId != null && taskRepository.findByTaskId(taskId)
+                    .map(task -> AgentTask.STATUS_SUCCEEDED.equals(task.getStatus()))
+                    .orElse(false);
+            if (!ok) {
+                missing.add(taskId);
+            }
+        }
+        return missing;
     }
 
     /** 结束任务（成功/失败；失败静默） */

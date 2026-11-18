@@ -274,3 +274,195 @@ MCP 服务器 [amap] 接入失败，已跳过: timeout initialize
 
 架构位置与工具层闸门见 [架构](architecture.md) §6；`AMAP_KEY` / `MCP_ENABLED` / `AMAP_MAPS_API_KEY` 的运维口径见
 [部署与运维](deployment.md) §5。
+
+---
+
+## 7. 真实 Key 联调（一键验证）
+
+> 面向**已经拿到高德「Web 服务」Key、要证明真实 POI / 路径 / GCJ-02 坐标在本项目里生效**的人。
+> 工具是 `.e2e/amap-real-key-probe.ps1`（随仓库入库；`.tools/` 只放本地探针，不入版本库）。
+> 它**不改产品代码**：用独立端口 + 独立 H2 文件库拉起一个后端实例，跑「登录 → 规划两日游 → 确认 → 路线段」，
+> 把每一步的原始响应、统计与结论写到证据目录。本节也补上了 §5.2「没有真实 Key 所以未验证」那部分的验收路径。
+
+### 7.1 申请 Key：类型必须选「Web 服务」
+
+1. 打开高德开放平台控制台 <https://console.amap.com/> →「应用管理 / 我的应用」→ 创建应用；
+2. 添加 Key 时「服务平台」选 **Web 服务**（不是「Web端(JS API)」，也不是 iOS/Android）；
+3. 复制 Key。若控制台给该 Key 配了 **IP 白名单**，本机联调要把出口 IP 加进去，或临时留空。
+
+三个 Key 变量不要混（与 §1.1 一致，这里只列本节能用到的）：
+
+| 变量 | 代码读取点 | 用途 | 探针是否注入 |
+| --- | --- | --- | --- |
+| `AMAP_KEY` | `AmapProperties`（`travel.amap.key`，`application.yml` 的 `key: ${AMAP_KEY:}`） | 后端 REST：路径 `/v3/direction/driving`、POI `/v3/place/text`、地理编码 `/v3/geocode/geo` | **是**（核心） |
+| `AMAP_MAPS_API_KEY` | 只出现在 `travel.mcp.servers[].env`，由高德 MCP server 子进程读取 | MCP stdio 子进程（12 个 `maps_*` 工具） | 否（探针强制 `MCP_ENABLED=false`，只验 REST Key） |
+| `VITE_AMAP_KEY` | 前端 `travel-agent-web` 的 `amapLoader` | 前端地图渲染（JS API） | 否（JS API Key 不能给后端用） |
+
+### 7.2 MCP server 配置（可选链路）
+
+配置片段与 §2.2 完全一致，已写在 `travel-agent-server/src/main/resources/application.yml`：
+
+```yaml
+travel:
+  mcp:
+    enabled: ${MCP_ENABLED:false}
+    servers:
+      - name: amap
+        command: ["npx", "-y", "@amap/amap-maps-mcp-server"]
+        env:
+          AMAP_MAPS_API_KEY: ${AMAP_MAPS_API_KEY:}
+        read-only: true
+        timeout-ms: 30000
+```
+
+开启方式见 §2.3。注意 `AmapDataService.routeAvailable()` 的判定是
+「MCP 的 `maps_direction_driving` 工具已注册 **或** `AMAP_KEY` 非空」——
+所以 MCP 与 REST 任一可用都会让 `/api/system/status` 的 `routeProvider=amap`。
+探针为了把变量隔离清楚显式设 `MCP_ENABLED=false`：这样 `source=amap` 只可能来自 REST Key。
+
+### 7.3 运行（一条命令）
+
+```powershell
+cd D:\travel-agent
+powershell -ExecutionPolicy Bypass -File .e2e\amap-real-key-probe.ps1 -AmapKey "<你的Web服务Key>"
+```
+
+> 复用本机已经在跑的开发实例（例如 `run-dev.ps1` 起的 8080）：在命令后加 `-SkipStart -Port 8080`；该实例必须已经带 `AMAP_KEY` 启动。
+
+| 参数 | 默认 | 说明 |
+| --- | --- | --- |
+| `-AmapKey` | 必填 | 高德「Web 服务」Key；只注入子进程环境变量 `AMAP_KEY`，不写盘 |
+| `-Port` | `18090` | 探针实例端口（避开默认 8080） |
+| `-SkipStart` | 关 | 复用该端口上已启动的实例，不启停任何进程（该实例必须已有 `AMAP_KEY`） |
+| `-OutDir` | `.e2e\amap-key-<时间戳>` | 证据输出目录 |
+| `-DryRun` | 关 | 只校验参数与本地配置（Key 格式/端口/curl/java/mvn/jar），不启动服务 |
+| `-JarPath` | 自动找 | 指定后端 jar；缺省用 `travel-agent-server\target\travel-agent-server-*.jar`，没有先 `mvn -B -DskipTests package` |
+| `-StartupTimeoutSec` | `180` | `/actuator/health` 轮询超时 |
+| `-SkipRestDiag` | 关 | 跳过 4b 直连高德 REST 诊断（离线环境用） |
+
+脚本给**子进程**设置的环境变量（均以代码实际读取的为准）：
+`AMAP_KEY`、`AMAP_MAPS_API_KEY`（同一 Key；因 `MCP_ENABLED=false` 本次不生效，只保持变量口径一致）、
+`JWT_SECRET`（每次随机生成，不读 `.env.local`）、`RATE_LIMIT_ENABLED=false`、`LLM_ENABLED=false`、
+`WEATHER_REAL=false`、`MCP_ENABLED=false`、`DEMO_ACCOUNT=true`、`SERVER_PORT`、`SPRING_DATASOURCE_URL`（指向证据目录下的独立 H2）、
+`INVOICE_DIR`、`PHOTOS_DIR`。
+关掉 LLM 是为了让规划走规则引擎（不需要 LLM Key）；`/api/system/status` 不在 `SecurityConfig` 的 publicPaths 里，
+所以脚本**先登录再自检**（第 2 步先于第 1 步执行，汇总表仍按 0/1/2/3/4a/4b 排列）。
+
+### 7.4 预期输出与证据
+
+真 Key 正常时，控制台应看到（节选）：
+
+```
+== [2] demo 登录：POST /api/auth/login ...
+  PASS  2 demo 登录：username=demo，Cookie 已写入临时 jar（未落证据目录）
+
+== [1] 系统能力自检：GET /api/system/status
+        llmConfigured=False  amapConfigured=True  geoProvider=amap
+        routeProvider=amap  routeHint=路线使用高德真实路径规划（打车费用仍为本地估算）
+  PASS  1 系统能力自检：amapConfigured=true, geoProvider=amap, routeProvider=amap ...
+
+== [3] 规划两日游 -> 确认 -> GET /api/trips/{id}/route-legs
+        段数打点：总段数=7  amap=7  estimated=0  其它=0
+  PASS  3 两日游规划与路线段：总段数=7，amap=7，estimated=0（已观察到 source=amap 的真实路径）
+
+== [4] POI / 地理编码验证
+  SKIP  4a 后端 POI/地理编码接口：当前没有该接口 —— ...
+        place/text: status=1  info=OK  infocode=10000  条数=N（N≥1）
+  PASS  4b 直连高德 REST 诊断：place/text status=1，返回 N 条 POI（N≥1），坐标均在中国境内合理范围（GCJ-02）...
+
+==== 结论：PASS ====
+```
+
+- 段数取决于规划出的行程：默认消息「帮我规划杭州两日游，预算2000元，2个人」规则引擎会产 2 天、7 段；
+  **判定口径是 `amap` 段数 ≥ 1**，不要求恰好 7。
+- `taxiCost`（打车费）始终是本地估算，高德路径接口不返回价格（见 `RouteService` 口径说明），这不影响 PASS。
+
+证据目录（默认 `.e2e\amap-key-<时间戳>\`，约 0.2 MB，含独立 H2 文件与实例日志）：
+
+| 文件 | 内容 |
+| --- | --- |
+| `summary.md` / `summmary.md` | PASS/FAIL 汇总表 + 关键数值 + 排查提示（两文件同内容，`summmary.md` 兼容需求原文拼写） |
+| `01-system-status.json` | `/api/system/status` 原始响应（`amapConfigured` / `geoProvider` / `routeProvider` / `routeHint`） |
+| `02-login.json` | 登录响应（`token` 已脱敏为 `<redacted>`；Cookie 只存临时目录，结束时删除） |
+| `03-plan-response.json` / `04-confirm-response.json` | 规划与确认的原始响应（含 `planId` / `tripId`） |
+| `05-route-legs.json` | 路线段原始响应（每段 `source` 字段即证据） |
+| `06a-backend-poi-endpoint.txt` | 「后端没有 POI/地理编码 REST 接口」的事实记录 |
+| `06-direct-rest-poi.json` / `07-direct-rest-direction.json` | 直连高德 REST 的原始响应（POI 条数/坐标；07 号在 4b 路径诊断执行时才有） |
+| `checks.json` / `run-meta.json` | 结构化判定、Key 指纹（SHA-256 前 8 位）、进程 PID 与清理结果 |
+| `cleanup.txt` | 结束时本脚本 PID、端口是否仍监听、进程是否存活（证明无残留） |
+| `server-stdout.log` / `server-stderr.log` | 实例日志（`MCP_ENABLED=false` 时日志会明确写「MCP 未启用」） |
+
+判定口径与退出码：
+
+| 退出码 | 含义 |
+| --- | --- |
+| `0` | PASS：实例就绪、登录成功、`route-legs` 至少一段 `source=amap`、（未 `-SkipRestDiag` 时）直连 REST 成功 |
+| `2` | 参数/配置问题（Key 格式、端口、工具缺失） |
+| `3` | 验证 FAIL（典型：Key 无效 → 全部 `estimated`） |
+| `4` | 实例启动失败（端口占用 / 健康检查超时 / `-SkipStart` 但端口没监听） |
+| `1` | 未预期异常 |
+
+> **`routeProvider=amap` 只代表「配置里读到了 Key」**（`AmapProperties.usable()` 只判断非空），**不代表 Key 有效**。
+> 真正证明 Key 有效的是第 3 步 `source=amap` 段数 > 0，以及第 4b 步直连 `status=1`。
+
+### 7.5 当前接口事实（脚本不会伪造不存在的接口）
+
+- **路线段**：`GET /api/trips/{id}/route-legs`（需登录）是唯一**按路段**暴露「真实/估算」来源的端点（`/api/system/status` 只给全局 `routeProvider`）：
+  按天分组返回相邻行程点，字段含 `distanceKm` / `walkMinutes` / `driveMinutes` / `taxiCost` / `source`
+  （`amap` = 高德真实路径，`estimated` = 本地 haversine 估算）。
+  链路是 `RouteService.route()` → `AmapDataService.driving()`（MCP → REST）→ 失败降级 haversine。
+- **POI / 地理编码**：后端**没有**对外 REST 接口。`AmapDataService.searchPoi()` 目前没有生产调用方
+  （规划候选仍来自内置/联网城市目录）；`AmapGeocodeClient` 只被 `OnlineCityService` / `CityGeoLocator` 内部使用。
+  因此脚本第 4a 步如实记 `SKIP`，第 4b 步改为**直连高德官方 REST**（与 `AmapDataService` 相同的
+  `/v3/place/text`、`/v3/direction/driving`）诊断 Key 本身：记录返回条数，并按中国境内经纬度包围盒校验 GCJ-02 坐标。
+- **行程坐标**：行程条目经纬度来自城市目录（内部按 WGS-84 存储），不是每条 POI 的实时高德坐标；
+  真实高德数据体现在 `source=amap` 的路段距离/时长上。
+
+### 7.6 常见失败排查
+
+| 现象 | 原因 | 处理 |
+| --- | --- | --- |
+| 第 1 步 `amapConfigured=false` / `routeProvider=estimated` | 进程没读到 `AMAP_KEY`（空 Key，或 `-SkipStart` 复用的旧实例没配） | 检查启动环境变量；用本脚本默认模式（自己起实例）重跑 |
+| 第 3 步全部 `estimated`，第 4b 步 `INVALID_USER_KEY`（infocode 10001） | Key 无效/复制错/被删除/未开通「Web 服务」 | 回控制台核对 Key 与服务平台，重新复制 |
+| 第 4b 步 `USERKEY_PLAT_NOMATCH` | **Key 类型错**：把 JS API（Web端）Key 用在了后端 | 换「Web 服务」类型 Key；前端 `VITE_AMAP_KEY` 不能复用 |
+| 第 4b 步 `USER_IP_ALIVE` / 白名单类错误 | Key 配了 IP 白名单，本机出口 IP 不在列表 | 控制台临时留空或加入出口 IP；公司网络注意出口 IP 会变 |
+| 第 4b 步 `DAILY_QUERY_OVER_LIMIT` / 配额类错误 | 日调用量/并发配额用尽 | 等配额重置或提额；联调时少跑几次 |
+| 第 4b 步网络不可达 / 超时（curl HTTP -1） | 本机访问不了 `restapi.amap.com`（代理/防火墙） | 配代理或换网络；后端此时会静默降级为 `estimated` |
+| 第 3 步 PASS 但距离与地图上量出来的差几百米 | **坐标系差异**：高德返回 GCJ-02，本仓存储/API 统一 WGS-84，前端渲染再转回 GCJ-02 | 正常现象，见 §1.1.1；不要按「Bug」处理，也不要跨坐标系直接比距离 |
+| 行程里没有 POI 的高德坐标 | 规划候选清单不接 MCP/POI 搜索（见 §3.4） | 属于当前边界；本节只验证「路线距离/时长真实化」 |
+| MCP 链路 `接入失败，已跳过: timeout initialize` | MCP 没给 `AMAP_MAPS_API_KEY`（包在模块加载期 `exit(1)`） | 见 §4.2；注意那是另一个变量，与本节 `AMAP_KEY` 独立 |
+| `无法加载文件 ... 因为在此系统上禁止运行脚本` | PowerShell 执行策略 | 命令里已带 `-ExecutionPolicy Bypass`；或 `Set-ExecutionPolicy -Scope Process Bypass` |
+| 端口被占用 / 启动超时 | 18090 已被占，或首次 `mvn package` 太慢 | 换 `-Port`，或加 `-SkipStart`；启动失败时看 `server-stdout.log` |
+| 脚本异常中断后是否有残留 java | 脚本只 `taskkill /PID <自己记录的 PID> /T`，不按进程名扫描 | 正常结束看 `cleanup.txt`（`process_alive_after_stop=False`）；异常中断按其中 PID 手工结束 |
+
+### 7.7 不需要真 Key 的假 Key 自测（验证「优雅失败」）
+
+```powershell
+cd D:\travel-agent
+# 1) 只校验参数与本地配置（不启动服务）
+powershell -ExecutionPolicy Bypass -File .e2e\amap-real-key-probe.ps1 -AmapKey "fake-key-for-probe-0123456789abcdef" -DryRun
+#    期望：exit 0，输出 PASS
+
+# 2) 用同一假 Key 走完整流程
+powershell -ExecutionPolicy Bypass -File .e2e\amap-real-key-probe.ps1 -AmapKey "fake-key-for-probe-0123456789abcdef"
+#    期望：exit 3；第 0/1/2 步 PASS，第 3/4b 步 FAIL（INVALID_USER_KEY），第 4a 步 SKIP；
+#          结束时 cleanup.txt 记录 pid、端口不再监听、进程存活=False，无残留 java
+```
+
+2026-11-18 本机实测（Windows PowerShell 5.1、假 Key、未配任何真实高德 Key）：
+
+| 步骤 | 结果 | 实测值 |
+| --- | --- | --- |
+| 0 实例准备 | PASS | 独立 H2 + 端口 18090，`/actuator/health=UP`，PID 记录并在结束时停止 |
+| 1 系统能力自检 | PASS | `amapConfigured=true`、`geoProvider=amap`、`routeProvider=amap`（仅配置层面） |
+| 2 demo 登录 | PASS | `username=demo` |
+| 3 两日游规划与路线段 | FAIL | 总段数=7、amap=0、estimated=7（真实 Key 下应为 amap≥1） |
+| 4a 后端 POI/地理编码接口 | SKIP | 当前没有该接口 |
+| 4b 直连高德 REST 诊断 | FAIL | `status=0`、`info=INVALID_USER_KEY`、`infocode=10001` |
+| 进程清理 | PASS | `cleanup.txt`：端口监听=False、进程存活=False |
+
+### 7.8 与 §5 的关系
+
+§5.2 的「真实返回体结构 / GCJ-02 坐标 / MCP 场景下 Key 的额外限制」仍未验证——它们需要真 Key。
+按本节跑出 PASS 并保留证据目录后，「真实 POI / 路径 / 坐标」即可从未验证转为已验证；
+MCP 那条链路仍要额外设 `MCP_ENABLED=true` + `AMAP_MAPS_API_KEY` 单独验（见 §2、§4）。
