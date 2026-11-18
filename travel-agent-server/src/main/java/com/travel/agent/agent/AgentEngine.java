@@ -21,6 +21,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -64,6 +66,21 @@ public class AgentEngine {
 
     /** 被取消的轮次在结果里的 intent 标记（只用于日志/单测识别，不随 SSE 事件下发） */
     public static final String CANCELLED_INTENT = "CANCELLED";
+
+    /**
+     * 需求追问标记（FR-01）：追问轮次的助手消息以这个 intent 落会话历史。
+     * 下一轮据此判断「上一轮在等用户补槽位」，从而把短回答（「上海」「三天」）续到同一次规划里。
+     */
+    public static final String INTENT_NEED_INFO = "PLAN_TRIP_NEED_INFO";
+
+    /**
+     * 追问上限：三个必填槽位最多也就分三轮补齐；超过仍缺（用户一直在答非所补）就兜底，不再盘问。
+     * 正常情况下真正起作用的是「本轮没补到新信息 → 兜底」。
+     */
+    static final int MAX_REQUIREMENT_ASKS = 3;
+
+    /** 追问/兜底说明里「出发日期按明天」的展示格式 */
+    private static final DateTimeFormatter SHORT_DATE = DateTimeFormatter.ofPattern("M月d日");
 
     private final IntentAgent intentAgent;
     private final PlannerAgent plannerAgent;
@@ -159,6 +176,9 @@ public class AgentEngine {
                 return aborted(ctx);
             }
             IntentResult intent = timedIntent(ctx, trip);
+            // FR-01：上一轮是需求追问时，「上海」「三天」这类短回答续到同一次规划里，
+            // 而不是落进 CHITCHAT 把追问状态丢掉（改问别的意图则不劫持，按新意图处理）
+            intent = resumeRequirementCollection(ctx, intent);
             if (abortIfCancelled(ctx, "after-intent")) {
                 return aborted(ctx);
             }
@@ -198,7 +218,10 @@ public class AgentEngine {
             if (abortIfCancelled(ctx, "before-return")) {
                 return aborted(ctx);
             }
-            return finish(ctx, result, intent.getIntent());
+            // 追问轮次在历史里打标记，下一轮据此续槽（见 INTENT_NEED_INFO）
+            String historyIntent = result != null && result.getMissingSlots() != null
+                    && !result.getMissingSlots().isEmpty() ? INTENT_NEED_INFO : intent.getIntent();
+            return finish(ctx, result, historyIntent);
         } catch (BusinessException e) {
             // 业务规则/校验类错误（含越权、参数不合法）：原样告诉用户，不伪装成系统故障
             log.info("Agent 业务校验未通过: {}", e.getMessage());
@@ -301,6 +324,32 @@ public class AgentEngine {
         if (abortIfCancelled(ctx, "before-plan")) {
             return aborted(ctx);
         }
+
+        // 需求槽位（FR-01）：整份规划前先确认「目的地 / 天数 / 人数」。
+        // 缺了就合并追问一次（不规划），用户拒绝回答或追问已达上限后按默认值兜底并在回复里明示。
+        List<String> defaulted = new ArrayList<>();
+        if (IntentResult.PLAN_TRIP.equals(intent.getIntent())) {
+            PendingRequirements pending = pendingRequirements(ctx.getHistory());
+            RequirementSlots current = intent.getSlots() == null
+                    ? RequirementSlots.fromMessage(ctx.getMessage()) : intent.getSlots();
+            RequirementSlots slots = current
+                    .fillMissingFrom(pending == null ? null : pending.slots())
+                    .fillMissingFrom(RequirementSlots.fromTrip(trip));
+            boolean declined = RequirementSlots.isDecline(ctx.getMessage());
+            List<String> missing = slots.missingRequired();
+            if (!declined && !missing.isEmpty()) {
+                // 本轮补到了新槽位就继续问剩下的；什么新信息都没有（或已问满三轮）才兜底，
+                // 这样「上海」→「三天」→「两个人」能自然收齐，而不会在中途突然替用户决定人数。
+                boolean progressed = pending == null || !slots.sameRequired(pending.slots());
+                if (progressed && (pending == null || pending.asks() < MAX_REQUIREMENT_ASKS)) {
+                    return askForRequirements(ctx, missing);
+                }
+            }
+            RequirementSlots resolved = slots.withDefaults(LocalDate.now());
+            defaulted = defaultedLabels(slots, resolved);
+            intent.setSlots(resolved);
+        }
+
         ctx.setState(AgentState.PLAN);
         ctx.emit("planning", Map.of("message",
                 IntentResult.PLAN_TRIP.equals(intent.getIntent()) ? "正在为你规划行程…" : "正在重新规划行程…"));
@@ -365,6 +414,10 @@ public class AgentEngine {
         // 模板事实 + 模型润色：润色失败或不可用时原样返回模板（必须在修复之后，数字才是最终值）
         preview.setMessage(planNarrationService.polish(composePlanMessage(planned)));
         applyReview(preview, outcome);
+        // FR-01：兜底项必须明示——「不答也能继续」不等于「静默替用户决定」
+        if (!defaulted.isEmpty()) {
+            preview.appendMessage("\nℹ 没提到的信息已按默认：" + String.join("、", defaulted) + "。可以随时让我改。");
+        }
         ctx.setState(AgentState.REFLECT);
 
         ctx.setState(AgentState.PRESENT);
@@ -385,6 +438,113 @@ public class AgentEngine {
             ctx.emit("confirmation", preview.getConfirmation());
         }
         return complete(ctx, preview);
+    }
+
+    /** 会话里「正在补需求槽位」的状态：上一轮是追问，且追问片段内用户说过的槽位 */
+    private record PendingRequirements(RequirementSlots slots, int asks) {
+    }
+
+    /**
+     * 从会话历史还原补槽状态（FR-01）。
+     *
+     * <p>只认「最后一条助手消息是需求追问」的情况，并把这次追问片段内用户说过的槽位按
+     * 「新的优先、旧的补空」合并起来——这样「上海」→「三天」→「两个人」分三轮说，
+     * 下一轮仍能拼出完整需求。用户中间改聊别的（最后一条助手消息不是追问）时自然失效，
+     * 不会把旧话题的槽位带进新规划。
+     */
+    private PendingRequirements pendingRequirements(List<ConversationMessage> history) {
+        if (history == null || history.isEmpty()) {
+            return null;
+        }
+        int asks = 0;
+        RequirementSlots collected = RequirementSlots.empty();
+        for (int i = history.size() - 1; i >= 0; i--) {
+            ConversationMessage message = history.get(i);
+            if (message == null) {
+                continue;
+            }
+            if ("assistant".equals(message.getRole())) {
+                if (!INTENT_NEED_INFO.equals(message.getIntent())) {
+                    break; // 上一次正常答复 = 追问片段起点
+                }
+                asks++;
+                continue;
+            }
+            if ("user".equals(message.getRole())) {
+                collected = collected.fillMissingFrom(RequirementSlots.fromMessage(message.getContent()));
+            }
+        }
+        return asks == 0 ? null : new PendingRequirements(collected, asks);
+    }
+
+    /**
+     * 追问轮次后的短回答续槽（FR-01）：「上海」「三天」「两个人」这类消息本身不像规划指令，
+     * 规则意图会落到 CHITCHAT；只要上一轮是追问、且这句里补到了槽位（或明确说「随便」），
+     * 就按 PLAN_TRIP 继续，让补槽对话能自然地多轮收齐。
+     */
+    private IntentResult resumeRequirementCollection(AgentContext ctx, IntentResult intent) {
+        if (intent == null || !IntentResult.CHITCHAT.equals(intent.getIntent())) {
+            return intent;
+        }
+        if (pendingRequirements(ctx.getHistory()) == null) {
+            return intent;
+        }
+        String message = ctx.getMessage() == null ? "" : ctx.getMessage();
+        RequirementSlots parsed = RequirementSlots.fromMessage(message);
+        boolean decline = RequirementSlots.isDecline(message);
+        if (!decline && parsed.missingRequired().size() == 3) {
+            return intent; // 什么都没补到：仍然只是闲聊
+        }
+        return IntentResult.builder()
+                .intent(IntentResult.PLAN_TRIP)
+                .target(IntentResult.TARGET_NONE)
+                .constraints(intent.getConstraints())
+                .slots(parsed)
+                .build();
+    }
+
+    /** 合并追问：一次问完所有缺失的必填槽位；预算/日期只作可选提示，不强制 */
+    private AgentDtos.AgentResult askForRequirements(AgentContext ctx, List<String> missing) {
+        StringBuilder text = new StringBuilder("开始规划前，还需要确认：");
+        if (missing.contains("destination")) {
+            text.append("\n· 去哪里？");
+        }
+        if (missing.contains("days")) {
+            text.append("\n· 玩几天？");
+        }
+        if (missing.contains("partySize")) {
+            text.append("\n· 几个人一起（儿童也算人数）？");
+        }
+        text.append("\n预算和出发日期也可以顺手说；不说的话我按 ¥5000、明天出发估算。");
+        log.info("需求槽位不完整，先追问: {} user={}", missing, ctx.getUsername());
+        return complete(ctx, AgentDtos.AgentResult.builder()
+                .intent(IntentResult.PLAN_TRIP)
+                .status(AgentDtos.STATUS_COMPLETED)
+                .message(text.toString())
+                .missingSlots(new ArrayList<>(missing))
+                .warnings(new ArrayList<>())
+                .build());
+    }
+
+    /** 哪些槽位用了兜底默认值（只描述「原本缺失」的项；写进回复，绝不静默） */
+    private static List<String> defaultedLabels(RequirementSlots before, RequirementSlots after) {
+        List<String> labels = new ArrayList<>();
+        if (before.destination() == null || before.destination().isBlank()) {
+            labels.add("目的地按「" + after.destination() + "」");
+        }
+        if (before.days() == null) {
+            labels.add("天数按 " + after.days() + " 天");
+        }
+        if (before.partySize() == null) {
+            labels.add("人数按 " + after.partySize() + " 人");
+        }
+        if (before.budget() == null) {
+            labels.add("预算按 ¥" + after.budget().stripTrailingZeros().toPlainString());
+        }
+        if (before.startDate() == null) {
+            labels.add("出发日期按 " + after.startDate().format(SHORT_DATE));
+        }
+        return labels;
     }
 
     /**

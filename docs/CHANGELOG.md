@@ -2,6 +2,48 @@
 
 按主题记录行为变化。**第四节是最需要注意的**：其中几项改变了原有的使用习惯。
 
+## 第十四批：需求槽位与最少追问（FR-01，2026-11-18）
+
+> 承接第十三批 §7：`MessageParser` 能解析城市/天数/预算/日期，但**人数完全没解析**；
+> 缺关键信息时规划器直接用默认值兜底（「帮我规划行程」会拿默认 3 天/¥5000 就去规划）——
+> 「不是问，而是猜」。本批补上需求槽位、合并追问、跨轮补槽与人数预算口径。
+> **有 Flyway 迁移 V17**（`trip.party_size`）；**不破坏**任何既有红线（确认/撤销/回滚、预算三口径、
+> 跨用户、只读门禁、提交事务性）。契约见 [docs/proposals/batch14-contract.md](proposals/batch14-contract.md)。
+
+### 一、需求槽位（`RequirementSlots`）
+
+- 五个槽位：destination / days / partySize / budget / startDate；规则解析（`MessageParser`）与
+  LLM 意图 JSON（新增 `slots` 字段）同时产出，**确定性解析为主、模型只补规则没解析到的部分**。
+- `MessageParser` 新增：`extractPartySize`（「3人 / 三个人 / 2大1小 / 一家三口 / 成人2儿童1 / 独自」）
+  与 `guessCityName` 的结构化扩展（「目的地：X」「去X两天」「X行程」等，过滤动词误伤）。
+- 必填只有**目的地 / 天数 / 人数**；预算与出发日期可选（缺省 ¥5000 / 明天）。
+
+### 二、合并追问与跨轮补槽（`AgentEngine`）
+
+- `planAndPresent` 前置检查：缺必填槽位 → **一次合并追问**，返回 `status=COMPLETED` +
+  `missingSlots=[...]`，**不规划、不产生待确认方案**。
+- 追问轮次的助手消息以 `intent=PLAN_TRIP_NEED_INFO` 落会话历史；下一轮的短回答
+  （「上海」「三天」「两个人」）自动续到同一次规划里——只读这次追问片段，用户改聊别的即失效。
+- 三个必填槽位最多分三轮补齐；**某轮没补到新信息、或已连续追问 3 轮**仍未齐，或用户明确拒绝
+  （随便/你决定/都行…）→ 按默认值继续，并逐项把兜底值写进回复
+  （「目的地按「上海」、天数按 3 天、人数按 1 人、预算按 ¥5000」），**绝不静默**。
+
+### 三、人数贯通行程与预算（V17）
+
+- `TripDraft` / `Trip` 新增 `partySize`；`TripRequest` / `TripResponse` 同步（1..20，缺省 1）；
+  确认提交后落到 `trip.party_size`。V17 迁移：`INT NOT NULL DEFAULT 1`，存量行回填 1。
+- 预算口径下沉到 `BudgetService`：酒店房间数 = `ceil(人数/2)`（双人间，至少 1 间），
+  餐饮/门票按人数放大，市内交通（整车）不放大；规则规划器与 LLM 结构化规划器共用同一组静态方法。
+- 路书 PDF 与行程页展示人数（>1 间房时酒店条目带「N间房」标签）。
+
+### 四、测试与验证
+
+- 后端 375 → **389** 用例全绿（`mvn clean test`）。新增 `RequirementSlotsTest`（10）、
+  `RequirementFollowUpTest`（4，含真实引擎的追问/跨轮/一次成槽/拒绝兜底）。
+- `MigrationBaselineTest` 版本面更新到 V17；`mvn clean test` 之外，用全新 H2 库真实启动验证 V1..V17 迁移链。
+- 前端 157 用例全绿（`typecheck` + `test` + `build`）；本批只改展示与快捷示例，无新增逻辑分支。
+- 真实 HTTP 冒烟：见 [docs/guide/v2.2-iteration.md](guide/v2.2-iteration.md) §6.3。
+
 ## 第十三批：审核真正改变结果 + 路线段进时间线（2026-11-18）
 
 > 承接第十二批 §7 的结论：`reviewVerdict` 能判定 `passed=false`，但引擎只把它当警告展示，

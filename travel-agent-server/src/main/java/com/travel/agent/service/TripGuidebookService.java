@@ -102,21 +102,28 @@ public class TripGuidebookService {
         return """
                 <div class="cover">
                   <h1 class="cover-title">%s</h1>
-                  <div class="cover-sub">%s · %d 天 · %s</div>
+                  <div class="cover-sub">%s · %d 天 · %d 人 · %s</div>
                 </div>
                 """.formatted(esc(orDefault(trip.getName(), "我的行程")),
-                esc(orDefault(trip.getDestination(), "目的地待定")), trip.totalDays(), dates);
+                esc(orDefault(trip.getDestination(), "目的地待定")), trip.totalDays(),
+                partySize(trip), dates);
+    }
+
+    private static int partySize(Trip trip) {
+        return trip.getPartySize() == null || trip.getPartySize() < 1 ? 1 : trip.getPartySize();
     }
 
     private String overview(Trip trip, List<ItineraryItem> items, BigDecimal planned, BigDecimal actual) {
         return """
                 <table class="meta">
                   <tr><th>目的地</th><td>%s</td><th>状态</th><td>%s</td></tr>
+                  <tr><th>同行人数</th><td>%d 人</td><th>行程天数</th><td>%d 天</td></tr>
                   <tr><th>行程预算</th><td>%s</td><th>计划成本</th><td>%s</td></tr>
                   <tr><th>实际支出</th><td>%s</td><th>安排数量</th><td>%d 项</td></tr>
                 </table>
                 """.formatted(
                 esc(orDefault(trip.getDestination(), "待定")), esc(phaseLabel(trip)),
+                partySize(trip), trip.totalDays(),
                 money(trip.getBudget()), money(planned), money(actual), items.size());
     }
 

@@ -53,7 +53,12 @@ public class IntentAgent {
                 return result;
             }
         }
-        return ruleDetect(ctx, trip, message);
+        IntentResult rule = ruleDetect(ctx, trip, message);
+        // 规则路径同样产出需求槽位（FR-01）：追问与规划都依赖这份确定性解析
+        if (rule != null && rule.getSlots() == null) {
+            rule.setSlots(RequirementSlots.fromMessage(message));
+        }
+        return rule;
     }
 
     /**
@@ -96,9 +101,12 @@ public class IntentAgent {
                     %s
                     target 为操作目标：OUTDOOR_ACTIVITY / SELECTED_ITEM / NONE。
                     destination 为用户想去的城市名（仅中文城市名本身，如 "石家庄"、"洛阳"），无法确定时填 null。
+                    slots 为用户在这条消息里明确给出的规划需求：destination 城市名、days 天数（整数）、
+                    partySize 同行人数（整数，儿童也计入）、budget 总预算（数字，元）、startDate 出发日期（yyyy-MM-dd）。
+                    没说的一律填 null，不要猜默认值。
                     结合对话历史理解指代与省略：用户说「那把第二天的酒店也换掉」「它太贵了」时，
                     要结合上一轮内容判断目标；分类仍然只看这一条消息的意图本身。
-                    仅输出 JSON，格式：{"intent":"...","target":"...","destination":"...","constraints":{"date":"明天","weather":"rain"},"tool":"工具名","args":{"参数":"值"}}
+                    仅输出 JSON，格式：{"intent":"...","target":"...","destination":"...","constraints":{"date":"明天","weather":"rain"},"slots":{"destination":"上海","days":3,"partySize":2,"budget":3000,"startDate":"2026-11-21"},"tool":"工具名","args":{"参数":"值"}}
                     （intent 为 INVOKE_TOOL 时必须带 tool 与 args 两个字段；其他意图忽略 tool/args）
                     当前用户是否已有行程：%s
                     %s用户消息：
@@ -128,7 +136,9 @@ public class IntentAgent {
             IntentResult.IntentResultBuilder builder = IntentResult.builder()
                     .intent(intent)
                     .target(node.path("target").asText(IntentResult.TARGET_NONE))
-                    .constraints(constraints);
+                    .constraints(constraints)
+                    // 槽位以确定性解析为主，模型只补它听懂、但规则没解析出来的部分
+                    .slots(RequirementSlots.fromMessage(message).fillMissingFrom(parseSlots(node.path("slots"))));
             if (IntentResult.INVOKE_TOOL.equals(intent)) {
                 builder.toolName(node.path("tool").asText("").trim());
                 if (node.hasNonNull("args") && node.path("args").isObject()) {
@@ -140,6 +150,37 @@ public class IntentAgent {
             log.warn("LLM 意图识别失败，使用规则兜底: {}", e.getMessage());
             return null;
         }
+    }
+
+    /** 模型输出的 slots 节点 → 槽位（字段缺失/非法一律视为 null，绝不让模型猜默认值） */
+    private RequirementSlots parseSlots(JsonNode node) {
+        if (node == null || !node.isObject()) {
+            return null;
+        }
+        String destination = node.path("destination").asText("").trim();
+        if (destination.isBlank() || "null".equalsIgnoreCase(destination)) {
+            destination = null;
+        }
+        int days = node.path("days").asInt(0);
+        int partySize = node.path("partySize").asInt(0);
+        java.math.BigDecimal budget = null;
+        if (node.hasNonNull("budget")) {
+            try {
+                budget = new java.math.BigDecimal(node.path("budget").asText("").trim());
+            } catch (RuntimeException ignored) {
+                // 非法金额当作没说
+            }
+        }
+        java.time.LocalDate startDate = null;
+        if (node.hasNonNull("startDate")) {
+            try {
+                startDate = java.time.LocalDate.parse(node.path("startDate").asText("").trim());
+            } catch (RuntimeException ignored) {
+                // 非法日期当作没说
+            }
+        }
+        return new RequirementSlots(destination, days > 0 ? days : null,
+                partySize > 0 ? partySize : null, budget, startDate);
     }
 
     /** 注册的 MCP 外部工具目录；未接入任何 MCP 工具时提示模型禁用 INVOKE_TOOL */
@@ -263,10 +304,17 @@ public class IntentAgent {
                     .intent(IntentResult.QUERY_SCHEDULE).target(IntentResult.TARGET_NONE).constraints(constraints).build();
         }
 
-        // 6. 强规划意图：明确的规划动词，或「天数 + 出行词」组合
+        // 6. 强规划意图：明确的规划动词，或「天数 + 出行词」组合，或「城市 + 天数」的出行说法
+        //    （「三个人下周六去北京两天」没有规划动词，但目的地/天数俱全，就是一次规划请求；
+        //     带疑问词的「上海三天怎么玩」仍按知识问答处理，交给下面的疑问句分支）
+        boolean adviceQuestion = MessageParser.mentions(message,
+                "什么", "哪些", "怎么", "攻略", "推荐", "介绍", "值得", "适合", "吗", "？", "?");
+        boolean cityAndDays = MessageParser.guessCityName(message) != null
+                && MessageParser.extractDays(message) > 0 && !adviceQuestion;
         boolean strongPlan = MessageParser.mentions(message, "规划", "安排", "计划", "想去", "帮我做一个")
                 || (MessageParser.extractDays(message) > 0
-                        && MessageParser.mentions(message, "旅行", "旅游", "游", "玩", "行程", "出发"));
+                        && MessageParser.mentions(message, "旅行", "旅游", "游", "玩", "行程", "出发"))
+                || cityAndDays;
         if (strongPlan) {
             return IntentResult.builder()
                     .intent(IntentResult.PLAN_TRIP).target(IntentResult.TARGET_NONE).constraints(constraints).build();

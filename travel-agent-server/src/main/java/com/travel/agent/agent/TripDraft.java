@@ -19,6 +19,8 @@ public class TripDraft {
     private String destination;
     private LocalDate startDate;
     private Integer days;
+    /** 同行人数（FR-01）：确认后落到 trip.party_size；为空按 1 人 */
+    private Integer partySize;
     private BigDecimal budget;
     private List<String> preferences;
 }

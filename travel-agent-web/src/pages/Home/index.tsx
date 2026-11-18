@@ -30,7 +30,7 @@ import type { HealthSummary } from '../../types/assistant';
 // 首页足迹地图依赖 maplibre-gl（约 1MB），懒加载避免拖慢首屏
 const FootprintMap = lazy(() => import('../../components/FootprintMap'));
 
-const EXAMPLE_PROMPT = '帮我规划周末上海两日游';
+const EXAMPLE_PROMPT = '帮我规划周末上海两日游，2人';
 
 /** 总览：3D 足迹为核心视觉的个人助理 Dashboard */
 export default function Home() {

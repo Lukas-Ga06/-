@@ -105,7 +105,8 @@ stateDiagram-v2
     [*] --> RECEIVE
     RECEIVE --> UNDERSTAND: handle() 设置用户上下文
     UNDERSTAND --> END_OK: 非规划类意图直接应答
-    UNDERSTAND --> PLAN: PLAN_TRIP / MODIFY_ITINERARY
+    UNDERSTAND --> END_OK: PLAN_TRIP 但缺必填槽位（合并追问，不规划）
+    UNDERSTAND --> PLAN: PLAN_TRIP / MODIFY_ITINERARY（槽位齐全）
     PLAN --> END_OK: operations 为空
     PLAN --> EXECUTE: 有操作项
     EXECUTE --> REFLECT
@@ -135,6 +136,12 @@ stateDiagram-v2
 | `GEN_DAILY_REPORT` / `QUERY_HEALTH` | `answerDailyReport` / `answerQueryHealth` | 否 |
 | `INVOKE_TOOL` | `answerInvokeTool`（走 ToolInvoker） | 否 |
 | `PLAN_TRIP` / `MODIFY_ITINERARY` | `planAndPresent` | **是** |
+
+**需求槽位短路（FR-01）**：`PLAN_TRIP` 进入 `PLAN` 之前，`AgentEngine.planAndPresent` 先合并
+「当前消息槽位 + 会话里同一追问片段的槽位 + 已有行程的槽位」（`RequirementSlots`）。缺
+`destination / days / partySize` 时**只发一次合并追问**（`status=COMPLETED` + `missingSlots`，
+不产生 planId、不写 pending_plan）；用户明确拒绝或追问后没有新信息才按默认值兜底，并把兜底项写进回复。
+追问轮次的助手消息以 `intent=PLAN_TRIP_NEED_INFO` 落会话历史，下一轮短回答据此续槽（ADR-010）。
 | 其它（含 `CHITCHAT`） | 返回 `MessageTemplates.HELP` | 否 |
 
 ---

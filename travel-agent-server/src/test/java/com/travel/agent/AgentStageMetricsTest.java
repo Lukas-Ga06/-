@@ -72,7 +72,7 @@ class AgentStageMetricsTest extends IntegrationTestSupport {
                 .intent(IntentResult.PLAN_TRIP)
                 .target(IntentResult.TARGET_NONE)
                 .build());
-        String planBody = stream(account, "帮我规划上海三日游，预算3000元");
+        String planBody = stream(account, "帮我规划上海三日游，2人，预算3000元");
         Matcher matcher = PLAN_ID.matcher(planBody);
         assertThat(matcher.find()).as("规划应产出待确认方案，SSE 文本: " + planBody).isTrue();
         String planId = matcher.group(1);

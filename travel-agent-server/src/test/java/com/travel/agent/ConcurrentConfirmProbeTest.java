@@ -74,7 +74,7 @@ class ConcurrentConfirmProbeTest extends IntegrationTestSupport {
         ctx.setUserId(account.id());
         ctx.setUsername(account.username());
         ctx.setSessionId(UUID.randomUUID().toString());
-        ctx.setMessage("帮我规划上海三日游，预算3000元");
+        ctx.setMessage("帮我规划上海三日游，2人，预算3000元");
         return agentEngine.handle(ctx);
     }
 
@@ -85,7 +85,7 @@ class ConcurrentConfirmProbeTest extends IntegrationTestSupport {
         ctx.setUsername(account.username());
         ctx.setSessionId(UUID.randomUUID().toString());
         ctx.setTripId(trip.getId());
-        ctx.setMessage("帮我重新规划上海三日游，预算3000元");
+        ctx.setMessage("帮我重新规划上海三日游，2人，预算3000元");
         return agentEngine.handle(ctx);
     }
 

@@ -61,13 +61,19 @@ public class PlannerAgent {
 
     public AgentPlan plan(AgentContext ctx, IntentResult intent, Trip trip) {
         String message = ctx.getMessage() == null ? "" : ctx.getMessage();
-        CityCatalog city = catalog.matchCity(message);
+        // 目的地以需求槽位为准（FR-01）：追问补齐后当前消息往往只有「两个人」，正文里没有城市名
+        String slotCity = intent.getSlots() == null ? null : intent.getSlots().destination();
+        CityCatalog city = slotCity == null || slotCity.isBlank() ? null : catalog.matchCity(slotCity);
+        if (city == null) {
+            city = catalog.matchCity(message);
+        }
         if (city == null && trip != null) {
             city = catalog.matchCity(trip.getDestination());
         }
         // 内置目录未命中：联网查询生成城市目录（新规划从消息提取城市名，行程修改用行程目的地）
         if (city == null && IntentResult.PLAN_TRIP.equals(intent.getIntent())) {
-            city = lookupOnlineCity(ctx, onlineCityName(intent, message));
+            city = lookupOnlineCity(ctx, slotCity == null || slotCity.isBlank()
+                    ? onlineCityName(intent, message) : slotCity);
         } else if (city == null && trip != null) {
             city = lookupOnlineCity(ctx, trip.getDestination());
         }
@@ -89,16 +95,20 @@ public class PlannerAgent {
     // ==================== 新行程规划 ====================
 
     private AgentPlan planNewTrip(AgentContext ctx, IntentResult intent, CityCatalog city, Trip trip, String message) {
-        int days = MessageParser.extractDays(message);
-        if (days <= 0) {
-            // 重新规划已有行程时沿用原行程天数，避免"3 天行程被重排成默认 3 天/其它天数"
-            days = trip != null && trip.getStartDate() != null ? trip.totalDays() : 3;
-        }
-        BigDecimal budget = MessageParser.extractBudget(message);
-        if (budget == null) {
-            // 同理：没重新说预算就沿用原行程预算，而不是套用默认 5000
-            budget = trip != null && trip.getBudget() != null ? trip.getBudget() : BigDecimal.valueOf(5000);
-        }
+        // 需求槽位（FR-01）：引擎已完成合并与兜底；直接调用规划器（单测/旧调用方）时自行解析
+        RequirementSlots slots = intent.getSlots() == null
+                ? RequirementSlots.fromMessage(message).fillMissingFrom(RequirementSlots.fromTrip(trip))
+                : intent.getSlots();
+        int days = slots.days() != null && slots.days() > 0
+                ? slots.days()
+                // 重新规划已有行程时沿用原行程天数，避免"3 天行程被重排成默认 3 天/其它天数"
+                : (trip != null && trip.getStartDate() != null ? trip.totalDays() : 3);
+        BigDecimal budget = slots.budget() != null
+                ? slots.budget()
+                // 同理：没重新说预算就沿用原行程预算，而不是套用默认 5000
+                : (trip != null && trip.getBudget() != null ? trip.getBudget() : BigDecimal.valueOf(5000));
+        int partySize = BudgetService.effectiveParty(slots.partySize() != null
+                ? slots.partySize() : (trip != null ? trip.getPartySize() : null));
         boolean preferSubway = MessageParser.mentions(message, "地铁");
         boolean family = MessageParser.mentions(message, "亲子", "孩子", "带娃", "儿童");
 
@@ -106,12 +116,13 @@ public class PlannerAgent {
         if (preferSubway) preferences.add("酒店近地铁");
         if (family) preferences.add("亲子友好");
 
-        // 出发日期：优先用户明确说的日期（国庆/10月1日/下周六…）；重规划已有行程时沿用原出发日期
+        // 出发日期：用户明确说的日期优先（国庆/10月1日/下周六…）；没说则沿用原行程日期，再没有就明天
         LocalDate today = LocalDate.now();
         MessageParser.DepartureDate departure = MessageParser.extractDepartureDate(message, today);
-        LocalDate startDate = trip != null && trip.getStartDate() != null
-                ? trip.getStartDate()
-                : (departure.explicit() && departure.date() != null ? departure.date() : today.plusDays(1));
+        LocalDate startDate = slots.startDate() != null ? slots.startDate()
+                : (trip != null && trip.getStartDate() != null
+                        ? trip.getStartDate()
+                        : (departure.explicit() && departure.date() != null ? departure.date() : today.plusDays(1)));
         if (startDate.isBefore(today)) {
             return emptyPlan(intent, city, trip,
                     "出发日期 " + startDate + " 已经过去了，请确认年份或换一个日期。");
@@ -122,6 +133,7 @@ public class PlannerAgent {
                 .destination(city.name())
                 .startDate(startDate)
                 .days(days)
+                .partySize(partySize)
                 .budget(budget)
                 .preferences(preferences)
                 .build();
@@ -160,14 +172,14 @@ public class PlannerAgent {
         Hotel hotel = (hotels == null || hotels.isEmpty()) ? catalog.cheapestHotel(city) : hotels.get(0);
 
         LocalDate baseDate = draft.getStartDate();
-        List<ItineraryItem> drafts = buildDailyDrafts(ctx, city, hotel, days, family, baseDate);
+        List<ItineraryItem> drafts = buildDailyDrafts(ctx, city, hotel, days, family, baseDate, partySize);
         BigDecimal total = budgetService.totalOf(drafts);
         // 超预算：降级为最便宜酒店后重算一次
         Hotel cheapest = catalog.cheapestHotel(city);
         if (total.compareTo(budget) > 0 && hotel != null && cheapest != null
                 && hotel.pricePerNight() > cheapest.pricePerNight()) {
             hotel = cheapest;
-            drafts = buildDailyDrafts(ctx, city, hotel, days, family, baseDate);
+            drafts = buildDailyDrafts(ctx, city, hotel, days, family, baseDate, partySize);
             total = budgetService.totalOf(drafts);
         }
         // 仍超预算（V2.2 FR-06 动态调整）：确定性收敛——逐次移除最贵景点直到进入预算
@@ -251,17 +263,22 @@ public class PlannerAgent {
     }
 
     private List<ItineraryItem> buildDailyDrafts(AgentContext ctx, CityCatalog city, Hotel hotel,
-                                                 int days, boolean family, LocalDate baseDate) {
+                                                 int days, boolean family, LocalDate baseDate, int partySize) {
         List<ItineraryItem> drafts = new ArrayList<>();
         List<String> usedAttractions = new ArrayList<>();
         List<String> usedRestaurants = new ArrayList<>();
+        // 房价按双人间计（两人一间、向上取整），餐饮与门票按人头计；交通是整车，不随人数放大
+        int rooms = BudgetService.roomsFor(partySize);
         BigDecimal hotelCost = hotel == null ? BigDecimal.ZERO
-                : BigDecimal.valueOf(hotel.pricePerNight()).multiply(BigDecimal.valueOf(Math.max(days - 1, 1)));
+                : BigDecimal.valueOf(hotel.pricePerNight())
+                        .multiply(BigDecimal.valueOf(rooms))
+                        .multiply(BigDecimal.valueOf(Math.max(days - 1, 1)));
 
         for (int d = 1; d <= days; d++) {
             if (d == 1 && hotel != null) {
                 List<String> hotelTags = new ArrayList<>(List.of("酒店"));
                 if (hotel.nearSubway()) hotelTags.add("近地铁");
+                if (rooms > 1) hotelTags.add(rooms + "间房");
                 drafts.add(draftsSupport.draft(baseDate, d, ItineraryItem.TYPE_HOTEL, "入住 · " + hotel.name(),
                         "09:00", "09:30", hotel.lat(), hotel.lng(), hotelCost, hotelTags, hotel.description()));
             }
@@ -276,7 +293,8 @@ public class PlannerAgent {
                 String start = d == 1 ? "10:00" : "09:00";
                 String end = d == 1 ? "11:45" : "11:30";
                 drafts.add(draftsSupport.draft(baseDate, d, ItineraryItem.TYPE_ATTRACTION, morning.name(), start, end,
-                        morning.lat(), morning.lng(), BigDecimal.valueOf(morning.ticket()),
+                        morning.lat(), morning.lng(),
+                        BudgetService.perPerson(BigDecimal.valueOf(morning.ticket()), partySize),
                         morning.tagsWithVenue(), morning.description()));
                 usedAttractions.add(morning.name());
                 prevLat = morning.lat();
@@ -286,7 +304,8 @@ public class PlannerAgent {
                 if (lunch != null) {
                     transport = transport.add(draftsSupport.legTaxiCost(ctx, prevLat, prevLng, lunch.lat(), lunch.lng()));
                     drafts.add(draftsSupport.draft(baseDate, d, ItineraryItem.TYPE_RESTAURANT, "午餐 · " + lunch.name(),
-                            "12:00", "13:30", lunch.lat(), lunch.lng(), BigDecimal.valueOf(lunch.avgCost()),
+                            "12:00", "13:30", lunch.lat(), lunch.lng(),
+                            BudgetService.perPerson(BigDecimal.valueOf(lunch.avgCost()), partySize),
                             List.of(lunch.cuisine()), lunch.description()));
                     usedRestaurants.add(lunch.name());
                     prevLat = lunch.lat();
@@ -299,7 +318,8 @@ public class PlannerAgent {
                 transport = transport.add(draftsSupport.legTaxiCost(ctx, prevLat, prevLng, afternoon.lat(), afternoon.lng()));
                 drafts.add(draftsSupport.draft(baseDate, d, ItineraryItem.TYPE_ATTRACTION, afternoon.name(),
                         "14:00", "16:30", afternoon.lat(), afternoon.lng(),
-                        BigDecimal.valueOf(afternoon.ticket()), afternoon.tagsWithVenue(), afternoon.description()));
+                        BudgetService.perPerson(BigDecimal.valueOf(afternoon.ticket()), partySize),
+                        afternoon.tagsWithVenue(), afternoon.description()));
                 usedAttractions.add(afternoon.name());
                 prevLat = afternoon.lat();
                 prevLng = afternoon.lng();
@@ -308,7 +328,8 @@ public class PlannerAgent {
                 if (dinner != null) {
                     transport = transport.add(draftsSupport.legTaxiCost(ctx, prevLat, prevLng, dinner.lat(), dinner.lng()));
                     drafts.add(draftsSupport.draft(baseDate, d, ItineraryItem.TYPE_RESTAURANT, "晚餐 · " + dinner.name(),
-                            "18:00", "19:30", dinner.lat(), dinner.lng(), BigDecimal.valueOf(dinner.avgCost()),
+                            "18:00", "19:30", dinner.lat(), dinner.lng(),
+                            BudgetService.perPerson(BigDecimal.valueOf(dinner.avgCost()), partySize),
                             List.of(dinner.cuisine()), dinner.description()));
                     usedRestaurants.add(dinner.name());
                 }
@@ -480,7 +501,8 @@ public class PlannerAgent {
             return List.of();
         }
         String goal = "为「" + city.name() + "」" + draft.getStartDate() + " 出发、共 " + draft.getDays()
-                + " 天、预算 ¥" + budget.stripTrailingZeros().toPlainString()
+                + " 天、" + BudgetService.effectiveParty(draft.getPartySize()) + " 人、预算 ¥"
+                + budget.stripTrailingZeros().toPlainString()
                 + " 的行程收集决策事实：逐日天气与降雨风险、景点/餐厅/酒店候选是否充足、"
                 + "主要相邻地点之间的移动耗时。";
         AgentToolLoop.LoopResult result = taskRecorder.around(ctx,
@@ -500,7 +522,8 @@ public class PlannerAgent {
                                            Trip trip, TripDraft draft, int days, BigDecimal budget, String message,
                                            List<String> researchNotes) {
         StructuredPlanner.TripDraftView view = new StructuredPlanner.TripDraftView(
-                city.name(), days, draft.getStartDate(), budget, draft.getPreferences());
+                city.name(), days, draft.getStartDate(), budget,
+                BudgetService.effectiveParty(draft.getPartySize()), draft.getPreferences());
         StructuredPlanner.NewTripParse parse = structuredPlanner.planNewTrip(city, view, message, ctx.getHistory(),
                 researchNotes);
         if (parse == null || !parse.ok()) {

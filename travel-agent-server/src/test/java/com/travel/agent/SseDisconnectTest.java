@@ -92,7 +92,7 @@ class SseDisconnectTest extends IntegrationTestSupport {
     @DisplayName("已取消的 ctx 在 intent 之前就短路：不调用意图识别，记一次 cancelled")
     void cancelledContextShortCircuitsBeforeIntent() throws Exception {
         Account account = registerNew();
-        AgentContext ctx = context(account, "帮我规划上海三日游");
+        AgentContext ctx = context(account, "帮我规划上海三日游，2人");
         double cancelledBefore = disconnectCount("cancelled");
 
         ctx.cancel();
@@ -116,7 +116,7 @@ class SseDisconnectTest extends IntegrationTestSupport {
             return IntentResult.builder().intent(IntentResult.PLAN_TRIP).build();
         });
 
-        AgentContext ctx = context(account, "帮我规划上海三日游");
+        AgentContext ctx = context(account, "帮我规划上海三日游，2人");
         List<String> events = new CopyOnWriteArrayList<>();
         ctx.addListener(event -> events.add(event.event()));
         double cancelledBefore = disconnectCount("cancelled");
@@ -133,7 +133,7 @@ class SseDisconnectTest extends IntegrationTestSupport {
     @DisplayName("同一轮多次命中取消检查也只记一次 cancelled")
     void cancellationIsCountedOncePerRun() throws Exception {
         Account account = registerNew();
-        AgentContext ctx = context(account, "帮我规划上海三日游");
+        AgentContext ctx = context(account, "帮我规划上海三日游，2人");
         ctx.cancel();
         double cancelledBefore = disconnectCount("cancelled");
 

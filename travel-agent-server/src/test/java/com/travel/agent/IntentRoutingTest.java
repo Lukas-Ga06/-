@@ -69,7 +69,7 @@ class IntentRoutingTest extends IntegrationTestSupport {
     void planIntentStillWorks() throws Exception {
         Account account = registerNew();
 
-        AgentDtos.AgentResult result = run(account, "帮我规划上海三日游，预算3000元");
+        AgentDtos.AgentResult result = run(account, "帮我规划上海三日游，2人，预算3000元");
 
         assertThat(result.getIntent()).isEqualTo(IntentResult.PLAN_TRIP);
     }

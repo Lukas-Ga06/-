@@ -18,6 +18,11 @@ export interface Trip {
   startDate: string;
   endDate: string;
   budget: number;
+  /**
+   * 同行人数（FR-01）：预算的酒店房数/餐饮与门票口径以它为准。
+   * 旧后端不返回该字段，展示层按 1 人回落。
+   */
+  partySize?: number | null;
   status: string;
   /** 业务阶段（后端按日期派生）：UPCOMING / ONGOING / PAST / CANCELLED */
   phase?: 'UPCOMING' | 'ONGOING' | 'PAST' | 'CANCELLED';

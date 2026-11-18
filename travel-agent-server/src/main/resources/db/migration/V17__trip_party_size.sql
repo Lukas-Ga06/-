@@ -1,0 +1,14 @@
+-- ============================================================================
+-- V17：行程同行人数（FR-01，batch14）
+--
+-- trip.party_size：一行程一起出行的人数（含儿童），默认 1。
+--   * 预算口径：酒店按「双人间、2 人一间」计房数，餐饮/门票按人头计，交通整车不计人数；
+--     见 BudgetService.effectiveParty / roomsFor / perPerson。
+--   * 存量行回填 1 —— 与升级前「单人成本」的口径一致，历史行程的预算不会因升级跳变。
+--   * 上限（1..20）在 DTO 校验与 RequirementSlots.effectiveParty 里兜底，不靠数据库约束。
+--
+-- 方言：H2(MODE=MySQL) 与 MySQL 8.0 都支持 ADD COLUMN ... INT NOT NULL DEFAULT。
+--   全新库：V1 建出 trip（不含本列）→ V17 补列；存量库：Flyway 跳过已应用的 V1..V16，只跑本脚本。
+--   实体列定义带 DEFAULT 1（与 V16 的 content_hash 同一策略），ddl-auto=validate 可对齐。
+-- ============================================================================
+ALTER TABLE trip ADD COLUMN party_size INT NOT NULL DEFAULT 1;

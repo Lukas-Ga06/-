@@ -37,6 +37,12 @@ public class IntentResult {
     private String target;
     private Map<String, Object> constraints;
 
+    /**
+     * 规划需求槽位（FR-01）：这一条消息里明确说出的目的地/天数/人数/预算/日期。
+     * 只有 PLAN_TRIP 会消费它；跨轮累积与缺槽追问由 AgentEngine 负责（ADR-010）。
+     */
+    private RequirementSlots slots;
+
     /** INVOKE_TOOL：要调用的 MCP 工具名（mcp_*）与参数 */
     private String toolName;
     private Map<String, Object> toolArgs;

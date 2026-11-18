@@ -70,7 +70,7 @@ class PendingPlanRevisionTest extends IntegrationTestSupport {
         Trip trip = newTrip(account.id());
         addItem(trip, 1, "原有安排");
 
-        AgentDtos.AgentResult plan = ask(account, trip.getId(), "帮我重新规划上海三日游，预算3000元");
+        AgentDtos.AgentResult plan = ask(account, trip.getId(), "帮我重新规划上海三日游，2人，预算3000元");
         assertThat(plan.getStatus()).isEqualTo(AgentDtos.STATUS_NEED_CONFIRMATION);
         String planId = plan.getConfirmation().getPlanId();
 
@@ -92,7 +92,7 @@ class PendingPlanRevisionTest extends IntegrationTestSupport {
         Trip trip = newTrip(account.id());
         addItem(trip, 1, "原有安排");
 
-        AgentDtos.AgentResult plan = ask(account, trip.getId(), "帮我重新规划上海三日游，预算3000元");
+        AgentDtos.AgentResult plan = ask(account, trip.getId(), "帮我重新规划上海三日游，2人，预算3000元");
         AgentDtos.AgentResult result = agentEngine.confirm(plan.getConfirmation().getPlanId(), account.id());
 
         assertThat(result.getStatus()).isEqualTo(AgentDtos.STATUS_COMPLETED);
@@ -104,7 +104,7 @@ class PendingPlanRevisionTest extends IntegrationTestSupport {
     void newTripPlanHasNoRevision() throws Exception {
         Account account = registerNew();
 
-        AgentDtos.AgentResult plan = ask(account, null, "帮我规划上海三日游，预算3000元");
+        AgentDtos.AgentResult plan = ask(account, null, "帮我规划上海三日游，2人，预算3000元");
         AgentDtos.AgentResult result = agentEngine.confirm(plan.getConfirmation().getPlanId(), account.id());
 
         assertThat(result.getStatus()).isEqualTo(AgentDtos.STATUS_COMPLETED);

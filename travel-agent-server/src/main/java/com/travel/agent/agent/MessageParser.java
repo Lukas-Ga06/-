@@ -81,27 +81,188 @@ public final class MessageParser {
         return false;
     }
 
-    /** 从消息中粗略猜测目的地名（目录外城市联网查询用） */
+    /**
+     * 从消息中粗略猜测目的地名（目录外城市联网查询、需求槽位都依赖它）。
+     *
+     * <p>只做「像不像城市名」的启发式：优先命中「X日游 / 去X玩 / 目的地：X / X行程」等句式，
+     * 并过滤掉「帮我规划」「这次行程」这类被句式误伤的动词/限定词。猜不出来返回 null——
+     * 槽位缺目的地时交给 Agent 追问，绝不在这里编一个城市。
+     */
     public static String guessCityName(String text) {
-        if (text == null) {
+        if (text == null || text.isBlank()) {
             return null;
         }
+        // 1) 「上海三日游 / 杭州周末游 / 亲子游」：取触发词前面最近的 2-4 个汉字，
+        //    再剥掉「帮我规划/安排」这类动词前缀——正则从左往右会先吞进「规划上海」，
+        //    所以这里手动取后缀而不是让正则去猜边界。
+        Matcher tripWord = Pattern.compile("([0-9一二两三四五六七八]+日游|周末游|亲子游|游)").matcher(text);
+        while (tripWord.find()) {
+            String city = cityBefore(text, tripWord.start());
+            if (city != null) {
+                return city;
+            }
+        }
         String[] patterns = {
-                "([\\u4e00-\\u9fa5]{2,4}?)(?:[0-9一二两三四五六七八]+日游|周末游|亲子游|游)",
-                "去([\\u4e00-\\u9fa5]{2,4}?)(?:玩|旅行|旅游|看看|逛|的)",
-                "([\\u4e00-\\u9fa5]{2,4}?)(?:旅行|旅游)"
+                // 「去石家庄玩 / 去成都旅行」
+                "去([\\u4e00-\\u9fa5]{2,4}?)(?:玩|旅行|旅游|看看|逛|的|出差)",
+                // 「去北京两天」：城市名后紧跟天数（避免把城市和天数一起吞掉）
+                "去\\s*([\\u4e00-\\u9fa5]{2,4}?)(?=[0-9一二两三四五六七八九十]+[天日人])",
+                // 结构化表单：「目的地：上海」
+                "目的地\\s*[:：]\\s*([\\u4e00-\\u9fa5]{2,4})",
+                // 「到/在/飞 + 城市 + 玩/待/过」
+                "(?:到|在|飞)\\s*([\\u4e00-\\u9fa5]{2,4}?)(?:玩|旅行|旅游|待|过|出差)",
+                // 「上海行程 / 上海旅游 / 上海旅行」
+                "([\\u4e00-\\u9fa5]{2,4}?)(?:的)?(?:行程|旅行|旅游|出差)",
+                // 「去北京」这类句尾/标点前结束的写法
+                "去\\s*([\\u4e00-\\u9fa5]{2,4}?)(?=[，,。；;！!？?\\s]|$)"
         };
         for (String pattern : patterns) {
             Matcher m = Pattern.compile(pattern).matcher(text);
-            if (m.find()) {
-                String group = m.group(1);
-                if (group != null && !group.isBlank()
-                        && !java.util.Set.of("城市", "哪里", "那里", "这里", "地方", "一个").contains(group)) {
-                    return group;
+            while (m.find()) {
+                String city = stripLeading(m.group(1));
+                if (isCityLike(city)) {
+                    return city;
                 }
             }
         }
         return null;
+    }
+
+    /** 取 end 位置之前最近的 2-4 个汉字，剥掉动词前缀后像城市名就返回 */
+    private static String cityBefore(String text, int end) {
+        int from = Math.max(0, end - 4);
+        String before = text.substring(from, end);
+        for (int len = Math.min(4, before.length()); len >= 2; len--) {
+            String city = stripLeading(before.substring(before.length() - len));
+            if (isCityLike(city)) {
+                return city;
+            }
+        }
+        return null;
+    }
+
+    /** 剥掉「帮我/规划/去」这类紧贴城市名的动词前缀（可能叠了好几层） */
+    private static String stripLeading(String candidate) {
+        String city = candidate;
+        boolean changed = true;
+        while (changed) {
+            changed = false;
+            for (String prefix : CITY_VERB_PREFIXES) {
+                if (city.length() > prefix.length() && city.startsWith(prefix)) {
+                    city = city.substring(prefix.length());
+                    changed = true;
+                    break;
+                }
+            }
+        }
+        return city;
+    }
+
+    /** 城市名前后常粘连的动词/限定词（按长度从长到短剥） */
+    private static final java.util.List<String> CITY_VERB_PREFIXES = java.util.List.of(
+            "请帮我", "帮我", "我想", "我们", "我的", "规划", "安排", "计划", "这次", "下次",
+            "一趟", "去", "到", "在", "飞", "游", "请", "想", "来");
+
+
+    /** 「像城市名」：2-4 个汉字且不是被句式误伤的动词/限定词 */
+    private static boolean isCityLike(String candidate) {
+        if (candidate == null || candidate.length() < 2 || candidate.length() > 4) {
+            return false;
+        }
+        for (String stop : CITY_STOPWORDS) {
+            if (candidate.contains(stop)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * 追问后的极短回答：「上海」「北京」整句就是一个城市名。
+     *
+     * <p>只接受 2-4 个纯汉字、且不像天数/人数/预算的整句——「三天」「两个人」「预算」都不是城市。
+     * 追问场景之外的消息本来就有完整句式，用 {@link #guessCityName} 即可。
+     */
+    public static String guessBareCityName(String text) {
+        if (text == null) {
+            return null;
+        }
+        String t = text.trim().replaceAll("[，。！？、,.!?\\s]", "");
+        if (t.length() < 2 || t.length() > 4) {
+            return null;
+        }
+        if (extractDays(t) > 0 || extractPartySize(t) > 0 || extractBudget(t) != null) {
+            return null;
+        }
+        if (t.chars().anyMatch(Character::isDigit)) {
+            return null;
+        }
+        return isCityLike(t) ? t : null;
+    }
+
+    private static final java.util.List<String> CITY_STOPWORDS = java.util.List.of(
+            "城市", "哪里", "那里", "这里", "地方", "一个", "帮我", "规划", "安排", "计划",
+            "我们", "我的", "这次", "下次", "一趟", "整个", "行程", "旅行", "旅游", "出行",
+            "出游", "目的地", "周末", "今天", "明天", "后天", "下周", "本周", "附近", "周边",
+            "国内", "国外", "几天", "玩耍", "小孩子", "一天", "两天", "三天", "四天", "五天",
+            "预算", "花费", "消费", "天气", "地铁", "酒店", "民宿", "亲子", "美食", "景点", "门票");
+
+    /**
+     * 提取同行人数："3人" / "三个人" / "2大1小" / "一家三口" / "我们俩" / "一个人"。
+     * 结构化表单的「成人 N，儿童 M」按人头相加（票价/床位的计价口径一致）。
+     * 解析不出来返回 -1；结果收敛到 1..{@link RequirementSlots#MAX_PARTY_SIZE}。
+     */
+    public static int extractPartySize(String text) {
+        if (text == null || text.isBlank()) {
+            return -1;
+        }
+        // 1) 结构化表单/明确分人：成人 + 儿童
+        Matcher adult = Pattern.compile("(?:成人|大人)\\s*[:：]?\\s*(\\d{1,2})").matcher(text);
+        Matcher kid = Pattern.compile("(?:儿童|孩子|小孩)\\s*[:：]?\\s*(\\d{1,2})").matcher(text);
+        boolean hasAdult = adult.find();
+        boolean hasKid = kid.find();
+        if (hasAdult || hasKid) {
+            int count = (hasAdult ? Integer.parseInt(adult.group(1)) : 0)
+                    + (hasKid ? Integer.parseInt(kid.group(1)) : 0);
+            if (count > 0) {
+                return clampParty(count);
+            }
+        }
+        // 2) 「2大1小」
+        Matcher bigSmall = Pattern.compile("(\\d{1,2})\\s*大\\s*(\\d{1,2})\\s*小").matcher(text);
+        if (bigSmall.find()) {
+            return clampParty(Integer.parseInt(bigSmall.group(1)) + Integer.parseInt(bigSmall.group(2)));
+        }
+        // 3) 「一家三口」
+        Matcher family = Pattern.compile("一家([三四五六七八九十])口").matcher(text);
+        if (family.find()) {
+            Integer count = CN_NUM.get(family.group(1).charAt(0));
+            if (count != null) {
+                return clampParty(count);
+            }
+        }
+        // 4) 「3人 / 3个人 / 3位」
+        Matcher arabic = Pattern.compile("(\\d{1,2})\\s*(?:个|位)?\\s*人").matcher(text);
+        if (arabic.find()) {
+            return clampParty(Integer.parseInt(arabic.group(1)));
+        }
+        // 5) 「三个人 / 两个人」
+        Matcher chinese = Pattern.compile("([一两二三四五六七八九十])\\s*(?:个|位)?\\s*人").matcher(text);
+        if (chinese.find()) {
+            Integer count = CN_NUM.get(chinese.group(1).charAt(0));
+            if (count != null) {
+                return clampParty(count);
+            }
+        }
+        // 6) 单人表述
+        if (text.contains("独自") || text.contains("一个人") || text.contains("单人")) {
+            return 1;
+        }
+        return -1;
+    }
+
+    private static int clampParty(int count) {
+        return Math.min(Math.max(count, 1), RequirementSlots.MAX_PARTY_SIZE);
     }
 
     /** 记账请求解析结果 */

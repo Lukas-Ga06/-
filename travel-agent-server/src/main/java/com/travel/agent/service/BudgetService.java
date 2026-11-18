@@ -59,6 +59,32 @@ public class BudgetService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
+    // ==================== 人数口径（FR-01） ====================
+    // 票价/餐费是「人均」、房价是「每间」，交通是「整车」。口径只在这一处定义，
+    // 规则规划器与 LLM 结构化规划器都调用它，避免两条路径算出不同总价。
+
+    /** 人数兜底：null/≤0 → 1（升级前的单人成本口径），超过 20 人截断 */
+    public static int effectiveParty(Integer partySize) {
+        if (partySize == null || partySize <= 0) {
+            return 1;
+        }
+        return Math.min(partySize, 20);
+    }
+
+    /** 酒店房间数：双人间口径，两人一间、向上取整，至少 1 间 */
+    public static int roomsFor(int partySize) {
+        int people = effectiveParty(partySize);
+        return Math.max(1, (people + 1) / 2);
+    }
+
+    /** 人均单价按人数放大（景点门票 / 餐饮人均）；单价为空按 0 计 */
+    public static BigDecimal perPerson(BigDecimal unitPrice, int partySize) {
+        if (unitPrice == null) {
+            return BigDecimal.ZERO;
+        }
+        return unitPrice.multiply(BigDecimal.valueOf(effectiveParty(partySize)));
+    }
+
     /**
      * 预算执行摘要：把三套口径放到一张表里——
      * 计划成本（行程项）、行程预算、实际支出（记账），并给出偏差与分类对账。

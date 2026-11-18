@@ -252,7 +252,7 @@ GET /api/photos/12/raw?ticket=...                    # 只能用 media-read 票�
 鉴权：登录 ｜ 源码：`TripController#list:40` ｜ 错误：`401`
 参数：`limit`（默认 20，上限 200）、`offset`（默认 0）；响应带 `pagination`（见 §1.6）
 ```json
-{"code":0,"message":"success","data":[{"id":1,"name":"杭州三日","destination":"杭州","startDate":"2026-11-20","endDate":"2026-11-22","budget":5000.00,"status":"PLANNING","phase":"UPCOMING","daysUntilStart":12,"createdAt":"2026-11-01"}],"pagination":{"total":1,"limit":20,"offset":0,"hasMore":false}}
+{"code":0,"message":"success","data":[{"id":1,"name":"杭州三日","destination":"杭州","startDate":"2026-11-20","endDate":"2026-11-22","budget":5000.00,"partySize":2,"status":"PLANNING","phase":"UPCOMING","daysUntilStart":12,"createdAt":"2026-11-01"}],"pagination":{"total":1,"limit":20,"offset":0,"hasMore":false}}
 ```
 `phase` 由日期派生：`UPCOMING` / `ONGOING` / `PAST` / `CANCELLED`；`daysUntilStart` 仅 `UPCOMING` 有值。
 
@@ -272,18 +272,19 @@ GET /api/photos/12/raw?ticket=...                    # 只能用 media-read 票�
 | `startDate` | 否 | `yyyy-MM-dd`，缺省明天 |
 | `endDate` | 否 | `yyyy-MM-dd`，缺省 `startDate + 2 天`（共 3 天） |
 | `budget` | 否 | `BigDecimal` ≥ 0，缺省 `5000` |
+| `partySize` | 否 | **V2.2 FR-01** 同行人数 1..20，缺省 1；预算的房数/餐费/门票口径随它变化 |
 ```json
 // 请求
-{"name":"杭州三日","destination":"杭州","startDate":"2026-11-20","endDate":"2026-11-22","budget":5000}
+{"name":"杭州三日","destination":"杭州","startDate":"2026-11-20","endDate":"2026-11-22","budget":5000,"partySize":2}
 // 响应
-{"code":0,"message":"success","data":{"id":1,"name":"杭州三日","destination":"杭州","startDate":"2026-11-20","endDate":"2026-11-22","budget":5000.00,"status":"PLANNING","phase":"UPCOMING","daysUntilStart":12,"createdAt":"2026-11-08"}}
+{"code":0,"message":"success","data":{"id":1,"name":"杭州三日","destination":"杭州","startDate":"2026-11-20","endDate":"2026-11-22","budget":5000.00,"partySize":2,"status":"PLANNING","phase":"UPCOMING","daysUntilStart":12,"createdAt":"2026-11-08"}}
 ```
 错误：`400` 校验失败 / `结束日期不能早于开始日期` / `开始日期不是有效日期，请使用 yyyy-MM-dd`；`401`
 
 ### 3.4 GET /api/trips/{id} — 行程详情
 鉴权：登录 ｜ 源码：`TripController#get:62` ｜ 参数：路径 `id` ｜ 响应结构同 §3.3
 ```json
-{"code":0,"message":"success","data":{"id":1,"name":"杭州三日","destination":"杭州","startDate":"2026-11-20","endDate":"2026-11-22","budget":5000.00,"status":"PLANNING","phase":"UPCOMING","daysUntilStart":12,"createdAt":"2026-11-01"}}
+{"code":0,"message":"success","data":{"id":1,"name":"杭州三日","destination":"杭州","startDate":"2026-11-20","endDate":"2026-11-22","budget":5000.00,"partySize":2,"status":"PLANNING","phase":"UPCOMING","daysUntilStart":12,"createdAt":"2026-11-01"}}
 ```
 错误：`401`；`404` `行程不存在或无权访问`
 
@@ -291,9 +292,9 @@ GET /api/photos/12/raw?ticket=...                    # 只能用 media-read 票�
 鉴权：登录 ｜ 源码：`TripController#update:68` ｜ 请求体同 §3.3（仅传需要修改的字段）
 ```json
 // 请求
-{"name":"杭州四日","endDate":"2026-11-23","budget":6000}
+{"name":"杭州四日","endDate":"2026-11-23","budget":6000,"partySize":3}
 // 响应
-{"code":0,"message":"success","data":{"id":1,"name":"杭州四日","destination":"杭州","startDate":"2026-11-20","endDate":"2026-11-23","budget":6000.00,"status":"PLANNING","phase":"UPCOMING","daysUntilStart":12,"createdAt":"2026-11-01"}}
+{"code":0,"message":"success","data":{"id":1,"name":"杭州四日","destination":"杭州","startDate":"2026-11-20","endDate":"2026-11-23","budget":6000.00,"partySize":3,"status":"PLANNING","phase":"UPCOMING","daysUntilStart":12,"createdAt":"2026-11-01"}}
 ```
 错误：`400` 结束日期早于开始日期 / `缩短后第 N 天的安排会超出范围…`；`401`；`404`
 改期会整体平移行程项时间（保持「第几天 + 时刻」不变）。
@@ -422,6 +423,7 @@ GET /api/photos/12/raw?ticket=...                    # 只能用 media-read 票�
 | `confirmation` | `Object` | `{planId, summary, riskLevel:LOW\|MEDIUM\|HIGH, contentHash, requiresAcknowledgement}`；`contentHash` 是方案内容的 SHA-256（V2.2 FR-08），确认时回传即可绑定「用户看到的内容」；`requiresAcknowledgement`（FR-06）为 `true` 时确认请求必须带 `acknowledgeIssues=true` |
 | `warnings` | `String[]` | 反思/风险提示（旧契约；有 `review` 时它的 `issues` 是同一批问题的结构化版本） |
 | `review` | `Object` | **V2.2 FR-06 审核结论**：`{passed, blocked, attempts, issues:[{type,severity,message}], repairs:[String]}`；`blocked=true` 表示有限重规划后仍有未解决 HIGH 问题，确认必须显式接受风险（见 §5.5）；`attempts`/`repairs` 是引擎已自动完成的修复动作 |
+| `missingSlots` | `String[]` | **V2.2 FR-01 需求追问**：非空（`destination`/`days`/`partySize`）表示本轮没有规划，而是在合并追问；缺省/空表示正常规划。追问轮次的会话消息带 `intent=PLAN_TRIP_NEED_INFO`，下一轮短回答会续槽 |
 | `execution` | `Object` | 仅 `confirm` 成功路径：`{executionId, planId, tripId, status:SUCCEEDED\|PARTIAL_FAILED\|FAILED, modules:[...]}`（V2.2 FR-09，见 §5.11） |
 
 `review.issues[].type`：`BUDGET_OVERRUN`（预算超限）/ `TRANSFER_TIME`（转场时间不够）/ `WEATHER_OUTDOOR`（雨天排户外）为
@@ -439,9 +441,11 @@ GET /api/photos/12/raw?ticket=...                    # 只能用 media-read 票�
 | `conversationId` | 否 | 前端生成的会话标识，`[A-Za-z0-9_-]` 且 ≤64；为空表示单轮 |
 ```json
 // 请求
-{"message":"帮我规划杭州三日游，预算 5000","conversationId":"c-1a2b3c"}
+{"message":"帮我规划杭州三日游，2 人，预算 5000","conversationId":"c-1a2b3c"}
 // 响应（节选）
-{"code":0,"message":"success","data":{"planId":"plan-8f3c","tripId":null,"message":"已为你生成杭州三日行程（3 天 8 个安排），请确认后提交。","intent":"PLAN_TRIP","status":"NEED_CONFIRMATION","focus":{"type":"itinerary","tripId":null,"day":1,"itemId":null,"latitude":null,"longitude":null},"diff":{"changes":[{"type":"ADD","itemId":null,"itemType":"attraction","title":"西湖断桥","detail":null,"cost":0.00,"dayIndex":1,"startTime":"09:00"}],"budgetBefore":null,"budgetAfter":4820.00},"budget":{"total":4820.00,"previousTotal":null,"difference":null,"breakdown":{"住宿":1800.00}},"confirmation":{"planId":"plan-8f3c","summary":"3 天 8 个安排","riskLevel":"MEDIUM"},"warnings":[]}}
+{"code":0,"message":"success","data":{"planId":"plan-8f3c","tripId":null,"message":"已为你规划「杭州3日游」（11月20日出发，2 人）：…","intent":"PLAN_TRIP","status":"NEED_CONFIRMATION","focus":{"type":"itinerary","tripId":null,"day":1,"itemId":null,"latitude":null,"longitude":null},"diff":{"changes":[{"type":"ADD","itemId":null,"itemType":"attraction","title":"西湖断桥","detail":null,"cost":0.00,"dayIndex":1,"startTime":"09:00"}],"budgetBefore":null,"budgetAfter":4820.00},"budget":{"total":4820.00,"previousTotal":null,"difference":null,"breakdown":{"住宿":1800.00}},"confirmation":{"planId":"plan-8f3c","summary":"3 天 8 个安排","riskLevel":"MEDIUM"},"warnings":[]}}
+// 缺信息时（FR-01）：不规划，只追问
+{"code":0,"message":"success","data":{"message":"开始规划前，还需要确认：\n· 去哪里？\n· 玩几天？\n· 几个人一起（儿童也算人数）？\n预算和出发日期也可以顺手说；不说的话我按 ¥5000、明天出发估算。","intent":"PLAN_TRIP","status":"COMPLETED","missingSlots":["destination","days","partySize"]}}
 ```
 错误：`400` 校验失败；`401`；`429` 限流
 

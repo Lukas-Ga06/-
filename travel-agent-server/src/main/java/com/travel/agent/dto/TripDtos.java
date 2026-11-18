@@ -36,6 +36,10 @@ public class TripDtos {
         private String endDate;    // yyyy-MM-dd
         @DecimalMin(value = "0", message = "不能为负数")
         private BigDecimal budget;
+        /** 同行人数（FR-01）：1..20，缺省 1；预算的房数/餐费/门票口径随它变化 */
+        @jakarta.validation.constraints.Min(value = 1, message = "不能小于 1")
+        @jakarta.validation.constraints.Max(value = 20, message = "不能大于 20")
+        private Integer partySize;
     }
 
     /** 首页足迹地图点（坐标可能为 null：图集/联网均未命中） */
@@ -67,6 +71,8 @@ public class TripDtos {
         private String endDate;
         private BigDecimal budget;
         private String status;
+        /** 同行人数（FR-01）：存量行程为 1 */
+        private Integer partySize;
         /** 业务阶段：UPCOMING / ONGOING / PAST / CANCELLED */
         private String phase;
         /** 距出发天数（仅 UPCOMING 有值） */
@@ -84,6 +90,7 @@ public class TripDtos {
                     .endDate(trip.getEndDate() == null ? null : trip.getEndDate().toString())
                     .budget(trip.getBudget())
                     .status(trip.getStatus())
+                    .partySize(trip.getPartySize() == null ? 1 : trip.getPartySize())
                     .phase(phase)
                     .daysUntilStart("UPCOMING".equals(phase) && trip.getStartDate() != null
                             ? ChronoUnit.DAYS.between(today, trip.getStartDate()) : null)

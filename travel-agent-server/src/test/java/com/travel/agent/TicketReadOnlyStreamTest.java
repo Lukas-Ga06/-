@@ -122,7 +122,7 @@ class TicketReadOnlyStreamTest extends IntegrationTestSupport {
         String ticket = issueTicket(account);
 
         String bodyText = streamAndComplete(get("/api/agent/stream")
-                .param("message", "帮我规划上海三日游，预算3000元")
+                .param("message", "帮我规划上海三日游，2人，预算3000元")
                 .param("ticket", ticket));
 
         assertThat(bodyText).contains("complete");

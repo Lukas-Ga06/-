@@ -46,6 +46,14 @@ public class Trip {
     @Column(precision = 10, scale = 2)
     private BigDecimal budget;
 
+    /**
+     * 同行人数（FR-01）：预算的酒店房数/餐饮与门票计价口径以它为准。
+     * 存量行由 V17 迁移回填 1，与升级前的单人成本口径一致；上限 20 在 DTO 与槽位层校验。
+     */
+    @Column(name = "party_size", nullable = false, columnDefinition = "int default 1")
+    @Builder.Default
+    private Integer partySize = 1;
+
     @Column(length = 30)
     private String status;
 

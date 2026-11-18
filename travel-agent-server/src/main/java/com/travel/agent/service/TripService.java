@@ -79,6 +79,7 @@ public class TripService {
                 .startDate(start)
                 .endDate(start.plusDays(Math.max(days, 1) - 1L))
                 .budget(req.getBudget() == null ? BigDecimal.valueOf(5000) : req.getBudget())
+                .partySize(BudgetService.effectiveParty(req.getPartySize()))
                 .status(Trip.STATUS_PLANNING)
                 .build();
         return tripRepository.save(trip);
@@ -112,6 +113,7 @@ public class TripService {
             itineraryService.shiftDates(tripId, ChronoUnit.DAYS.between(oldStart, trip.getStartDate()));
         }
         if (req.getBudget() != null) trip.setBudget(req.getBudget());
+        if (req.getPartySize() != null) trip.setPartySize(BudgetService.effectiveParty(req.getPartySize()));
         return tripRepository.save(trip);
     }
 
@@ -209,6 +211,7 @@ public class TripService {
                 .startDate(draft.getStartDate())
                 .endDate(draft.getStartDate().plusDays(Math.max(draft.getDays(), 1) - 1L))
                 .budget(draft.getBudget())
+                .partySize(BudgetService.effectiveParty(draft.getPartySize()))
                 .status(Trip.STATUS_CONFIRMED)
                 .build();
         trip = tripRepository.save(trip);

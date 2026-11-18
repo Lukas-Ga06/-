@@ -22,7 +22,11 @@ public final class MessageTemplates {
         if (draft.getStartDate() != null) {
             boolean sameYear = draft.getStartDate().getYear() == LocalDate.now().getYear();
             sb.append("（").append(draft.getStartDate().format(DateTimeFormatter.ofPattern(
-                    sameYear ? "M月d日" : "yyyy年M月d日"))).append("出发）");
+                    sameYear ? "M月d日" : "yyyy年M月d日"))).append("出发");
+            if (draft.getPartySize() != null && draft.getPartySize() > 0) {
+                sb.append("，").append(draft.getPartySize()).append(" 人");
+            }
+            sb.append("）");
         }
         sb.append("：")
                 .append(attractions).append("个景点、").append(restaurants).append("顿美食");
@@ -110,7 +114,7 @@ public final class MessageTemplates {
 
     public static final String HELP = """
             我是你的个人智能助理，目前可用：
-            ① 规划行程：「帮我规划上海三日游，预算3000，酒店近地铁」
+            ① 规划行程：「帮我规划上海三日游，2 人，预算 3000，酒店近地铁」
             ② 动态调整：「明天下雨，把户外景点换掉」（也可以先点选时间轴上的安排，说「这个换成类似的」）
             ③ 记账：「记一笔午餐 45 元」「微信付了 55 元打车」
             ④ 备忘：「记一下明天办签证」「我的备忘」

@@ -75,6 +75,11 @@ export interface AgentResult {
   confirmation?: ConfirmationDTO | null;
   /** 审核结论（Batch 13）；缺失表示旧后端或本次无需审核 */
   review?: PlanReviewDTO | null;
+  /**
+   * 需求槽位追问（Batch 14 / FR-01）：非空表示本轮没有规划，而是在问用户补齐
+   * destination / days / partySize。旧后端不返回该字段。
+   */
+  missingSlots?: string[] | null;
   warnings?: string[] | null;
   /** 确认提交后的日程/预算/足迹同步执行结果（V2.2 §9.1） */
   execution?: ExecutionSummary | null;

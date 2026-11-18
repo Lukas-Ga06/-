@@ -80,7 +80,7 @@ class AgentTraceApiTest extends IntegrationTestSupport {
     @DisplayName("规划对话的任务链与工具调用可按 runId 回查")
     void planningRunRecordsTaskChainAndToolCalls() throws Exception {
         Account account = registerNew();
-        JsonNode result = chat(account, "帮我规划上海三日游，预算3000元");
+        JsonNode result = chat(account, "帮我规划上海三日游，2人，预算3000元");
         assertThat(result.path("status").asText()).isEqualTo("NEED_CONFIRMATION");
 
         JsonNode runs = recentRuns(account);

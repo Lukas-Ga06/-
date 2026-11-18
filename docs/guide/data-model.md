@@ -114,6 +114,7 @@ erDiagram
 | `start_date` | `DATE` | 是 | 出发日 |
 | `end_date` | `DATE` | 是 | 返程日 |
 | `budget` | `DECIMAL(10,2)` | 是 | 预算；为空时预算分析不算 `remaining` |
+| `party_size` | `INT` | 否 | 同行人数（含儿童，1..20，默认 1，V17 迁移回填 1）；酒店按双人间 `ceil(人数/2)` 计房数、餐饮/门票按人头计、交通整车不计人数（`BudgetService.roomsFor/perPerson`） |
 | `status` | `VARCHAR(30)` | 是 | `PLANNING` / `CONFIRMED` / `CANCELLED`，`@PrePersist` 兜底 `PLANNING` |
 | `version` | `BIGINT` | 是 | `@Version` 乐观锁（DDL 默认 `0`，`V13` 补列）；并发修改由 `GlobalExceptionHandler` 转 `409` |
 | `departure_reminder_dismissed_at` | `TIMESTAMP` | 是 | 用户忽略出发提醒的时间；为空表示仍在提醒板 |
@@ -572,10 +573,10 @@ b=<budget>|s=<startDate>|e=<endDate>
 
 ## 6. Flyway 迁移策略与 `ddl-auto`
 
-### 6.1 迁移链：V1 基线 → V2–V11（便携）→ V12/V13/V14（按方言分目录）
+### 6.1 迁移链：V1 基线 → V2–V11（便携）→ V12/V13/V14（按方言分目录）→ V15–V17（便携）
 
 **schema 的唯一权威是 Flyway**，两个 profile 的 `ddl-auto` 都是 `validate`（见 6.2）：Hibernate 只校验、不改结构。
-共 **14 个版本 / 15 个脚本**（V13 两份、V14 一份 H2 专属，各自进对应方言目录）：
+共 **17 个版本 / 18 个脚本**（V13 三份、V8/V12 在 MySQL 目录、V14 在 H2 目录）：
 
 | 版本 | 脚本 | 目录 | 内容 | 策略 |
 | --- | --- | --- | --- | --- |
@@ -594,13 +595,16 @@ b=<budget>|s=<startDate>|e=<endDate>
 | 14 | `V14__llm_quota_unique_h2.sql` | `db/migration-h2` | `llm_quota_usage` 补 `(user_name, usage_date)` 唯一键（先去重） | **H2 专属**：同约束在 MySQL 侧由 `V8` 负责，H2 不加载该目录时从未建过这个键（`ON DUPLICATE KEY UPDATE` 无键可撞 → 可能重复行） |
 | 13 | `V13__baseline_gap.sql` | `db/migration-mysql` | 补齐「当年由 `ddl-auto=update` 建出、V1–V12 没有脚本负责」的 **9 列 + `trip_photo` 表 + 6 个索引** | **MySQL 专属**、幂等（`information_schema` 探测 + `PREPARE` 动态语句） |
 | 13 | `V13__baseline_gap_h2.sql` | `db/migration-h2` | 与上面**同一份缺口**，换 H2 方言 | 原生 `ADD COLUMN / CREATE INDEX IF NOT EXISTS`，存量库上全部空转 |
+| 15 | `V15__agent_trace.sql` | `db/migration` | 建 `agent_run` / `agent_task` / `tool_call_trace` 三张追踪表 | 双方言中性 SQL；全新库自足建表 |
+| 16 | `V16__plan_execution.sql` | `db/migration` | `pending_plan.content_hash`、建 `plan_execution`、`schedule_item.source_key` | 中性 `ALTER ... ADD COLUMN`（Flyway 每库只跑一次） |
+| 17 | `V17__trip_party_size.sql` | `db/migration` | `trip.party_size`（同行人数，FR-01） | `INT NOT NULL DEFAULT 1`：存量行回填 1，与升级前单人成本口径一致 |
 
 **目录与加载**（`application.yml` / `application-mysql.yml` 的 `spring.flyway.locations`）：
 
 | profile | `locations` | 实际看到的版本 |
 | --- | --- | --- |
-| 默认（H2） | `classpath:db/migration,classpath:db/migration-h2` | V1–V11 + V13（H2 版）；**没有 V12**，且缺口 V8 是预期 |
-| `mysql` | `classpath:db/migration,classpath:db/migration-mysql` | V1–V13 全链（V8 / V12 / V13 是 MySQL 版） |
+| 默认（H2） | `classpath:db/migration,classpath:db/migration-h2` | V1–V11 + V13（H2 版）+ V14 + V15–V17；**没有 V12**，且缺口 V8 是预期 |
+| `mysql` | `classpath:db/migration,classpath:db/migration-mysql` | V1–V13 全链（V8 / V12 / V13 是 MySQL 版）+ V15–V17；没有 V14（H2 专属） |
 
 两个 profile 各自只看到**一个** V13，不会出现「同一 locations 内重复版本号」（`MigrationBaselineTest` 守住这条）。
 `db/migration-mysql/` 与 `db/migration-h2/` 里的脚本含 `information_schema` 探测、会话变量、`PREPARE` 动态语句或方言化

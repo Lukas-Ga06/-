@@ -83,7 +83,7 @@ export default function ChatPanel({ tripId, placeholder }: Props) {
             <div className="chat-bubble assistant">
               你好，我是 AI 旅行助手 ✈️
               {'\n'}可以说：
-              {'\n'}· 帮我规划上海三日游，预算3000，酒店近地铁
+              {'\n'}· 帮我规划上海三日游，2人，预算3000，酒店近地铁
               {'\n'}· 明天下雨，把户外景点换掉
               {'\n'}· 点选时间轴安排后说「这个换成类似的」
               {'\n'}· 上海有什么适合亲子游的地方？

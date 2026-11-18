@@ -11,6 +11,7 @@ import com.travel.agent.model.Attraction;
 import com.travel.agent.model.CityCatalog;
 import com.travel.agent.model.Hotel;
 import com.travel.agent.model.Restaurant;
+import com.travel.agent.service.BudgetService;
 import com.travel.agent.service.ItineraryService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -223,7 +224,8 @@ public class StructuredPlanner {
             return null;
         }
         return draft(draft.startDate(), dayIndex, ItineraryItem.TYPE_ATTRACTION, hit.name(),
-                start, end, hit.lat(), hit.lng(), BigDecimal.valueOf(hit.ticket()),
+                start, end, hit.lat(), hit.lng(),
+                BudgetService.perPerson(BigDecimal.valueOf(hit.ticket()), draft.partySize()),
                 hit.tagsWithVenue(), hit.description());
     }
 
@@ -235,7 +237,8 @@ public class StructuredPlanner {
             return null;
         }
         return draft(draft.startDate(), dayIndex, ItineraryItem.TYPE_RESTAURANT, "用餐 · " + hit.name(),
-                start, end, hit.lat(), hit.lng(), BigDecimal.valueOf(hit.avgCost()),
+                start, end, hit.lat(), hit.lng(),
+                BudgetService.perPerson(BigDecimal.valueOf(hit.avgCost()), draft.partySize()),
                 List.of(hit.cuisine()), hit.description());
     }
 
@@ -251,8 +254,13 @@ public class StructuredPlanner {
             return null;
         }
         BigDecimal cost = BigDecimal.valueOf(hit.pricePerNight())
+                .multiply(BigDecimal.valueOf(BudgetService.roomsFor(draft.partySize())))
                 .multiply(BigDecimal.valueOf(Math.max(draft.days() - 1, 1)));
         List<String> tags = new ArrayList<>(List.of("酒店"));
+        int rooms = BudgetService.roomsFor(draft.partySize());
+        if (rooms > 1) {
+            tags.add(rooms + "间房");
+        }
         if (hit.nearSubway()) {
             tags.add("近地铁");
         }
@@ -275,6 +283,8 @@ public class StructuredPlanner {
         StringBuilder sb = new StringBuilder();
         sb.append("为「").append(city.name()).append("」编排 ").append(draft.days())
                 .append(" 日行程，出发日期 ").append(draft.startDate())
+                .append("，同行 ").append(draft.partySize()).append(" 人（酒店按双人间 ")
+                .append(BudgetService.roomsFor(draft.partySize())).append(" 间/晚计，餐饮与门票按人均计）")
                 .append("，总预算 ").append(draft.budget().stripTrailingZeros().toPlainString())
                 .append(" 元。\n");
         if (!draft.preferences().isEmpty()) {
@@ -633,7 +643,13 @@ public class StructuredPlanner {
 
     /** 规划参数视图：由 PlannerAgent 从消息/行程中提取后传入，避免 StructuredPlanner 重复解析 */
     public record TripDraftView(String city, int days, LocalDate startDate, BigDecimal budget,
-                                List<String> preferences) { }
+                                int partySize, List<String> preferences) {
+        /** 兼容旧调用（未接人数时按 1 人，与升级前的单人成本口径一致） */
+        public TripDraftView(String city, int days, LocalDate startDate, BigDecimal budget,
+                             List<String> preferences) {
+            this(city, days, startDate, budget, 1, preferences);
+        }
+    }
 
     /** 兜底校验：格式合法的 HH:mm 才允许进入条目 */
     static boolean isOrdered(String start, String end) {

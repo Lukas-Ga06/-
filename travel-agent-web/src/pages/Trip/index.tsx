@@ -127,7 +127,7 @@ export default function TripPage() {
               <h1>{currentTrip?.name ?? '行程'}</h1>
               <div className="dg-date">
                 {currentTrip
-                  ? `${currentTrip.destination} · ${daysOf(currentTrip)} 天 · ${tripPhaseLabel(currentTrip)} · ${items.length} 个安排`
+                  ? `${currentTrip.destination} · ${daysOf(currentTrip)} 天 · ${currentTrip.partySize ?? 1} 人 · ${tripPhaseLabel(currentTrip)} · ${items.length} 个安排`
                   : '加载中…'}
               </div>
             </div>

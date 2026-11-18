@@ -36,6 +36,11 @@ public class AgentDtos {
         private List<String> warnings;
         /** 审核结论（V2.2 FR-06）：结构化判定 + 重规划动作；只有规划/修改路径才带 */
         private PlanReview review;
+        /**
+         * 需求槽位追问（FR-01）：非空表示本轮没有开始规划，而是要用户补齐这些必填槽位
+         * （destination / days / partySize）。会话历史据此标记「上一轮是追问」，实现跨轮补槽。
+         */
+        private List<String> missingSlots;
         /** 确认提交后的跨模块同步结果（FR-09）：只有 confirm 成功路径才带 */
         private ExecutionSummary execution;
 
