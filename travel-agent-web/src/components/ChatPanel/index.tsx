@@ -1,10 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Input, Popconfirm } from 'antd';
-import { CloseOutlined, PlusOutlined, SendOutlined } from '@ant-design/icons';
+import { App, Button, Input, Popconfirm, Tooltip } from 'antd';
+import { CloseOutlined, HistoryOutlined, PlusOutlined, SendOutlined } from '@ant-design/icons';
 import { useAgentStore } from '../../store/agentStore';
 import { useAuthStore } from '../../store/authStore';
 import { useUIStore } from '../../store/uiStore';
+import { retryExecution } from '../../api/agent';
 import VoiceButton from '../VoiceButton';
+import AgentActivityPanel from '../AgentActivityPanel';
+import ExecutionResultPanel from '../ExecutionResultPanel';
+import AgentRunsDrawer from '../AgentRunsDrawer';
 
 interface Props {
   tripId?: number | null;
@@ -16,14 +20,27 @@ export default function ChatPanel({ tripId, placeholder }: Props) {
   const messages = useAgentStore((s) => s.messages);
   const streaming = useAgentStore((s) => s.streaming);
   const stage = useAgentStore((s) => s.stage);
+  const activity = useAgentStore((s) => s.activity);
+  const lastExecution = useAgentStore((s) => s.lastExecution);
+  const setLastExecution = useAgentStore((s) => s.setLastExecution);
   const send = useAgentStore((s) => s.send);
   const newConversation = useAgentStore((s) => s.newConversation);
   const user = useAuthStore((s) => s.user);
   const selectedDay = useUIStore((s) => s.selectedDay);
   const selectedElement = useUIStore((s) => s.selectedElement);
   const setSelectedElement = useUIStore((s) => s.setSelectedElement);
+  const { message } = App.useApp();
   const [text, setText] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
+
+  // 执行结果面板：用户点关闭后隐藏，收到新的 execution（新一次确认提交）再出现
+  const [executionHidden, setExecutionHidden] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  const [runsOpen, setRunsOpen] = useState(false);
+
+  useEffect(() => {
+    setExecutionHidden(false);
+  }, [lastExecution?.executionId]);
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
@@ -41,9 +58,25 @@ export default function ChatPanel({ tripId, placeholder }: Props) {
     });
   };
 
+  // 模块级同步失败重试：后端只重试 FAILED 模块，成功项不重复创建
+  const onRetryExecution = async () => {
+    if (!lastExecution || retrying) return;
+    setRetrying(true);
+    try {
+      const next = await retryExecution(lastExecution.executionId);
+      setLastExecution(next);
+    } catch (e: any) {
+      message.error(e?.message || '重试失败，请稍后再试');
+    } finally {
+      setRetrying(false);
+    }
+  };
+
   return (
     <>
       <div className="chat-messages" ref={listRef}>
+        {/* 过程时间线在消息区内部、首次问候之前；空数组时组件自身返回 null */}
+        <AgentActivityPanel activity={activity} />
         {messages.length === 0 && (
           <div className="chat-row">
             <div className="chat-avatar ai">🤖</div>
@@ -77,6 +110,15 @@ export default function ChatPanel({ tripId, placeholder }: Props) {
         )}
       </div>
 
+      {lastExecution && !executionHidden && (
+        <ExecutionResultPanel
+          execution={lastExecution}
+          onRetry={onRetryExecution}
+          retrying={retrying}
+          onClose={() => setExecutionHidden(true)}
+        />
+      )}
+
       {selectedElement && (
         <div className="selected-chip">
           <span
@@ -90,6 +132,16 @@ export default function ChatPanel({ tripId, placeholder }: Props) {
       )}
 
       <div className="chat-input-area">
+        <Tooltip title="查看最近的 Agent 运行记录">
+          <Button
+            type="text"
+            size="small"
+            icon={<HistoryOutlined />}
+            onClick={() => setRunsOpen(true)}
+            aria-label="运行记录"
+            style={{ flexShrink: 0 }}
+          />
+        </Tooltip>
         {messages.length > 0 && !streaming && (
           <Popconfirm
             title="开新对话？"
@@ -127,6 +179,8 @@ export default function ChatPanel({ tripId, placeholder }: Props) {
           disabled={streaming || !text.trim()}
         />
       </div>
+
+      <AgentRunsDrawer open={runsOpen} onClose={() => setRunsOpen(false)} />
     </>
   );
 }

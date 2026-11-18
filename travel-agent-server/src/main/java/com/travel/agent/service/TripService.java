@@ -40,6 +40,8 @@ public class TripService {
     private final TripPhotoRepository tripPhotoRepository;
     private final PhotoStore photoStorage;
     private final ItineraryService itineraryService;
+    /** V2.2 FR-09：删除行程时清理确认同步出来的日程与执行台账（该服务只依赖仓库，无循环依赖） */
+    private final PlanExecutionService planExecutionService;
 
     public List<TripDtos.TripResponse> list(Long userId) {
         return tripRepository.findByUserIdOrderByCreatedAtDesc(userId).stream()
@@ -161,6 +163,8 @@ public class TripService {
         expenseRepository.deleteByTripId(trip.getId());
         operationHistoryRepository.deleteByTripId(trip.getId());
         itineraryItemRepository.deleteByTripId(trip.getId());
+        // V2.2 FR-09：确认时同步出来的日程时间块与执行台账一并清理，避免孤儿日程
+        planExecutionService.cleanupForTrip(trip.getId());
         tripRepository.delete(trip);
         // 文件删除安排在 afterCommit：提交成功才删，失败只记日志
         deletePhotoFilesAfterCommit(photoFiles);

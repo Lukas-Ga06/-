@@ -8,6 +8,7 @@ import com.travel.agent.entity.Trip;
 import com.travel.agent.entity.User;
 import com.travel.agent.service.AuthService;
 import com.travel.agent.service.BudgetExecutionService;
+import com.travel.agent.service.ItineraryRouteService;
 import com.travel.agent.service.ItineraryService;
 import com.travel.agent.service.OperationHistoryService;
 import com.travel.agent.service.TripGuidebookService;
@@ -35,6 +36,8 @@ public class TripController {
     private final OperationHistoryService historyService;
     private final BudgetExecutionService budgetExecutionService;
     private final TripGuidebookService guidebookService;
+    /** V2.2 FR-07：每日路线段（真实/估算距离 + 来源标记） */
+    private final ItineraryRouteService itineraryRouteService;
 
     @GetMapping
     public ApiResponse<List<TripDtos.TripResponse>> list(
@@ -96,6 +99,18 @@ public class TripController {
         User user = authService.requireUser(authentication.getName());
         tripService.getOwned(id, user.getId());
         return ApiResponse.ok(itineraryService.listByTrip(id));
+    }
+
+    /**
+     * 每日路线段（V2.2 FR-07）：相邻行程点的距离/时长/打车估算 + 数据来源。
+     * 独立端点，不改变既有 itinerary 响应形状；无坐标条目自动跳过。
+     */
+    @GetMapping("/{id}/route-legs")
+    public ApiResponse<List<ItineraryDtos.RouteLegDTO>> routeLegs(@PathVariable Long id,
+                                                                  Authentication authentication) {
+        User user = authService.requireUser(authentication.getName());
+        tripService.getOwned(id, user.getId());
+        return ApiResponse.ok(itineraryRouteService.forTrip(id));
     }
 
     /** 预算执行：计划成本 / 行程预算 / 实际支出 / 偏差 + 分类对账 */

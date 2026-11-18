@@ -1,6 +1,12 @@
 import { request } from './client';
 import { getAccessTicket } from './ticket';
-import type { AgentResult, SelectedElement } from '../types/agent';
+import type {
+  AgentResult,
+  ExecutionSummary,
+  RunDetail,
+  RunSummary,
+  SelectedElement,
+} from '../types/agent';
 
 export interface AgentStreamParams {
   message: string;
@@ -19,7 +25,8 @@ export interface AgentStreamHandlers {
 }
 
 const EVENT_NAMES = [
-  'start', 'intent', 'planning', 'tool_call', 'tool_result',
+  // run：连接建立后紧跟 start 事件下发，data 为 { runId }（本轮运行的追踪标识，V2.2）
+  'run', 'start', 'intent', 'planning', 'tool_call', 'tool_result',
   'rag_result', 'plan_update', 'focus', 'confirmation', 'complete', 'error',
 ];
 
@@ -202,8 +209,16 @@ export async function streamAgentChatPost(
   return () => finish();
 }
 
-export function confirmPlan(planId: string): Promise<AgentResult> {
-  return request<AgentResult>({ url: '/agent/confirm', method: 'post', data: { planId } });
+/**
+ * 确认待确认方案。contentHash 来自方案的 confirmation.contentHash，
+ * 回传后后端会把确认绑定到具体计划内容版本（不传走旧校验，向后兼容）。
+ */
+export function confirmPlan(planId: string, contentHash?: string): Promise<AgentResult> {
+  return request<AgentResult>({
+    url: '/agent/confirm',
+    method: 'post',
+    data: contentHash ? { planId, contentHash } : { planId },
+  });
 }
 
 export function cancelPlan(planId: string): Promise<AgentResult> {
@@ -217,6 +232,29 @@ export function undoTrip(tripId: number): Promise<AgentResult> {
 /** 取回待确认方案：刷新页面后凭 planId 恢复确认弹窗 */
 export function getPendingPlan(planId: string): Promise<AgentResult> {
   return request<AgentResult>({ url: `/agent/plans/${encodeURIComponent(planId)}` });
+}
+
+/** 最近运行列表（V2.2 运行追踪；limit 默认 20） */
+export function getRuns(limit = 20): Promise<RunSummary[]> {
+  return request<RunSummary[]>({ url: '/agent/runs', method: 'get', params: { limit } });
+}
+
+/** 单次运行的完整追踪：任务链 + 工具调用（他人 run 返回 404 业务错误） */
+export function getRunDetail(runId: string): Promise<RunDetail> {
+  return request<RunDetail>({ url: `/agent/runs/${encodeURIComponent(runId)}` });
+}
+
+/** 查询一次确认提交的模块级同步结果（日程/预算/足迹） */
+export function getExecution(executionId: string): Promise<ExecutionSummary> {
+  return request<ExecutionSummary>({ url: `/agent/executions/${encodeURIComponent(executionId)}` });
+}
+
+/** 重试同步：后端只重试 FAILED 模块，成功项不重复创建 */
+export function retryExecution(executionId: string): Promise<ExecutionSummary> {
+  return request<ExecutionSummary>({
+    url: `/agent/executions/${encodeURIComponent(executionId)}/retry`,
+    method: 'post',
+  });
 }
 
 /** 开新会话时清掉服务端该会话的历史（失败可忽略，历史 7 天后也会被定期清理） */

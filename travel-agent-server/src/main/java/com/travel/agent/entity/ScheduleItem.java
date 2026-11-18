@@ -57,6 +57,14 @@ public class ScheduleItem {
     @Column(name = "reminder_dismissed_at")
     private LocalDateTime reminderDismissedAt;
 
+    /**
+     * 来源幂等键（V2.2 FR-09）：Agent 确认同步生成的日程写
+     * {@code plan-sync:{planId}:day:{n}}；唯一索引兜底并发重复。
+     * 手工创建的日程为 NULL（唯一索引允许多个 NULL，不受影响）。
+     */
+    @Column(name = "source_key", length = 100)
+    private String sourceKey;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 

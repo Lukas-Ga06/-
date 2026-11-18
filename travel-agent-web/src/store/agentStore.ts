@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { cancelPlan, clearConversation, confirmPlan, streamAgentChat, streamAgentChatPost } from '../api/agent';
-import type { AgentFocus, AgentResult, ChatMessage, SelectedElement } from '../types/agent';
+import type { AgentFocus, AgentResult, ChatMessage, ExecutionSummary, SelectedElement } from '../types/agent';
+import { stageText, type ActivityEvent } from './stageText';
 
 export interface SendPayload {
   message: string;
@@ -34,6 +35,12 @@ interface AgentState {
    * reset() 只清界面消息、不动它；只有 newConversation() 才开新会话。
    */
   conversationId: string | null;
+  /** 本轮运行的追踪标识（SSE run 事件下发，send 开始时清空） */
+  currentRun: { runId: string } | null;
+  /** 确认成功后的日程/预算/足迹同步执行结果；ChatPanel 据此渲染 ExecutionResultPanel */
+  lastExecution: ExecutionSummary | null;
+  /** Agent 过程事件（追加式时间线，窗口保留最近 40 条；send 开始时清空） */
+  activity: ActivityEvent[];
   send: (payload: SendPayload) => void;
   confirm: () => Promise<AgentResult | null>;
   cancel: () => Promise<void>;
@@ -43,6 +50,8 @@ interface AgentState {
   /** 显式开新会话：清消息 + 换 conversationId（同时清掉服务端该会话历史） */
   newConversation: () => void;
   clearCommitted: () => void;
+  /** 覆盖执行同步结果（重试成功后由 ChatPanel 回写，收到新 execution 前面板一直显示） */
+  setLastExecution: (execution: ExecutionSummary | null) => void;
 }
 
 let closeFn: (() => void) | null = null;
@@ -59,19 +68,13 @@ function pushMessage(list: ChatMessage[], msg: ChatMessage): ChatMessage[] {
   return [...list, msg];
 }
 
-const STAGE_TEXT: Record<string, (data: any) => string> = {
-  start: () => '已连接 Agent…',
-  intent: (d) => `意图识别：${d?.intent ?? '…'}`,
-  planning: () => '正在规划行程…',
-  tool_call: (d) =>
-    d?.tool === 'search_city_online'
-      ? '联网查询目的地的景点/酒店/餐厅数据…'
-      : `调用工具 ${d?.tool ?? ''}…`,
-  tool_result: (d) => `工具 ${d?.tool ?? ''} 执行完成`,
-  rag_result: () => '检索旅游知识库…',
-  plan_update: () => '生成方案对比…',
-  confirmation: () => '等待你的确认…',
-};
+/** 过程时间线窗口：SSE 事件可能很密集，只保留最近 40 条 */
+const ACTIVITY_WINDOW = 40;
+
+function appendActivity(list: ActivityEvent[], event: string, data: any): ActivityEvent[] {
+  const next: ActivityEvent[] = [...list, { event, data, time: Date.now() }];
+  return next.length > ACTIVITY_WINDOW ? next.slice(next.length - ACTIVITY_WINDOW) : next;
+}
 
 function newConversationId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -90,6 +93,9 @@ export const useAgentStore = create<AgentState>()(
   lastFocus: null,
   committedTripId: null,
   conversationId: null,
+  currentRun: null,
+  lastExecution: null,
+  activity: [],
 
   send: (payload) => {
     if (get().streaming || !payload.message.trim()) {
@@ -114,16 +120,23 @@ export const useAgentStore = create<AgentState>()(
       streaming: true,
       stage: '连接 Agent…',
       pendingConfirm: null,
+      currentRun: null,
+      activity: [],
     });
 
     const streamFn = payload.transport === 'post' ? streamAgentChatPost : streamAgentChat;
     streamFn({ ...payload, conversationId }, {
         onEvent: (event, data) => {
-          const text = STAGE_TEXT[event]?.(data);
+          const text = stageText(event, data);
           if (text) set({ stage: text });
           if (event === 'focus' && data) {
             set({ lastFocus: data as AgentFocus });
           }
+          if (event === 'run' && data?.runId) {
+            // 本轮运行的追踪标识（V2.2 运行记录的锚点）
+            set({ currentRun: { runId: String(data.runId) } });
+          }
+          set((s) => ({ activity: appendActivity(s.activity, event, data) }));
         },
         onComplete: (result) => {
           const assistantMsg: ChatMessage = {
@@ -132,15 +145,16 @@ export const useAgentStore = create<AgentState>()(
             content: result.message || '（无返回内容）',
             time: new Date().toISOString(),
           };
-          set({
-            messages: pushMessage(get().messages, assistantMsg),
+          set((s) => ({
+            messages: pushMessage(s.messages, assistantMsg),
             streaming: false,
             stage: null,
             pendingConfirm: result.status === 'NEED_CONFIRMATION' ? result : null,
-            lastFocus: result.focus ?? get().lastFocus,
+            lastFocus: result.focus ?? s.lastFocus,
             committedTripId:
-              result.status === 'COMPLETED' && result.tripId && !payload.tripId ? result.tripId : get().committedTripId,
-          });
+              result.status === 'COMPLETED' && result.tripId && !payload.tripId ? result.tripId : s.committedTripId,
+            activity: appendActivity(s.activity, 'complete', { status: result.status }),
+          }));
         },
         onError: (errorText) => {
           if (seq !== streamSeq) return;
@@ -150,7 +164,12 @@ export const useAgentStore = create<AgentState>()(
             content: `⚠ ${errorText}`,
             time: new Date().toISOString(),
           };
-          set({ messages: pushMessage(get().messages, errMsg), streaming: false, stage: null });
+          set((s) => ({
+            messages: pushMessage(s.messages, errMsg),
+            streaming: false,
+            stage: null,
+            activity: appendActivity(s.activity, 'error', { message: errorText }),
+          }));
         },
       })
       .then((close) => {
@@ -169,7 +188,12 @@ export const useAgentStore = create<AgentState>()(
           content: `⚠ ${e?.message || '无法建立与 Agent 的连接'}`,
           time: new Date().toISOString(),
         };
-        set({ messages: pushMessage(get().messages, errMsg), streaming: false, stage: null });
+        set((s) => ({
+          messages: pushMessage(s.messages, errMsg),
+          streaming: false,
+          stage: null,
+          activity: appendActivity(s.activity, 'error', { message: e?.message || '无法建立与 Agent 的连接' }),
+        }));
       });
   },
 
@@ -181,7 +205,10 @@ export const useAgentStore = create<AgentState>()(
     }
     set({ streaming: true, stage: '正在提交修改…' });
     try {
-      const result = await confirmPlan(planId);
+      // 内容指纹绑定（V2.2 FR-08）：把待确认方案自带的 contentHash 原样回传，
+      // 后端据此校验"确认的就是你看到的这份内容"；旧方案没有指纹时走旧校验。
+      const contentHash = pending?.confirmation?.contentHash;
+      const result = await confirmPlan(planId, contentHash);
       const assistantMsg: ChatMessage = {
         id: nextId(),
         role: 'assistant',
@@ -196,6 +223,7 @@ export const useAgentStore = create<AgentState>()(
         lastFocus: result.focus ?? get().lastFocus,
         committedTripId:
           result.status === 'COMPLETED' && result.tripId ? result.tripId : get().committedTripId,
+        lastExecution: result.execution ?? null,
       });
       return result;
     } catch (e: any) {
@@ -235,7 +263,17 @@ export const useAgentStore = create<AgentState>()(
     streamSeq += 1;
     closeFn?.();
     closeFn = null;
-    set({ messages: [], streaming: false, stage: null, pendingConfirm: null, lastFocus: null, committedTripId: null });
+    set({
+      messages: [],
+      streaming: false,
+      stage: null,
+      pendingConfirm: null,
+      lastFocus: null,
+      committedTripId: null,
+      currentRun: null,
+      activity: [],
+      lastExecution: null,
+    });
   },
 
   newConversation: () => {
@@ -250,6 +288,9 @@ export const useAgentStore = create<AgentState>()(
       pendingConfirm: null,
       lastFocus: null,
       committedTripId: null,
+      currentRun: null,
+      activity: [],
+      lastExecution: null,
       conversationId: newConversationId(),
     });
     if (previous) {
@@ -259,6 +300,8 @@ export const useAgentStore = create<AgentState>()(
   },
 
   clearCommitted: () => set({ committedTripId: null }),
+
+  setLastExecution: (execution) => set({ lastExecution: execution }),
 }),
     {
       name: 'travel-agent-conversation',

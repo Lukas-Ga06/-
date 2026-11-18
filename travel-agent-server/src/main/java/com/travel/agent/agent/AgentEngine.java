@@ -81,6 +81,10 @@ public class AgentEngine {
     private final AssistantIntentHandler assistantHandler;
     private final TravelQueryHandler travelQueryHandler;
     private final PlanConfirmationService planConfirmation;
+    /** V2.2 追踪：run / 任务 / 工具调用落库（内部吞异常，绝不反噬主流程） */
+    private final com.travel.agent.service.AgentTraceService traceService;
+    /** 阶段任务记录器（引擎与规划器共用的任务包装样板） */
+    private final AgentTaskRecorder taskRecorder;
     /** 指标：sse.disconnects（注入方式与 StructuredPlanner、LlmClient 一致） */
     private final MeterRegistry meterRegistry;
 
@@ -97,15 +101,54 @@ public class AgentEngine {
                 return aborted(ctx);
             }
             loadConversation(ctx);
-            return doHandle(ctx);
+            // V2.2 追踪：一次对话 = 一次 run；追踪不可用时 runId 为空，后续记录全部静默跳过
+            com.travel.agent.entity.AgentRun run = traceService.startRun(
+                    ctx.getUserId(), ctx.getTripId(), ctx.getMessage());
+            if (run != null) {
+                ctx.setRunId(run.getRunId());
+                ctx.emit("run", Map.of("runId", run.getRunId()));
+            }
+            AgentDtos.AgentResult result = doHandle(ctx);
+            finishRunRecord(ctx, result);
+            return result;
         } finally {
             com.travel.agent.security.UserContext.clear();
             // 一次运行只计一次：阶段边界可能多次命中取消检查
             if (ctx.isCancelled()) {
                 log.info("客户端已断开，本轮 Agent 取消: user={}", ctx.getUsername());
                 meterRegistry.counter(SSE_DISCONNECTS_METRIC, "reason", "cancelled").increment();
+                traceService.finishRun(ctx.getRunId(), null,
+                        com.travel.agent.entity.AgentRun.STATUS_CANCELLED, "客户端断开连接");
             }
         }
+    }
+
+    /** 运行收尾：按结果状态映射 run 状态（NEED_CONFIRMATION 也是成功——规划完成等确认） */
+    private void finishRunRecord(AgentContext ctx, AgentDtos.AgentResult result) {
+        if (ctx.getRunId() == null) {
+            return;
+        }
+        String status;
+        String error = null;
+        if (result == null) {
+            status = com.travel.agent.entity.AgentRun.STATUS_FAILED;
+        } else if (AgentDtos.STATUS_FAILED.equals(result.getStatus())) {
+            status = com.travel.agent.entity.AgentRun.STATUS_FAILED;
+            error = result.getMessage();
+        } else {
+            status = com.travel.agent.entity.AgentRun.STATUS_SUCCEEDED;
+        }
+        traceService.finishRun(ctx.getRunId(), result == null ? null : result.getIntent(), status, error);
+    }
+
+    /**
+     * 以独立任务记录包裹一段阶段逻辑（V2.2 FR-04 最小任务形态）：
+     * 任务开始/结束各落一行（REQUIRES_NEW，主流程失败痕迹仍在），
+     * 执行期间把 taskId 挂到 ctx 上，工具调用追踪据此关联触发任务。
+     */
+    private <T> T traced(AgentContext ctx, String receiver, String taskType,
+                         java.util.function.Supplier<T> body, java.util.function.Function<T, String> summary) {
+        return taskRecorder.around(ctx, receiver, taskType, body, summary);
     }
 
     private AgentDtos.AgentResult doHandle(AgentContext ctx) {
@@ -188,7 +231,9 @@ public class AgentEngine {
     private IntentResult timedIntent(AgentContext ctx, Trip trip) {
         Timer.Sample sample = stageTimer.start();
         try {
-            return intentAgent.detect(ctx, trip);
+            return traced(ctx, com.travel.agent.entity.AgentTask.RECEIVER_INTENT, "INTENT",
+                    () -> intentAgent.detect(ctx, trip),
+                    intent -> "识别意图: " + (intent == null ? "?" : intent.getIntent()));
         } finally {
             stageTimer.stop(AgentStageTimer.STAGE_INTENT, sample);
         }
@@ -263,9 +308,16 @@ public class AgentEngine {
         Timer.Sample planSample = stageTimer.start();
         AgentPlan plan;
         try {
-            plan = plannerAgent.plan(ctx, intent, trip);
+            plan = traced(ctx, com.travel.agent.entity.AgentTask.RECEIVER_PLANNER, "PLAN",
+                    () -> plannerAgent.plan(ctx, intent, trip),
+                    p -> p.getOperations().isEmpty() ? "未产出操作：" + truncateForTask(p.getReasoning())
+                            : "生成 " + p.getOperations().size() + " 项操作");
         } finally {
             stageTimer.stop(AgentStageTimer.STAGE_PLAN, planSample);
+        }
+        // 计划携带 runId：确认提交（REST 线程）据此把 COMMIT 任务挂回同一运行
+        if (plan != null && plan.getRunId() == null) {
+            plan.setRunId(ctx.getRunId());
         }
         // 规划往往要几秒到几十秒：结束时再确认客户端还在，别再做预览/反思/落待确认方案
         if (abortIfCancelled(ctx, "after-plan")) {
@@ -284,12 +336,16 @@ public class AgentEngine {
         }
 
         ctx.setState(AgentState.EXECUTE);
-        AgentDtos.AgentResult preview = executorAgent.preview(ctx, plan, trip);
+        AgentDtos.AgentResult preview = traced(ctx, com.travel.agent.entity.AgentTask.RECEIVER_EXECUTOR,
+                "PREVIEW", () -> executorAgent.preview(ctx, plan, trip),
+                p -> "生成 Diff 预览：" + (p.getDiff() == null ? 0 : p.getDiff().getChanges().size()) + " 项变更");
         // 模板事实 + 模型润色：润色失败或不可用时原样返回模板
         preview.setMessage(planNarrationService.polish(composePlanMessage(plan)));
 
         ctx.setState(AgentState.REFLECT);
-        List<String> warnings = reflectAgent.review(plan, trip);
+        List<String> warnings = traced(ctx, com.travel.agent.entity.AgentTask.RECEIVER_REVIEWER,
+                "REVIEW", () -> reflectAgent.review(plan, trip),
+                w -> w.isEmpty() ? "审核通过，无警告" : "发现 " + w.size() + " 条警告");
         if (!warnings.isEmpty()) {
             preview.setWarnings(warnings);
             preview.setMessage(preview.getMessage() + "\n⚠ " + String.join("；", warnings));
@@ -298,9 +354,10 @@ public class AgentEngine {
         ctx.setState(AgentState.PRESENT);
         String planRevision = trip == null ? null
                 : ItineraryService.planRevision(trip, itineraryService.listEntities(trip.getId()));
+        // contentHash 在 PendingPlanStore.put 内对 plan_json 计算（单一权威），这里不需要传入
         pendingPlans.put(new PendingPlanStore.PendingPlan(
                 plan.getPlanId(), ctx.getUserId(), trip == null ? null : trip.getId(), plan, preview,
-                planRevision, java.time.Instant.now()));
+                planRevision, null, java.time.Instant.now()));
 
         if (preview.getDiff() != null) {
             ctx.emit("plan_update", Map.of("diff", preview.getDiff(), "budget", preview.getBudget()));
@@ -358,8 +415,10 @@ public class AgentEngine {
         // tool 阶段：外部 MCP / 内置只读工具调用（ToolInvoker 内部含审计与 tool_call/tool_result 事件）
         Timer.Sample toolSample = stageTimer.start();
         try {
-            result = toolInvoker.invoke(ctx, toolName,
-                    intent.getToolArgs() == null ? Map.of() : intent.getToolArgs());
+            result = traced(ctx, "tool-invoker", "TOOL",
+                    () -> toolInvoker.invoke(ctx, toolName,
+                            intent.getToolArgs() == null ? Map.of() : intent.getToolArgs()),
+                    r -> "调用外部工具 " + toolName);
         } finally {
             stageTimer.stop(AgentStageTimer.STAGE_TOOL, toolSample);
         }
@@ -396,11 +455,24 @@ public class AgentEngine {
         return result;
     }
 
+    /** 任务摘要截断（总长不超过追踪表 summary 列宽 1000，含省略号） */
+    private static String truncateForTask(String text) {
+        if (text == null) {
+            return "";
+        }
+        return text.length() > 900 ? text.substring(0, 899) + "…" : text;
+    }
+
     // ==================== 确认 / 取消 / 撤销（Human-in-the-loop） ====================
     // 具体并发语义见 PlanConfirmationService；这里保留对外入口以维持既有调用方与测试契约。
 
     public AgentDtos.AgentResult confirm(String planId, Long userId) {
-        return planConfirmation.confirm(planId, userId);
+        return planConfirmation.confirm(planId, userId, null);
+    }
+
+    /** 带内容指纹的确认（V2.2 FR-08）：指纹与方案存档不一致时拒绝提交 */
+    public AgentDtos.AgentResult confirm(String planId, Long userId, String contentHash) {
+        return planConfirmation.confirm(planId, userId, contentHash);
     }
 
     public AgentDtos.AgentResult cancel(String planId, Long userId) {

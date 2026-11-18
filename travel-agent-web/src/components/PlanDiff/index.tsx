@@ -10,6 +10,11 @@ interface Props {
   loading?: boolean;
 }
 
+/** SHA-256 内容指纹的短展示：前 8 + 后 8 位（64 位十六进制足够肉眼比对） */
+function shortHash(hash: string): string {
+  return hash.length > 16 ? `${hash.slice(0, 8)}…${hash.slice(-8)}` : hash;
+}
+
 function renderChange(c: DiffChange, key: number) {
   const isRemove = c.type === 'REMOVE';
   const isModify = c.type === 'MODIFY';
@@ -32,6 +37,8 @@ export default function PlanDiff({ open, result, onConfirm, onCancel, loading }:
   const before = result?.diff?.budgetBefore ?? 0;
   const after = result?.diff?.budgetAfter ?? 0;
   const highRisk = result?.confirmation?.riskLevel === 'HIGH';
+  const warnings = result?.warnings ?? [];
+  const contentHash = result?.confirmation?.contentHash;
 
   return (
     <Modal
@@ -57,6 +64,23 @@ export default function PlanDiff({ open, result, onConfirm, onCancel, loading }:
             description={highRisk ? '本次调整会超出原预算，属于高风险操作，请确认后再提交。' : undefined}
             style={{ marginBottom: 14, marginTop: 4 }}
           />
+        )}
+        {warnings.length > 0 && (
+          <div className="plan-warnings" data-testid="plan-diff-warnings">
+            {warnings.map((w, i) => (
+              <div key={i} className="plan-warning-row">
+                <span className="pw-icon">⚠</span>
+                <span className="pw-text">{w}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {contentHash && (
+          <div className="plan-fingerprint" data-testid="plan-diff-fingerprint" title={`方案内容 SHA-256：${contentHash}`}>
+            <span className="pf-label">内容指纹</span>
+            <span className="pf-value">{shortHash(contentHash)}</span>
+            <span className="pf-hint">确认将绑定此方案内容</span>
+          </div>
         )}
         <div style={{ maxHeight: 320, overflowY: 'auto' }}>{changes.map((c, idx) => renderChange(c, idx))}</div>
         <div className="diff-budget-box">

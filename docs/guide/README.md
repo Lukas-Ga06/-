@@ -32,6 +32,7 @@
 | [frontend.md](frontend.md) | 技术栈、目录结构、路由表、页面清单、zustand 状态管理、API 层与 SSE 消费链路、核心组件、高德地图 Provider 抽象、构建与测试 | 前端 |
 | [deployment.md](deployment.md) | 部署拓扑、Docker 全栈部署步骤、**生产必改项清单**、环境变量权威表、H2/MySQL 切换、卷与备份恢复、反代与 HTTPS、监控与排障、CI 与发布 | 运维 |
 | [mcp-amap.md](mcp-amap.md) | 高德 MCP：包身份与两个 Key 的区别、开启步骤、12 个工具与 `mcp_amap_*` 注册名、语义适配层、排障与降级、已验证/未验证边界 | 后端 / 运维 |
+| [v2.2-iteration.md](v2.2-iteration.md) | V2.2 迭代记录：逐 FR 落地对照（FR-01~FR-12）、ADR（追踪独立事务 / 循环可降级 / 双指纹确认门 / 同库幂等同步 / 预算快照红线 / 路线来源如实标记 / 超预算确定性收敛）、新增 API、已知差距与下一目标 | 后端 / 前端 / 产品（评估当前能力边界时读） |
 
 补充材料：
 

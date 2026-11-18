@@ -100,12 +100,25 @@ public class StructuredPlanner {
      */
     public NewTripParse planNewTrip(CityCatalog city, TripDraftView draft, String message,
                                     List<ConversationMessage> history) {
-        NewTripParse first = attemptNewTrip(city, draft, message, history, null);
+        return planNewTrip(city, draft, message, history, List.of());
+    }
+
+    /**
+     * 带研究事实的新行程编排（V2.2 FR-03）。
+     *
+     * <p>researchNotes 是 {@code AgentToolLoop} 通过真实工具调用收集的观察摘要
+     * （天气、路线耗时、候选充足度等）。只作为「参考证据」进入 Prompt——
+     * 名称命中、坐标、价格仍由候选清单与校验层决定，研究结论不能变成编造事实。
+     * notes 为空时 Prompt 与旧版逐字一致（无 LLM / 循环未完成时行为不变）。
+     */
+    public NewTripParse planNewTrip(CityCatalog city, TripDraftView draft, String message,
+                                    List<ConversationMessage> history, List<String> researchNotes) {
+        NewTripParse first = attemptNewTrip(city, draft, message, history, researchNotes, null);
         if (first != null && first.ok()) {
             count("new_trip", "first_try");
             return first;
         }
-        NewTripParse second = attemptNewTrip(city, draft, message, history, feedbackOf(first));
+        NewTripParse second = attemptNewTrip(city, draft, message, history, researchNotes, feedbackOf(first));
         if (second != null && second.ok()) {
             count("new_trip", "after_retry");
             log.info("结构化规划重试成功（首轮问题: {}）", feedbackOf(first));
@@ -116,8 +129,9 @@ public class StructuredPlanner {
     }
 
     private NewTripParse attemptNewTrip(CityCatalog city, TripDraftView draft, String message,
-                                        List<ConversationMessage> history, String feedback) {
-        String prompt = newTripPrompt(city, draft, message, history);
+                                        List<ConversationMessage> history, List<String> researchNotes,
+                                        String feedback) {
+        String prompt = newTripPrompt(city, draft, message, history, researchNotes);
         if (feedback != null) {
             prompt = prompt + "\n\n上次输出存在以下问题，必须全部修正后重新输出完整 JSON：\n" + feedback;
         }
@@ -248,11 +262,16 @@ public class StructuredPlanner {
 
     /** 组装新行程规划 Prompt；history 为空时不追加历史块（与旧 Prompt 逐字一致） */
     String newTripPrompt(CityCatalog city, TripDraftView draft, String message) {
-        return newTripPrompt(city, draft, message, List.of());
+        return newTripPrompt(city, draft, message, List.of(), List.of());
     }
 
     String newTripPrompt(CityCatalog city, TripDraftView draft, String message,
                          List<ConversationMessage> history) {
+        return newTripPrompt(city, draft, message, history, List.of());
+    }
+
+    String newTripPrompt(CityCatalog city, TripDraftView draft, String message,
+                         List<ConversationMessage> history, List<String> researchNotes) {
         StringBuilder sb = new StringBuilder();
         sb.append("为「").append(city.name()).append("」编排 ").append(draft.days())
                 .append(" 日行程，出发日期 ").append(draft.startDate())
@@ -284,6 +303,10 @@ public class StructuredPlanner {
         String historyBlock = historyBlock(history);
         if (!historyBlock.isEmpty()) {
             sb.append('\n').append(historyBlock).append('\n');
+        }
+        String researchBlock = researchBlock(researchNotes);
+        if (!researchBlock.isEmpty()) {
+            sb.append('\n').append(researchBlock).append('\n');
         }
         sb.append("""
                 要求：每天上午安排一个景点、午餐就近、下午安排另一个景点、晚餐就近；酒店只放第 1 天。
@@ -495,6 +518,31 @@ public class StructuredPlanner {
                 ? flat.substring(0, HISTORY_MAX_CHARS) + HISTORY_ELLIPSIS
                 : flat;
     }
+
+    /**
+     * 研究事实块（V2.2 FR-03）：AgentToolLoop 的工具观察摘要进 Prompt 的唯一入口。
+     * 与历史块同样的口径：只是参考证据（天气/路线耗时/候选充足度），
+     * 不改变任何校验规则；清单、价格、坐标仍以候选清单为准。为空时整块不出现。
+     */
+    static String researchBlock(List<String> researchNotes) {
+        if (researchNotes == null || researchNotes.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("以下为研究 Agent 通过工具收集的事实（来源真实工具调用，供安排参考，")
+                .append("不影响名称命中与价格校验）：\n");
+        researchNotes.stream().limit(RESEARCH_MAX_NOTES).forEach(note -> {
+            String flat = note == null ? "" : note.replace('\r', ' ').replace('\n', ' ');
+            sb.append("- ").append(flat.length() > RESEARCH_MAX_CHARS
+                    ? flat.substring(0, RESEARCH_MAX_CHARS) + HISTORY_ELLIPSIS
+                    : flat).append('\n');
+        });
+        return sb.toString();
+    }
+
+    /** 研究事实块的条数与单条长度上限（防 Prompt 膨胀；常量与历史块口径一致便于记忆） */
+    static final int RESEARCH_MAX_NOTES = 8;
+    static final int RESEARCH_MAX_CHARS = 160;
 
     private <T> T match(List<T> candidates, Function<T, String> nameOf, String name) {
         for (T candidate : candidates) {

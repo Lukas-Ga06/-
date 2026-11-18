@@ -23,6 +23,15 @@ public class AgentContext {
     private Integer currentDay;
 
     /**
+     * 本轮对应的 Agent 运行标识（V2.2 追踪）：run 由引擎在开始时创建，
+     * 工具调用 / 阶段任务据此挂到同一运行下；追踪不可用时为空（行为不受影响）。
+     */
+    private String runId;
+
+    /** 当前正在执行的阶段任务标识（工具调用追踪用它关联触发任务） */
+    private String currentTaskId;
+
+    /**
      * 会话记忆：前端生成的会话标识（跨页面切换保持），为空表示单轮对话。
      * 历史消息由 AgentEngine 在 UNDERSTAND 之前载入，只喂给 LLM 做指代消解。
      */

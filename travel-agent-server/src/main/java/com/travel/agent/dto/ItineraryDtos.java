@@ -52,6 +52,35 @@ public class ItineraryDtos {
         }
     }
 
+    /**
+     * 每日相邻行程点之间的路线段（V2.2 FR-07）。
+     *
+     * <p>{@code source} 标注距离来源：{@code amap} = 真实路径规划，{@code estimated} = 本地估算；
+     * {@code taxiCost} 始终为估算（未接计价 Provider），前端不得显示成实时价格。
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class RouteLegDTO {
+        private Integer dayIndex;
+        /** 当天内的段序号（从 1 开始） */
+        private Integer sequence;
+        private Long fromItemId;
+        private Long toItemId;
+        private String fromTitle;
+        private String toTitle;
+        private Double fromLatitude;
+        private Double fromLongitude;
+        private Double toLatitude;
+        private Double toLongitude;
+        private Double distanceKm;
+        private Integer walkMinutes;
+        private Integer driveMinutes;
+        private Double taxiCost;
+        private String source;   // amap / estimated
+    }
+
     @Data
     @NoArgsConstructor
     @AllArgsConstructor

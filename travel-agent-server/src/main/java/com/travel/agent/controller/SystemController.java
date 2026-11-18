@@ -30,6 +30,8 @@ public class SystemController {
     private final RateLimitProperties rateLimitProperties;
     private final com.travel.agent.service.LlmQuotaService llmQuotaService;
     private final AmapProperties amapProperties;
+    /** V2.2 FR-05：如实上报路线数据来源（真实路径 / 估算），不涉密钥 */
+    private final com.travel.agent.service.RouteService routeService;
 
     @GetMapping("/status")
     public ApiResponse<Map<String, Object>> status() {
@@ -50,6 +52,14 @@ public class SystemController {
                 : "未配置 AMAP_KEY：城市定位退回 OSM Nominatim，国内网络可能较慢或失败");
 
         status.put("timezone", ZoneId.systemDefault().getId());
+
+        // 路线数据来源（FR-05）：配了高德（Key 或 MCP）即真实路径，否则为本地估算——
+        // 前端据此把「估算距离/耗时」标记清楚，不把估算显示成实时数据
+        String routeProvider = routeService.provider();
+        status.put("routeProvider", routeProvider);
+        status.put("routeHint", "amap".equals(routeProvider)
+                ? "路线使用高德真实路径规划（打车费用仍为本地估算）"
+                : "路线为本地距离估算（未配置 AMAP_KEY / 高德 MCP）：距离与耗时为近似值");
         status.put("ocrConfigured", invoiceTextExtractor.ocrConfigured());
         status.put("ocrHint", invoiceTextExtractor.ocrConfigured()
                 ? "已配置 Tesseract：图片发票可直接 OCR"

@@ -74,6 +74,12 @@ public class ChatDtos {
     public static class ConfirmRequest {
         @NotBlank(message = "不能为空")
         private String planId;
+        /**
+         * 方案内容指纹（V2.2 FR-08，可选）：确认弹窗回传的 SHA-256。
+         * 携带时后端校验「用户确认的就是看到的那份内容」；不传走既有校验（向后兼容）。
+         */
+        @Size(max = 64, message = "长度不能超过 64 个字符")
+        private String contentHash;
     }
 
     @Data

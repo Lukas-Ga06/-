@@ -43,6 +43,10 @@ public class AgentController {
     private final ThreadPoolTaskExecutor agentTaskExecutor;
     /** 指标：sse.disconnects（注入方式与 LLM/规划器一致，不引新依赖） */
     private final MeterRegistry meterRegistry;
+    /** V2.2 运行追踪查询（FR-10） */
+    private final com.travel.agent.service.AgentTraceService traceService;
+    /** V2.2 确认后同步台账（FR-09） */
+    private final com.travel.agent.service.PlanExecutionService executionService;
 
     /** 同步对话：POST /api/agent/chat */
     @PostMapping("/chat")
@@ -214,12 +218,12 @@ public class AgentController {
         }
     }
 
-    /** 确认提交（Human-in-the-loop） */
+    /** 确认提交（Human-in-the-loop）：可携带内容指纹（FR-08）校验「确认的就是看到的」 */
     @PostMapping("/confirm")
     public ApiResponse<AgentDtos.AgentResult> confirm(@Valid @RequestBody ChatDtos.ConfirmRequest request,
                                                       Authentication authentication) {
         User user = authService.requireUser(authentication.getName());
-        return ApiResponse.ok(agentEngine.confirm(request.getPlanId(), user.getId()));
+        return ApiResponse.ok(agentEngine.confirm(request.getPlanId(), user.getId(), request.getContentHash()));
     }
 
     @PostMapping("/cancel")
@@ -241,6 +245,53 @@ public class AgentController {
     public ApiResponse<AgentDtos.AgentResult> pending(@PathVariable String planId, Authentication authentication) {
         User user = authService.requireUser(authentication.getName());
         return ApiResponse.ok(agentEngine.pendingPreview(planId, user.getId()));
+    }
+
+    // ==================== V2.2 运行追踪（FR-10） ====================
+
+    /** 当前用户最近的 Agent 运行（新→旧） */
+    @GetMapping("/runs")
+    public ApiResponse<java.util.List<com.travel.agent.dto.AgentTraceDtos.RunSummary>> runs(
+            @RequestParam(value = "limit", defaultValue = "20") int limit,
+            Authentication authentication) {
+        User user = authService.requireUser(authentication.getName());
+        return ApiResponse.ok(traceService.recentRuns(user.getId(), limit).stream()
+                .map(com.travel.agent.dto.AgentTraceDtos::from)
+                .toList());
+    }
+
+    /** 一次运行的完整追踪：任务链 + 工具调用（归属校验，他人的 run 一律 404） */
+    @GetMapping("/runs/{runId}")
+    public ApiResponse<com.travel.agent.dto.AgentTraceDtos.RunDetail> runDetail(
+            @PathVariable String runId, Authentication authentication) {
+        User user = authService.requireUser(authentication.getName());
+        com.travel.agent.entity.AgentRun run = traceService.findRun(runId, user.getId())
+                .orElseThrow(() -> new com.travel.agent.exception.BusinessException(404, "运行记录不存在"));
+        return ApiResponse.ok(com.travel.agent.dto.AgentTraceDtos.RunDetail.builder()
+                .run(com.travel.agent.dto.AgentTraceDtos.from(run))
+                .tasks(traceService.tasksOf(runId).stream()
+                        .map(com.travel.agent.dto.AgentTraceDtos::from).toList())
+                .toolCalls(traceService.toolCallsOf(runId).stream()
+                        .map(com.travel.agent.dto.AgentTraceDtos::from).toList())
+                .build());
+    }
+
+    // ==================== V2.2 确认后同步台账（FR-09） ====================
+
+    /** 查询一次确认提交的跨模块同步结果（日程/预算/足迹，归属校验） */
+    @GetMapping("/executions/{executionId}")
+    public ApiResponse<AgentDtos.ExecutionSummary> executionDetail(
+            @PathVariable String executionId, Authentication authentication) {
+        User user = authService.requireUser(authentication.getName());
+        return ApiResponse.ok(executionService.find(executionId, user.getId()));
+    }
+
+    /** 重试失败的同步模块（幂等：成功模块不重复创建） */
+    @PostMapping("/executions/{executionId}/retry")
+    public ApiResponse<AgentDtos.ExecutionSummary> executionRetry(
+            @PathVariable String executionId, Authentication authentication) {
+        User user = authService.requireUser(authentication.getName());
+        return ApiResponse.ok(executionService.retry(executionId, user.getId()));
     }
 
     /** 开新会话：清掉当前用户在该会话下的历史消息 */

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentResult } from '../types/agent';
 import type { AgentStreamHandlers, AgentStreamParams } from '../api/agent';
+import { confirmPlan } from '../api/agent';
 
 const { handlersRef, paramsRef, closeSpy, clearConversationSpy } = vi.hoisted(() => ({
   handlersRef: { current: null as AgentStreamHandlers | null },
@@ -157,5 +158,136 @@ describe('agentStore', () => {
     const state = useAgentStore.getState();
     expect(state.pendingConfirm?.planId).toBe('plan-restored');
     expect(state.lastFocus?.day).toBe(2);
+  });
+});
+
+describe('agentStore · V2.2 运行追踪与执行同步', () => {
+  const confirmPlanMock = vi.mocked(confirmPlan);
+
+  beforeEach(() => {
+    useAgentStore.getState().reset();
+    useAgentStore.setState({ conversationId: null });
+    handlersRef.current = null;
+    paramsRef.current = null;
+    clearConversationSpy.mockClear();
+    confirmPlanMock.mockReset();
+  });
+
+  it('run 事件记录 currentRun，并把事件追加进 activity 时间线', () => {
+    useAgentStore.getState().send({ message: '安排上海三日游' });
+    handlersRef.current?.onEvent?.('run', { runId: 'run-abc-123' });
+    handlersRef.current?.onEvent?.('intent', { intent: 'PLAN_TRIP' });
+
+    const state = useAgentStore.getState();
+    expect(state.currentRun).toEqual({ runId: 'run-abc-123' });
+    expect(state.activity.map((e) => e.event)).toEqual(['run', 'intent']);
+    expect(state.activity[0].data).toEqual({ runId: 'run-abc-123' });
+    expect(typeof state.activity[0].time).toBe('number');
+  });
+
+  it('send 开始时清空上一轮的 activity 与 currentRun', () => {
+    useAgentStore.getState().send({ message: '第一条' });
+    handlersRef.current?.onEvent?.('run', { runId: 'r1' });
+    handlersRef.current?.onComplete?.(completedResult());
+    expect(useAgentStore.getState().activity.length).toBeGreaterThan(0);
+
+    useAgentStore.getState().send({ message: '第二条' });
+    const state = useAgentStore.getState();
+    expect(state.activity).toHaveLength(0);
+    expect(state.currentRun).toBeNull();
+  });
+
+  it('activity 只保留最近 40 条（密集事件窗口化）', () => {
+    useAgentStore.getState().send({ message: '安排' });
+    for (let i = 0; i < 45; i++) {
+      handlersRef.current?.onEvent?.('tool_result', { tool: `t${i}` });
+    }
+    const activity = useAgentStore.getState().activity;
+    expect(activity).toHaveLength(40);
+    expect(activity[0].data).toEqual({ tool: 't5' });
+    expect(activity[39].data).toEqual({ tool: 't44' });
+  });
+
+  it('complete 与 error 终止事件也会收进时间线', () => {
+    useAgentStore.getState().send({ message: '安排' });
+    handlersRef.current?.onComplete?.(completedResult());
+    expect(useAgentStore.getState().activity.map((e) => e.event)).toContain('complete');
+
+    useAgentStore.getState().send({ message: '再安排' });
+    handlersRef.current?.onError?.('与 Agent 的连接已中断');
+    expect(useAgentStore.getState().activity.map((e) => e.event)).toContain('error');
+  });
+
+  it('confirm 把待确认方案的 contentHash 回传，成功后保存 execution 结果', async () => {
+    const hash = 'a'.repeat(32) + 'b'.repeat(32);
+    confirmPlanMock.mockResolvedValue(
+      completedResult({
+        message: '已提交，日程已同步',
+        execution: {
+          executionId: 'exec-9',
+          planId: 'plan-1',
+          tripId: 7,
+          status: 'PARTIAL_FAILED',
+          modules: [
+            { module: 'calendar', status: 'SUCCEEDED' },
+            { module: 'budget', status: 'FAILED', error: '超时' },
+          ],
+        },
+      }),
+    );
+    useAgentStore.getState().send({ message: '安排' });
+    handlersRef.current?.onComplete?.(
+      completedResult({
+        status: 'NEED_CONFIRMATION',
+        planId: 'plan-1',
+        confirmation: { planId: 'plan-1', summary: '将新增 2 项', riskLevel: 'MEDIUM', contentHash: hash },
+      }),
+    );
+
+    await useAgentStore.getState().confirm();
+
+    expect(confirmPlanMock).toHaveBeenCalledTimes(1);
+    expect(confirmPlanMock).toHaveBeenCalledWith('plan-1', hash);
+    const state = useAgentStore.getState();
+    expect(state.lastExecution?.executionId).toBe('exec-9');
+    expect(state.lastExecution?.status).toBe('PARTIAL_FAILED');
+    expect(state.lastExecution?.modules).toHaveLength(2);
+    expect(state.pendingConfirm).toBeNull();
+    const last = state.messages[state.messages.length - 1];
+    expect(last.role).toBe('assistant');
+    expect(last.content).toBe('已提交，日程已同步');
+  });
+
+  it('旧方案没有 contentHash 时不传指纹，execution 缺失时 lastExecution 置空', async () => {
+    confirmPlanMock.mockResolvedValue(completedResult({ message: '已提交' }));
+    useAgentStore.getState().send({ message: '安排' });
+    handlersRef.current?.onComplete?.(
+      completedResult({
+        status: 'NEED_CONFIRMATION',
+        planId: 'plan-2',
+        confirmation: { planId: 'plan-2', summary: '调整 1 项', riskLevel: 'LOW' },
+      }),
+    );
+
+    await useAgentStore.getState().confirm();
+
+    expect(confirmPlanMock).toHaveBeenCalledWith('plan-2', undefined);
+    expect(useAgentStore.getState().lastExecution).toBeNull();
+  });
+
+  it('setLastExecution 覆盖执行结果（重试成功后由面板回写）', () => {
+    const next = {
+      executionId: 'exec-9',
+      planId: 'plan-1',
+      status: 'SUCCEEDED' as const,
+      modules: [
+        { module: 'calendar' as const, status: 'SUCCEEDED' as const },
+        { module: 'budget' as const, status: 'SUCCEEDED' as const },
+        { module: 'footprint' as const, status: 'SUCCEEDED' as const },
+      ],
+    };
+    useAgentStore.getState().setLastExecution(null);
+    useAgentStore.getState().setLastExecution(next);
+    expect(useAgentStore.getState().lastExecution?.status).toBe('SUCCEEDED');
   });
 });

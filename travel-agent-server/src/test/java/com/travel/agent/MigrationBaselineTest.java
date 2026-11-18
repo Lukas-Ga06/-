@@ -94,6 +94,10 @@ class MigrationBaselineTest {
 
         // 便携迁移：V1..V11，其中 V8（MySQL 专属）不在核心目录 → 核心版本面是 1..7,9,10,11
         Set<Integer> core = new LinkedHashSet<>(List.of(1, 2, 3, 4, 5, 6, 7, 9, 10, 11));
+        // V15（agent_run/agent_task/tool_call_trace）与 V16（content_hash/plan_execution/source_key）
+        // 均为双方言中性 SQL，放在共享核心目录
+        core.add(15);
+        core.add(16);
         Set<Integer> mysqlExpected = new LinkedHashSet<>(core);
         mysqlExpected.addAll(List.of(8, 12, 13));
         Set<Integer> h2Expected = new LinkedHashSet<>(core);

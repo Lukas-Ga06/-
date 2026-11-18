@@ -22,6 +22,9 @@ import java.util.Set;
  * 时间冲突基于「应用计划之后」的行程视图判断：
  * 原条目去掉被 REMOVE 的、被 MODIFY 的换成新时间、再加上 ADD 的条目。
  * （旧实现只看 ADD，因此"把某个安排改到与另一个重叠"永远不会被发现；也只比较相邻两项。）
+ *
+ * <p>V2.2 FR-06：{@link #reviewVerdict} 输出结构化判定（PASS/REVISE + 问题清单），
+ * {@link #review} 是它的警告文案投影——对外契约不变，前端与既有测试零改动。
  */
 @Component
 @RequiredArgsConstructor
@@ -32,16 +35,45 @@ public class ReflectAgent {
 
     private final ItineraryService itineraryService;
 
+    /**
+     * 结构化审核判定（V2.2 FR-06）。
+     *
+     * <p>passed=false（REVISE）表示存在硬约束问题（当前：预算超限），
+     * 需要规划侧自愈或用户修改；时间冲突是软性提醒（建议手动微调），不阻断确认。
+     */
+    public record PlanIssue(String type, String severity, String message) {
+        public static final String TYPE_BUDGET = "BUDGET_OVERRUN";
+        public static final String TYPE_TIME_CONFLICT = "TIME_CONFLICT";
+        public static final String SEVERITY_HIGH = "HIGH";
+        public static final String SEVERITY_MEDIUM = "MEDIUM";
+    }
+
+    public record ReviewVerdict(boolean passed, List<PlanIssue> issues, List<String> warnings) {
+        /** 便捷投影：问题清单转警告文案（与旧 review() 输出一致） */
+        public List<String> warningLines() {
+            return warnings;
+        }
+    }
+
+    /** 旧契约：返回警告文案列表（内部委托给结构化判定） */
     public List<String> review(AgentPlan plan, Trip trip) {
+        return reviewVerdict(plan, trip).warnings();
+    }
+
+    /** 结构化判定：预算超限（HIGH，REVISE）+ 时间冲突（MEDIUM，提示） */
+    public ReviewVerdict reviewVerdict(AgentPlan plan, Trip trip) {
+        List<PlanIssue> issues = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
 
-        // 1. 预算检查
+        // 1. 预算检查（硬约束：REVISE 的判定依据）
         if (plan.getExtras().get("total") instanceof BigDecimal total) {
             BigDecimal budget = trip != null ? trip.getBudget()
                     : (plan.getTripDraft() != null ? plan.getTripDraft().getBudget() : null);
             if (budget != null && total.compareTo(budget) > 0) {
-                warnings.add("预计花费 ¥" + total.stripTrailingZeros().toPlainString()
-                        + " 已超出预算 ¥" + budget.stripTrailingZeros().toPlainString() + "，可让我再精简一下");
+                String message = "预计花费 ¥" + total.stripTrailingZeros().toPlainString()
+                        + " 已超出预算 ¥" + budget.stripTrailingZeros().toPlainString() + "，可让我再精简一下";
+                issues.add(new PlanIssue(PlanIssue.TYPE_BUDGET, PlanIssue.SEVERITY_HIGH, message));
+                warnings.add(message);
             }
         }
 
@@ -57,8 +89,10 @@ public class ReflectAgent {
                     ItineraryItem earlier = items.get(i);
                     ItineraryItem later = items.get(j);
                     if (later.getStartTime().isBefore(endOf(earlier))) {
-                        warnings.add("Day " + entry.getKey() + " 的「" + earlier.getTitle() + "」与「"
-                                + later.getTitle() + "」时间重叠，建议手动微调");
+                        String message = "Day " + entry.getKey() + " 的「" + earlier.getTitle() + "」与「"
+                                + later.getTitle() + "」时间重叠，建议手动微调";
+                        issues.add(new PlanIssue(PlanIssue.TYPE_TIME_CONFLICT, PlanIssue.SEVERITY_MEDIUM, message));
+                        warnings.add(message);
                         conflicts++;
                     }
                 }
@@ -67,7 +101,8 @@ public class ReflectAgent {
                 break;
             }
         }
-        return warnings;
+        boolean passed = issues.stream().noneMatch(issue -> PlanIssue.SEVERITY_HIGH.equals(issue.severity()));
+        return new ReviewVerdict(passed, issues, warnings);
     }
 
     /** 应用计划之后的行程视图：按天分组，含 REMOVE / MODIFY / ADD 三种操作的最终效果 */

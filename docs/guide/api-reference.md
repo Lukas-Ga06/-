@@ -325,7 +325,21 @@ GET /api/photos/12/raw?ticket=...                    # 只能用 media-read 票�
 ```
 错误：`401`；`404`
 
-### 3.9 POST /api/trips/{id}/itinerary — 新增行程项
+### 3.9 GET /api/trips/{id}/route-legs — 每日路线段（V2.2 FR-07）
+鉴权：登录 ｜ 源码：`TripController#routeLegs` ｜ 参数：路径 `id`
+```json
+{"code":0,"message":"success","data":[
+  {"dayIndex":1,"sequence":1,"fromItemId":11,"toItemId":12,"fromTitle":"外滩","toTitle":"豫园",
+   "fromLatitude":31.2397,"fromLongitude":121.4998,"toLatitude":31.227,"toLongitude":121.4921,
+   "distanceKm":1.9,"walkMinutes":25,"driveMinutes":9,"taxiCost":17.0,"source":"estimated"}]}
+```
+按天输出「相邻且有坐标」的行程点之间的路段：`sequence` 为当天内段序号（从 1 开始）；
+`source` 标注距离来源——`amap`（高德真实路径）或 `estimated`（本地 haversine 估算）。
+**`taxiCost` 始终为本地估算**（未接入计价 Provider），前端不得显示成实时价格。
+无坐标条目（如「当日交通（打车）」费用汇总行）自动跳过，不产生假路线。
+错误：`401`；`404`（他人行程同样 404）
+
+### 3.10 POST /api/trips/{id}/itinerary — 新增行程项
 鉴权：登录 ｜ 源码：`TripController#addItem:106`
 | 参数 | 必填 | 说明 |
 | --- | --- | --- |
@@ -345,14 +359,14 @@ GET /api/photos/12/raw?ticket=...                    # 只能用 media-read 票�
 ```
 错误：`400` 校验失败；`401`；`404`（手动新增会写入撤销历史）
 
-### 3.10 GET /api/trips/{id}/budget — 预算执行对账
+### 3.11 GET /api/trips/{id}/budget — 预算执行对账
 鉴权：登录 ｜ 源码：`TripController#budget:100` ｜ 参数：路径 `id`
 ```json
 {"code":0,"message":"success","data":{"tripId":1,"tripName":"杭州三日","budget":5000.00,"planned":4820.00,"actual":365.00,"remaining":4635.00,"variance":-4455.00,"executionRate":0.073,"overBudget":false,"planOverBudget":false,"categories":[{"category":"住宿","planned":1800.00,"actual":0.00}],"daily":[{"day":1,"planned":1600.00,"actual":120.00,"variance":-1480.00}]}}
 ```
 错误：`401`；`404`。`variance = actual - planned`（正数=比计划多花）；`daily[].day=0` 表示行程日期之外的支出。
 
-### 3.11 GET /api/trips/{id}/guidebook.pdf — 路书导出
+### 3.12 GET /api/trips/{id}/guidebook.pdf — 路书导出
 鉴权：登录 ｜ 源码：`TripController#guidebook:118` ｜ 参数：路径 `id`
 响应：`application/pdf` 字节流，`Content-Disposition: inline; filename="trip-1-guidebook.pdf"`（浏览器内联预览，可另存）。
 错误：`401`；`404`
@@ -389,7 +403,7 @@ GET /api/photos/12/raw?ticket=...                    # 只能用 media-read 票�
 
 ---
 
-## 5. Agent 对话与方案（8 个）
+## 5. Agent 对话、方案与追踪（12 个）
 
 ### 5.1 Agent 统一返回结构 `AgentResult`
 
@@ -405,8 +419,9 @@ GET /api/photos/12/raw?ticket=...                    # 只能用 media-read 票�
 | `focus` | `Object` | `{type:itinerary\|map\|budget, tripId, day, itemId, latitude, longitude}` |
 | `diff` | `Object` | `{changes:[{type:ADD\|REMOVE\|MODIFY,itemId,itemType,title,detail,cost,dayIndex,startTime}], budgetBefore, budgetAfter}` |
 | `budget` | `Object` | `{total, previousTotal, difference, breakdown:{分类:金额}}` |
-| `confirmation` | `Object` | `{planId, summary, riskLevel:LOW\|MEDIUM\|HIGH}` |
+| `confirmation` | `Object` | `{planId, summary, riskLevel:LOW\|MEDIUM\|HIGH, contentHash}`；`contentHash` 是方案内容的 SHA-256（V2.2 FR-08），确认时回传即可绑定「用户看到的内容」 |
 | `warnings` | `String[]` | 反思/风险提示 |
+| `execution` | `Object` | 仅 `confirm` 成功路径：`{executionId, planId, tripId, status:SUCCEEDED\|PARTIAL_FAILED\|FAILED, modules:[...]}`（V2.2 FR-09，见 §5.11） |
 
 ### 5.2 POST /api/agent/chat — 同步对话
 鉴权：登录 ｜ 源码：`AgentController#chat:39`
@@ -442,6 +457,9 @@ GET /api/photos/12/raw?ticket=...                    # 只能用 media-read 票�
 event:start
 data:{"sessionId":"3f1c2e9a-7c41-4c1e-9f5a-2b8e6d0a1c33"}
 
+event:run
+data:{"runId":"8f3c…"}
+
 event:intent
 data:{"intent":"PLAN_TRIP","target":"NONE","constraints":{},"toolName":null,"toolArgs":null}
 
@@ -451,7 +469,9 @@ data:{"message":"正在为你规划行程…"}
 event:complete
 data:{"planId":"plan-8f3c","tripId":null,"message":"…","intent":"PLAN_TRIP","status":"NEED_CONFIRMATION"}
 ```
-其余事件：`plan_update`（`{diff,budget}`）、`focus`、`confirmation`、`rag_result`（`{sources}`）、`error`（`{message}`）。
+其余事件：`run`（V2.2 FR-10，紧随 `start`，`{runId}` 可查 §5.11 的完整追踪）、`tool_call`（`{tool,args}`）、
+`tool_result`（`{tool,result}`）、`plan_update`（`{diff,budget}`）、`focus`、
+`confirmation`（含 `contentHash`，确认时回传见 §5.5）、`rag_result`（`{sources}`）、`error`（`{message}`）。
 错误：`401`（票据无效/过期，含用途不匹配）；线程池满时推送 `event:error` 后关闭。
 
 > 响应头带 `Referrer-Policy: no-referrer`，避免 `?ticket=` 随 Referer 外泄。
@@ -477,13 +497,19 @@ data:{"planId":"plan-8f3c","tripId":null,"message":"…","intent":"PLAN_TRIP","s
 | 参数 | 必填 | 说明 |
 | --- | --- | --- |
 | `planId` | 是 | 方案 ID（来自 `confirmation.planId`） |
+| `contentHash` | 否 | 方案内容指纹（`confirmation.contentHash`，≤64）；**V2.2 FR-08**：携带时校验「确认的就是看到的内容」，不传走既有版本校验（向后兼容） |
 ```json
 // 请求
-{"planId":"plan-8f3c"}
+{"planId":"plan-8f3c","contentHash":"a3f1…9c2e"}
 // 响应（方案已过期时为 200 + status=FAILED）
-{"code":0,"message":"success","data":{"planId":"plan-8f3c","tripId":1,"message":"已提交，行程已更新。","intent":null,"status":"COMPLETED","focus":null,"diff":null,"budget":null,"confirmation":null,"warnings":null}}
+{"code":0,"message":"success","data":{"planId":"plan-8f3c","tripId":1,"message":"已提交，行程已更新。\n✅ 已同步：日程时间块、预算快照、足迹地图。","intent":null,"status":"COMPLETED","focus":null,"diff":null,"budget":null,"confirmation":null,"warnings":null,"execution":{"executionId":"e-77b1","planId":"plan-8f3c","tripId":1,"status":"SUCCEEDED","modules":[{"module":"calendar","status":"SUCCEEDED","detail":"3 天行程已同步为日程时间块（本次新建 3 条）","idempotencyKey":"plan:plan-8f3c:module:calendar","retryCount":null,"error":null}]}}}
 ```
-错误：`400` `planId 不能为空`；`401`。确认前行程被改动（指纹不一致）时返回 200、`status=FAILED` 并提示方案失效；方案不存在/过期同理，不抛 404。
+错误：`400` `planId 不能为空`；`401`。确认前行程被改动（`planRevision` 不一致）或方案内容被改（`contentHash` 不一致）时返回 200、`status=FAILED` 并提示方案失效；方案不存在/过期同理，不抛 404。
+
+**确认后的跨模块同步（V2.2 FR-09）**：提交成功后按 `calendar` / `budget` / `footprint` 逐模块同步并写台账，
+模块级失败**不回滚**已保存的行程，响应 `execution.status` 为 `PARTIAL_FAILED` / `FAILED`，
+失败模块可用 §5.12 单独重试（成功项不重复创建）。口径红线：`budget` 只记计划快照（估算不会自动变成已消费），
+`footprint` 只标计划态（不会把未来行程记为已到访）。
 
 ### 5.6 POST /api/agent/cancel — 取消方案
 鉴权：登录 ｜ 源码：`AgentController#cancel:124` ｜ 参数：`planId`（必填）
@@ -528,7 +554,46 @@ data:{"planId":"plan-8f3c","tripId":null,"message":"…","intent":"PLAN_TRIP","s
 ```
 错误：`400` 校验失败；`401`
 
-### 5.10 目的地城市名匹配（`util/CityNames`）
+### 5.10 GET /api/agent/runs — 运行列表（V2.2 FR-10）
+鉴权：登录 ｜ 源码：`AgentController#runs` ｜ 参数：`limit`（默认 20，上限 50）
+```json
+{"code":0,"message":"success","data":[{"runId":"8f3c…","tripId":null,"message":"帮我规划杭州三日游","intent":"PLAN_TRIP","status":"SUCCEEDED","error":null,"startedAt":"2026-11-18 12:03:11","endedAt":"2026-11-18 12:03:19","durationMs":8123}]}
+```
+`status`：`RUNNING` / `SUCCEEDED` / `FAILED` / `CANCELLED`（`NEED_CONFIRMATION` 记为 `SUCCEEDED`——规划已完成，等待用户动作）。
+错误：`401`
+
+### 5.11 GET /api/agent/runs/{runId} — 运行明细（任务链 + 工具调用）
+鉴权：登录 ｜ 源码：`AgentController#runDetail` ｜ 参数：路径 `runId`
+```json
+{"code":0,"message":"success","data":{
+  "run":{"runId":"8f3c…","status":"SUCCEEDED","intent":"PLAN_TRIP","durationMs":8123,"error":null},
+  "tasks":[{"taskId":"t1","receiver":"intent-agent","taskType":"INTENT","status":"SUCCEEDED","summary":"识别意图: PLAN_TRIP","error":null,"durationMs":210},
+           {"taskId":"t2","receiver":"planner-agent","taskType":"PLAN","status":"SUCCEEDED","summary":"生成 9 项操作","error":null,"durationMs":6200}],
+  "toolCalls":[{"id":1,"taskId":"t2","toolName":"search_hotel","success":true,"errorCode":null,"latencyMs":12,"argsDigest":"{\"city\":\"杭州\"}","resultDigest":"[…]","startedAt":"2026-11-18 12:03:14"}]}}
+```
+`receiver`：`intent-agent` / `research-agent` / `planner-agent` / `executor-agent` / `reflect-agent` / `tool-invoker`；
+`taskType`：`INTENT` / `RESEARCH` / `PLAN` / `PREVIEW` / `REVIEW` / `TOOL` / `COMMIT`。
+摘要字段为截断 JSON（不含密钥）。错误：`401`；`404` `运行记录不存在`（他人的 run 同样 404）
+
+### 5.12 GET /api/agent/executions/{executionId} — 同步台账（V2.2 FR-09）
+鉴权：登录 ｜ 源码：`AgentController#executionDetail` ｜ 参数：路径 `executionId`
+```json
+{"code":0,"message":"success","data":{"executionId":"e-77b1","planId":"plan-8f3c","tripId":1,"status":"PARTIAL_FAILED","modules":[
+  {"module":"calendar","status":"SUCCEEDED","detail":"3 天行程已同步为日程时间块（本次新建 3 条）","idempotencyKey":"plan:plan-8f3c:module:calendar","retryCount":null,"error":null},
+  {"module":"budget","status":"FAILED","detail":null,"idempotencyKey":"plan:plan-8f3c:module:budget","retryCount":0,"error":"行程不存在"}]}}
+```
+`module`：`calendar`（日程时间块）/ `budget`（计划预算快照）/ `footprint`（足迹计划标记）。
+错误：`401`；`404` `执行记录不存在`
+
+### 5.13 POST /api/agent/executions/{executionId}/retry — 重试失败模块
+鉴权：登录 ｜ 源码：`AgentController#executionRetry` ｜ 参数：路径 `executionId`（无请求体）
+```json
+{"code":0,"message":"success","data":{"executionId":"e-77b1","status":"SUCCEEDED","modules":[…]}}
+```
+只重试 `FAILED` 模块，`SUCCEEDED` 模块原样保留（幂等键保证不重复创建）；`retryCount` 递增。
+错误：`400` `该执行记录没有可重试的模块`；`401`；`404`
+
+### 5.14 目的地城市名匹配（`util/CityNames`）
 
 规划链路判断「目的地是否在目录内」统一走 `util/CityNames`（纯静态工具类，`OnlineCityService.matchesCity` 的唯一实现）：
 

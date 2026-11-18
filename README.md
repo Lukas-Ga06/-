@@ -201,6 +201,22 @@ SafetyInterceptor 审计。
 > 写操作（新增/修改/删除行程项、撤销）不是工具，而是 `AgentPlan` 的操作项，统一经
 > preview → Diff → 用户确认 → `ExecutorAgent.commit` 落地，并写入操作历史以便撤销。
 
+### 4.5.1 Agent 自主循环、确认门与同步（V2.2）
+
+V2.2 在不改变既有确认/撤销/预算口径的前提下补了三件事（详见 [docs/guide/v2.2-iteration.md](docs/guide/v2.2-iteration.md)）：
+
+| 能力 | 机制 | 关键保障 |
+| --- | --- | --- |
+| 运行态追踪 | 一次对话 = `agent_run`，阶段 = `agent_task`，工具调用 = `tool_call_trace` | 独立事务写入，追踪故障不影响主流程；保留 14 天 |
+| 自主工具调用 | `AgentToolLoop` 让 research-agent 在只读白名单内自选工具、看结果、再决定 | 步骤预算 / 同参去重 / 白名单 / 协作式取消；无 LLM 完全降级 |
+| 确认绑定内容 | `confirmation.contentHash`（方案 SHA-256）+ 既有 `planRevision` | 双指纹：一个拦「行程被改」，一个拦「方案被换」 |
+| 确认后同步 | `PlanExecutionService` 逐模块写日程 / 预算快照 / 足迹 | `plan_id` 唯一 + `source_key` 幂等；部分失败可单独重试 |
+| 真实路线 | `RouteService`：高德 MCP → REST → 本地估算 | 结果带 `source` 标记，估算不伪装成实时；10 分钟缓存 |
+| 超预算自愈 | 酒店降级后仍超 → 逐次移除最贵景点（每天保底 1 个） | 确定性收敛，调整原因写进方案说明 |
+
+**两条不可违反的口径**：预算同步只记「计划快照」，**绝不**自动生成记账（估算 ≠ 已消费）；
+足迹只标「计划去」，**绝不**把未来行程写成「已到访」。
+
 ### 4.6 撤销与操作历史
 
 所有会改变行程的入口都会写一条 `operation_history`（before / after 快照），点「撤销」即把行程整体还原到上一步之前：
@@ -295,6 +311,29 @@ streamable HTTP（`url`）与本机子进程 stdio（`command`，如 `npx -y @am
 启用后 LLM 意图识别在用户明确要查外部数据时输出 `INVOKE_TOOL`（工具名 + 参数），由
 `ToolInvoker` 执行并回播结果；未接入 MCP 或 LLM 不可用时，意图层不产出该意图，行为与从前一致。
 
+### 4.11 V2.2：自主 Agent 与确认后执行闭环
+
+V2.1 的链路是「协调器预先检索事实 → 多个 LLM 专家并行分析 → Reviewer 汇总复核」。
+V2.2 在不推翻既有**确认 / 撤销 / 预算口径**的前提下，补上三件此前不存在的能力
+（完整设计决策、逐 FR 落地与已知差距见 **[docs/guide/v2.2-iteration.md](docs/guide/v2.2-iteration.md)**）：
+
+| 能力 | 一句话 | 主要落点 |
+| --- | --- | --- |
+| **运行追踪（FR-02/04/10）** | 一次对话 = 一条 `agent_run`，各阶段 = `agent_task`，每次工具调用 = `tool_call_trace`；凭 runId 可回查整条链路 | `AgentTraceService` / `AgentTaskRecorder` / `GET /api/agent/runs*` |
+| **自主工具调用（FR-03）** | `research-agent` 在只读白名单内自己决定「调哪个工具 / 什么参数 / 何时结束」，观察进入下一轮决策 | `AgentToolLoop` + `PlannerAgent.researchFacts` |
+| **确认后幂等同步（FR-09）** | 确认提交后按模块同步日程 / 预算快照 / 足迹，逐模块记账、失败可单独重试 | `PlanExecutionService` + `plan_execution` + `schedule_item.source_key` |
+| **内容指纹确认门（FR-08）** | 确认请求携带方案内容 SHA-256，绑定「用户看到的就是提交的内容」 | `PendingPlanStore` / `PlanConfirmationService` |
+| **前端过程可视化** | Agent 活动时间线、执行结果面板（部分失败 + 重试）、确认弹窗展示问题与指纹 | `AgentActivityPanel` / `ExecutionResultPanel` / `PlanDiff` |
+
+三条**不可动摇的红线**（都有测试守护）：
+
+- **自主循环必须能「什么都没做」**：无 LLM / 配额耗尽 / 输出非法时 `completed=false`，规划完整回落到既有固定路径，Prompt 与旧版逐字一致。
+- **预算同步只记快照**：估算绝不会自动变成「已消费」，实际支出必须手动记账/发票导入。
+- **足迹只标计划态**：未来行程不会被记成「已到访」。
+
+追踪写入全部走**独立事务**（`REQUIRES_NEW`，try/catch 在事务边界之外），追踪表故障不会反噬业务；
+主流程失败/断连时已产生的痕迹仍然保留（保留 14 天，每日 04:40 清理）。
+
 ## 5. REST API 一览
 
 ```
@@ -318,7 +357,18 @@ POST   /api/agent/confirm         # 确认提交 planId
 POST   /api/agent/cancel          # 取消方案
 POST   /api/agent/undo            # 撤销上一次修改
 GET    /api/agent/plans/{planId}  # 取回待确认方案（刷新页面后恢复确认弹窗）
+GET    /api/agent/runs            # 最近运行列表（V2.2 追踪：状态/意图/耗时）
+GET    /api/agent/runs/{runId}    # 一次运行的完整追踪：任务链 + 工具调用（他人 404）
+GET    /api/agent/executions/{executionId}        # 确认后日程/预算/足迹同步台账
+POST   /api/agent/executions/{executionId}/retry  # 只重试失败模块（成功项不重复创建）
 POST   /api/agent/conversation/clear  # 开新会话：清掉当前用户在该会话下的历史消息
+
+GET    /api/agent/runs               # 最近的 Agent 运行（V2.2 追踪）
+GET    /api/agent/runs/{runId}       # 运行明细：任务链 + 工具调用
+GET    /api/agent/executions/{id}    # 确认后同步台账（日程/预算/足迹逐模块状态）
+POST   /api/agent/executions/{id}/retry  # 只重试失败的同步模块（幂等）
+
+GET    /api/trips/{id}/route-legs    # 每日路线段：相邻点距离/时长/来源（amap|estimated）
 
 GET    /api/trips/{tripId}/expenses   POST /api/trips/{tripId}/expenses
 GET    /api/expenses/overview         DELETE /api/expenses/{id}
@@ -475,17 +525,21 @@ cd travel-agent-server && mvn test
 cd travel-agent-web && npm run typecheck && npm test && npm run build
 ```
 
-当前覆盖（后端 330 个 / 前端 105 个 / e2e 5 个，以 CI 输出为准）：
+当前覆盖（后端 362 个 / 前端 144 个 / e2e 5 个，以 CI 输出为准）：
 
 - 认证与授权：401 契约、跨用户读写与删除行程；
 - Agent 计划落地：ADD_ITEM / MODIFY_ITEM / REMOVE_ITEM、跨行程操作守卫、确认提交与撤销（含撤销新建行程）；
+- V2.2 自主闭环：工具调用循环（去重/预算/取消/非法输出自纠/白名单）、运行追踪（任务链 + 工具调用 + 归属校验）、
+  确认后三模块同步（幂等/部分失败/级联清理）、超预算确定性精简、逐日路线段；
 - 工具层契约：只读工具才允许注册、风险评估等级、业务错误原样透出；
 - 理解精度：日期→行程天映射、意图路由（闲聊不被误写成日程）、时间冲突检查（含 MODIFY）；
 - 数据一致性：删除行程的级联清理、记账分项与总支出对账；
 - 扩展能力：路书 PDF（内容 + 越权）、MCP 桥接（HTTP/stdio 传输、注册与调用、坏服务器跳过）、
   多渠道入口（Webhook 密钥契约、Telegram 消息→引擎→回复与账号自动开通、微信公众号签名/XML 被动回复）、
   POST 流式端点（401/超长校验/长文本建流）；
-- 运行环境：应用时区固定；前端流式状态机与 SSE 中断路径。
+- 运行环境：应用时区固定；前端流式状态机与 SSE 中断路径；
+- **V2.2 自主 Agent**：工具循环（去重/预算/白名单/取消/降级）、运行追踪查询与归属隔离、
+  确认门内容指纹、确认后三模块同步与部分失败重试、超预算确定性收敛、路线来源标记与逐日路线段。
 
 CI（[.github/workflows/ci.yml](.github/workflows/ci.yml)）在 push / PR 时执行 `mvn -B verify`、
 `npm ci && npm run typecheck && npm test && npm run build`，以及 e2e job（H2 后端 + preview 4173 +
@@ -504,6 +558,11 @@ SSE/照片短期票据（票据分用途，仅凭票据=只读会话）、接口
 限流 Redis 计数与照片/发票 S3 兼容存储（多实例）、知识库指纹增量同步与版本化（可审计可回滚）、按天预算偏差视图、
 Spring Boot 3.5、全栈 Docker 化，以及若干轮逻辑缺陷修复与安全加固
 （详见 [docs/CHANGELOG.md](docs/CHANGELOG.md)）。
+
+**V2.2 自主 Agent 闭环（第十二批）**：Agent 运行态追踪（run/task/tool_call）、自主工具调用循环、
+确认门内容指纹、确认后日程/预算/足迹幂等同步（部分失败可重试）、真实路线贯通与来源标记、
+超预算确定性收敛、逐日路线段端点。逐 FR 状态与已知差距见
+[docs/guide/v2.2-iteration.md](docs/guide/v2.2-iteration.md)。
 
 按优先级继续推进：
 

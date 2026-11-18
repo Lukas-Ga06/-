@@ -2,6 +2,84 @@
 
 按主题记录行为变化。**第四节是最需要注意的**：其中几项改变了原有的使用习惯。
 
+## 第十二批：V2.2 自主 Agent 闭环（2026-11-18）
+
+> 依据《Travel Agent V2.2 开发设计与迭代规划》推进 P0：把「协调器预先检索事实 + 专家并行分析」
+> 升级为「运行态可追踪 + Agent 自主调工具 + 确认绑定内容 + 确认后幂等同步」。
+> 逐 FR 落地情况与 ADR 见 [docs/guide/v2.2-iteration.md](guide/v2.2-iteration.md)。
+> **不破坏**既有红线：撤销链、Diff 确认、预算三口径、跨用户守卫、工具只读门禁、提交事务性。
+
+### 一、Agent 运行态与追踪（FR-02 / FR-04 / FR-10）
+
+- 新增 `agent_run` / `agent_task` / `tool_call_trace` 三张表（Flyway `V15__agent_trace.sql`，双方言中性 SQL）：
+  一次对话 = 一条 run，各阶段 = task（`intent-agent` / `research-agent` / `planner-agent` / `executor-agent` / `reflect-agent`），
+  每次工具调用 = 一条 trace（参数/结果摘要、耗时、成败）。
+- `AgentTraceService` 所有写入走 `REQUIRES_NEW` 独立事务且 try/catch 在事务边界之外——
+  **追踪故障绝不反噬主流程**（ADR-001）。失败/断连轮次同样留痕。
+- 新端点：`GET /api/agent/runs?limit=`、`GET /api/agent/runs/{runId}`（任务链 + 工具调用，他人 run 404）。
+- SSE 新增 `run` 事件（紧随 `start`，`data={runId}`）。
+- **修复**：`agentTaskExecutor` 加 `TaskDecorator` 复制 MDC——此前 Agent 运行期日志的 `traceId` 一直为空。
+- `AgentTraceRetentionJob` 每日 04:40 清理 14 天前的追踪（避开 04:30 的两个既有任务）。
+
+### 二、Agent 自主工具调用循环（FR-03）
+
+- 新增 `AgentToolLoop`：目标 + 只读工具白名单 + 已有观察 → 模型决策 `CALL_TOOL` / `FINAL` → 观察回灌下一轮。
+- 防护对齐设计文档 5.3：步骤预算（4 步）、同工具同参去重、白名单外工具转观察自纠、非法 JSON 自纠、
+  协作式取消（不 interrupt 池线程）、工具异常转失败观察不中断循环、LLM 不可用直接降级返回未完成。
+- `PlannerAgent.researchFacts` 在结构化规划前先跑研究循环；观察以「研究事实块」进入 Prompt
+  （`StructuredPlanner.researchBlock`），**只作参考证据**——名称命中/坐标/价格仍由候选清单与校验层决定。
+- 无 LLM 时 Prompt 与旧版逐字一致，行为零变化（ADR-002）。
+
+### 三、真实路线贯通（FR-05）
+
+- `RouteService` 升级：高德 MCP 路径工具 → 高德 REST（`AMAP_KEY`）→ haversine 估算，任一层失败静默降级。
+- `RouteInfo` 新增 `source`（`amap` / `estimated`）：**估算不许伪装成实时数据**（ADR-006）；
+  `taxiCost` 始终为本地估算并单独说明（无计价 Provider）。
+- 按坐标做 10 分钟 TTL 进程内缓存（上限 2000 条），一次三日游的重复路段不再反复外呼。
+- `GET /api/system/status` 新增 `routeProvider` + `routeHint`。
+
+### 四、每日路线段（FR-07）
+
+- 新增 `ItineraryRouteService` 与 `GET /api/trips/{id}/route-legs`：逐日相邻行程点的
+  距离 / 步行时长 / 驾车时长 / 打车估算 + 来源标记；无坐标条目（交通费汇总行）自动跳过。
+- 独立端点而非改既有 `itinerary` 响应形状——旧前端与既有测试零影响。
+
+### 五、Reviewer 结构化判定与超预算自愈（FR-06）
+
+- `ReflectAgent.reviewVerdict` 返回 `ReviewVerdict(passed, issues)`：预算超限为 **HIGH/REVISE**（硬约束），
+  时间冲突为 **MEDIUM**（软提醒）。`review()` 保留为警告文案投影，对外契约不变。
+- `PlannerAgent.trimToBudget`：酒店降级后仍超预算时，**确定性**逐次移除最贵景点直到进入预算
+  （只动景点、每天保底 1 个；移除项写入 `extras.budgetAdjusted` 与 `reasoning`，原因可追溯，ADR-007）。
+
+### 六、确认门内容指纹（FR-08）
+
+- `pending_plan` 新增 `content_hash`（`plan_json` 的 SHA-256，`put` 时计算），`confirmation` 事件下发。
+- `POST /api/agent/confirm` 请求体新增**可选** `contentHash`：携带时校验「用户确认的就是看到的内容」；
+  不传退化为既有 `planRevision` 校验（旧前端行为不变，ADR-003）。
+- 两道指纹分工：`planRevision` 拦「行程被别处改过」，`contentHash` 拦「方案内容被换过」。
+
+### 七、确认后幂等同步（FR-09）
+
+- 新增 `plan_execution` 台账（`plan_id` 唯一 = 同一方案只有一份逻辑执行）与 `schedule_item.source_key` 幂等键（Flyway `V16`）。
+- `PlanExecutionService` 逐模块同步：**日程**（按天写时间块，`source_key=plan-sync:{planId}:day:{n}`）、
+  **预算快照**（只记计划口径）、**足迹**（计划态）。
+- **红线**：预算同步**绝不**生成 `Expense`（估算不能变成已消费）；足迹不把未来行程写成已到访（ADR-005）。
+- 模块级失败不回滚行程：状态 `PARTIAL_FAILED`，`POST /api/agent/executions/{id}/retry` 只重试 FAILED 项，
+  成功项靠幂等键不重复创建。行程删除/撤销时级联清理同步日程与台账。
+
+### 八、前端（`travel-agent-web`）
+
+- 新增 `AgentActivityPanel`（过程时间线，工具调用只显示工具名与参数**字段名**，不渲染参数值原文）、
+  `ExecutionResultPanel`（三模块同步结果 + 失败重试）、`AgentRunsDrawer`（运行追踪查询）。
+- 类型与 API 层补 `contentHash` / `execution` / runs / executions 契约；`agentStore` 补 `activity` / `lastExecution` / `currentRun`。
+
+### 九、测试与验证
+
+- 后端新增用例：`AgentToolLoopTest`（9）、`AgentTraceApiTest`（4）、`PlanExecutionSyncTest`（8）、
+  `PlannerBudgetTrimTest`（2）、`ItineraryRouteLegsTest`（5）；前端新增两个组件的组件测试。
+- 本轮全程用 `mvn clean test` 验证；**注意**：增量 `mvn test` 在反复改动后偶发
+  `NoClassDefFoundError`（陈旧 test-classes），是构建产物问题、不是产品缺陷，务必用 `clean`。
+
 ## 第十一批：代码框架整理（无行为变化，2026-11-16）
 
 > 只做结构与仓库卫生整理，不改接口、不改业务规则、不新增依赖；后端 335 / 前端 114 个用例整理前后全绿。

@@ -243,6 +243,32 @@ UI 登出必须走 `api/auth.ts` 的 `signOut()`（先清服务端 Cookie 再清
 坐标约定：业务数据存 WGS-84；高德底图/JS API 用 GCJ-02，只在渲染前转换（`src/lib/coords.ts` 与后端
 `util/CoordinateTransform.java` 同一套公式）。不要在两个坐标系之间直接混用坐标，否则国内会偏几百米。
 
+### V2.2 关键不变量（自主 Agent / 追踪 / 确认后同步）
+
+**追踪不反噬主流程**：`AgentTraceService` 的所有写入走 `TransactionTemplate(PROPAGATION_REQUIRES_NEW)`，
+且 **try/catch 必须在事务边界之外**。不要改成方法级 `@Transactional`——方法内 catch 住内层事务异常后，
+外层代理提交一个已被标记 rollback-only 的事务会抛 `UnexpectedRollbackException`，反而把追踪故障放大成业务故障。
+追踪写失败只降级（`runId=null` 时后续记录静默跳过），绝不能让用户看到"处理失败"。
+新增追踪落库点一律复用它，不要另起事务写法。
+
+**自主循环必须能「什么都没做」**：`AgentToolLoop.run` 的 `completed=false` 语义是「没拿到可用结论」，
+调用方（`PlannerAgent.researchFacts`）必须返回空清单并继续走既有固定调用路径。
+不要因为新增了循环就让「无 LLM / 配额耗尽 / 输出非法」变成规划失败或变慢。
+循环的每步之间检查 `ctx.isCancelled()`，**不要 `Thread.interrupt()`**（池线程会被污染）；
+工具只能经 `ToolInvoker` 调用（沿用只读门禁 + 审计 + 追踪），循环里不许直接 `tool.execute()`。
+
+**确认门是双指纹**：`planRevision`（生成方案时的**行程状态**）拦「方案生成后行程被别的入口改过」；
+`contentHash`（方案**内容本身**的 SHA-256）拦「用户确认的内容 ≠ 后台现存内容」。
+两者是叠加关系：`contentHash` 为空（历史行 / 旧客户端）时退化为只走 `planRevision`，**不要**把缺失当成校验失败。
+claim（PENDING→CONFIRMING）语义与 TTL 30 分钟都不许动。
+
+**确认后同步的口径红线**（`PlanExecutionService`）：
+`calendar` 模块按 `schedule_item.source_key = plan-sync:{planId}:day:{n}` 幂等创建，行程删除时级联清理；
+`budget` 模块**只记计划快照**（预算上限 + 计划成本合计），绝不自动生成 `Expense`——估算不能变成"已消费"；
+`footprint` 模块**只标计划态**，绝不把未来行程写成"已到访"。
+模块级失败不回滚已保存的行程（用户需求要先满足），失败模块靠 `POST /api/agent/executions/{id}/retry` 单独重试，
+成功项靠幂等键保证不重复创建。`plan_execution.plan_id` 唯一 = 同一方案只有一份逻辑执行。
+
 ## 设计系统（方向 B：内容优先）
 
 **令牌**：`travel-agent-web/src/styles/global.css` 顶部的 `:root` 是唯一来源。

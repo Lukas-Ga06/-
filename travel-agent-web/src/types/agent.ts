@@ -35,6 +35,8 @@ export interface ConfirmationDTO {
   planId: string;
   summary: string;
   riskLevel?: string;
+  /** 方案内容 SHA-256 指纹：确认时回传给后端绑定具体计划内容版本（V2.2 FR-08） */
+  contentHash?: string;
 }
 
 export interface AgentResult {
@@ -48,6 +50,98 @@ export interface AgentResult {
   budget?: BudgetSummaryDTO | null;
   confirmation?: ConfirmationDTO | null;
   warnings?: string[] | null;
+  /** 确认提交后的日程/预算/足迹同步执行结果（V2.2 §9.1） */
+  execution?: ExecutionSummary | null;
+}
+
+/* ============================================================
+   V2.2 运行追踪与执行同步（后端契约已冻结）
+   ============================================================ */
+
+export type AgentRunStatus = 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED';
+
+/** GET /api/agent/runs 列表项 */
+export interface RunSummary {
+  runId: string;
+  tripId?: number | null;
+  message?: string | null;
+  intent?: string | null;
+  status: AgentRunStatus;
+  error?: string | null;
+  startedAt: string;
+  endedAt?: string | null;
+  durationMs?: number | null;
+}
+
+/** 任务归属的 Agent 角色 */
+export type TaskReceiver =
+  | 'intent-agent'
+  | 'research-agent'
+  | 'planner-agent'
+  | 'executor-agent'
+  | 'reflect-agent'
+  | 'tool-invoker';
+
+export type TaskType = 'INTENT' | 'RESEARCH' | 'PLAN' | 'PREVIEW' | 'REVIEW' | 'TOOL' | 'COMMIT';
+
+export type TaskViewStatus = 'RUNNING' | 'SUCCEEDED' | 'FAILED';
+
+/** GET /api/agent/runs/{runId} 的任务链节点 */
+export interface TaskView {
+  taskId: string;
+  receiver: TaskReceiver;
+  taskType: TaskType;
+  status: TaskViewStatus;
+  summary?: string | null;
+  error?: string | null;
+  startedAt: string;
+  endedAt?: string | null;
+  durationMs?: number | null;
+}
+
+/** 运行内的一次工具调用（摘要已由后端脱敏为 digest） */
+export interface ToolCallView {
+  id: number;
+  taskId?: string | null;
+  toolName: string;
+  success: boolean;
+  errorCode?: string | null;
+  latencyMs?: number | null;
+  argsDigest?: string | null;
+  resultDigest?: string | null;
+  startedAt: string;
+}
+
+/** GET /api/agent/runs/{runId} 响应（他人 run 返回 404 业务错误） */
+export interface RunDetail {
+  run: RunSummary;
+  tasks: TaskView[];
+  toolCalls: ToolCallView[];
+}
+
+/** 同步模块：calendar=日程时间块 / budget=计划预算快照（不会自动记账）/ footprint=足迹计划标记 */
+export type ExecutionModuleKind = 'calendar' | 'budget' | 'footprint';
+
+export type ExecutionModuleStatus = 'SUCCEEDED' | 'FAILED';
+
+export type ExecutionStatus = 'SUCCEEDED' | 'PARTIAL_FAILED' | 'FAILED';
+
+export interface ExecutionModule {
+  module: ExecutionModuleKind;
+  status: ExecutionModuleStatus;
+  detail?: string | null;
+  idempotencyKey?: string | null;
+  retryCount?: number | null;
+  error?: string | null;
+}
+
+/** 确认提交后的模块级同步结果（GET /api/agent/executions/{id} 同构） */
+export interface ExecutionSummary {
+  executionId: string;
+  planId: string;
+  tripId?: number | null;
+  status: ExecutionStatus;
+  modules: ExecutionModule[];
 }
 
 export interface ChatMessage {

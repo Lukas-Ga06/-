@@ -27,6 +27,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -53,6 +54,10 @@ public class PlannerAgent {
     private final StructuredPlanner structuredPlanner;
     /** 候选选择与条目草稿装配（新行程 / 行程修改两条路径共用同一套口径） */
     private final PlannerDraftSupport draftsSupport;
+    /** V2.2 自主工具调用循环（FR-03）：LLM 可用时先让研究 Agent 自主收集事实 */
+    private final AgentToolLoop toolLoop;
+    /** 研究任务记录（receiver=research-agent，任务/工具调用进 run 追踪） */
+    private final AgentTaskRecorder taskRecorder;
 
     public AgentPlan plan(AgentContext ctx, IntentResult intent, Trip trip) {
         String message = ctx.getMessage() == null ? "" : ctx.getMessage();
@@ -122,9 +127,15 @@ public class PlannerAgent {
                 .build();
 
         List<PlanOperation> ops = new ArrayList<>();
-        // LLM 结构化规划先行：模型从候选清单里选择与编排，规则引擎逐条校验，失败回落下方规则路径
+        // LLM 结构化规划先行：模型从候选清单里选择与编排，规则引擎逐条校验，失败回落下方规则路径。
+        // 之前先跑研究循环（FR-03）：让 research-agent 在只读工具上自主「决策→调用→观察→继续」，
+        // 收集到的天气/路线事实作为参考证据进入结构化 Prompt；无 LLM 或循环未完成时不带任何研究块。
+        List<String> researchNotes = llmProperties.usable()
+                ? researchFacts(ctx, city, draft, budget)
+                : List.of();
         if (llmProperties.usable()) {
-            AgentPlan structured = tryStructuredNewTrip(ctx, intent, city, trip, draft, days, budget, message);
+            AgentPlan structured = tryStructuredNewTrip(ctx, intent, city, trip, draft, days, budget, message,
+                    researchNotes);
             if (structured != null) {
                 return structured;
             }
@@ -159,12 +170,18 @@ public class PlannerAgent {
             drafts = buildDailyDrafts(ctx, city, hotel, days, family, baseDate);
             total = budgetService.totalOf(drafts);
         }
+        // 仍超预算（V2.2 FR-06 动态调整）：确定性收敛——逐次移除最贵景点直到进入预算
+        Map<String, Object> extras = new HashMap<>();
+        List<String> trimmed = trimToBudget(drafts, budget);
+        if (!trimmed.isEmpty()) {
+            total = budgetService.totalOf(drafts);
+            extras.put("budgetAdjusted", "为守住预算已自动精简：" + String.join("、", trimmed));
+        }
 
         for (ItineraryItem item : drafts) {
             ops.add(PlanOperation.builder().type(PlanOperation.ADD).draft(item).detail("新增：" + item.getTitle()).build());
         }
 
-        Map<String, Object> extras = new HashMap<>();
         extras.put("hotelName", hotel == null ? "暂无" : hotel.name());
         extras.put("total", total);
         extras.put("days", days);
@@ -180,9 +197,57 @@ public class PlannerAgent {
                 .focus(AgentDtos.AgentFocus.builder().type("itinerary").day(1).build())
                 .reasoning(startDate + " 出发，基于 " + city.name() + days + " 天行程与 ¥" + budget.stripTrailingZeros().toPlainString()
                         + " 预算：酒店选择「" + (hotel == null ? "-" : hotel.name()) + "」"
-                        + (preferSubway ? "（近地铁）" : "") + "；景点按「上午户外 + 下午室内」搭配，餐饮就近安排。")
+                        + (preferSubway ? "（近地铁）" : "") + "；景点按「上午户外 + 下午室内」搭配，餐饮就近安排。"
+                        + (trimmed.isEmpty() ? "" : " " + extras.get("budgetAdjusted") + "。"))
                 .extras(extras)
                 .build();
+    }
+
+    /**
+     * 超预算的确定性收敛（V2.2 FR-06 动态调整，规则路径）：
+     * 逐次移除「当前最贵的景点」直到合计进入预算；酒店降级之后仍超才走到这里。
+     *
+     * <p>只动景点不动餐饮/酒店/交通：门票是弹性项且移除后行程仍成立；
+     * 每天至少保留一个景点（每轮只在「该天景点数 > 1」的天里选候选），
+     * 极端预算下宁可留下少量超支警告也不产出空行程。
+     * 移除项以标题列表返回（进 reasoning 与 extras.budgetAdjusted，重规划原因可追溯）。
+     */
+    private List<String> trimToBudget(List<ItineraryItem> drafts, BigDecimal budget) {
+        List<String> trimmed = new ArrayList<>();
+        BigDecimal total = budgetService.totalOf(drafts);
+        while (total.compareTo(budget) > 0) {
+            // 每天景点计数，用于保证「每天至少 1 个景点」
+            Map<Integer, Long> attractionCountByDay = new HashMap<>();
+            for (ItineraryItem item : drafts) {
+                if (ItineraryItem.TYPE_ATTRACTION.equals(item.getItemType())) {
+                    attractionCountByDay.merge(item.getDayIndex(), 1L, Long::sum);
+                }
+            }
+            ItineraryItem candidate = null;
+            for (ItineraryItem item : drafts) {
+                if (!ItineraryItem.TYPE_ATTRACTION.equals(item.getItemType())) {
+                    continue;
+                }
+                int day = item.getDayIndex() == null ? 1 : item.getDayIndex();
+                if (attractionCountByDay.getOrDefault(day, 0L) <= 1) {
+                    continue; // 该天只剩这一个景点，保底不动
+                }
+                if (candidate == null || costOf(item).compareTo(costOf(candidate)) > 0) {
+                    candidate = item;
+                }
+            }
+            if (candidate == null) {
+                break; // 没有可移除的弹性项：保留超支，交给 Reviewer 警告
+            }
+            drafts.remove(candidate);
+            trimmed.add("「" + candidate.getTitle() + "」");
+            total = budgetService.totalOf(drafts);
+        }
+        return trimmed;
+    }
+
+    private static BigDecimal costOf(ItineraryItem item) {
+        return item.getCost() == null ? BigDecimal.ZERO : item.getCost();
     }
 
     private List<ItineraryItem> buildDailyDrafts(AgentContext ctx, CityCatalog city, Hotel hotel,
@@ -391,14 +456,53 @@ public class PlannerAgent {
                 .build();
     }
 
+    // ==================== V2.2 研究循环（FR-03 自主工具调用） ====================
+
+    /** 研究循环允许的只读工具白名单：规划期只允许只读工具，写操作一律经确认门 */
+    private static final Set<String> RESEARCH_TOOLS = Set.of(
+            "query_weather", "search_attraction", "search_restaurant", "search_hotel", "calculate_route");
+
+    /** 研究循环步骤上限：每步一次 LLM 决策 + 至多一次工具调用，避免整体规划被显著拖慢 */
+    private static final int RESEARCH_MAX_STEPS = 4;
+
+    /**
+     * 让 research-agent 在只读工具上自主「决策→调用→观察→继续」地收集事实（FR-03）。
+     *
+     * <p>循环未完成（模型不可用 / 步骤预算耗尽 / 输出非法）时<b>仍返回已成功收集到的观察</b>：
+     * 步骤预算耗尽是常态（模型会先用几步确认天气/候选），已经查到的事实没有理由丢掉。
+     * 只有「一步都没成功」时才返回空清单，此时结构化规划照旧执行、Prompt 不带研究块，
+     * 无 LLM 时行为与从前完全一致。收集到的 notes 只作为参考证据进入结构化 Prompt
+     * （见 StructuredPlanner.researchBlock），名称命中、坐标与价格仍由候选清单与校验层决定——
+     * 研究结论不能变成编造事实。
+     */
+    private List<String> researchFacts(AgentContext ctx, CityCatalog city, TripDraft draft, BigDecimal budget) {
+        if (ctx.isCancelled()) {
+            return List.of();
+        }
+        String goal = "为「" + city.name() + "」" + draft.getStartDate() + " 出发、共 " + draft.getDays()
+                + " 天、预算 ¥" + budget.stripTrailingZeros().toPlainString()
+                + " 的行程收集决策事实：逐日天气与降雨风险、景点/餐厅/酒店候选是否充足、"
+                + "主要相邻地点之间的移动耗时。";
+        AgentToolLoop.LoopResult result = taskRecorder.around(ctx,
+                com.travel.agent.entity.AgentTask.RECEIVER_RESEARCH, "RESEARCH",
+                () -> toolLoop.run(ctx, goal, RESEARCH_TOOLS, RESEARCH_MAX_STEPS),
+                r -> (r.completed() ? "研究完成" : "研究未完成（" + r.summary() + "）")
+                        + "：" + r.steps().size() + " 次工具调用"
+                        + (r.summary() == null || r.summary().isBlank() ? "" : "（" + r.summary() + "）"));
+        // 未完成也保留已成功的事实：notes() 只取 success=true 的步骤
+        return result.notes();
+    }
+
     // ==================== LLM 结构化规划组装 ====================
 
     /** 结构化新行程：LLM 输出的条目序列 → REMOVE（重规划）+ ADD 计划；失败返回 null 走规则路径 */
     private AgentPlan tryStructuredNewTrip(AgentContext ctx, IntentResult intent, CityCatalog city,
-                                           Trip trip, TripDraft draft, int days, BigDecimal budget, String message) {
+                                           Trip trip, TripDraft draft, int days, BigDecimal budget, String message,
+                                           List<String> researchNotes) {
         StructuredPlanner.TripDraftView view = new StructuredPlanner.TripDraftView(
                 city.name(), days, draft.getStartDate(), budget, draft.getPreferences());
-        StructuredPlanner.NewTripParse parse = structuredPlanner.planNewTrip(city, view, message, ctx.getHistory());
+        StructuredPlanner.NewTripParse parse = structuredPlanner.planNewTrip(city, view, message, ctx.getHistory(),
+                researchNotes);
         if (parse == null || !parse.ok()) {
             if (parse != null && !parse.warnings().isEmpty()) {
                 log.info("结构化规划回落规则路径: {}", parse.warnings());

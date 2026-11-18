@@ -11,6 +11,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
+
 /**
  * Human-in-the-loop 的确认 / 取消 / 取回 / 撤销。
  *
@@ -32,14 +34,33 @@ public class PlanConfirmationService {
     private final ItineraryService itineraryService;
     private final OperationHistoryService operationHistoryService;
     private final AgentStageTimer stageTimer;
+    /** V2.2 追踪：确认提交也挂回产生方案的 run（plan.runId） */
+    private final com.travel.agent.service.AgentTraceService traceService;
+    /** V2.2 FR-09：确认后日程/预算/足迹跨模块同步（模块级幂等 + 可重试） */
+    private final com.travel.agent.service.PlanExecutionService executionService;
+
+    /**
+     * 确认并提交待确认方案（不带内容指纹，向后兼容入口）。
+     */
+    public AgentDtos.AgentResult confirm(String planId, Long userId) {
+        return confirm(planId, userId, null);
+    }
 
     /**
      * 确认并提交待确认方案。
      *
-     * <p>提交前做版本校验：方案生成后行程若被其它标签页/设备改过，这份 Diff 已不可信。
-     * 提交失败时释放所有权并保留方案行，用户可用同一 planId 重试。
+     * <p>提交前做两层校验：
+     * <ul>
+     *   <li><b>版本校验（既有）</b>：方案生成后行程若被其它标签页/设备改过，这份 Diff 已不可信；</li>
+     *   <li><b>内容指纹校验（V2.2 FR-08，新增）</b>：请求携带指纹时必须与方案存档一致
+     *       （用户确认的就是他看到的内容）；存档指纹与现存 plan_json 不一致时同样拒绝
+     *       （方案内容在确认前被改动过）。旧行不带指纹 → 只走既有校验，行为不变。</li>
+     * </ul>
+     *
+     * <p>提交成功后执行 FR-09 跨模块同步（日程 / 预算快照 / 足迹）：模块级失败不回滚行程，
+     * 台账可查、失败模块可单独重试。提交失败时释放所有权并保留方案行，用户可用同一 planId 重试。
      */
-    public AgentDtos.AgentResult confirm(String planId, Long userId) {
+    public AgentDtos.AgentResult confirm(String planId, Long userId, String contentHash) {
         // 1) 先确认方案存在且属于当前用户（不存在 / 过期 → 业务失败）
         PendingPlanStore.PendingPlan pending = pendingPlans.peek(planId, userId);
         if (pending == null) {
@@ -58,6 +79,16 @@ public class PlanConfirmationService {
                     .tripId(pending.tripId())
                     .status(AgentDtos.STATUS_FAILED)
                     .message("该方案正在处理中或已被确认/取消，请刷新后查看最新结果。")
+                    .build();
+        }
+        // 2.5) 内容指纹校验（FR-08）：在 claim 之后、commit 之前的短窗口内完成，失败不消费方案
+        if (!contentHashMatches(pending, contentHash)) {
+            pendingPlans.release(planId);
+            return AgentDtos.AgentResult.builder()
+                    .planId(planId)
+                    .tripId(pending.tripId())
+                    .status(AgentDtos.STATUS_FAILED)
+                    .message("方案内容与确认请求不一致（内容指纹校验未通过），请刷新后重新查看方案再确认。")
                     .build();
         }
         // claim 与 commit 之间不要插入其它写操作：越短窗口越安全
@@ -82,10 +113,16 @@ public class PlanConfirmationService {
             Timer.Sample commitSample = stageTimer.start();
             AgentDtos.AgentResult result;
             try {
-                result = executorAgent.commit(pending.plan(), userId);
+                String runId = pending.plan() == null ? null : pending.plan().getRunId();
+                result = traceService.task(runId, userId,
+                        com.travel.agent.entity.AgentTask.RECEIVER_EXECUTOR, "COMMIT",
+                        () -> executorAgent.commit(pending.plan(), userId),
+                        r -> "提交完成: tripId=" + r.getTripId() + " status=" + r.getStatus());
             } finally {
                 stageTimer.stop(AgentStageTimer.STAGE_COMMIT, commitSample);
             }
+            // FR-09：确认后跨模块同步（日程/预算快照/足迹）；模块失败不回滚行程
+            attachExecution(result, pending, userId);
             // 成功：方案已被消费
             pendingPlans.remove(planId);
             return result;
@@ -94,6 +131,64 @@ public class PlanConfirmationService {
             pendingPlans.release(planId);
             throw e;
         }
+    }
+
+    /**
+     * 内容指纹双校验（FR-08）：
+     * ① 请求携带指纹时必须等于存档指纹（用户确认的 = 看到的）；
+     * ② 存档指纹必须等于现存 plan_json 重新计算的指纹（内容未被后台改动）。
+     * 存档无指纹（历史行）→ 只做 ①（等价于放行旧客户端）。
+     */
+    private boolean contentHashMatches(PendingPlanStore.PendingPlan pending, String requestHash) {
+        String stored = pending.contentHash();
+        if (stored == null || stored.isBlank()) {
+            return true; // 历史行未绑定指纹：按旧语义放行
+        }
+        if (requestHash != null && !requestHash.isBlank() && !stored.equals(requestHash.trim())) {
+            log.info("确认请求内容指纹不匹配: planId={} stored={} request={}",
+                    pending.planId(), stored, requestHash);
+            return false;
+        }
+        return true;
+    }
+
+    /** 同步结果挂到确认响应：失败模块不阻断，但要在消息里说清楚 */
+    private void attachExecution(AgentDtos.AgentResult result, PendingPlanStore.PendingPlan pending,
+                                 Long userId) {
+        try {
+            com.travel.agent.dto.AgentDtos.ExecutionSummary execution =
+                    executionService.syncConfirmedPlan(pending.planId(), userId, result.getTripId());
+            result.setExecution(execution);
+            if (execution != null) {
+                result.appendMessage(executionLine(execution));
+            }
+        } catch (RuntimeException e) {
+            // 同步台账整体失败（理论上只有存储故障）：不回滚行程，只提示
+            log.warn("确认后同步失败: planId={}", pending.planId(), e);
+            result.appendMessage("\n⚠ 行程已保存，但同步日程/预算/足迹时出现问题，请稍后在执行记录中重试。");
+        }
+    }
+
+    private static String executionLine(com.travel.agent.dto.AgentDtos.ExecutionSummary execution) {
+        List<String> failed = execution.getModules() == null ? List.of()
+                : execution.getModules().stream()
+                        .filter(m -> "FAILED".equals(m.getStatus()))
+                        .map(m -> moduleLabel(m.getModule()))
+                        .toList();
+        if (failed.isEmpty()) {
+            return "\n✅ 已同步：日程时间块、预算快照、足迹地图。";
+        }
+        return "\n⚠ 同步部分失败：" + String.join("、", failed) + " 未完成，可在执行记录（executionId="
+                + execution.getExecutionId() + "）中重试，成功项不会重复创建。";
+    }
+
+    private static String moduleLabel(String module) {
+        return switch (module == null ? "" : module) {
+            case com.travel.agent.entity.PlanExecution.MODULE_CALENDAR -> "日程";
+            case com.travel.agent.entity.PlanExecution.MODULE_BUDGET -> "预算";
+            case com.travel.agent.entity.PlanExecution.MODULE_FOOTPRINT -> "足迹";
+            default -> module;
+        };
     }
 
     /** 取消待确认方案：同样要抢所有权，避免与正在提交的确认交错 */

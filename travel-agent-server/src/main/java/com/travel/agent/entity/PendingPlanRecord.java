@@ -55,6 +55,17 @@ public class PendingPlanRecord {
     private String planRevision;
 
     /**
+     * 方案内容指纹（plan_json 的 SHA-256，V2.2 FR-08）。
+     *
+     * <p>与 {@code planRevision} 的分工：planRevision 是「当时行程状态」的指纹
+     * （行程被别的入口改过 → 拒绝）；contentHash 是「方案内容本身」的指纹
+     * （确认请求看到的内容与库里现存内容必须一致 → 拒绝后台悄悄换内容）。
+     * 存量行为 NULL：视为未绑定指纹，只走既有校验（向后兼容）。
+     */
+    @Column(name = "content_hash", length = 64)
+    private String contentHash;
+
+    /**
      * 确认状态（PENDING / CONFIRMING）。
      *
      * 用 columnDefinition 带 DEFAULT：存量表由 ddl-auto 补列时，MySQL/H2 的

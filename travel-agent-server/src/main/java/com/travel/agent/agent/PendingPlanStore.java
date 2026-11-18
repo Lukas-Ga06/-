@@ -31,7 +31,7 @@ public class PendingPlanStore {
 
     public record PendingPlan(String planId, Long userId, Long tripId,
                               AgentPlan plan, AgentDtos.AgentResult preview,
-                              String planRevision, Instant createdAt) {
+                              String planRevision, String contentHash, Instant createdAt) {
     }
 
     private final PendingPlanRepository repository;
@@ -40,19 +40,50 @@ public class PendingPlanStore {
     @Transactional
     public void put(PendingPlan pending) {
         try {
+            String planJson = objectMapper.writeValueAsString(pending.plan());
+            // 内容指纹（FR-08）：对 plan_json 计算 SHA-256，并回填到确认请求上——
+            // 前端把它随确认请求带回，后端校验「用户确认的就是看到的内容」
+            String contentHash = sha256(planJson);
+            stampContentHash(pending.preview(), contentHash);
             repository.save(PendingPlanRecord.builder()
                     .planId(pending.planId())
                     .userId(pending.userId())
                     .tripId(pending.tripId())
-                    .planJson(objectMapper.writeValueAsString(pending.plan()))
+                    .planJson(planJson)
                     .previewJson(objectMapper.writeValueAsString(pending.preview()))
                     .planRevision(pending.planRevision())
+                    .contentHash(contentHash)
                     .createdAt(LocalDateTime.ofInstant(pending.createdAt(), ZoneId.systemDefault()))
                     .build());
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("待确认方案序列化失败", e);
         }
         purgeExpired();
+    }
+
+    /** 把内容指纹写进确认请求（NEED_CONFIRMATION 的 preview 才有 confirmation 字段） */
+    private static void stampContentHash(AgentDtos.AgentResult preview, String contentHash) {
+        if (preview != null && preview.getConfirmation() != null) {
+            preview.getConfirmation().setContentHash(contentHash);
+        }
+    }
+
+    /** SHA-256 十六进制（64 字符）；计算失败返回 null（退化为「未绑定指纹」的旧校验） */
+    static String sha256(String text) {
+        if (text == null) {
+            return null;
+        }
+        try {
+            java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(text.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder(hash.length * 2);
+            for (byte b : hash) {
+                sb.append(Character.forDigit((b >> 4) & 0xF, 16)).append(Character.forDigit(b & 0xF, 16));
+            }
+            return sb.toString();
+        } catch (java.security.NoSuchAlgorithmException e) {
+            return null;
+        }
     }
 
     /** 取出并删除（校验归属与有效期） */
@@ -144,6 +175,7 @@ public class PendingPlanStore {
                     objectMapper.readValue(record.getPlanJson(), AgentPlan.class),
                     objectMapper.readValue(record.getPreviewJson(), AgentDtos.AgentResult.class),
                     record.getPlanRevision(),
+                    record.getContentHash(),
                     record.getCreatedAt().atZone(ZoneId.systemDefault()).toInstant());
         } catch (Exception e) {
             // 反序列化失败说明这条记录已经不可用，直接清掉，避免反复报错

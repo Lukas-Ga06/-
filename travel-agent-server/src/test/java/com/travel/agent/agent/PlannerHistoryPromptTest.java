@@ -26,6 +26,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -233,9 +234,14 @@ class PlannerHistoryPromptTest {
         when(catalog.matchCity(anyString())).thenReturn(city);
         BudgetService budgetService = mock(BudgetService.class);
         when(budgetService.totalOf(any())).thenReturn(BigDecimal.valueOf(980));
+        // 研究循环（FR-03）与本测试无关：桩掉并返回未完成，结构化规划照常、LLM 调用数仍为 1
+        AgentToolLoop toolLoop = mock(AgentToolLoop.class);
+        when(toolLoop.run(any(), anyString(), any(), anyInt()))
+                .thenReturn(new AgentToolLoop.LoopResult(false, "测试跳过研究循环", List.of()));
         PlannerAgent plannerAgent = new PlannerAgent(mock(ToolInvoker.class), catalog,
                 mock(ItineraryService.class), budgetService, props, structured,
-                new PlannerDraftSupport(mock(ToolInvoker.class)));
+                new PlannerDraftSupport(mock(ToolInvoker.class)), toolLoop,
+                new AgentTaskRecorder(mock(com.travel.agent.service.AgentTraceService.class)));
 
         AgentContext ctx = new AgentContext();
         ctx.setMessage("帮我规划测试市三日游");
@@ -264,7 +270,8 @@ class PlannerHistoryPromptTest {
         when(budgetService.totalOf(any())).thenReturn(BigDecimal.ZERO);
         PlannerAgent plannerAgent = new PlannerAgent(mock(ToolInvoker.class), catalog,
                 mock(ItineraryService.class), budgetService, props, planner(client),
-                new PlannerDraftSupport(mock(ToolInvoker.class)));
+                new PlannerDraftSupport(mock(ToolInvoker.class)), mock(AgentToolLoop.class),
+                new AgentTaskRecorder(mock(com.travel.agent.service.AgentTraceService.class)));
 
         AgentContext ctx = new AgentContext();
         ctx.setMessage("帮我规划测试市三日游");
