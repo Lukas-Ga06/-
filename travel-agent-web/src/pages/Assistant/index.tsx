@@ -76,8 +76,9 @@ export default function Assistant() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingConfirm?.planId]);
 
-  const onConfirm = async () => {
-    await confirm();
+  // acknowledgeIssues：存在未解决高风险时由确认弹窗的勾选门槛传入
+  const onConfirm = async (acknowledgeIssues?: boolean) => {
+    await confirm(acknowledgeIssues);
   };
 
   return (

@@ -42,7 +42,11 @@ interface AgentState {
   /** Agent 过程事件（追加式时间线，窗口保留最近 40 条；send 开始时清空） */
   activity: ActivityEvent[];
   send: (payload: SendPayload) => void;
-  confirm: () => Promise<AgentResult | null>;
+  /**
+   * 确认待确认方案。acknowledgeIssues=true 表示用户已显式接受未解决的高风险问题
+   * （Batch 13）；缺省/false 时请求体与旧契约完全一致。
+   */
+  confirm: (acknowledgeIssues?: boolean) => Promise<AgentResult | null>;
   cancel: () => Promise<void>;
   /** 刷新后用 planId 取回的方案重新挂起确认弹窗 */
   restorePending: (result: AgentResult) => void;
@@ -197,7 +201,7 @@ export const useAgentStore = create<AgentState>()(
       });
   },
 
-  confirm: async () => {
+  confirm: async (acknowledgeIssues?: boolean) => {
     const pending = get().pendingConfirm;
     const planId = pending?.confirmation?.planId || pending?.planId;
     if (!planId) {
@@ -208,7 +212,10 @@ export const useAgentStore = create<AgentState>()(
       // 内容指纹绑定（V2.2 FR-08）：把待确认方案自带的 contentHash 原样回传，
       // 后端据此校验"确认的就是你看到的这份内容"；旧方案没有指纹时走旧校验。
       const contentHash = pending?.confirmation?.contentHash;
-      const result = await confirmPlan(planId, contentHash);
+      // 只有用户勾选「接受风险」时才带上 acknowledgeIssues，旧后端请求体零变化。
+      const result = acknowledgeIssues
+        ? await confirmPlan(planId, contentHash, true)
+        : await confirmPlan(planId, contentHash);
       const assistantMsg: ChatMessage = {
         id: nextId(),
         role: 'assistant',

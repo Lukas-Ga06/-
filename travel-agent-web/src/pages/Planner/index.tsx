@@ -456,8 +456,8 @@ export default function Planner() {
       <PlanDiff
         open={!!pendingConfirm}
         result={pendingConfirm}
-        onConfirm={() => {
-          confirm();
+        onConfirm={(acknowledgeIssues?: boolean) => {
+          confirm(acknowledgeIssues);
         }}
         onCancel={() => cancel()}
         loading={streaming}

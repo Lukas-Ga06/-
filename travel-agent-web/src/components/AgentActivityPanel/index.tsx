@@ -13,6 +13,7 @@ const EVENT_ICON: Record<string, string> = {
   start: '🔌',
   intent: '🎯',
   planning: '🧭',
+  replan: '🔁',
   tool_call: '🛠',
   tool_result: '✅',
   rag_result: '📚',
@@ -68,7 +69,7 @@ function relativeTime(time: number): string {
 
 /**
  * Agent 过程时间线（V2.2 §9.1 过程可视化）：消费 agentStore.activity，
- * 渲染 run/intent/planning/tool_call/tool_result/rag_result/plan_update/confirmation/complete/error。
+ * 渲染 run/intent/planning/replan/tool_call/tool_result/rag_result/plan_update/confirmation/complete/error。
  * activity 为空时整块不渲染，ChatPanel 退化为既有单行 stage 动画。
  */
 export default function AgentActivityPanel({ activity }: Props) {

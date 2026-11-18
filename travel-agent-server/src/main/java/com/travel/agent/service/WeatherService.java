@@ -31,11 +31,21 @@ public class WeatherService {
 
     private static final List<String> CONDITIONS = List.of("晴", "多云", "阴", "多云", "晴", "阴", "小雨");
 
+    /** 预报缓存有效期：同一城市同一天在一次规划的多轮审核里会重复查询（10 分钟足够覆盖） */
+    static final long CACHE_TTL_MS = 10 * 60 * 1000L;
+    /** 缓存条目上限：city+date+mentionRain 组合不会很多，超出即整体清空（数据幂等） */
+    static final int CACHE_MAX = 512;
+
     private final WeatherProperties properties;
     private final TravelCatalogService catalogService;
     private final RestClient restClient;
     /** 城市坐标缓存：内置目录算均值，目录外城市走 Open-Meteo 地理编码 */
     private final Map<String, double[]> coordCache = new ConcurrentHashMap<>();
+    /** 预报结果缓存：规划 → 审核 → 重规划会按天重复查询 */
+    private final Map<String, CachedWeather> forecastCache = new ConcurrentHashMap<>();
+
+    private record CachedWeather(WeatherInfo info, long at) {
+    }
 
     public WeatherService(WeatherProperties properties, TravelCatalogService catalogService) {
         this.properties = properties;
@@ -50,6 +60,22 @@ public class WeatherService {
     }
 
     public WeatherInfo forecast(String city, LocalDate date, boolean mentionRain) {
+        String key = city + "|" + date + "|" + mentionRain;
+        CachedWeather cached = forecastCache.get(key);
+        if (cached != null && System.currentTimeMillis() - cached.at() < CACHE_TTL_MS) {
+            return cached.info();
+        }
+        WeatherInfo info = computeForecast(city, date, mentionRain);
+        if (forecastCache.size() >= CACHE_MAX) {
+            // 天气数据幂等：清空只影响命中率，不影响正确性
+            forecastCache.clear();
+        }
+        forecastCache.put(key, new CachedWeather(info, System.currentTimeMillis()));
+        return info;
+    }
+
+    /** 是否启用真实天气预报（false = 确定性模拟数据；单条结果的来源以 {@link WeatherInfo#isSimulated()} 为准） */
+    private WeatherInfo computeForecast(String city, LocalDate date, boolean mentionRain) {
         if (properties.isReal()) {
             try {
                 WeatherInfo real = fetchReal(city, date);
@@ -76,8 +102,10 @@ public class WeatherService {
         }
         JsonNode resp = restClient.get()
                 .uri(FORECAST_URL + "?latitude={lat}&longitude={lng}"
+                                // timezone 这里不能写 %2F：RestClient 会对 URI 模板再做一次编码，
+                                // 变成 %252F 后 Open-Meteo 直接 400 Invalid timezone（真实预报永远降级成模拟）
                                 + "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max"
-                                + "&timezone=Asia%2FShanghai&start_date={date}&end_date={date}",
+                                + "&timezone=Asia/Shanghai&start_date={date}&end_date={date}",
                         Map.of("lat", coords[0], "lng", coords[1], "date", date.toString()))
                 .retrieve()
                 .body(JsonNode.class);
@@ -97,7 +125,7 @@ public class WeatherService {
             return null;
         }
         return new WeatherInfo(city, date, condition, rainProbability,
-                (int) Math.round(tempLow), (int) Math.round(tempHigh));
+                (int) Math.round(tempLow), (int) Math.round(tempHigh), WeatherInfo.SOURCE_REAL);
     }
 
     /** 先用内置目录算城市中心（离线、稳定），目录外再走 Open-Meteo 地理编码 */

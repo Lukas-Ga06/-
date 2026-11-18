@@ -2,6 +2,66 @@
 
 按主题记录行为变化。**第四节是最需要注意的**：其中几项改变了原有的使用习惯。
 
+## 第十三批：审核真正改变结果 + 路线段进时间线（2026-11-18）
+
+> 承接第十二批 §7 的结论：`reviewVerdict` 能判定 `passed=false`，但引擎只把它当警告展示，
+> 用户照样能确认超预算/转场不可能的方案，`AgentState.REPLAN` 始终是死代码。
+> 本批把这最后一段接上，并把已存在的 `route-legs` 接到时间线与地图。
+> **无 Flyway 迁移**（不动表结构）；**不破坏**任何 D 节红线（撤销/确认并发/预算三口径/跨用户/只读门禁/提交事务性）。
+> 逐 FR 状态更新见 [docs/guide/v2.2-iteration.md](guide/v2.2-iteration.md)，字段级契约见
+> [docs/proposals/batch13-contract.md](proposals/batch13-contract.md)。
+
+### 一、Reviewer 新增两类硬约束（FR-06）
+
+- `ReflectAgent.reviewVerdict` 在预算之外新增：
+  - `TRANSFER_TIME`（HIGH）：逐日相邻条目的 `RouteService.driveMinutes` 与两段时间窗口比较，
+    留的时间连路上都不够 → 判定不可行（估算时长会标注「（估算）」，不伪装实测）。
+  - `WEATHER_OUTDOOR`（HIGH）：真实预报有雨（天况含雨且降雨概率 ≥60%）仍排户外景点。
+    **模拟天气只给 MEDIUM 提示并标注「模拟天气」**——拿假数据强制改行程等于把估算伪装成事实（ADR-006）。
+- 新增 `PlanInspector`：审核与修复共用的「应用计划后的事实视图」（逐日条目/相邻转场/逐日天气），
+  避免「审核按一套数据说不够、修复按另一套去挪」。
+- `WeatherService` 加 10 分钟预报缓存：一次规划会经历 规划 → 审核 → 重规划多轮，同城同日不重复外呼。
+- **顺带修复真实预报一直是假的**：URL 里 `timezone=Asia%2FShanghai` 被 RestClient 二次编码成 `%252F`，
+  Open-Meteo 返回 `400 Invalid timezone`，`WEATHER_REAL=true` 实际总是静默降级为模拟数据。
+  改为 `Asia/Shanghai` 后真实预报生效；并给 `WeatherInfo` 增加 `source`（`real`/`simulated`），
+  逐条标注来源——降级出来的模拟天气不会被硬约束当成真实预报（ADR-008）。
+
+### 二、有限重规划：`AgentState.REPLAN` 首次真正启用（FR-06）
+
+- 新增 `PlanRepairService`（**确定性、不调模型**）：
+  雨天户外→室内（就近选室内景点）、超预算→逐次移除最贵景点（每天保底 1 个，且不拆刚换上的室内景点）、
+  转场不够→把后段整体后移（补足驾车 + 5 分钟缓冲；后移超过 23:30 则移除该条）。
+- 新增 `PlanReviewLoop`：审核不通过 → `REPLAN`（发 SSE `replan` 事件 + 落 `REPLAN` 任务）→ 修复 → 再审，
+  **上限 2 次**；两轮仍修不好说明用户目标本身冲突，不再空转。
+- `AgentEngine.planAndPresent` 用最终计划重建 Diff 预览：用户确认的就是最后要提交的内容；
+  修复动作写进 `review.repairs` 与回复文案（「✅ 已自动重规划 N 次：…」）。
+
+### 三、确认门：未解决高风险必须显式接受（FR-06）
+
+- `AgentResult` 新增 `review`（`passed/blocked/attempts/issues/repairs`），`confirmation` 新增 `requiresAcknowledgement`。
+- `POST /api/agent/confirm` 新增可选 `acknowledgeIssues`：`review.blocked=true` 时未携带 `true` → 拒绝提交，
+  返回 `status=FAILED` 且**方案不被消费**（`release` 回 PENDING，可改需求或勾选后重试）；
+  旧前端不传该字段时行为完全不变。
+- 前端确认弹窗展示审核结论（HIGH 红 / MEDIUM 橙）、已执行的重规划动作，并在 blocked 时要求勾选
+  「我已了解上述风险，仍然提交」后才能点确认。
+
+### 四、路线段接到时间线 UI（FR-07）
+
+- 前端新增 `RouteLeg` 类型与 `getRouteLegs`，`tripStore` 在进入行程/确认提交/撤销后刷新。
+- `Timeline` 在当天相邻两条安排之间插入转场行：`🚕 4.2 km · 驾车 12 分钟 / 步行 56 分钟 · 约 ¥22`，
+  来源徽标「实测 / 估算」（`amap` / `estimated`），不可点击、不参与选中。
+- `AMapProvider.render(items, focusDay, routeLegs?)`：有 legs 时按段画两点直连折线，
+  `estimated` 虚线、`amap` 实线；无 legs 时**逐字保留**原有「按天点位连线」行为。
+- 前端不做假几何：真实 polyline 需要高德路径接口扩展字段（ADR-009）。
+
+### 五、测试与验证
+
+- 后端 363 → **375** 用例全绿（`mvn clean test`；沙箱环境加 `-DargLine=-Djdk.attach.allowAttachSelf=true`）。
+  新增 `ReflectAgentConstraintsTest`（6）、`PlanRepairServiceTest`（4）、`AgentReplanTest`（2，含确认门未 ack/ack 两条路径）。
+- 前端 144 → **157** 用例全绿（`typecheck` + `test` + `build`）；
+  新增 `Timeline` 转场行（4）、`tripStore` legs（3）、`PlanDiff` 审核/勾选（+3）、`AMapProvider` 分段绘制（+2）、`agentStore` ack（+1）。
+- 真实 HTTP 冒烟（默认 profile + 全新 H2 库）：见 v2.2-iteration §6.2。
+
 ## 第十二批：V2.2 自主 Agent 闭环（2026-11-18）
 
 > 依据《Travel Agent V2.2 开发设计与迭代规划》推进 P0：把「协调器预先检索事实 + 专家并行分析」

@@ -1,4 +1,4 @@
-import type { ItineraryItem } from '../../types/trip';
+import type { ItineraryItem, RouteLeg } from '../../types/trip';
 
 /**
  * 地图抽象层：行程地图当前由高德 JS API 实现。
@@ -15,7 +15,7 @@ export interface MapProvider {
    */
   init(container: HTMLDivElement, onBaseMapStatus?: (status: 'ok' | 'failed') => void): void;
   /** 渲染行程点位与路线；focusDay 为 null 时展示全部天 */
-  render(items: ItineraryItem[], focusDay: number | null): void;
+  render(items: ItineraryItem[], focusDay: number | null, routeLegs?: RouteLeg[]): void;
   flyTo(lat: number, lng: number, zoom?: number): void;
   destroy(): void;
 

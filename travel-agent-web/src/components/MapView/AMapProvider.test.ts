@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ItineraryItem } from '../../types/trip';
+import type { ItineraryItem, RouteLeg } from '../../types/trip';
 import { toAmapLngLat } from '../../lib/coords';
-import { AMapProvider } from './AMapProvider';
+import { AMapProvider, DAY_COLORS } from './AMapProvider';
 import { loadAMap, type AMapMap, type AMapNamespace } from './amapLoader';
 
 function item(patch: Partial<ItineraryItem> = {}): ItineraryItem {
@@ -22,6 +22,27 @@ function item(patch: Partial<ItineraryItem> = {}): ItineraryItem {
 }
 
 type MockMap = AMapMap & { emit(event: string, payload?: unknown): void };
+
+function leg(patch: Partial<RouteLeg> = {}): RouteLeg {
+  return {
+    dayIndex: 1,
+    sequence: 1,
+    fromItemId: 1,
+    toItemId: 2,
+    fromTitle: '外滩',
+    toTitle: '豫园',
+    fromLatitude: 31.23,
+    fromLongitude: 121.47,
+    toLatitude: 31.24,
+    toLongitude: 121.48,
+    distanceKm: 4.2,
+    walkMinutes: 56,
+    driveMinutes: 12,
+    taxiCost: 22,
+    source: 'estimated',
+    ...patch,
+  };
+}
 
 function createMapMock(): MockMap {
   const handlers = new Map<string, (event?: unknown) => void>();
@@ -135,6 +156,73 @@ describe('AMapProvider', () => {
     expect(Marker).toHaveBeenLastCalledWith(
       expect.objectContaining({ position: toAmapLngLat(31.3, 121.47), title: '新名称' }),
     );
+  });
+
+  it('传入路线段时按段绘制：estimated 虚线、amap 实线，当前天加粗', async () => {
+    const map = createMapMock();
+    const { AMap, Polyline, Marker } = createAMapMock(map);
+    provider = new AMapProvider('3D', () => Promise.resolve(AMap));
+
+    provider.init(document.createElement('div'));
+    const legs = [
+      leg({ dayIndex: 1, sequence: 1, source: 'estimated' }),
+      leg({
+        dayIndex: 2,
+        sequence: 1,
+        fromItemId: 3,
+        toItemId: 4,
+        fromLatitude: 31.3,
+        fromLongitude: 121.5,
+        toLatitude: 31.31,
+        toLongitude: 121.51,
+        source: 'amap',
+      }),
+    ];
+    provider.render(
+      [item(), item({ id: 2, title: '豫园', latitude: 31.24, longitude: 121.48 })],
+      1,
+      legs,
+    );
+    await flushLoader();
+
+    // 每段是「辉光 + 主线」两条折线，两段共 4 条
+    expect(Polyline).toHaveBeenCalledTimes(4);
+    const options = Polyline.mock.calls.map(([opts]) => opts as Record<string, unknown>);
+    const estimated = options.filter((o) => o.strokeStyle === 'dashed');
+    const measured = options.filter((o) => o.strokeStyle === 'solid');
+    expect(estimated).toHaveLength(2);
+    expect(measured).toHaveLength(2);
+
+    // 两点直连：只绘制端点，不伪造路径几何
+    expect(estimated[0].path).toEqual([toAmapLngLat(31.23, 121.47), toAmapLngLat(31.24, 121.48)]);
+    // 分段颜色仍按天取色
+    expect(estimated[0].strokeColor).toBe(DAY_COLORS[0]);
+    expect(measured[0].strokeColor).toBe(DAY_COLORS[1]);
+    // 当前天（Day 1）加粗：辉光 15/0.3 + 主线 5/1；非当前天细淡：辉光 10/0.14 + 主线 3/0.68
+    expect(estimated.some((o) => o.strokeWeight === 5 && o.strokeOpacity === 1)).toBe(true);
+    expect(estimated.some((o) => o.strokeWeight === 15 && o.strokeOpacity === 0.3)).toBe(true);
+    expect(measured.some((o) => o.strokeWeight === 3 && o.strokeOpacity === 0.68)).toBe(true);
+    expect(measured.some((o) => o.strokeWeight === 10 && o.strokeOpacity === 0.14)).toBe(true);
+
+    // 点位标记照常渲染
+    expect(Marker).toHaveBeenCalledTimes(2);
+  });
+
+  it('legs 内容变化也会触发重绘（行程不变、只有转场段变了）', async () => {
+    const map = createMapMock();
+    const { AMap, Polyline } = createAMapMock(map);
+    provider = new AMapProvider('2D', () => Promise.resolve(AMap));
+    const items = [item(), item({ id: 2, title: '豫园', latitude: 31.24, longitude: 121.48 })];
+
+    provider.init(document.createElement('div'));
+    provider.render(items, 1);
+    await flushLoader();
+    // 无 legs：退回既有的按天点位连线（双线）
+    expect(Polyline).toHaveBeenCalledTimes(2);
+
+    provider.render(items, 1, [leg()]);
+    expect(Polyline).toHaveBeenCalledTimes(4);
+    expect(map.remove).toHaveBeenCalled();
   });
 
   it('2D 不加载 3D 控制条，定位与巡航复用高德相机方法', async () => {

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { ItineraryItem } from '../../types/trip';
+import type { ItineraryItem, RouteLeg } from '../../types/trip';
 import type { AgentFocus } from '../../types/agent';
 import type { MapProvider } from './MapProvider';
 import { AMapProvider } from './AMapProvider';
@@ -8,6 +8,8 @@ interface Props {
   items: ItineraryItem[];
   focus: AgentFocus | null;
   focusDay: number | null;
+  /** 每日相邻点的转场路线段（FR-07）；缺省时地图退回「按天点位连线」 */
+  routeLegs?: RouteLeg[];
 }
 
 type Engine = '3d' | '2d';
@@ -16,7 +18,7 @@ type Engine = '3d' | '2d';
  * 地图组件：统一使用高德 JS API，支持 3D/2D、辉光路线与沿行程巡航；
  * Agent Focus 事件驱动自动飞行定位。
  */
-export default function MapView({ items, focus, focusDay }: Props) {
+export default function MapView({ items, focus, focusDay, routeLegs }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const providerRef = useRef<MapProvider | null>(null);
   const [engine, setEngine] = useState<Engine>('3d');
@@ -39,10 +41,10 @@ export default function MapView({ items, focus, focusDay }: Props) {
     };
   }, [engine]);
 
-  // 数据渲染（Provider 内部按完整行程内容去重）
+  // 数据渲染（Provider 内部按完整行程内容去重；legs 内容变化也要重绘）
   useEffect(() => {
-    providerRef.current?.render(items, focusDay);
-  }, [items, focusDay, engine]);
+    providerRef.current?.render(items, focusDay, routeLegs);
+  }, [items, focusDay, engine, routeLegs]);
 
   // Agent Focus：切换 Day 后飞行定位
   useEffect(() => {

@@ -1,15 +1,18 @@
 import { create } from 'zustand';
-import { getItinerary, getTrip, listTrips } from '../api/trip';
-import type { ItineraryItem, Trip } from '../types/trip';
+import { getItinerary, getRouteLegs, getTrip, listTrips } from '../api/trip';
+import type { ItineraryItem, RouteLeg, Trip } from '../types/trip';
 
 interface TripState {
   trips: Trip[];
   tripsLoading: boolean;
   currentTrip: Trip | null;
   items: ItineraryItem[];
+  /** 每日相邻行程点的转场路线段（FR-07）；只用于时间线/地图增强，缺失即静默降级 */
+  routeLegs: RouteLeg[];
   loadTrips: () => Promise<void>;
   loadTrip: (id: number) => Promise<void>;
   loadItinerary: (id: number) => Promise<void>;
+  loadRouteLegs: (id: number) => Promise<void>;
   clearCurrent: () => void;
 }
 
@@ -18,6 +21,7 @@ export const useTripStore = create<TripState>()((set) => ({
   tripsLoading: false,
   currentTrip: null,
   items: [],
+  routeLegs: [],
 
   loadTrips: async () => {
     set({ tripsLoading: true });
@@ -39,5 +43,18 @@ export const useTripStore = create<TripState>()((set) => ({
     set({ items });
   },
 
-  clearCurrent: () => set({ currentTrip: null, items: [] }),
+  /**
+   * 拉取转场路线段：失败时静默置空，绝不让增强数据阻塞页面。
+   * 失败是常态（高德未配置、路由服务降级），因此不向调用方抛出。
+   */
+  loadRouteLegs: async (id) => {
+    try {
+      const legs = await getRouteLegs(id);
+      set({ routeLegs: Array.isArray(legs) ? legs : [] });
+    } catch {
+      set({ routeLegs: [] });
+    }
+  },
+
+  clearCurrent: () => set({ currentTrip: null, items: [], routeLegs: [] }),
 }));

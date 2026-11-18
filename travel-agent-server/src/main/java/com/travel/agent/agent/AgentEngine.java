@@ -68,7 +68,6 @@ public class AgentEngine {
     private final IntentAgent intentAgent;
     private final PlannerAgent plannerAgent;
     private final ExecutorAgent executorAgent;
-    private final ReflectAgent reflectAgent;
     private final PendingPlanStore pendingPlans;
     private final TripService tripService;
     private final ItineraryService itineraryService;
@@ -85,6 +84,8 @@ public class AgentEngine {
     private final com.travel.agent.service.AgentTraceService traceService;
     /** 阶段任务记录器（引擎与规划器共用的任务包装样板） */
     private final AgentTaskRecorder taskRecorder;
+    /** V2.2 FR-06：审核 → 有限重规划 → 再审的闭环（REPLAN 状态首次真正启用） */
+    private final PlanReviewLoop planReviewLoop;
     /** 指标：sse.disconnects（注入方式与 StructuredPlanner、LlmClient 一致） */
     private final MeterRegistry meterRegistry;
 
@@ -336,27 +337,42 @@ public class AgentEngine {
         }
 
         ctx.setState(AgentState.EXECUTE);
+        // 规划产物在审核阶段可能被重规划改写，lambda 需要一个「当时确定」的引用
+        final AgentPlan candidate = plan;
         AgentDtos.AgentResult preview = traced(ctx, com.travel.agent.entity.AgentTask.RECEIVER_EXECUTOR,
-                "PREVIEW", () -> executorAgent.preview(ctx, plan, trip),
+                "PREVIEW", () -> executorAgent.preview(ctx, candidate, trip),
                 p -> "生成 Diff 预览：" + (p.getDiff() == null ? 0 : p.getDiff().getChanges().size()) + " 项变更");
-        // 模板事实 + 模型润色：润色失败或不可用时原样返回模板
-        preview.setMessage(planNarrationService.polish(composePlanMessage(plan)));
 
+        // 反思（V2.2 FR-06）：审核发现 HIGH 级硬约束问题 → 进入 REPLAN 做有限重规划，再审一遍。
+        // 之前这里只把 review() 的警告拼到消息上，用户照样能确认超预算/赶不上的方案——
+        // 审核发现问题却不改变结果，等于没有审核。
         ctx.setState(AgentState.REFLECT);
-        List<String> warnings = traced(ctx, com.travel.agent.entity.AgentTask.RECEIVER_REVIEWER,
-                "REVIEW", () -> reflectAgent.review(plan, trip),
-                w -> w.isEmpty() ? "审核通过，无警告" : "发现 " + w.size() + " 条警告");
-        if (!warnings.isEmpty()) {
-            preview.setWarnings(warnings);
-            preview.setMessage(preview.getMessage() + "\n⚠ " + String.join("；", warnings));
+        Timer.Sample reflectSample = stageTimer.start();
+        PlanReviewLoop.Outcome outcome;
+        try {
+            outcome = traced(ctx, com.travel.agent.entity.AgentTask.RECEIVER_REVIEWER,
+                    "REVIEW", () -> planReviewLoop.run(ctx, candidate, trip),
+                    o -> (o.verdict().passed() ? "审核通过" : "审核未通过：" + o.verdict().highIssues().size() + " 项高风险")
+                            + (o.attempts() == 0 ? "" : "，已重规划 " + o.attempts() + " 次"));
+        } finally {
+            stageTimer.stop(AgentStageTimer.STAGE_REFLECT, reflectSample);
         }
+        // 重规划可能改过条目/时间/费用：用最终计划重建 Diff，保证用户看到的就是最后要提交的内容
+        final AgentPlan planned = outcome.attempts() > 0 ? outcome.plan() : candidate;
+        if (outcome.attempts() > 0) {
+            preview = executorAgent.preview(ctx, planned, trip);
+        }
+        // 模板事实 + 模型润色：润色失败或不可用时原样返回模板（必须在修复之后，数字才是最终值）
+        preview.setMessage(planNarrationService.polish(composePlanMessage(planned)));
+        applyReview(preview, outcome);
+        ctx.setState(AgentState.REFLECT);
 
         ctx.setState(AgentState.PRESENT);
         String planRevision = trip == null ? null
                 : ItineraryService.planRevision(trip, itineraryService.listEntities(trip.getId()));
         // contentHash 在 PendingPlanStore.put 内对 plan_json 计算（单一权威），这里不需要传入
         pendingPlans.put(new PendingPlanStore.PendingPlan(
-                plan.getPlanId(), ctx.getUserId(), trip == null ? null : trip.getId(), plan, preview,
+                planned.getPlanId(), ctx.getUserId(), trip == null ? null : trip.getId(), planned, preview,
                 planRevision, null, java.time.Instant.now()));
 
         if (preview.getDiff() != null) {
@@ -369,6 +385,34 @@ public class AgentEngine {
             ctx.emit("confirmation", preview.getConfirmation());
         }
         return complete(ctx, preview);
+    }
+
+    /**
+     * 把审核结论落到预览上（V2.2 FR-06）：
+     * <ul>
+     *   <li>{@code review}：结构化判定 + 已执行的重规划动作，前端据此展示「审核结论」；</li>
+     *   <li>{@code warnings}：既有契约，保留全部问题文案（HIGH + MEDIUM）；</li>
+     *   <li>{@code blocked}：未解决 HIGH 问题时把风险等级抬到 HIGH 并要求显式接受，
+     *       确认门（PlanConfirmationService）据此拒绝「未确认风险」的提交。</li>
+     * </ul>
+     */
+    private void applyReview(AgentDtos.AgentResult preview, PlanReviewLoop.Outcome outcome) {
+        ReflectAgent.ReviewVerdict verdict = outcome.verdict();
+        preview.setReview(PlanReviewLoop.toDto(outcome));
+
+        if (!outcome.repairs().isEmpty()) {
+            preview.appendMessage("\n✅ 已自动重规划 " + outcome.attempts() + " 次："
+                    + String.join("；", outcome.repairs()) + "。");
+        }
+        if (!verdict.warnings().isEmpty()) {
+            preview.setWarnings(new ArrayList<>(verdict.warnings()));
+            preview.appendMessage("\n⚠ " + String.join("；", verdict.warnings()));
+        }
+        if (!verdict.passed() && preview.getConfirmation() != null) {
+            preview.getConfirmation().setRequiresAcknowledgement(true);
+            preview.getConfirmation().setRiskLevel(com.travel.agent.tool.RiskLevel.HIGH.name());
+            preview.appendMessage("\n❌ 仍有未解决的高风险问题，本次提交需要明确接受风险。");
+        }
     }
 
     private String composePlanMessage(AgentPlan plan) {
@@ -467,12 +511,20 @@ public class AgentEngine {
     // 具体并发语义见 PlanConfirmationService；这里保留对外入口以维持既有调用方与测试契约。
 
     public AgentDtos.AgentResult confirm(String planId, Long userId) {
-        return planConfirmation.confirm(planId, userId, null);
+        return planConfirmation.confirm(planId, userId, null, null);
     }
 
     /** 带内容指纹的确认（V2.2 FR-08）：指纹与方案存档不一致时拒绝提交 */
     public AgentDtos.AgentResult confirm(String planId, Long userId, String contentHash) {
-        return planConfirmation.confirm(planId, userId, contentHash);
+        return planConfirmation.confirm(planId, userId, contentHash, null);
+    }
+
+    /**
+     * 完整确认入口（V2.2 FR-06）：{@code acknowledgeIssues=true} 表示用户已在页面上明确接受
+     * 未解决的高风险问题；审核 blocked 的方案不带它一律拒绝（方案不被消费，可改带后重试）。
+     */
+    public AgentDtos.AgentResult confirm(String planId, Long userId, String contentHash, Boolean acknowledgeIssues) {
+        return planConfirmation.confirm(planId, userId, contentHash, acknowledgeIssues);
     }
 
     public AgentDtos.AgentResult cancel(String planId, Long userId) {

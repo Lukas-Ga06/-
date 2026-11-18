@@ -83,3 +83,79 @@ describe('PlanDiff · V2.2 warnings 与内容指纹', () => {
     expect(onConfirm).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('PlanDiff · Batch 13 审核结论与风险接受', () => {
+  /** 修不好 → blocked=true；issues 含 HIGH+MEDIUM，repairs 是自动修复动作 */
+  function blockedResult(): AgentResult {
+    return result({
+      review: {
+        passed: false,
+        blocked: true,
+        attempts: 2,
+        issues: [
+          {
+            type: 'TRANSFER_TIME',
+            severity: 'HIGH',
+            message: 'Day 1「外滩」→「迪士尼」转场需 65 分钟，但只留了 10 分钟',
+          },
+          { type: 'TIME_CONFLICT', severity: 'MEDIUM', message: 'Day 2 午餐与酒店入住时间重叠' },
+        ],
+        repairs: ['Day 1 把「外滩」之后的安排整体后移 60 分钟', 'Day 2 把雨天户外景点换成室内景点'],
+      },
+      confirmation: {
+        planId: 'plan-1',
+        summary: '预算 1 元的行程风险较高',
+        riskLevel: 'HIGH',
+        requiresAcknowledgement: true,
+      },
+    });
+  }
+
+  it('渲染审核结论：问题逐条列出、重规划次数与动作、blocked 时顶部 error Alert', async () => {
+    render(<PlanDiff open result={blockedResult()} onConfirm={() => {}} onCancel={() => {}} />);
+
+    await waitFor(() => expect(screen.getByTestId('plan-review')).toBeTruthy());
+    const issues = screen.getByTestId('plan-review-issues');
+    expect(issues.textContent).toContain('转场需 65 分钟');
+    expect(issues.textContent).toContain('午餐与酒店入住时间重叠');
+
+    const review = screen.getByTestId('plan-review');
+    expect(review.textContent).toContain('已自动重规划 2 次');
+    expect(review.textContent).toContain('整体后移 60 分钟');
+    expect(review.textContent).toContain('雨天户外景点换成室内景点');
+
+    expect(screen.getByText('存在未解决的问题，需明确接受风险后才能提交')).toBeTruthy();
+  });
+
+  it('requiresAcknowledgement：未勾选时确认按钮 disabled，勾选后才回调 onConfirm(true)', async () => {
+    const onConfirm = vi.fn();
+    render(<PlanDiff open result={blockedResult()} onConfirm={onConfirm} onCancel={() => {}} />);
+
+    await waitFor(() => expect(screen.getByTestId('plan-diff-dialog')).toBeTruthy());
+    const confirmBtn = screen.getByTestId('plan-diff-confirm') as HTMLButtonElement;
+    expect(confirmBtn.disabled).toBe(true);
+    fireEvent.click(confirmBtn);
+    expect(onConfirm).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('plan-diff-ack'));
+    await waitFor(() => expect(confirmBtn.disabled).toBe(false));
+
+    fireEvent.click(confirmBtn);
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+    expect(onConfirm).toHaveBeenCalledWith(true);
+  });
+
+  it('旧后端（无 review / requiresAcknowledgement）渲染零新增，确认仍回调 false', async () => {
+    const onConfirm = vi.fn();
+    render(<PlanDiff open result={result()} onConfirm={onConfirm} onCancel={() => {}} />);
+
+    await waitFor(() => expect(screen.getByTestId('plan-diff-dialog')).toBeTruthy());
+    expect(screen.queryByTestId('plan-review')).toBeNull();
+    expect(screen.queryByTestId('plan-diff-ack')).toBeNull();
+
+    const confirmBtn = screen.getByTestId('plan-diff-confirm') as HTMLButtonElement;
+    expect(confirmBtn.disabled).toBe(false);
+    fireEvent.click(confirmBtn);
+    expect(onConfirm).toHaveBeenCalledWith(false);
+  });
+});

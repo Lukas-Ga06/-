@@ -223,7 +223,9 @@ public class AgentController {
     public ApiResponse<AgentDtos.AgentResult> confirm(@Valid @RequestBody ChatDtos.ConfirmRequest request,
                                                       Authentication authentication) {
         User user = authService.requireUser(authentication.getName());
-        return ApiResponse.ok(agentEngine.confirm(request.getPlanId(), user.getId(), request.getContentHash()));
+        // FR-06：审核仍有未解决 HIGH 问题的方案，必须由前端显式回传 acknowledgeIssues=true
+        return ApiResponse.ok(agentEngine.confirm(request.getPlanId(), user.getId(),
+                request.getContentHash(), request.getAcknowledgeIssues()));
     }
 
     @PostMapping("/cancel")

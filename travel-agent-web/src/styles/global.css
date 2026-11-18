@@ -1408,6 +1408,73 @@ body {
 .t-dot.restaurant { background: var(--orange); box-shadow: 0 0 0 1.5px var(--orange); }
 .t-dot.transport { background: var(--gray); box-shadow: 0 0 0 1.5px var(--gray); }
 
+/* 转场行（FR-07）：相邻两条安排之间的距离/时长；纯展示，不可点击、不参与选中 */
+.t-leg {
+  display: flex;
+  gap: 12px;
+  padding: 1px 0;
+}
+
+.t-leg .t-leg-rail {
+  width: 88px;
+  flex-shrink: 0;
+}
+
+.t-leg .t-leg-line {
+  width: 14px;
+  flex-shrink: 0;
+  position: relative;
+}
+
+/* 转场段的连线画成虚线，视觉上区分「停留」与「移动」 */
+.t-leg .t-leg-line::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  transform: translateX(-50%);
+  border-left: 1.5px dashed var(--line-strong);
+}
+
+.t-leg .t-leg-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  padding: 3px 13px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.t-leg .t-leg-icon {
+  flex-shrink: 0;
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.t-leg .t-leg-text {
+  overflow-wrap: anywhere;
+}
+
+/* 来源徽标：实测（蓝，可复核）/ 估算（灰，不得暗示实时） */
+.mini-tag.leg-amap {
+  background: rgba(0, 122, 255, 0.12);
+  color: #0a63c9;
+  border-color: rgba(0, 122, 255, 0.26);
+}
+
+.mini-tag.leg-estimated {
+  background: rgba(142, 142, 147, 0.14);
+  color: #636366;
+  border-color: rgba(142, 142, 147, 0.26);
+}
+
 .t-row .t-card {
   flex: 1;
   min-width: 0;
@@ -3576,6 +3643,79 @@ body {
 }
 
 .plan-warning-row .pw-icon { flex-shrink: 0; }
+
+/* ---------- PlanDiff：审核结论（Batch 13）：HIGH 红 / MEDIUM 橙 + 重规划动作 ---------- */
+.plan-review {
+  margin: 0 0 12px;
+}
+
+.plan-review-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 12.5px;
+}
+
+.plan-review-head .pr-badge {
+  font-size: 11px;
+  padding: 1.5px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+
+.plan-review-head .pr-badge.blocked {
+  background: var(--danger-weak);
+  border-color: rgba(255, 59, 48, 0.24);
+  color: var(--danger);
+}
+
+.plan-review-head .pr-badge.warn {
+  background: var(--warn-weak);
+  border-color: rgba(217, 119, 6, 0.24);
+  color: var(--warn);
+}
+
+.plan-review-head .pr-badge.passed {
+  background: var(--ok-weak);
+  border-color: rgba(52, 199, 89, 0.28);
+  color: #1e9e47;
+}
+
+.plan-review-issues {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* 严重级配色：HIGH 红、MEDIUM 橙；行布局沿用 .plan-warning-row */
+.plan-warning-row.high {
+  background: var(--danger-weak);
+  color: var(--danger);
+}
+
+.plan-warning-row.medium {
+  background: var(--warn-weak);
+  color: var(--warn);
+}
+
+.plan-review-repairs {
+  margin-top: 6px;
+  padding: 5px 10px;
+  font-size: 12px;
+  line-height: 1.55;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+
+/* 未解决高风险：勾选「我已了解风险」后才能提交 */
+.plan-ack {
+  margin-top: 12px;
+}
 
 .plan-fingerprint {
   display: flex;

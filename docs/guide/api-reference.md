@@ -419,9 +419,13 @@ GET /api/photos/12/raw?ticket=...                    # 只能用 media-read 票�
 | `focus` | `Object` | `{type:itinerary\|map\|budget, tripId, day, itemId, latitude, longitude}` |
 | `diff` | `Object` | `{changes:[{type:ADD\|REMOVE\|MODIFY,itemId,itemType,title,detail,cost,dayIndex,startTime}], budgetBefore, budgetAfter}` |
 | `budget` | `Object` | `{total, previousTotal, difference, breakdown:{分类:金额}}` |
-| `confirmation` | `Object` | `{planId, summary, riskLevel:LOW\|MEDIUM\|HIGH, contentHash}`；`contentHash` 是方案内容的 SHA-256（V2.2 FR-08），确认时回传即可绑定「用户看到的内容」 |
-| `warnings` | `String[]` | 反思/风险提示 |
+| `confirmation` | `Object` | `{planId, summary, riskLevel:LOW\|MEDIUM\|HIGH, contentHash, requiresAcknowledgement}`；`contentHash` 是方案内容的 SHA-256（V2.2 FR-08），确认时回传即可绑定「用户看到的内容」；`requiresAcknowledgement`（FR-06）为 `true` 时确认请求必须带 `acknowledgeIssues=true` |
+| `warnings` | `String[]` | 反思/风险提示（旧契约；有 `review` 时它的 `issues` 是同一批问题的结构化版本） |
+| `review` | `Object` | **V2.2 FR-06 审核结论**：`{passed, blocked, attempts, issues:[{type,severity,message}], repairs:[String]}`；`blocked=true` 表示有限重规划后仍有未解决 HIGH 问题，确认必须显式接受风险（见 §5.5）；`attempts`/`repairs` 是引擎已自动完成的修复动作 |
 | `execution` | `Object` | 仅 `confirm` 成功路径：`{executionId, planId, tripId, status:SUCCEEDED\|PARTIAL_FAILED\|FAILED, modules:[...]}`（V2.2 FR-09，见 §5.11） |
+
+`review.issues[].type`：`BUDGET_OVERRUN`（预算超限）/ `TRANSFER_TIME`（转场时间不够）/ `WEATHER_OUTDOOR`（雨天排户外）为
+`HIGH`（硬约束，触发重规划）；`TIME_CONFLICT`（时间重叠）与**模拟天气**下的 `WEATHER_OUTDOOR` 为 `MEDIUM`（提示，不阻断）。
 
 ### 5.2 POST /api/agent/chat — 同步对话
 鉴权：登录 ｜ 源码：`AgentController#chat:39`
@@ -442,7 +446,7 @@ GET /api/photos/12/raw?ticket=...                    # 只能用 media-read 票�
 错误：`400` 校验失败；`401`；`429` 限流
 
 ### 5.3 GET /api/agent/stream — SSE 流式对话（EventSource）
-鉴权：登录（**EventSource 用 `?ticket=` 票据**，不能用 `Authorization` 头）｜ 源码：`AgentController#stream:51`
+鉴权：登录（**EventSource 用 `?ticket=` 票据**，不能用 `Authorization` 头）｜ 源码：`AgentController#stream:69`
 | 参数 | 必填 | 说明 |
 | --- | --- | --- |
 | `message` | 是 | 用户消息 |
@@ -471,14 +475,16 @@ data:{"planId":"plan-8f3c","tripId":null,"message":"…","intent":"PLAN_TRIP","s
 ```
 其余事件：`run`（V2.2 FR-10，紧随 `start`，`{runId}` 可查 §5.11 的完整追踪）、`tool_call`（`{tool,args}`）、
 `tool_result`（`{tool,result}`）、`plan_update`（`{diff,budget}`）、`focus`、
-`confirmation`（含 `contentHash`，确认时回传见 §5.5）、`rag_result`（`{sources}`）、`error`（`{message}`）。
+`confirmation`（含 `contentHash`，确认时回传见 §5.5）、`rag_result`（`{sources}`）、`error`（`{message}`）、
+`replan`（**V2.2 FR-06**：审核发现 HIGH 级问题、进入有限重规划时发一次，`data={attempt, issues:[摘要]}`，
+最多 2 次；修复动作随最终 `complete.review.repairs` 下发）。
 错误：`401`（票据无效/过期，含用途不匹配）；线程池满时推送 `event:error` 后关闭。
 
 > 响应头带 `Referrer-Policy: no-referrer`，避免 `?ticket=` 随 Referer 外泄。
 > 仅凭票据认证（不带 Cookie）的请求是**只读会话**：记账/备忘/日程/日报四类写意图会被拒绝，`message` 见 §1.3，规划仍可用。
 
 ### 5.4 POST /api/agent/stream — SSE 流式对话（结构化表单入口）
-鉴权：登录 ｜ 源码：`AgentController#streamPost:75`
+鉴权：登录 ｜ 源码：`AgentController#streamPost:98`
 | 参数 | 必填 | 说明 |
 | --- | --- | --- |
 | `message` | 是 | ≤20000 字符（可内联参考攻略正文） |
@@ -493,11 +499,12 @@ data:{"planId":"plan-8f3c","tripId":null,"message":"…","intent":"PLAN_TRIP","s
 错误：`400` 校验失败；`401`；`429`
 
 ### 5.5 POST /api/agent/confirm — 确认提交方案
-鉴权：登录 ｜ 源码：`AgentController#confirm:117`
+鉴权：登录 ｜ 源码：`AgentController#confirm:223`
 | 参数 | 必填 | 说明 |
 | --- | --- | --- |
 | `planId` | 是 | 方案 ID（来自 `confirmation.planId`） |
 | `contentHash` | 否 | 方案内容指纹（`confirmation.contentHash`，≤64）；**V2.2 FR-08**：携带时校验「确认的就是看到的内容」，不传走既有版本校验（向后兼容） |
+| `acknowledgeIssues` | 否 | **V2.2 FR-06**：`confirmation.requiresAcknowledgement=true`（即 `review.blocked=true`）时必须为 `true`，表示用户已在弹窗中明确接受未解决的高风险问题；缺省/false 时行为与旧前端一致 |
 ```json
 // 请求
 {"planId":"plan-8f3c","contentHash":"a3f1…9c2e"}
@@ -505,6 +512,12 @@ data:{"planId":"plan-8f3c","tripId":null,"message":"…","intent":"PLAN_TRIP","s
 {"code":0,"message":"success","data":{"planId":"plan-8f3c","tripId":1,"message":"已提交，行程已更新。\n✅ 已同步：日程时间块、预算快照、足迹地图。","intent":null,"status":"COMPLETED","focus":null,"diff":null,"budget":null,"confirmation":null,"warnings":null,"execution":{"executionId":"e-77b1","planId":"plan-8f3c","tripId":1,"status":"SUCCEEDED","modules":[{"module":"calendar","status":"SUCCEEDED","detail":"3 天行程已同步为日程时间块（本次新建 3 条）","idempotencyKey":"plan:plan-8f3c:module:calendar","retryCount":null,"error":null}]}}}
 ```
 错误：`400` `planId 不能为空`；`401`。确认前行程被改动（`planRevision` 不一致）或方案内容被改（`contentHash` 不一致）时返回 200、`status=FAILED` 并提示方案失效；方案不存在/过期同理，不抛 404。
+
+**审核门的显式接受（V2.2 FR-06）**：方案 `review.blocked=true`（有限重规划后仍有 HIGH 级问题）时，
+不带 `acknowledgeIssues=true` 的确认会被拒绝——返回 200、`status=FAILED`、`data.review` 带未解决问题，
+消息提示「该方案仍有未解决的高风险问题（…），请勾选『我已了解风险』后再提交」。
+被拒时方案**不被消费**（`PendingPlanStore.release`），用户可先调整需求重新规划，也可以带
+`acknowledgeIssues=true` 用同一 `planId` 重试。
 
 **确认后的跨模块同步（V2.2 FR-09）**：提交成功后按 `calendar` / `budget` / `footprint` 逐模块同步并写台账，
 模块级失败**不回滚**已保存的行程，响应 `execution.status` 为 `PARTIAL_FAILED` / `FAILED`，

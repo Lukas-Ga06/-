@@ -34,8 +34,10 @@ export default function TripPage() {
 
   const currentTrip = useTripStore((s) => s.currentTrip);
   const items = useTripStore((s) => s.items);
+  const routeLegs = useTripStore((s) => s.routeLegs);
   const loadTrip = useTripStore((s) => s.loadTrip);
   const loadItinerary = useTripStore((s) => s.loadItinerary);
+  const loadRouteLegs = useTripStore((s) => s.loadRouteLegs);
   const clearCurrent = useTripStore((s) => s.clearCurrent);
 
   const lastFocus = useAgentStore((s) => s.lastFocus);
@@ -59,7 +61,12 @@ export default function TripPage() {
     setSelectedDay(1);
     if (tripId) {
       loadTrip(tripId).catch((e) => message.error(e.message));
-      loadItinerary(tripId).catch((e) => message.error(e.message));
+      // 转场段依赖行程内容：itinerary 到位后（无论成功失败）都再拉一次，失败静默降级
+      loadItinerary(tripId)
+        .catch((e) => message.error(e.message))
+        .finally(() => {
+          loadRouteLegs(tripId);
+        });
     }
   }, [tripId]);
 
@@ -85,6 +92,7 @@ export default function TripPage() {
     try {
       const result = await undoTrip(tripId);
       await loadItinerary(tripId);
+      await loadRouteLegs(tripId);
       message.success(result.message || '已撤销');
     } catch (e: any) {
       message.error(e.message);
@@ -93,10 +101,13 @@ export default function TripPage() {
     }
   };
 
-  const onConfirm = async () => {
-    const result = await confirm();
+  // acknowledgeIssues：用户在确认弹窗里勾选了「接受未解决风险」（Batch 13）
+  const onConfirm = async (acknowledgeIssues?: boolean) => {
+    const result = await confirm(acknowledgeIssues);
     if (result?.tripId) {
       await loadItinerary(result.tripId).catch(() => undefined);
+      // itinerary 变了转场段也会变，必须重拉，否则时间线/地图仍显示旧路径
+      await loadRouteLegs(result.tripId);
     }
   };
 
@@ -153,7 +164,7 @@ export default function TripPage() {
               </span>
             </div>
             <div className="trip-map-body">
-              <MapView items={items} focus={lastFocus} focusDay={selectedDay} />
+              <MapView items={items} focus={lastFocus} focusDay={selectedDay} routeLegs={routeLegs} />
             </div>
           </section>
 
@@ -169,7 +180,7 @@ export default function TripPage() {
         </div>
 
         <section className="dash-card trip-timeline-card">
-          <Timeline trip={currentTrip} items={items} focus={lastFocus} />
+          <Timeline trip={currentTrip} items={items} focus={lastFocus} routeLegs={routeLegs} />
         </section>
       </div>
 

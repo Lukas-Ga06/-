@@ -80,6 +80,11 @@ public class ChatDtos {
          */
         @Size(max = 64, message = "长度不能超过 64 个字符")
         private String contentHash;
+        /**
+         * 是否已明确接受未解决的高风险问题（V2.2 FR-06，可选）。
+         * 只有审核结论 blocked=true 的方案才需要它；缺省/false 时行为与旧前端完全一致。
+         */
+        private Boolean acknowledgeIssues;
     }
 
     @Data

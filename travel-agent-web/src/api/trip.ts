@@ -1,5 +1,5 @@
 import { request } from './client';
-import type { AddItemPayload, ItineraryItem, Trip, TripMapPoint } from '../types/trip';
+import type { AddItemPayload, ItineraryItem, RouteLeg, Trip, TripMapPoint } from '../types/trip';
 import type { BudgetExecution } from '../types/expense';
 
 export function listTrips(): Promise<Trip[]> {
@@ -33,6 +33,14 @@ export function updateTripStatus(id: number, status: string): Promise<Trip> {
 
 export function getItinerary(tripId: number): Promise<ItineraryItem[]> {
   return request<ItineraryItem[]>({ url: `/trips/${tripId}/itinerary` });
+}
+
+/**
+ * 每日相邻行程点的转场路线段（FR-07）。属于增强信息：
+ * 调用方必须静默降级，拉取失败不得阻塞时间线与地图渲染。
+ */
+export function getRouteLegs(tripId: number): Promise<RouteLeg[]> {
+  return request<RouteLeg[]>({ url: `/trips/${tripId}/route-legs` });
 }
 
 /** 预算执行：计划 / 预算 / 实际 / 偏差 + 分类对账 */

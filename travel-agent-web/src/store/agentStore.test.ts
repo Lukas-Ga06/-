@@ -275,6 +275,36 @@ describe('agentStore · V2.2 运行追踪与执行同步', () => {
     expect(useAgentStore.getState().lastExecution).toBeNull();
   });
 
+  it('confirm(true) 把 acknowledgeIssues 透传给确认接口（显式接受未解决风险）', async () => {
+    const hash = 'c'.repeat(64);
+    confirmPlanMock.mockResolvedValue(completedResult({ message: '已提交' }));
+    useAgentStore.getState().send({ message: '安排' });
+    handlersRef.current?.onComplete?.(
+      completedResult({
+        status: 'NEED_CONFIRMATION',
+        planId: 'plan-1',
+        review: {
+          passed: false,
+          blocked: true,
+          attempts: 2,
+          issues: [{ type: 'BUDGET_OVERRUN', severity: 'HIGH', message: '计划合计 ¥3200 超过预算 ¥1' }],
+          repairs: [],
+        },
+        confirmation: {
+          planId: 'plan-1',
+          summary: '预算 1 元的行程',
+          riskLevel: 'HIGH',
+          contentHash: hash,
+          requiresAcknowledgement: true,
+        },
+      }),
+    );
+
+    await useAgentStore.getState().confirm(true);
+
+    expect(confirmPlanMock).toHaveBeenCalledWith('plan-1', hash, true);
+  });
+
   it('setLastExecution 覆盖执行结果（重试成功后由面板回写）', () => {
     const next = {
       executionId: 'exec-9',

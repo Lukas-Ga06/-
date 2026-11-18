@@ -1,11 +1,16 @@
-import { Alert, Modal, Tag } from 'antd';
+import { useEffect, useState } from 'react';
+import { Alert, Checkbox, Modal, Tag } from 'antd';
 import { ArrowRightOutlined } from '@ant-design/icons';
 import type { AgentResult, DiffChange } from '../../types/agent';
 
 interface Props {
   open: boolean;
   result: AgentResult | null;
-  onConfirm: () => void;
+  /**
+   * Batch 13：存在未解决 HIGH 问题时，用户必须先勾选「我已了解上述风险」，
+   * 此时回调参数为 true（后端据此接受风险）；旧流程回调 false。
+   */
+  onConfirm: (acknowledgeIssues?: boolean) => void;
   onCancel: () => void;
   loading?: boolean;
 }
@@ -40,32 +45,92 @@ export default function PlanDiff({ open, result, onConfirm, onCancel, loading }:
   const warnings = result?.warnings ?? [];
   const contentHash = result?.confirmation?.contentHash;
 
+  // Batch 13：审核结论与「未解决高风险必须显式接受」的确认门槛
+  const review = result?.review ?? null;
+  const blocked = review?.blocked === true;
+  const issues = review?.issues ?? [];
+  const repairs = review?.repairs ?? [];
+  const attempts = review?.attempts ?? 0;
+  // requiresAcknowledgement 是 review.blocked 的派生字段；旧后端两者都没有 → false
+  const ackRequired = result?.confirmation?.requiresAcknowledgement ?? blocked;
+  const [ack, setAck] = useState(false);
+
+  // 每次弹窗打开/换成另一个方案都重新要求勾选
+  useEffect(() => {
+    setAck(false);
+  }, [open, result?.planId]);
+
+  const handleOk = () => {
+    if (ackRequired && !ack) return; // 按钮已 disabled，这里只做兜底
+    onConfirm(ackRequired ? ack : false);
+  };
+
   return (
     <Modal
       open={open}
       title="🆚 方案确认 · 原方案 → 新方案"
       okText="确认修改"
       cancelText="取消"
-      onOk={onConfirm}
+      onOk={handleOk}
       onCancel={onCancel}
       confirmLoading={loading}
       // 确认按钮的 data-testid 交给 antd Button：它会透传到真实 <button>，e2e 直接点
-      okButtonProps={{ danger: highRisk, 'data-testid': 'plan-diff-confirm' }}
+      // 未勾选「接受风险」时按钮 disabled：高风险必须显式确认，不能一键提交
+      okButtonProps={{ danger: highRisk, 'data-testid': 'plan-diff-confirm', disabled: ackRequired && !ack }}
       width={580}
     >
       {/* data-testid 必须放在有实际尺寸的内容容器上：antd 的 .ant-modal-root 只是零尺寸包裹层，
           零尺寸元素会被 Playwright 判为 hidden，把 testid 标在 Modal 上会让 e2e 永远不可见 */}
       <div data-testid="plan-diff-dialog">
-        {result?.confirmation?.summary && (
+        {blocked ? (
           <Alert
-            type={highRisk ? 'warning' : 'info'}
+            type="error"
             showIcon
-            message={result.confirmation.summary}
-            description={highRisk ? '本次调整会超出原预算，属于高风险操作，请确认后再提交。' : undefined}
+            message="存在未解决的问题，需明确接受风险后才能提交"
+            description={result?.confirmation?.summary || undefined}
             style={{ marginBottom: 14, marginTop: 4 }}
           />
+        ) : (
+          result?.confirmation?.summary && (
+            <Alert
+              type={highRisk ? 'warning' : 'info'}
+              showIcon
+              message={result.confirmation.summary}
+              description={highRisk ? '本次调整会超出原预算，属于高风险操作，请确认后再提交。' : undefined}
+              style={{ marginBottom: 14, marginTop: 4 }}
+            />
+          )
         )}
-        {warnings.length > 0 && (
+        {review && (
+          <div className="plan-review" data-testid="plan-review">
+            <div className="plan-review-head">
+              <b>审核结论</b>
+              <span className={`pr-badge ${blocked ? 'blocked' : review.passed ? 'passed' : 'warn'}`}>
+                {blocked ? '存在未解决高风险' : review.passed ? '审核通过' : '审核未通过'}
+              </span>
+            </div>
+            {issues.length > 0 && (
+              <div className="plan-review-issues" data-testid="plan-review-issues">
+                {issues.map((issue, i) => (
+                  <div
+                    key={`${issue.type}-${i}`}
+                    className={`plan-warning-row ${issue.severity === 'HIGH' ? 'high' : 'medium'}`}
+                  >
+                    <span className="pw-icon">{issue.severity === 'HIGH' ? '⛔' : '⚠'}</span>
+                    <span className="pw-text">{issue.message}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {repairs.length > 0 && (
+              <div className="plan-review-repairs" data-testid="plan-review-repairs">
+                已自动重规划 {attempts} 次：{repairs.join('；')}
+              </div>
+            )}
+          </div>
+        )}
+        {/* 有结构化审核结论时问题已在上面逐条展示；warnings 是旧契约的同一批文案，不再重复渲染 */}
+        {warnings.length > 0 && !review && (
           <div className="plan-warnings" data-testid="plan-diff-warnings">
             {warnings.map((w, i) => (
               <div key={i} className="plan-warning-row">
@@ -98,6 +163,13 @@ export default function PlanDiff({ open, result, onConfirm, onCancel, loading }:
             </div>
           </div>
         </div>
+        {ackRequired && (
+          <div className="plan-ack">
+            <Checkbox data-testid="plan-diff-ack" checked={ack} onChange={(e) => setAck(e.target.checked)}>
+              我已了解上述风险，仍然提交
+            </Checkbox>
+          </div>
+        )}
       </div>
     </Modal>
   );

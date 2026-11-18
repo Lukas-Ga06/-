@@ -43,7 +43,12 @@ public class PlanConfirmationService {
      * 确认并提交待确认方案（不带内容指纹，向后兼容入口）。
      */
     public AgentDtos.AgentResult confirm(String planId, Long userId) {
-        return confirm(planId, userId, null);
+        return confirm(planId, userId, null, null);
+    }
+
+    /** 带内容指纹、不带风险确认的入口（V2.2 FR-08 旧前端） */
+    public AgentDtos.AgentResult confirm(String planId, Long userId, String contentHash) {
+        return confirm(planId, userId, contentHash, null);
     }
 
     /**
@@ -59,8 +64,12 @@ public class PlanConfirmationService {
      *
      * <p>提交成功后执行 FR-09 跨模块同步（日程 / 预算快照 / 足迹）：模块级失败不回滚行程，
      * 台账可查、失败模块可单独重试。提交失败时释放所有权并保留方案行，用户可用同一 planId 重试。
+     *
+     * <p><b>审核门（V2.2 FR-06）</b>：{@code review.blocked=true} 的方案（有限重规划后仍有 HIGH 级
+     * 硬约束问题）必须由前端勾选「我已了解风险」后带 {@code acknowledgeIssues=true} 再来；
+     * 否则拒绝提交并释放所有权——方案不被消费，用户可以先调整需求、也可以明确接受风险。
      */
-    public AgentDtos.AgentResult confirm(String planId, Long userId, String contentHash) {
+    public AgentDtos.AgentResult confirm(String planId, Long userId, String contentHash, Boolean acknowledgeIssues) {
         // 1) 先确认方案存在且属于当前用户（不存在 / 过期 → 业务失败）
         PendingPlanStore.PendingPlan pending = pendingPlans.peek(planId, userId);
         if (pending == null) {
@@ -107,6 +116,20 @@ public class PlanConfirmationService {
                         .build();
             }
         }
+        // 审核门（V2.2 FR-06）：有限重规划后仍有 HIGH 级硬约束问题 → 必须显式接受风险。
+        // 拒绝时 release 而不是 remove：方案不被消费，用户可以先改需求，也可以勾选后再提交。
+        AgentDtos.PlanReview review = pending.preview() == null ? null : pending.preview().getReview();
+        if (review != null && review.isBlocked() && !Boolean.TRUE.equals(acknowledgeIssues)) {
+            pendingPlans.release(planId);
+            return AgentDtos.AgentResult.builder()
+                    .planId(planId)
+                    .tripId(pending.tripId())
+                    .status(AgentDtos.STATUS_FAILED)
+                    .review(review)
+                    .message("该方案仍有未解决的高风险问题（" + unresolvedText(review)
+                            + "），请在确认弹窗中勾选「我已了解风险」后再提交，或调整需求重新规划。")
+                    .build();
+        }
         try {
             // commit 阶段：真正落库（POST /api/agent/confirm → AgentEngine.confirm → executorAgent.commit）。
             // SSE 流里的 plan 预览不计入 commit。
@@ -150,6 +173,19 @@ public class PlanConfirmationService {
             return false;
         }
         return true;
+    }
+
+    /** 审核门提示：只展示前两条 HIGH 问题，避免确认失败消息过长 */
+    private static String unresolvedText(AgentDtos.PlanReview review) {
+        if (review.getIssues() == null) {
+            return "详见审核结论";
+        }
+        String high = review.getIssues().stream()
+                .filter(issue -> "HIGH".equals(issue.getSeverity()))
+                .map(AgentDtos.PlanIssue::getMessage)
+                .limit(2)
+                .collect(java.util.stream.Collectors.joining("；"));
+        return high.isBlank() ? "详见审核结论" : high;
     }
 
     /** 同步结果挂到确认响应：失败模块不阻断，但要在消息里说清楚 */

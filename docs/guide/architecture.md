@@ -89,14 +89,14 @@ flowchart TB
 | `UNDERSTAND` | 是 | `AgentEngine.java:72` | 载入会话记忆 + 意图识别 |
 | `PLAN` | 是 | `AgentEngine.java:167` | PlannerAgent 生成 `AgentPlan` |
 | `EXECUTE` | 是 | `AgentEngine.java:184` | ExecutorAgent.preview 生成 Diff |
-| `REFLECT` | 是 | `AgentEngine.java:189` | ReflectAgent 做冲突/预算校验 |
-| `PRESENT` | 是 | `AgentEngine.java:196` | 方案写入 PendingPlanStore 并推送事件 |
+| `REFLECT` | 是 | `AgentEngine.java:349,368`（`planAndPresent`） | 审核 + 有限重规划 + 再审（`PlanReviewLoop`） |
+| `PRESENT` | 是 | `AgentEngine.java:370` | 方案写入 PendingPlanStore 并推送事件 |
 | `CONFIRM` | **否** | — | 主链路从不设置：确认是独立 HTTP 请求（`POST /api/agent/confirm`），不在流式状态机内 |
 | `COMMIT` | **否** | — | 同上，由 `ExecutorAgent.commit` 执行，但不回写 `ctx.setState` |
-| `REPLAN` | **否** | — | 从未使用，重规划走的是 `PLAN_TRIP` 意图重入 |
+| `REPLAN` | 是（V2.2 第十三批） | `PlanReviewLoop.java:59` | 审核发现 HIGH 级硬约束问题后进入，做确定性修复（≤2 次）再复审 |
 | `ERROR` | 是 | `AgentEngine.java:115,126` | 业务校验失败或内部异常 |
 
-> **与 README 的差异**：README §4.1 画的是「8 个状态」的箭头图，暗示 CONFIRM / COMMIT 在主流程内转移。源码枚举其实是 **10 个**（多 `REPLAN`、`ERROR`），且 `CONFIRM`、`COMMIT`、`REPLAN` 三个值在主链路中**从未被 set**。
+> **与 README 的差异**：README §4.1 画的是「8 个状态」的箭头图，暗示 CONFIRM / COMMIT 在主流程内转移。源码枚举其实是 **10 个**（多 `REPLAN`、`ERROR`）。`REPLAN` 在第十三批已真正启用；`CONFIRM`、`COMMIT` 仍由独立 REST 调用完成，不在流式状态机内 set。
 
 ### 2.2 主流程与异常路径
 
@@ -109,7 +109,9 @@ stateDiagram-v2
     PLAN --> END_OK: operations 为空
     PLAN --> EXECUTE: 有操作项
     EXECUTE --> REFLECT
-    REFLECT --> PRESENT
+    REFLECT --> REPLAN: 有 HIGH 级硬约束问题（≤2 次）
+    REPLAN --> REFLECT: 修复后复审
+    REFLECT --> PRESENT: passed / 修复次数用尽（blocked）
     PRESENT --> END_OK: NEED_CONFIRMATION
     UNDERSTAND --> ERROR: BusinessException
     EXECUTE --> ERROR: 其它异常

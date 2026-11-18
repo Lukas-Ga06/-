@@ -7,7 +7,7 @@
  */
 
 export interface ActivityEvent {
-  /** SSE 事件名：run / start / intent / planning / tool_call / tool_result / rag_result / plan_update / focus / confirmation / complete / error */
+  /** SSE 事件名：run / start / intent / planning / replan / tool_call / tool_result / rag_result / plan_update / focus / confirmation / complete / error */
   event: string;
   /** 事件负载（原样保存；渲染时只取白名单字段，工具参数绝不透出原文） */
   data: any;
@@ -26,6 +26,15 @@ const STAGE_TEXT: Record<string, (data: any) => string> = {
   tool_result: (d) => `工具 ${d?.tool ?? ''} 执行完成`,
   rag_result: () => '检索旅游知识库…',
   plan_update: () => '生成方案对比…',
+  // Batch 13：审核未通过进入重规划，data = { attempt, issues[] }
+  replan: (d) => {
+    const attempt = typeof d?.attempt === 'number' && d.attempt > 0 ? d.attempt : 1;
+    const first =
+      Array.isArray(d?.issues) && typeof d.issues[0] === 'string' && d.issues[0]
+        ? d.issues[0]
+        : '审核发现问题';
+    return `第 ${attempt} 次重规划：${first}`;
+  },
   confirmation: () => '等待你的确认…',
 };
 

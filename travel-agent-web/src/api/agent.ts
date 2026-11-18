@@ -26,7 +26,8 @@ export interface AgentStreamHandlers {
 
 const EVENT_NAMES = [
   // run：连接建立后紧跟 start 事件下发，data 为 { runId }（本轮运行的追踪标识，V2.2）
-  'run', 'start', 'intent', 'planning', 'tool_call', 'tool_result',
+  // replan：审核未通过进入重规划时下发，data 为 { attempt, issues[] }（Batch 13）
+  'run', 'start', 'intent', 'planning', 'replan', 'tool_call', 'tool_result',
   'rag_result', 'plan_update', 'focus', 'confirmation', 'complete', 'error',
 ];
 
@@ -212,13 +213,19 @@ export async function streamAgentChatPost(
 /**
  * 确认待确认方案。contentHash 来自方案的 confirmation.contentHash，
  * 回传后后端会把确认绑定到具体计划内容版本（不传走旧校验，向后兼容）。
+ *
+ * acknowledgeIssues（Batch 13）：仅在用户显式勾选「接受风险」时为 true，
+ * 缺省不带该字段——旧后端不认识它，请求体保持不变。
  */
-export function confirmPlan(planId: string, contentHash?: string): Promise<AgentResult> {
-  return request<AgentResult>({
-    url: '/agent/confirm',
-    method: 'post',
-    data: contentHash ? { planId, contentHash } : { planId },
-  });
+export function confirmPlan(
+  planId: string,
+  contentHash?: string,
+  acknowledgeIssues?: boolean,
+): Promise<AgentResult> {
+  const data: { planId: string; contentHash?: string; acknowledgeIssues?: true } = { planId };
+  if (contentHash) data.contentHash = contentHash;
+  if (acknowledgeIssues) data.acknowledgeIssues = true;
+  return request<AgentResult>({ url: '/agent/confirm', method: 'post', data });
 }
 
 export function cancelPlan(planId: string): Promise<AgentResult> {

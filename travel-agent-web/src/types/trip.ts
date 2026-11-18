@@ -85,6 +85,32 @@ export interface AddItemPayload {
   description?: string;
 }
 
+/**
+ * 每日相邻行程点之间的路线段（V2.2 FR-07，GET /trips/{id}/route-legs）。
+ *
+ * `source` 标注距离来源：`amap` = 高德真实路径规划，`estimated` = 本地估算；
+ * `taxiCost` 始终是估算值（未接计价 Provider），前端不得展示成实时价格。
+ */
+export interface RouteLeg {
+  dayIndex: number;
+  /** 当天内的段序号（从 1 开始） */
+  sequence: number;
+  fromItemId: number | null;
+  toItemId: number | null;
+  fromTitle: string | null;
+  toTitle: string | null;
+  fromLatitude: number | null;
+  fromLongitude: number | null;
+  toLatitude: number | null;
+  toLongitude: number | null;
+  distanceKm: number | null;
+  walkMinutes: number | null;
+  driveMinutes: number | null;
+  taxiCost: number | null;
+  /** amap = 实测路径；estimated = 本地估算（必须自报家门，不得显示成实时） */
+  source: 'amap' | 'estimated' | string;
+}
+
 /** 首页/足迹地图点位。目的地未定位、行程未填日期或预算时，后端会返回 null */
 export interface TripMapPoint {
   tripId: number;

@@ -146,8 +146,9 @@ RECEIVE → UNDERSTAND → PLAN → EXECUTE → REFLECT → PRESENT → CONFIRM 
                                       ↘ ERROR（反馈用户）
 ```
 
-> 上图是概念流程。`AgentState` 枚举实际声明 10 个值（另有 `REPLAN`），但 `CONFIRM` / `COMMIT` / `REPLAN`
-> 在引擎主链路中并未被设置——确认与提交是由前端拿到确认请求后经 `POST /api/agent/confirm` 触发的独立调用。
+> 上图是概念流程。`AgentState` 枚举实际声明 10 个值，其中 `REPLAN` 在第十三批已真正启用：
+> 审核发现 HIGH 级硬约束问题（预算装不下 / 转场来不及 / 真实预报有雨仍排户外）时进入该状态做有限重规划。
+> `CONFIRM` / `COMMIT` 仍不在 SSE 主链路中设置——确认与提交是前端经 `POST /api/agent/confirm` 触发的独立调用。
 > 精确的状态转移与「哪些状态真正被 set」见 [docs/guide/architecture.md](docs/guide/architecture.md) §2。
 
 - **会话记忆**：前端生成 `conversationId`（sessionStorage，跨页面切换保持同一对话），
@@ -158,7 +159,10 @@ RECEIVE → UNDERSTAND → PLAN → EXECUTE → REFLECT → PRESENT → CONFIRM 
 - **IntentAgent**：LLM 优先（带会话历史）+ 规则兜底，输出 `{intent, target, constraints}`（规则边界见 4.7）；
 - **PlannerAgent**：结合行程/预算/偏好/天气/交通生成 `AgentPlan`（操作列表，不直接落库）；
 - **ExecutorAgent**：preview（生成 Diff + 确认请求）→ 用户确认 → commit（单事务内 Service → Repository + 操作历史）；
-- **ReflectAgent**：基于「应用计划之后」的行程做时间冲突检查（覆盖 ADD 与 MODIFY 造成的重叠）与预算超限校验，输出警告；
+- **ReflectAgent**：基于「应用计划之后」的行程做审核——预算超限、转场时间不够、真实预报下雨仍排户外为
+  **HIGH 硬约束**，时间冲突为 MEDIUM 提醒；HIGH 问题先交给 `PlanRepairService` 做确定性重规划（雨天换室内 /
+  精简景点 / 后移时间），两轮仍修不好则确认门上必须显式接受风险；
+- **PlanInspector**：审核与修复共用的「应用计划后的事实视图」（逐日条目 / 相邻转场路线与时长 / 逐日天气）；
 - **文案润色**：方案确认消息先由模板生成（保证事实准确），配置 LLM 后再由模型重写得更自然——
   模型输出做长度与关键金额校验，不达标回退模板原文；润色走 8s 独立读超时，不拖慢对话链路。
 
@@ -170,7 +174,7 @@ RECEIVE → UNDERSTAND → PLAN → EXECUTE → REFLECT → PRESENT → CONFIRM 
 | --- | --- | --- |
 | LOW | 只读操作（查询、推荐） | 自动执行 |
 | MEDIUM | 会改变行程 | 生成 Diff，确认后提交 |
-| HIGH | 变更后超出行程预算 | Diff + 醒目警告，确认后提交 |
+| HIGH | 变更后超出行程预算；或审核仍有未解决 HIGH 风险（预算装不下 / 转场不可能 / 真实预报雨天排户外） | Diff + 醒目警告；后者必须勾选「我已了解风险」（`acknowledgeIssues=true`）才能提交 |
 
 工具层（AgentTool）**只允许只读操作**：`ToolRegistry` 会拒绝注册任何 `readOnly()==false` 的工具，
 因此不存在"工具绕过确认直接改库"的路径——所有写入必须表达为 AgentPlan 的操作项。
@@ -187,7 +191,8 @@ RECEIVE → UNDERSTAND → PLAN → EXECUTE → REFLECT → PRESENT → CONFIRM 
 
 ### 4.4 SSE 流式协议（GET /api/agent/stream）
 
-事件流：`start → intent → planning → tool_call → tool_result → rag_result → plan_update → focus → confirmation → complete`。
+事件流：`start → run → intent → planning → tool_call → tool_result → rag_result → plan_update → focus → replan → confirmation → complete`
+（`replan` 只在审核发现 HIGH 问题、进入有限重规划时出现，最多 2 次）。
 Agent 通过 **GUI Focus 协议** 返回 focus（day/itemId/坐标），前端自动切换 Day、滚动时间轴、地图 flyTo。
 
 ### 4.5 工具清单（8 个内置 + 可选 MCP 外部工具，全部只读）
@@ -203,7 +208,7 @@ SafetyInterceptor 审计。
 
 ### 4.5.1 Agent 自主循环、确认门与同步（V2.2）
 
-V2.2 在不改变既有确认/撤销/预算口径的前提下补了三件事（详见 [docs/guide/v2.2-iteration.md](docs/guide/v2.2-iteration.md)）：
+V2.2 在不改变既有确认/撤销/预算口径的前提下补了以下几件事（详见 [docs/guide/v2.2-iteration.md](docs/guide/v2.2-iteration.md)）：
 
 | 能力 | 机制 | 关键保障 |
 | --- | --- | --- |
@@ -213,6 +218,8 @@ V2.2 在不改变既有确认/撤销/预算口径的前提下补了三件事（�
 | 确认后同步 | `PlanExecutionService` 逐模块写日程 / 预算快照 / 足迹 | `plan_id` 唯一 + `source_key` 幂等；部分失败可单独重试 |
 | 真实路线 | `RouteService`：高德 MCP → REST → 本地估算 | 结果带 `source` 标记，估算不伪装成实时；10 分钟缓存 |
 | 超预算自愈 | 酒店降级后仍超 → 逐次移除最贵景点（每天保底 1 个） | 确定性收敛，调整原因写进方案说明 |
+| **审核改变结果（FR-06）** | 审核不通过 → `REPLAN` 有限重规划（≤2 次）→ 再审 | 修复确定性可解释；仍不通过则确认门要求显式接受风险，方案不被静默放行 |
+| **路线段进 UI（FR-07）** | 时间线插入转场行 + 地图按段绘制 | `estimated` 虚线 / `amap` 实线；无数据退回原点位连线 |
 
 **两条不可违反的口径**：预算同步只记「计划快照」，**绝不**自动生成记账（估算 ≠ 已消费）；
 足迹只标「计划去」，**绝不**把未来行程写成「已到访」。
@@ -525,12 +532,14 @@ cd travel-agent-server && mvn test
 cd travel-agent-web && npm run typecheck && npm test && npm run build
 ```
 
-当前覆盖（后端 363 个 / 前端 144 个 / e2e 5 个，以 CI 输出为准）：
+当前覆盖（后端 375 个 / 前端 157 个 / e2e 5 个，以 CI 输出为准）：
 
 - 认证与授权：401 契约、跨用户读写与删除行程；
 - Agent 计划落地：ADD_ITEM / MODIFY_ITEM / REMOVE_ITEM、跨行程操作守卫、确认提交与撤销（含撤销新建行程）；
 - V2.2 自主闭环：工具调用循环（去重/预算/取消/非法输出自纠/白名单）、运行追踪（任务链 + 工具调用 + 归属校验）、
   确认后三模块同步（幂等/部分失败/级联清理）、超预算确定性精简、逐日路线段；
+- **FR-06 审核改变结果**：转场/天气硬约束判定、确定性重规划（雨天换室内/精简/后移）、
+  修不好时确认门要求 `acknowledgeIssues`（未勾选被拒且方案不被消费）；
 - 工具层契约：只读工具才允许注册、风险评估等级、业务错误原样透出；
 - 理解精度：日期→行程天映射、意图路由（闲聊不被误写成日程）、时间冲突检查（含 MODIFY）；
 - 数据一致性：删除行程的级联清理、记账分项与总支出对账；
@@ -539,7 +548,8 @@ cd travel-agent-web && npm run typecheck && npm test && npm run build
   POST 流式端点（401/超长校验/长文本建流）；
 - 运行环境：应用时区固定；前端流式状态机与 SSE 中断路径；
 - **V2.2 自主 Agent**：工具循环（去重/预算/白名单/取消/降级）、运行追踪查询与归属隔离、
-  确认门内容指纹、确认后三模块同步与部分失败重试、超预算确定性收敛、路线来源标记与逐日路线段。
+  确认门内容指纹、确认后三模块同步与部分失败重试、超预算确定性收敛、路线来源标记与逐日路线段、
+  **审核有限重规划与显式风险接受（FR-06）**、**时间线转场行与分段路线（FR-07）**。
 
 CI（[.github/workflows/ci.yml](.github/workflows/ci.yml)）在 push / PR 时执行 `mvn -B verify`、
 `npm ci && npm run typecheck && npm test && npm run build`，以及 e2e job（H2 后端 + preview 4173 +
@@ -564,7 +574,17 @@ Spring Boot 3.5、全栈 Docker 化，以及若干轮逻辑缺陷修复与安全
 超预算确定性收敛、逐日路线段端点。逐 FR 状态与已知差距见
 [docs/guide/v2.2-iteration.md](docs/guide/v2.2-iteration.md)。
 
+**审核真正改变结果 + 路线段进时间线（第十三批）**：`ReflectAgent` 新增转场/天气硬约束，
+`PlanReviewLoop` 在 `AgentState.REPLAN` 上做**有限（≤2 次）确定性重规划**，仍修不好则确认门要求
+`acknowledgeIssues=true`（前端勾选后才可提交）；`route-legs` 接到时间线（转场行）与地图（分段线，
+估算虚线/实测实线）。顺带修复真实天气 URL 的 timezone 双重编码（此前 `WEATHER_REAL=true` 总是静默降级模拟）。
+
 按优先级继续推进：
+
+**P0 产品力（下一迭代首选：FR-01 需求槽位与最少追问）**
+- 当前 `MessageParser` 不解析人数（partySize），缺关键信息时用默认值兜底而不是追问，
+  是「一句话输入」体验最明显的短板；需加字段与 Flyway 迁移（建议 V17），单独一批做。
+  方案见 [docs/guide/v2.2-iteration.md](docs/guide/v2.2-iteration.md) §7。
 
 **P0 产品力（第十批已把通道铺好，剩"真 Key 联调"）**
 - 高德 MCP 已接成一等配置（`travel.mcp.servers`，12 个 `mcp_amap_*` 工具 + Windows `npx` 兼容 + 失败降级），
@@ -580,7 +600,7 @@ Spring Boot 3.5、全栈 Docker 化，以及若干轮逻辑缺陷修复与安全
   若从未被旧 `ddl-auto` 收敛过，需要手工 `MODIFY`。
 
 **P2 体验与运营（第十批已完成）**
-- 可观测性：`agent.stage{intent|plan|tool|commit}` Timer、`sse.disconnects{complete|timeout|error|cancelled}`；
+- 可观测性：`agent.stage{intent|plan|tool|reflect|commit}` Timer、`sse.disconnects{complete|timeout|error|cancelled}`；
 - 会话历史已进规划 Prompt（最近 4 条、每条 120 字，仅 LLM 路径）；
 - 暗色模式、390px 移动端无横向溢出（7 个场景实测）、PWA 离线查看行程（只读三条 API 走 NetworkFirst）；
 - **仍待办**：Safari/iOS 真机与 PWA、echarts/maplibre 暗色配色、二期工具

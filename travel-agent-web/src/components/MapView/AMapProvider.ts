@@ -1,4 +1,4 @@
-import type { ItineraryItem } from '../../types/trip';
+import type { ItineraryItem, RouteLeg } from '../../types/trip';
 import { toAmapLngLat } from '../../lib/coords';
 import type { MapProvider } from './MapProvider';
 import {
@@ -31,6 +31,7 @@ export class AMapProvider implements MapProvider {
   private overlays: AMapOverlay[] = [];
   private pendingItems: ItineraryItem[] = [];
   private pendingDay: number | null = null;
+  private pendingLegs: RouteLeg[] = [];
   private pendingFocus: FocusTarget | null = null;
   private lastRenderKey = '';
   private didInitialFit = false;
@@ -80,7 +81,7 @@ export class AMapProvider implements MapProvider {
         }
 
         // SDK 异步加载期间的数据与定位请求不能丢失。
-        this.render(this.pendingItems, this.pendingDay);
+        this.render(this.pendingItems, this.pendingDay, this.pendingLegs);
         if (this.pendingFocus) {
           const target = this.pendingFocus;
           this.pendingFocus = null;
@@ -114,14 +115,16 @@ export class AMapProvider implements MapProvider {
     }
   }
 
-  render(items: ItineraryItem[], focusDay: number | null): void {
+  render(items: ItineraryItem[], focusDay: number | null, routeLegs: RouteLeg[] = []): void {
     this.pendingItems = items;
     this.pendingDay = focusDay;
+    this.pendingLegs = routeLegs;
     const AMap = this.AMap;
     const map = this.map;
     if (!AMap || !map) return;
 
-    // id 不变但坐标、标题或时间被 Agent 修改时也必须重绘。
+    // id 不变但坐标、标题或时间被 Agent 修改时也必须重绘；
+    // legs 一并进 key：确认提交后 itinerary 可能原样返回，只有转场段变了。
     const key = JSON.stringify([
       focusDay,
       items.map((item) => [
@@ -134,6 +137,17 @@ export class AMapProvider implements MapProvider {
         item.longitude,
         item.startTime,
       ]),
+      routeLegs.map((leg) => [
+        leg.dayIndex,
+        leg.sequence,
+        leg.fromItemId,
+        leg.toItemId,
+        leg.fromLatitude,
+        leg.fromLongitude,
+        leg.toLatitude,
+        leg.toLongitude,
+        leg.source,
+      ]),
     ]);
     if (key === this.lastRenderKey) return;
     this.lastRenderKey = key;
@@ -141,51 +155,102 @@ export class AMapProvider implements MapProvider {
     if (this.overlays.length > 0) map.remove(this.overlays);
     this.overlays = [];
 
-    const withGeo = items.filter((item) => item.latitude != null && item.longitude != null);
-    const pointsByDay = new Map<number, { color: string; points: [number, number][] }>();
-    withGeo.forEach((item) => {
-      const bucket = pointsByDay.get(item.dayIndex) ?? {
-        color: DAY_COLORS[(item.dayIndex - 1) % DAY_COLORS.length],
-        points: [],
-      };
-      bucket.points.push(toAmapLngLat(item.latitude as number, item.longitude as number));
-      pointsByDay.set(item.dayIndex, bucket);
-    });
-
     const addOverlay = (overlay: AMapOverlay) => {
       this.overlays.push(overlay);
       map.add(overlay);
     };
 
-    pointsByDay.forEach(({ color, points }, day) => {
-      if (points.length < 2) return;
-      const focused = focusDay === day;
-      // 宽而透明的下层路线形成辉光；当前 Day 的上层路线加粗并提高不透明度。
-      addOverlay(
-        new AMap.Polyline({
-          path: points,
-          strokeColor: color,
-          strokeWeight: focused ? 15 : 10,
-          strokeOpacity: focused ? 0.3 : 0.14,
-          lineJoin: 'round',
-          lineCap: 'round',
-          zIndex: focused ? 20 : 10,
-          bubble: true,
-        }),
-      );
-      addOverlay(
-        new AMap.Polyline({
-          path: points,
-          strokeColor: color,
-          strokeWeight: focused ? 5 : 3,
-          strokeOpacity: focused ? 1 : 0.68,
-          lineJoin: 'round',
-          lineCap: 'round',
-          zIndex: focused ? 30 : 21,
-          bubble: true,
-        }),
-      );
-    });
+    const withGeo = items.filter((item) => item.latitude != null && item.longitude != null);
+
+    // 有路线段时按「当天相邻段」逐段绘制：两点直连，不伪造路径几何。
+    const legsWithGeo = routeLegs.filter(
+      (leg) =>
+        leg.fromLatitude != null &&
+        leg.fromLongitude != null &&
+        leg.toLatitude != null &&
+        leg.toLongitude != null,
+    );
+
+    if (legsWithGeo.length > 0) {
+      legsWithGeo.forEach((leg) => {
+        const color = DAY_COLORS[(leg.dayIndex - 1) % DAY_COLORS.length];
+        const focused = focusDay === leg.dayIndex;
+        const path: [number, number][] = [
+          toAmapLngLat(leg.fromLatitude as number, leg.fromLongitude as number),
+          toAmapLngLat(leg.toLatitude as number, leg.toLongitude as number),
+        ];
+        // estimated 段只是两点直连的估算走向，用虚线自报家门；amap 段是实测路径，实线。
+        const strokeStyle = leg.source === 'amap' ? 'solid' : 'dashed';
+        // 宽而透明的下层路线形成辉光；当前 Day 的上层路线加粗并提高不透明度。
+        addOverlay(
+          new AMap.Polyline({
+            path,
+            strokeColor: color,
+            strokeWeight: focused ? 15 : 10,
+            strokeOpacity: focused ? 0.3 : 0.14,
+            strokeStyle,
+            lineJoin: 'round',
+            lineCap: 'round',
+            zIndex: focused ? 20 : 10,
+            bubble: true,
+          }),
+        );
+        addOverlay(
+          new AMap.Polyline({
+            path,
+            strokeColor: color,
+            strokeWeight: focused ? 5 : 3,
+            strokeOpacity: focused ? 1 : 0.68,
+            strokeStyle,
+            lineJoin: 'round',
+            lineCap: 'round',
+            zIndex: focused ? 30 : 21,
+            bubble: true,
+          }),
+        );
+      });
+    } else {
+      // 无 legs 数据（旧后端 / 拉取失败 / 空数组）时退回既有的「按天点位连线」逻辑。
+      const pointsByDay = new Map<number, { color: string; points: [number, number][] }>();
+      withGeo.forEach((item) => {
+        const bucket = pointsByDay.get(item.dayIndex) ?? {
+          color: DAY_COLORS[(item.dayIndex - 1) % DAY_COLORS.length],
+          points: [],
+        };
+        bucket.points.push(toAmapLngLat(item.latitude as number, item.longitude as number));
+        pointsByDay.set(item.dayIndex, bucket);
+      });
+
+      pointsByDay.forEach(({ color, points }, day) => {
+        if (points.length < 2) return;
+        const focused = focusDay === day;
+        // 宽而透明的下层路线形成辉光；当前 Day 的上层路线加粗并提高不透明度。
+        addOverlay(
+          new AMap.Polyline({
+            path: points,
+            strokeColor: color,
+            strokeWeight: focused ? 15 : 10,
+            strokeOpacity: focused ? 0.3 : 0.14,
+            lineJoin: 'round',
+            lineCap: 'round',
+            zIndex: focused ? 20 : 10,
+            bubble: true,
+          }),
+        );
+        addOverlay(
+          new AMap.Polyline({
+            path: points,
+            strokeColor: color,
+            strokeWeight: focused ? 5 : 3,
+            strokeOpacity: focused ? 1 : 0.68,
+            lineJoin: 'round',
+            lineCap: 'round',
+            zIndex: focused ? 30 : 21,
+            bubble: true,
+          }),
+        );
+      });
+    }
 
     withGeo.forEach((item) => {
       addOverlay(

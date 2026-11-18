@@ -2,29 +2,34 @@ package com.travel.agent.agent;
 
 import com.travel.agent.entity.ItineraryItem;
 import com.travel.agent.entity.Trip;
-import com.travel.agent.service.ItineraryService;
+import com.travel.agent.model.RouteInfo;
+import com.travel.agent.model.WeatherInfo;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
- * Reflect Agent：对计划做事后校验——时间冲突？预算超限？发现问题输出警告。
+ * Reflect Agent：对计划做事后校验——预算？转场时间够不够？雨天还排户外？时间重叠？
  *
- * 时间冲突基于「应用计划之后」的行程视图判断：
+ * <p>时间冲突基于「应用计划之后」的行程视图判断（{@link PlanInspector#effectiveItemsByDay}）：
  * 原条目去掉被 REMOVE 的、被 MODIFY 的换成新时间、再加上 ADD 的条目。
- * （旧实现只看 ADD，因此"把某个安排改到与另一个重叠"永远不会被发现；也只比较相邻两项。）
+ * （旧实现只看 ADD，因此「把某个安排改到与另一个重叠」永远不会被发现；也只比较相邻两项。）
  *
- * <p>V2.2 FR-06：{@link #reviewVerdict} 输出结构化判定（PASS/REVISE + 问题清单），
- * {@link #review} 是它的警告文案投影——对外契约不变，前端与既有测试零改动。
+ * <p>V2.2 FR-06：{@link #reviewVerdict} 输出结构化判定（passed + 问题清单），
+ * 硬约束（预算超限 / 转场时间不够 / 雨天户外）会触发引擎的有限重规划；
+ * 时间重叠仍是软提醒。{@link #review} 是它的警告文案投影，对外契约不变。
+ *
+ * <p>「转场不够」用 {@link RouteInfo#driveMinutes()} 与两个安排之间的真实空档比较——
+ * 规划产物里的交通方式口径就是驾车/打车，所以按驾车时长判定才与预算里那笔打车费一致。
+ *
+ * <p>天气约束只在<b>真实预报</b>下算硬约束：{@code travel.weather.real=false} 或真实预报查询失败降级时
+ * 得到的是确定性模拟数据（{@link WeatherInfo#isSimulated()}），拿模拟的「小雨」去强制改用户行程
+ * 等于拿假数据做决策（ADR-006 的延续），此时只给 MEDIUM 提示。
  */
 @Component
 @RequiredArgsConstructor
@@ -32,18 +37,26 @@ public class ReflectAgent {
 
     /** 单次最多返回几条时间冲突提示，避免刷屏 */
     private static final int MAX_TIME_WARNINGS = 5;
+    /** 单次最多返回几条转场不可行提示 */
+    private static final int MAX_TRANSFER_ISSUES = 5;
+    /** 单次最多返回几天天气提示 */
+    private static final int MAX_WEATHER_ISSUES = 5;
+    /** 雨天判定阈值：降雨概率达到该值才认为「大概率下雨」 */
+    public static final int RAIN_PROBABILITY_THRESHOLD = 60;
 
-    private final ItineraryService itineraryService;
+    private final PlanInspector inspector;
 
     /**
      * 结构化审核判定（V2.2 FR-06）。
      *
-     * <p>passed=false（REVISE）表示存在硬约束问题（当前：预算超限），
-     * 需要规划侧自愈或用户修改；时间冲突是软性提醒（建议手动微调），不阻断确认。
+     * <p>passed=false（REVISE）表示存在 HIGH 级硬约束问题，需要修复器重规划或用户处理；
+     * MEDIUM（时间重叠、模拟天气提示）不阻断确认。
      */
     public record PlanIssue(String type, String severity, String message) {
         public static final String TYPE_BUDGET = "BUDGET_OVERRUN";
         public static final String TYPE_TIME_CONFLICT = "TIME_CONFLICT";
+        public static final String TYPE_TRANSFER_TIME = "TRANSFER_TIME";
+        public static final String TYPE_WEATHER_OUTDOOR = "WEATHER_OUTDOOR";
         public static final String SEVERITY_HIGH = "HIGH";
         public static final String SEVERITY_MEDIUM = "MEDIUM";
     }
@@ -53,6 +66,12 @@ public class ReflectAgent {
         public List<String> warningLines() {
             return warnings;
         }
+
+        public List<PlanIssue> highIssues() {
+            return issues.stream()
+                    .filter(issue -> PlanIssue.SEVERITY_HIGH.equals(issue.severity()))
+                    .toList();
+        }
     }
 
     /** 旧契约：返回警告文案列表（内部委托给结构化判定） */
@@ -60,7 +79,7 @@ public class ReflectAgent {
         return reviewVerdict(plan, trip).warnings();
     }
 
-    /** 结构化判定：预算超限（HIGH，REVISE）+ 时间冲突（MEDIUM，提示） */
+    /** 结构化判定：预算 / 转场 / 天气（硬约束，HIGH）+ 时间冲突（软提醒，MEDIUM） */
     public ReviewVerdict reviewVerdict(AgentPlan plan, Trip trip) {
         List<PlanIssue> issues = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
@@ -77,9 +96,83 @@ public class ReflectAgent {
             }
         }
 
-        // 2. 时间冲突检查（应用计划后的行程，逐天两两比对）
+        // 2. 转场可行性（硬约束：留的时间连路上都不够）
+        //    只对「整份规划」生效：局部修改（MODIFY_ITINERARY）只改一小段，
+        //    拿整条既有行程去判硬约束会因为历史数据里早已存在的紧排班而阻止一次合理修改。
+        if (IntentResult.PLAN_TRIP.equals(plan.getIntent())) {
+            reviewTransfers(plan, trip, issues, warnings);
+            // 3. 天气约束（真实预报：雨天排户外 = 硬约束；模拟天气只提示）
+            reviewWeather(plan, trip, issues, warnings);
+        }
+
+        // 4. 时间冲突检查（应用计划后的行程，逐天两两比对）
+        reviewTimeConflicts(plan, trip, issues, warnings);
+
+        boolean passed = issues.stream().noneMatch(issue -> PlanIssue.SEVERITY_HIGH.equals(issue.severity()));
+        return new ReviewVerdict(passed, issues, warnings);
+    }
+
+    private void reviewTransfers(AgentPlan plan, Trip trip, List<PlanIssue> issues, List<String> warnings) {
+        int found = 0;
+        for (PlanInspector.DayLeg leg : inspector.transferLegs(plan, trip)) {
+            if (found >= MAX_TRANSFER_ISSUES) {
+                break;
+            }
+            int need = leg.route().driveMinutes();
+            if (need <= 0 || leg.gapMinutes() >= need) {
+                continue;
+            }
+            String message = "Day " + leg.dayIndex() + "「" + leg.from().getTitle() + "」→「"
+                    + leg.to().getTitle() + "」转场驾车约 " + need + " 分钟"
+                    + sourceHint(leg.route()) + "，但只留了 " + Math.max(leg.gapMinutes(), 0) + " 分钟";
+            issues.add(new PlanIssue(PlanIssue.TYPE_TRANSFER_TIME, PlanIssue.SEVERITY_HIGH, message));
+            warnings.add(message);
+            found++;
+        }
+    }
+
+    private void reviewWeather(AgentPlan plan, Trip trip, List<PlanIssue> issues, List<String> warnings) {
+        Map<Integer, WeatherInfo> weatherByDay = inspector.weatherByDay(plan, trip);
+        if (weatherByDay.isEmpty()) {
+            return;
+        }
+        Map<Integer, List<ItineraryItem>> itemsByDay = inspector.effectiveItemsByDay(plan, trip);
+        int found = 0;
+        for (Map.Entry<Integer, WeatherInfo> entry : weatherByDay.entrySet()) {
+            if (found >= MAX_WEATHER_ISSUES) {
+                break;
+            }
+            WeatherInfo weather = entry.getValue();
+            if (!likelyRainy(weather)) {
+                continue;
+            }
+            List<String> outdoor = itemsByDay.getOrDefault(entry.getKey(), List.of()).stream()
+                    .filter(item -> ItineraryItem.TYPE_ATTRACTION.equals(item.getItemType()))
+                    .filter(ItineraryItem::isOutdoor)
+                    .map(ItineraryItem::getTitle)
+                    .toList();
+            if (outdoor.isEmpty()) {
+                continue;
+            }
+            // 逐条判断来源：真实预报才允许作为硬约束；降级出来的模拟数据只能提示
+            boolean real = !weather.isSimulated();
+            String titles = outdoor.stream().map(t -> "「" + t + "」")
+                    .collect(java.util.stream.Collectors.joining("、"));
+            String message = "Day " + entry.getKey() + " 预报" + weather.condition()
+                    + "（降雨概率 " + weather.rainProbability() + "%" + (real ? "" : "，模拟天气") + "），"
+                    + "仍安排了户外景点" + titles
+                    + (real ? "，建议换成室内景点" : "；真实预报接入后会自动改为室内安排");
+            // 模拟天气只作提示：拿假数据强制改行程，等于把估算伪装成事实（ADR-006）
+            issues.add(new PlanIssue(PlanIssue.TYPE_WEATHER_OUTDOOR,
+                    real ? PlanIssue.SEVERITY_HIGH : PlanIssue.SEVERITY_MEDIUM, message));
+            warnings.add(message);
+            found++;
+        }
+    }
+
+    private void reviewTimeConflicts(AgentPlan plan, Trip trip, List<PlanIssue> issues, List<String> warnings) {
         int conflicts = 0;
-        for (Map.Entry<Integer, List<ItineraryItem>> entry : effectiveItemsByDay(plan, trip).entrySet()) {
+        for (Map.Entry<Integer, List<ItineraryItem>> entry : inspector.effectiveItemsByDay(plan, trip).entrySet()) {
             List<ItineraryItem> items = entry.getValue().stream()
                     .filter(i -> i.getStartTime() != null)
                     .sorted(Comparator.comparing(ItineraryItem::getStartTime))
@@ -88,7 +181,7 @@ public class ReflectAgent {
                 for (int j = i + 1; j < items.size() && conflicts < MAX_TIME_WARNINGS; j++) {
                     ItineraryItem earlier = items.get(i);
                     ItineraryItem later = items.get(j);
-                    if (later.getStartTime().isBefore(endOf(earlier))) {
+                    if (later.getStartTime().isBefore(PlanInspector.endOf(earlier))) {
                         String message = "Day " + entry.getKey() + " 的「" + earlier.getTitle() + "」与「"
                                 + later.getTitle() + "」时间重叠，建议手动微调";
                         issues.add(new PlanIssue(PlanIssue.TYPE_TIME_CONFLICT, PlanIssue.SEVERITY_MEDIUM, message));
@@ -101,78 +194,17 @@ public class ReflectAgent {
                 break;
             }
         }
-        boolean passed = issues.stream().noneMatch(issue -> PlanIssue.SEVERITY_HIGH.equals(issue.severity()));
-        return new ReviewVerdict(passed, issues, warnings);
     }
 
-    /** 应用计划之后的行程视图：按天分组，含 REMOVE / MODIFY / ADD 三种操作的最终效果 */
-    private Map<Integer, List<ItineraryItem>> effectiveItemsByDay(AgentPlan plan, Trip trip) {
-        Map<Integer, List<ItineraryItem>> byDay = new HashMap<>();
-        Set<Long> removed = new HashSet<>();
-        Map<Long, ItineraryItem> modified = new HashMap<>();
-        List<ItineraryItem> added = new ArrayList<>();
-
-        for (PlanOperation op : plan.getOperations()) {
-            switch (op.getType()) {
-                case PlanOperation.REMOVE -> {
-                    if (op.getTargetItemId() != null) {
-                        removed.add(op.getTargetItemId());
-                    }
-                }
-                case PlanOperation.MODIFY -> {
-                    if (op.getTargetItemId() != null && op.getDraft() != null) {
-                        modified.put(op.getTargetItemId(), op.getDraft());
-                    }
-                }
-                case PlanOperation.ADD -> {
-                    if (op.getDraft() != null) {
-                        added.add(op.getDraft());
-                    }
-                }
-                default -> {
-                    // 未知操作类型会在 Executor 阶段被拒绝，这里忽略即可
-                }
-            }
-        }
-
-        if (trip != null && plan.getTripDraft() == null) {
-            for (ItineraryItem item : itineraryService.listEntities(trip.getId())) {
-                if (removed.contains(item.getId())) {
-                    continue;
-                }
-                ItineraryItem draft = modified.get(item.getId());
-                ItineraryItem effective = draft == null ? item : merge(item, draft);
-                if (effective.getStartTime() != null) {
-                    byDay.computeIfAbsent(effective.getDayIndex(), k -> new ArrayList<>()).add(effective);
-                }
-            }
-        }
-        for (ItineraryItem draft : added) {
-            if (draft.getStartTime() != null) {
-                byDay.computeIfAbsent(draft.getDayIndex(), k -> new ArrayList<>()).add(draft);
-            }
-        }
-        return byDay;
+    /** 是否「大概率下雨」：天况含雨且降雨概率达到阈值（模拟天气的「小雨」概率恒 ≥70%，可被识别） */
+    static boolean likelyRainy(WeatherInfo weather) {
+        return weather != null && weather.isRainy()
+                && weather.rainProbability() >= RAIN_PROBABILITY_THRESHOLD;
     }
 
-    /** MODIFY 的草稿可能只填了部分字段：以原条目为底、用非空字段覆盖，避免误判 */
-    private static ItineraryItem merge(ItineraryItem base, ItineraryItem patch) {
-        return ItineraryItem.builder()
-                .id(base.getId())
-                .tripId(base.getTripId())
-                .dayIndex(patch.getDayIndex() == null ? base.getDayIndex() : patch.getDayIndex())
-                .itemType(patch.getItemType() == null ? base.getItemType() : patch.getItemType())
-                .title(patch.getTitle() == null ? base.getTitle() : patch.getTitle())
-                .startTime(patch.getStartTime() == null ? base.getStartTime() : patch.getStartTime())
-                .endTime(patch.getEndTime() == null ? base.getEndTime() : patch.getEndTime())
-                .build();
-    }
-
-    /** 结束时间缺失时按 1 小时估算，否则"只有开始时间"的条目永远不会参与冲突判断 */
-    private static LocalDateTime endOf(ItineraryItem item) {
-        if (item.getEndTime() != null) {
-            return item.getEndTime();
-        }
-        return item.getStartTime() == null ? LocalDateTime.MAX : item.getStartTime().plusHours(1);
+    /** 真实路径与估算必须自报家门（ADR-006）：估算时长不能看起来像实测 */
+    private static String sourceHint(RouteInfo route) {
+        return route != null && com.travel.agent.service.RouteService.SOURCE_ESTIMATED.equals(route.source())
+                ? "（估算）" : "";
     }
 }

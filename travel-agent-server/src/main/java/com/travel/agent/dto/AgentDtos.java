@@ -34,6 +34,8 @@ public class AgentDtos {
         private BudgetSummary budget;
         private ConfirmationRequest confirmation;
         private List<String> warnings;
+        /** 审核结论（V2.2 FR-06）：结构化判定 + 重规划动作；只有规划/修改路径才带 */
+        private PlanReview review;
         /** 确认提交后的跨模块同步结果（FR-09）：只有 confirm 成功路径才带 */
         private ExecutionSummary execution;
 
@@ -58,6 +60,36 @@ public class AgentDtos {
         private Long itemId;
         private Double latitude;
         private Double longitude;
+    }
+
+    /**
+     * 审核结论（V2.2 FR-06）：让「审核发现问题」从一句警告变成可执行的事实。
+     *
+     * <p>{@code blocked=true} 表示有限重规划之后仍有 HIGH 级硬约束问题（预算装不下 / 天气换不到室内 /
+     * 转场怎么挪都不够），确认门会要求用户显式接受风险（{@code acknowledgeIssues=true}）才提交。
+     * {@code attempts/repairs} 说明引擎已经自动改过什么，前端可直接展示，不需要理解内部规则。
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class PlanReview {
+        private boolean passed;
+        private boolean blocked;
+        private int attempts;
+        private List<PlanIssue> issues;
+        private List<String> repairs;
+    }
+
+    /** 单条审核问题：type 见 {@code ReflectAgent.PlanIssue}，severity 为 HIGH / MEDIUM */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class PlanIssue {
+        private String type;
+        private String severity;
+        private String message;
     }
 
     @Data
@@ -93,6 +125,11 @@ public class AgentDtos {
         private String planId;
         private String summary;
         private String riskLevel;   // LOW / MEDIUM / HIGH
+        /**
+         * 确认前是否必须显式接受风险（V2.2 FR-06）：审核仍有未解决 HIGH 问题时为 true。
+         * 前端据此要求勾选「我已了解风险」，后端据此校验 acknowledgeIssues。
+         */
+        private boolean requiresAcknowledgement;
         /**
          * 方案内容指纹（V2.2 FR-08）：plan_json 的 SHA-256。
          * 确认请求可携带同一指纹回传，后端校验一致才放行——

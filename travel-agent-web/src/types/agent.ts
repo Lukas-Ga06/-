@@ -37,6 +37,30 @@ export interface ConfirmationDTO {
   riskLevel?: string;
   /** 方案内容 SHA-256 指纹：确认时回传给后端绑定具体计划内容版本（V2.2 FR-08） */
   contentHash?: string;
+  /** 存在未解决 HIGH 问题时为 true：前端必须要求勾选「接受风险」后才能提交（Batch 13） */
+  requiresAcknowledgement?: boolean;
+}
+
+/** 审核问题（Batch 13）：type 见契约 BUDGET_OVERRUN / TRANSFER_TIME / WEATHER_OUTDOOR / TIME_CONFLICT */
+export interface PlanReviewIssue {
+  type: string;
+  /** HIGH / MEDIUM */
+  severity: string;
+  message: string;
+}
+
+/** ReflectAgent 的审核结论：最终是否有 HIGH 问题、重规划次数与自动修复动作 */
+export interface PlanReviewDTO {
+  /** 最终是否仍存在 HIGH 级问题 */
+  passed: boolean;
+  /** true = 存在未解决 HIGH 问题，确认必须显式接受风险 */
+  blocked?: boolean;
+  /** 已执行的重规划次数（0 表示一次也没重排） */
+  attempts?: number;
+  /** 最终一轮审核的问题清单（passed=true 时也可能有 MEDIUM） */
+  issues?: PlanReviewIssue[] | null;
+  /** 自动修复动作（人话，可直接展示） */
+  repairs?: string[] | null;
 }
 
 export interface AgentResult {
@@ -49,6 +73,8 @@ export interface AgentResult {
   diff?: PlanDiffDTO | null;
   budget?: BudgetSummaryDTO | null;
   confirmation?: ConfirmationDTO | null;
+  /** 审核结论（Batch 13）；缺失表示旧后端或本次无需审核 */
+  review?: PlanReviewDTO | null;
   warnings?: string[] | null;
   /** 确认提交后的日程/预算/足迹同步执行结果（V2.2 §9.1） */
   execution?: ExecutionSummary | null;
@@ -82,7 +108,8 @@ export type TaskReceiver =
   | 'reflect-agent'
   | 'tool-invoker';
 
-export type TaskType = 'INTENT' | 'RESEARCH' | 'PLAN' | 'PREVIEW' | 'REVIEW' | 'TOOL' | 'COMMIT';
+/** REPLAN 是 V2.2 FR-06 新增的任务类型：审核发现 HIGH 问题后的一次有限重规划 */
+export type TaskType = 'INTENT' | 'RESEARCH' | 'PLAN' | 'PREVIEW' | 'REVIEW' | 'REPLAN' | 'TOOL' | 'COMMIT';
 
 export type TaskViewStatus = 'RUNNING' | 'SUCCEEDED' | 'FAILED';
 
