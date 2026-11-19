@@ -1,0 +1,4 @@
+2026-11-19T16:30:54.362+08:00  WARN [] 4620 --- [travel-agent-server] [           main] o.f.c.internal.database.base.Database    : Flyway upgrade recommended: MySQL 8.4 is newer than this version of Flyway and support has not been tested. The latest supported version of MySQL is 8.1.
+2026-11-19T16:30:54.441+08:00  INFO [] 4620 --- [travel-agent-server] [           main] o.f.core.internal.command.DbMigrate      : Migrating schema `travel_agent` to version "16 - plan execution"
+2026-11-19T16:30:54.734+08:00  INFO [] 4620 --- [travel-agent-server] [           main] o.f.core.internal.command.DbMigrate      : Successfully applied 1 migration to schema `travel_agent`, now at version v16 (execution time 00:00.271s)
+2026-11-19T16:30:59.724+08:00  INFO [] 4620 --- [travel-agent-server] [           main] c.travel.agent.TravelAgentApplication    : Started TravelAgentApplication in 9.871 seconds (process running for 10.347)

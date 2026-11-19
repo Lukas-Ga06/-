@@ -1,0 +1,17 @@
+﻿1	1	baseline	SQL	1	2026-11-19 16:30:41	778
+2	2	conversation message	SQL	1	2026-11-19 16:30:41	92
+3	3	llm quota	SQL	1	2026-11-19 16:30:41	33
+4	4	rag fingerprint	SQL	1	2026-11-19 16:30:41	7
+5	5	rag document user	SQL	1	2026-11-19 16:30:41	7
+6	6	pending plan status	SQL	1	2026-11-19 16:30:41	31
+7	7	trip version	SQL	1	2026-11-19 16:30:41	5
+8	8	llm quota unique	SQL	1	2026-11-19 16:30:41	22
+9	9	list indexes	SQL	1	2026-11-19 16:30:41	159
+10	10	rag document version	SQL	1	2026-11-19 16:30:42	157
+11	11	rag document key	SQL	1	2026-11-19 16:30:42	151
+12	12	rag active unique	SQL	1	2026-11-19 16:30:42	114
+13	13	baseline gap	SQL	1	2026-11-19 16:30:43	868
+14	15	agent trace	SQL	1	2026-11-19 16:30:43	202
+15	16	plan execution	SQL	1	2026-11-19 16:30:54	271
+16	17	trip party size	SQL	1	2026-11-19 16:31:22	30
+17	18	agent task dag	SQL	1	2026-11-19 16:31:22	60

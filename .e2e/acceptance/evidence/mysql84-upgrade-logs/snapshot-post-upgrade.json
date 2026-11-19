@@ -1,0 +1,508 @@
+{
+    "capturedAt":  "2026-11-19 16:31:31",
+    "counts":  "trip=3|item=14|expense=2|memo=2|schedule=3|pending=1|exec=1|run=2|task=10|tool=32|user=1",
+    "history":  "17|f4f7a0b64d2a41a132c82f6e615aa83b",
+    "tables":  [
+                   {
+                       "table":  "agent_run",
+                       "rows":  2,
+                       "hash":  "2327c41b586cbd73883f266b3bd12761",
+                       "columns":  "id,run_id,user_id,trip_id,message,intent,status,error,started_at,ended_at"
+                   },
+                   {
+                       "table":  "agent_task",
+                       "rows":  10,
+                       "hash":  "3cb24f2c04c5748e424de49d4dcd77b5",
+                       "columns":  "id,task_id,run_id,user_id,receiver,task_type,status,summary,error,started_at,ended_at"
+                   },
+                   {
+                       "table":  "conversation_message",
+                       "rows":  0,
+                       "hash":  "EMPTY",
+                       "columns":  "id,user_id,conversation_id,role,content,intent,created_at"
+                   },
+                   {
+                       "table":  "daily_report",
+                       "rows":  0,
+                       "hash":  "EMPTY",
+                       "columns":  "id,user_id,report_date,content,created_at"
+                   },
+                   {
+                       "table":  "expense",
+                       "rows":  2,
+                       "hash":  "0c19deea5345935e36820f8d686bdf81",
+                       "columns":  "id,trip_id,user_id,category,amount,note,spent_at,payment_method,created_at"
+                   },
+                   {
+                       "table":  "health_record",
+                       "rows":  0,
+                       "hash":  "EMPTY",
+                       "columns":  "id,user_id,record_date,steps,sleep_hours,resting_heart_rate,weight,created_at"
+                   },
+                   {
+                       "table":  "invoice",
+                       "rows":  0,
+                       "hash":  "EMPTY",
+                       "columns":  "id,user_id,title,vendor,category,amount,invoice_date,raw_text,created_at,source_file,source_type,expense_id,trip_id"
+                   },
+                   {
+                       "table":  "itinerary_item",
+                       "rows":  14,
+                       "hash":  "d136fac6ac3be0af0a41b069f0f5fb1c",
+                       "columns":  "id,trip_id,day_index,item_type,title,start_time,end_time,latitude,longitude,cost,tags,description"
+                   },
+                   {
+                       "table":  "learning_artifact",
+                       "rows":  0,
+                       "hash":  "EMPTY",
+                       "columns":  "id,user_id,kind,topic,content,created_at"
+                   },
+                   {
+                       "table":  "llm_quota_usage",
+                       "rows":  0,
+                       "hash":  "EMPTY",
+                       "columns":  "id,user_name,usage_date,used_count"
+                   },
+                   {
+                       "table":  "mail_item",
+                       "rows":  0,
+                       "hash":  "EMPTY",
+                       "columns":  "id,user_id,sender,subject,body,category,summary,suggested_reply,created_at"
+                   },
+                   {
+                       "table":  "meeting_minutes",
+                       "rows":  0,
+                       "hash":  "EMPTY",
+                       "columns":  "id,user_id,title,raw_text,content,created_at"
+                   },
+                   {
+                       "table":  "memo",
+                       "rows":  2,
+                       "hash":  "eb04fc604c0fb709939871fa6aa5b08f",
+                       "columns":  "id,user_id,content,done,created_at"
+                   },
+                   {
+                       "table":  "operation_history",
+                       "rows":  4,
+                       "hash":  "310d30463c155c5b21d1afa0918f7ab7",
+                       "columns":  "id,trip_id,user_id,operation_type,before_state,after_state,agent_reason,status,created_at"
+                   },
+                   {
+                       "table":  "pending_plan",
+                       "rows":  1,
+                       "hash":  "419074e3337aa1042b0873bbe58b97a1",
+                       "columns":  "plan_id,user_id,trip_id,plan_json,preview_json,plan_revision,status,version,created_at,content_hash"
+                   },
+                   {
+                       "table":  "plan_execution",
+                       "rows":  1,
+                       "hash":  "306741f57d3259d27e3c6e2ee62ff314",
+                       "columns":  "id,execution_id,plan_id,user_id,trip_id,status,modules_json,created_at,updated_at"
+                   },
+                   {
+                       "table":  "rag_chunk",
+                       "rows":  30,
+                       "hash":  "14f029e2508d761e5bfac43d3b903aa0",
+                       "columns":  "id,document_id,content,embedding,dim,version_id"
+                   },
+                   {
+                       "table":  "rag_document",
+                       "rows":  10,
+                       "hash":  "c14e4b54edfe8f81e9e0876f1bae20da",
+                       "columns":  "id,title,city,category,content,source,user_id,fingerprint,updated_at,doc_key"
+                   },
+                   {
+                       "table":  "rag_document_version",
+                       "rows":  10,
+                       "hash":  "7a57859e8463ab6b0e336ce281349cf4",
+                       "columns":  "id,document_id,version_no,content,fingerprint,status,user_id,created_at,active_document_id"
+                   },
+                   {
+                       "table":  "schedule_item",
+                       "rows":  3,
+                       "hash":  "ba7ffc0a2db2881ab4db1aa7dc3e4059",
+                       "columns":  "id,user_id,title,sched_date,sched_time,note,done,created_at,recurrence,repeat_until,reminder_dismissed_at,source_key"
+                   },
+                   {
+                       "table":  "tool_call_trace",
+                       "rows":  32,
+                       "hash":  "020d8ba77eee9c57149ee30947d0d94a",
+                       "columns":  "id,run_id,task_id,user_id,tool_name,args_digest,result_digest,success,error_code,latency_ms,started_at"
+                   },
+                   {
+                       "table":  "trip",
+                       "rows":  3,
+                       "hash":  "a018d15ae99588e7b3b87029d4997ea0",
+                       "columns":  "id,user_id,name,destination,start_date,end_date,budget,status,created_at,version,departure_reminder_dismissed_at"
+                   },
+                   {
+                       "table":  "trip_photo",
+                       "rows":  0,
+                       "hash":  "EMPTY",
+                       "columns":  "id,trip_id,user_id,stored_name,original_name,content_type,size_bytes,created_at"
+                   },
+                   {
+                       "table":  "users",
+                       "rows":  1,
+                       "hash":  "f0a993a571c11a9cf5053af57826ce16",
+                       "columns":  "id,username,password,nickname,created_at"
+                   }
+               ],
+    "keyFields":  {
+                      "trips":  [
+                                    {
+                                        "id":  "1",
+                                        "user_id":  "1",
+                                        "name":  "旧库升级基线-苏州五日",
+                                        "destination":  "苏州",
+                                        "start_date":  "2026-12-01",
+                                        "end_date":  "2026-12-05",
+                                        "budget":  "8000.00",
+                                        "status":  "PLANNING",
+                                        "version":  "0",
+                                        "created_at":  "2026-11-19 16:31:02"
+                                    },
+                                    {
+                                        "id":  "2",
+                                        "user_id":  "1",
+                                        "name":  "杭州2日游",
+                                        "destination":  "杭州",
+                                        "start_date":  "2026-11-20",
+                                        "end_date":  "2026-11-21",
+                                        "budget":  "5000.00",
+                                        "status":  "CONFIRMED",
+                                        "version":  "0",
+                                        "created_at":  "2026-11-19 16:31:03"
+                                    },
+                                    {
+                                        "id":  "3",
+                                        "user_id":  "1",
+                                        "name":  "SQL-SEED-OLD-TRIP",
+                                        "destination":  "SQL-SEED-DEST",
+                                        "start_date":  "2026-12-10",
+                                        "end_date":  "2026-12-12",
+                                        "budget":  "1234.56",
+                                        "status":  "PLANNING",
+                                        "version":  "0",
+                                        "created_at":  "2026-11-19 16:31:03"
+                                    }
+                                ],
+                      "itinerary_items":  [
+                                              {
+                                                  "id":  "1",
+                                                  "trip_id":  "1",
+                                                  "day_index":  "1",
+                                                  "item_type":  "attraction",
+                                                  "title":  "拙政园",
+                                                  "start_time":  "2026-12-01 09:00:00",
+                                                  "cost":  "90.00"
+                                              },
+                                              {
+                                                  "id":  "2",
+                                                  "trip_id":  "1",
+                                                  "day_index":  "2",
+                                                  "item_type":  "food",
+                                                  "title":  "平江路午餐",
+                                                  "start_time":  "2026-12-02 12:00:00",
+                                                  "cost":  "128.50"
+                                              },
+                                              {
+                                                  "id":  "3",
+                                                  "trip_id":  "1",
+                                                  "day_index":  "3",
+                                                  "item_type":  "hotel",
+                                                  "title":  "金鸡湖酒店",
+                                                  "start_time":  "2026-12-03 15:00:00",
+                                                  "cost":  "680.00"
+                                              },
+                                              {
+                                                  "id":  "4",
+                                                  "trip_id":  "2",
+                                                  "day_index":  "1",
+                                                  "item_type":  "hotel",
+                                                  "title":  "入住 · 西湖边全季酒店",
+                                                  "start_time":  "2026-11-20 09:00:00",
+                                                  "cost":  "480.00"
+                                              },
+                                              {
+                                                  "id":  "5",
+                                                  "trip_id":  "2",
+                                                  "day_index":  "1",
+                                                  "item_type":  "attraction",
+                                                  "title":  "西湖风景区",
+                                                  "start_time":  "2026-11-20 10:00:00",
+                                                  "cost":  "0.00"
+                                              },
+                                              {
+                                                  "id":  "6",
+                                                  "trip_id":  "2",
+                                                  "day_index":  "1",
+                                                  "item_type":  "restaurant",
+                                                  "title":  "午餐 · 楼外楼",
+                                                  "start_time":  "2026-11-20 12:00:00",
+                                                  "cost":  "140.00"
+                                              },
+                                              {
+                                                  "id":  "7",
+                                                  "trip_id":  "2",
+                                                  "day_index":  "1",
+                                                  "item_type":  "attraction",
+                                                  "title":  "浙江省博物馆",
+                                                  "start_time":  "2026-11-20 14:00:00",
+                                                  "cost":  "0.00"
+                                              },
+                                              {
+                                                  "id":  "8",
+                                                  "trip_id":  "2",
+                                                  "day_index":  "1",
+                                                  "item_type":  "restaurant",
+                                                  "title":  "晚餐 · 新白鹿餐厅",
+                                                  "start_time":  "2026-11-20 18:00:00",
+                                                  "cost":  "60.00"
+                                              },
+                                              {
+                                                  "id":  "9",
+                                                  "trip_id":  "2",
+                                                  "day_index":  "1",
+                                                  "item_type":  "transport",
+                                                  "title":  "当日交通（打车）",
+                                                  "start_time":  "2026-11-20 19:45:00",
+                                                  "cost":  "17.00"
+                                              },
+                                              {
+                                                  "id":  "10",
+                                                  "trip_id":  "2",
+                                                  "day_index":  "2",
+                                                  "item_type":  "attraction",
+                                                  "title":  "灵隐寺",
+                                                  "start_time":  "2026-11-21 09:00:00",
+                                                  "cost":  "75.00"
+                                              },
+                                              {
+                                                  "id":  "11",
+                                                  "trip_id":  "2",
+                                                  "day_index":  "2",
+                                                  "item_type":  "restaurant",
+                                                  "title":  "午餐 · 知味观",
+                                                  "start_time":  "2026-11-21 12:00:00",
+                                                  "cost":  "70.00"
+                                              },
+                                              {
+                                                  "id":  "12",
+                                                  "trip_id":  "2",
+                                                  "day_index":  "2",
+                                                  "item_type":  "attraction",
+                                                  "title":  "中国茶叶博物馆",
+                                                  "start_time":  "2026-11-21 14:00:00",
+                                                  "cost":  "0.00"
+                                              },
+                                              {
+                                                  "id":  "13",
+                                                  "trip_id":  "2",
+                                                  "day_index":  "2",
+                                                  "item_type":  "restaurant",
+                                                  "title":  "晚餐 · 外婆家",
+                                                  "start_time":  "2026-11-21 18:00:00",
+                                                  "cost":  "65.00"
+                                              },
+                                              {
+                                                  "id":  "14",
+                                                  "trip_id":  "2",
+                                                  "day_index":  "2",
+                                                  "item_type":  "transport",
+                                                  "title":  "当日交通（打车）",
+                                                  "start_time":  "2026-11-21 19:45:00",
+                                                  "cost":  "93.00"
+                                              }
+                                          ],
+                      "expenses":  [
+                                       {
+                                           "id":  "1",
+                                           "trip_id":  "1",
+                                           "category":  "餐饮",
+                                           "amount":  "128.50",
+                                           "note":  "平江路午饭",
+                                           "spent_at":  "2026-12-02",
+                                           "payment_method":  "微信支付"
+                                       },
+                                       {
+                                           "id":  "2",
+                                           "trip_id":  "1",
+                                           "category":  "门票",
+                                           "amount":  "90.00",
+                                           "note":  "拙政园门票",
+                                           "spent_at":  "2026-12-01",
+                                           "payment_method":  "支付宝"
+                                       }
+                                   ],
+                      "memos":  [
+                                    {
+                                        "id":  "1",
+                                        "user_id":  "1",
+                                        "content":  "升级前备忘：旧库里的真实数据",
+                                        "done":  "0"
+                                    },
+                                    {
+                                        "id":  "2",
+                                        "user_id":  "1",
+                                        "content":  "升级前备忘：第二条",
+                                        "done":  "0"
+                                    }
+                                ],
+                      "schedule_items":  [
+                                             {
+                                                 "id":  "1",
+                                                 "user_id":  "1",
+                                                 "title":  "升级回归提醒",
+                                                 "sched_date":  "2026-12-01",
+                                                 "sched_time":  "09:30:00",
+                                                 "done":  "0"
+                                             },
+                                             {
+                                                 "id":  "2",
+                                                 "user_id":  "1",
+                                                 "title":  "🧳 杭州2日游 · Day 1",
+                                                 "sched_date":  "2026-11-20",
+                                                 "sched_time":  "09:00:00",
+                                                 "done":  "0"
+                                             },
+                                             {
+                                                 "id":  "3",
+                                                 "user_id":  "1",
+                                                 "title":  "🧳 杭州2日游 · Day 2",
+                                                 "sched_date":  "2026-11-21",
+                                                 "sched_time":  "09:00:00",
+                                                 "done":  "0"
+                                             }
+                                         ],
+                      "agent_runs":  [
+                                         {
+                                             "id":  "1",
+                                             "run_id":  "d193ba9b-d4ce-495e-906e-06186e1e74f4",
+                                             "user_id":  "1",
+                                             "trip_id":  "NULL",
+                                             "intent":  "PLAN_TRIP",
+                                             "status":  "SUCCEEDED",
+                                             "started_at":  "2026-11-19 16:31:03"
+                                         },
+                                         {
+                                             "id":  "2",
+                                             "run_id":  "afbcf337-8c54-40db-9c00-d70eaf824dd1",
+                                             "user_id":  "1",
+                                             "trip_id":  "NULL",
+                                             "intent":  "PLAN_TRIP",
+                                             "status":  "SUCCEEDED",
+                                             "started_at":  "2026-11-19 16:31:03"
+                                         }
+                                     ],
+                      "agent_tasks":  [
+                                          {
+                                              "id":  "1",
+                                              "task_id":  "af99249f-5310-4151-be00-3dacc91799ae",
+                                              "run_id":  "d193ba9b-d4ce-495e-906e-06186e1e74f4",
+                                              "task_type":  "INTENT",
+                                              "status":  "SUCCEEDED",
+                                              "started_at":  "2026-11-19 16:31:03"
+                                          },
+                                          {
+                                              "id":  "2",
+                                              "task_id":  "57b555a9-8fbd-429b-b11c-bd6ca48d2f96",
+                                              "run_id":  "d193ba9b-d4ce-495e-906e-06186e1e74f4",
+                                              "task_type":  "PLAN",
+                                              "status":  "SUCCEEDED",
+                                              "started_at":  "2026-11-19 16:31:03"
+                                          },
+                                          {
+                                              "id":  "3",
+                                              "task_id":  "1293fd45-6116-4de2-a423-b07d3de431bc",
+                                              "run_id":  "d193ba9b-d4ce-495e-906e-06186e1e74f4",
+                                              "task_type":  "PREVIEW",
+                                              "status":  "SUCCEEDED",
+                                              "started_at":  "2026-11-19 16:31:03"
+                                          },
+                                          {
+                                              "id":  "4",
+                                              "task_id":  "425afcb8-11f0-4e7c-b0b3-2cfac1a82841",
+                                              "run_id":  "d193ba9b-d4ce-495e-906e-06186e1e74f4",
+                                              "task_type":  "REVIEW",
+                                              "status":  "SUCCEEDED",
+                                              "started_at":  "2026-11-19 16:31:03"
+                                          },
+                                          {
+                                              "id":  "5",
+                                              "task_id":  "65278074-11a0-4fac-b195-a1ab10bdfbfd",
+                                              "run_id":  "d193ba9b-d4ce-495e-906e-06186e1e74f4",
+                                              "task_type":  "COMMIT",
+                                              "status":  "SUCCEEDED",
+                                              "started_at":  "2026-11-19 16:31:03"
+                                          },
+                                          {
+                                              "id":  "6",
+                                              "task_id":  "982a2e28-de06-4fbf-82ba-df0d62402f80",
+                                              "run_id":  "afbcf337-8c54-40db-9c00-d70eaf824dd1",
+                                              "task_type":  "INTENT",
+                                              "status":  "SUCCEEDED",
+                                              "started_at":  "2026-11-19 16:31:03"
+                                          },
+                                          {
+                                              "id":  "7",
+                                              "task_id":  "4716e4e1-adb8-4331-bb77-ed07fb2597ca",
+                                              "run_id":  "afbcf337-8c54-40db-9c00-d70eaf824dd1",
+                                              "task_type":  "PLAN",
+                                              "status":  "SUCCEEDED",
+                                              "started_at":  "2026-11-19 16:31:03"
+                                          },
+                                          {
+                                              "id":  "8",
+                                              "task_id":  "0d97ea76-ec11-472a-94a1-6ab37a1c0c5a",
+                                              "run_id":  "afbcf337-8c54-40db-9c00-d70eaf824dd1",
+                                              "task_type":  "PREVIEW",
+                                              "status":  "SUCCEEDED",
+                                              "started_at":  "2026-11-19 16:31:03"
+                                          },
+                                          {
+                                              "id":  "9",
+                                              "task_id":  "36f1f8b2-2841-4d62-a670-d57ec4388402",
+                                              "run_id":  "afbcf337-8c54-40db-9c00-d70eaf824dd1",
+                                              "task_type":  "REVIEW",
+                                              "status":  "SUCCEEDED",
+                                              "started_at":  "2026-11-19 16:31:03"
+                                          },
+                                          {
+                                              "id":  "10",
+                                              "task_id":  "sql-seed-old-task",
+                                              "run_id":  "d193ba9b-d4ce-495e-906e-06186e1e74f4",
+                                              "task_type":  "SQL_SEED",
+                                              "status":  "SUCCEEDED",
+                                              "started_at":  "2026-11-19 16:31:03"
+                                          }
+                                      ],
+                      "pending_plans":  [
+                                            {
+                                                "plan_id":  "e1aa7362-d995-4efc-9847-024769840277",
+                                                "user_id":  "1",
+                                                "trip_id":  "NULL",
+                                                "status":  "PENDING",
+                                                "plan_revision":  "NULL",
+                                                "created_at":  "2026-11-19 16:31:03"
+                                            }
+                                        ],
+                      "plan_executions":  [
+                                              {
+                                                  "execution_id":  "ea5f3937-3cfd-41cd-a68e-5a8c36521b47",
+                                                  "plan_id":  "62e88ba6-bec0-40de-8d73-27909cd33e91",
+                                                  "user_id":  "1",
+                                                  "trip_id":  "2",
+                                                  "status":  "SUCCEEDED",
+                                                  "created_at":  "2026-11-19 16:31:03"
+                                              }
+                                          ],
+                      "users":  [
+                                    {
+                                        "id":  "1",
+                                        "username":  "demo",
+                                        "nickname":  "演示用户"
+                                    }
+                                ]
+                  }
+}
