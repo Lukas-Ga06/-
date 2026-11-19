@@ -592,12 +592,23 @@ function Invoke-StepStatus {
     $d = $j.data
     Write-Info ('llmConfigured=' + $d.llmConfigured + '  amapConfigured=' + $d.amapConfigured + '  geoProvider=' + $d.geoProvider)
     Write-Info ('routeProvider=' + $d.routeProvider + '  routeHint=' + $d.routeHint)
-    $ok = ($d.amapConfigured -eq $true) -and ($d.routeProvider -eq 'amap')
+    # P2 口径（2026-11-19 起）：routeProvider = 「已配置 ∧ 最近一次真实调用成功」。
+    # 本步在任何真实算路之前执行，所以「配置了但尚未验证」时 routeProvider=estimated 是**预期**，
+    # 不是 Key 无效；Key 是否有效由第 3 步（route-legs 出现 source=amap）与第 4 步（直连 REST）证明。
+    # 反过来，若尚未验证却报 amap，那才是缺陷（自报失真）。
+    $configured = ($d.amapConfigured -eq $true)
+    $verified = ($d.amapVerified -eq $true)
+    $provider = [string]$d.routeProvider
+    $ok = $configured -and (
+        ($provider -eq 'amap' -and $verified) -or
+        ($provider -eq 'estimated' -and -not $verified)
+    )
     if ($ok) {
-        Add-Check '1' '系统能力自检' 'PASS' ('amapConfigured=true, geoProvider=' + $d.geoProvider + ', routeProvider=amap（配置层面已就绪；Key 是否有效由第 3/4 步证明）')
+        $state = if ($provider -eq 'amap') { 'routeProvider=amap（已验证）' } else { 'routeProvider=estimated（已配置但尚未验证——本步早于任何真实算路，符合 P2 口径）' }
+        Add-Check '1' '系统能力自检' 'PASS' ('amapConfigured=true, geoProvider=' + $d.geoProvider + ', ' + $state + '；Key 是否有效由第 3/4 步证明')
     } else {
-        $detail = 'amapConfigured=' + $d.amapConfigured + ', routeProvider=' + $d.routeProvider
-        Add-Check '1' '系统能力自检' 'FAIL' ($detail + ' —— 后端没读到有效的 AMAP_KEY（-SkipStart 时旧实例可能未带 Key；空 Key 或 MCP 关闭时 routeProvider 必为 estimated）')
+        $detail = 'amapConfigured=' + $d.amapConfigured + ', routeProvider=' + $provider + ', amapVerified=' + $d.amapVerified
+        Add-Check '1' '系统能力自检' 'FAIL' ($detail + ' —— 期望「已配置且口径自洽」：未验证必须报 estimated（-SkipStart 时旧实例可能未带 Key；空 Key 或 MCP 关闭时必为 estimated）；若未验证却报 amap 则属 P2 自报失真')
     }
     return $d
 }
@@ -760,6 +771,23 @@ function Invoke-StepRouteLegs {
             $detail3 = $detail3 + '；' + $estimated + ' 段 estimated 常见原因是高德并发限流（10021 CUQPS_HAS_EXCEEDED_THE_LIMIT）被静默降级，不是 Key 无效'
         }
         Add-Check '3' '两日游规划与路线段' 'PASS' $detail3
+        # P2 的另一半：真实算路成功之后，状态页必须从 estimated 翻转为 amap（且 amapVerified=true）。
+        # 只断言「失败时不报 amap」会漏掉「成功了一直不报 amap」的反向缺陷。
+        $statusOut = Join-Path $script:OutDir '03b-system-status-after-amap.json'
+        $sr = Invoke-CurlRequest -Method 'GET' -Url ($script:BaseUrl + '/api/system/status') -CookieJar $script:CookieJar -MaxTime 30 -OutFile $statusOut
+        if ($sr.http -eq 200) {
+            Write-Utf8NoBom $statusOut $sr.body
+            $sj = ConvertFrom-JsonSafe $sr.body
+            $sd = $sj.data
+            $after = [string]$sd.routeProvider
+            if ($after -eq 'amap' -and $sd.amapVerified -eq $true) {
+                Add-Check '1b' '真实调用后状态翻转' 'PASS' ('route-legs 出现 amap 段后，/api/system/status 报 routeProvider=amap、amapVerified=true（口径随真实调用翻转）')
+            } else {
+                Add-Check '1b' '真实调用后状态翻转' 'FAIL' ('真实算路已成功（amap=' + $amap + '），但状态页仍报 routeProvider=' + $after + '、amapVerified=' + $sd.amapVerified + ' —— 口径没有随真实调用翻转')
+            }
+        } else {
+            Add-Check '1b' '真实调用后状态翻转' 'SKIP' ('状态页复读 HTTP ' + $sr.http)
+        }
     } else {
         $hint = '全部 ' + $total + ' 段为 estimated —— 高德 REST 调用未成功，后端已静默降级。排查顺序：' +
                 '① Key 是否「Web 服务」类型（不是 JS API Key）；② Key 是否有效/已开通「Web 服务」；' +

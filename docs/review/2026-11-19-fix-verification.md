@@ -13,14 +13,14 @@
 | P3 降级日志丢根因 | ✅ 已修复 | `ErrorSummary`：`包装类型 -> 根因类型: 消息`，并做 Key 脱敏 |
 | P5 LLM 配置态失真 | ✅ 已修复 | `llmConfigured` / `llmVerified` 分离，健康页两档呈现 |
 | P6 QPS 10021 静默降级 | ✅ 已修复（单测覆盖） | 一次退避重试（220~400ms 抖动）+ WARN 带 infocode；`estimated` 改 60s 短 TTL |
-| 真实道路 polyline | ✅ **后端+前端已打通**，⚠ **真实 Key 下的浏览器实线渲染未验** | 逐点 GCJ-02→WGS-84、Douglas-Peucker ≤200 点、`polyline` 常驻（无几何 `[]`）；本机无「Web 服务」Key，`route-legs` 运行时全 estimated |
+| 真实道路 polyline | ✅ **已用真实 Key 端到端验通（2026-11-19 晚）** | `route-legs` 7/7 段 `source=amap`，几何点数 3/8/11/27/28/35/41；Playwright 确认浏览器收到的正是这些多点路径（非两点直连）；截图 `.evidence/polyline-browser.png` |
 | 首屏分包 >1MB | ✅ 已优化 | 首屏静态闭包 **1168.79 → 558.26 KiB（-52.2%）**；echarts **1086.71 KiB → 550.60 kB（-50.5%）**；maps 仍 1.06 MB（故意不抬阈值） |
 | MySQL 8.4 真实部署 / 旧库升级 / 重启恢复 | ✅ **旧库升级已正式回归** | 新增 `mysql-upgrade-acceptance.ps1`，V16 真实旧 schema → V17/V18，**80/80 断言 PASS**，24/24 表行数与旧列哈希一致、三态重启通过 |
 | Safari/iOS/PWA 真机、暗色地图/图表 | ✅ 暗色已修复并量化；⚠ 真机仍需人工 | 地图平均亮度 220.66→61.13；图表文字对比度 13.68:1 / 6.81:1；WebKit iPhone 13 + Chromium Pixel 7 PWA **32 项 0 FAIL** |
 | 生产压测 / 第三方异常 / 长跑 | ✅ 已复跑出新基线 | 并发 40/40 + 20/20、第三方 3 类降级成功、长跑 576/576（预热后 RSS +2.5%） |
 | FR-11 个性化 RAG / FR-12 实时房态价格 | ⛔ **仍延后（P1）** | 依赖 OTA 商务授权与库存接口；见 [provider-rag 决策](2026-11-19-provider-rag-decision.md) |
 | FR-12 防守项「参考价 + 来源 + 深链」 | ✅ **已实现（同日更晚，最小版）** | `price{kind=reference,source=local-estimate,disclaimer,links}`；酒店→携程 canonical（北京 1/上海 2/杭州 17，表外不猜）、条目→高德 URI；`priceProvider=reference-estimate`。后端 467、前端 201 用例；真实 HTTP 冒烟过 |
-| 高德「Web 服务」Key 联调 | ⛔ **仍缺一枚可复用 Key** | 本机 `.env.local` 只有前端 JS API Key；探测脚本已就绪 |
+| 高德「Web 服务」Key 联调 | ✅ **已完成（第三枚 Key，指纹 `5f74d350`）** | 探针全 PASS：7/7 段 amap、POI 3、geocode 3/3、GCJ-02 0.13m；`.env.local` 已配置且 gitignore |
 
 **验证基线**：后端 `mvn verify` **449/449** 全绿；前端 `typecheck` 0 error + **192/192**（26 文件）+ build 成功；
 合并后 jar 真实 HTTP `fr-acceptance.mjs` **27/27 PASS**。
@@ -104,8 +104,10 @@
 
 **已验证**：单测覆盖解析/拼接去重/坐标/抽稀/上限/空几何、JSON 契约（`RouteLegPolylineJsonTest` 锁死 `[[lat,lng],…]` 与 `[]`）、
 前端几何优先/回退/虚线/重绘；合并后真实 HTTP 确认 `polyline` 字段常驻且 estimated 全为 `[]`。
-**未验证**：真实高德响应下浏览器里画出实线——本机没有「Web 服务」Key（只有 JS API Key），
-拿到 Key 后跑 `.e2e/amap-real-key-probe.ps1` 与 `fr-acceptance.mjs --expect-amap` 即可补上。
+**2026-11-19 晚已补齐（真实 Key，指纹 `5f74d350`）**：`route-legs` **7/7 段 `source=amap`**，
+几何点数 3/8/11/27/28/35/41；用 Playwright 在 `window.AMap` 赋值时接管并包装 `Polyline` 构造，
+确认地图收到的正是这些多点路径（28 次构造 = 7 段 × 辉光/主线 × 两次渲染），**不是两点直连**；
+截图 `.evidence/polyline-browser.png`。探针另新增「真实调用后状态翻转为 amap」的反向断言。
 
 ## 5. 首屏分包（已优化）
 
@@ -175,7 +177,7 @@ WebKit/PWA 复跑：iPhone 13（WebKit）**15 PASS + 1 INFO**、Pixel 7（Chromi
 
 ## 9. 仍未验证 / 风险清单
 
-1. **高德「Web 服务」Key**：真实 polyline 实线渲染、POI/地理编码端到端复验仍缺一枚可复用 Key。
+1. ~~高德「Web 服务」Key~~ → **2026-11-19 晚已拿到并验通**（7/7 段 amap、几何 3~41 点、浏览器已按几何绘制）。
 2. **MCP 真实链路**：`MCP_ENABLED=true` + `AMAP_MAPS_API_KEY` 未用真实 Key 跑，12 个工具输出未逐一核对。
 3. **FR-03 真模型**：DeepSeek 余额 402，仍只有替身链路证据。
 4. **真机**：iPhone/Android 的 Safari/Chrome 真机渲染与 PWA 系统级安装需人工；WebKit 仿真不算真机。

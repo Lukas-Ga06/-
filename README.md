@@ -622,11 +622,10 @@ Spring Boot 3.5、全栈 Docker 化，以及若干轮逻辑缺陷修复与安全
 
 **仍待办（按阻塞程度）**
 
-1. **高德「Web 服务」Key**：本机 `.env.local` 仍无该 Key。2026-11-19 晚补发的第二枚
-   （指纹 `5239ded8`）与前端 `VITE_AMAP_KEY` **逐字节相同**，四个端点全部 `USERKEY_PLAT_NOMATCH/10009`，
-   该配置已撤下（避免每次规划白打 4 次失败外呼）。**取 Key 看控制台「服务平台」列，不是应用名**——
-   同一个应用下只有服务平台 = **Web服务** 的那枚能用于后端。`.e2e/amap-real-key-probe.ps1` 就绪，
-   拿到后直接跑即可验证真实 polyline 实线渲染、POI 与地理编码。
+1. ~~高德「Web 服务」Key~~ ✅ **2026-11-19 晚已验通**（第三枚 Key，指纹 `5f74d350`）：
+   `route-legs` **7/7** 段 `source=amap`、POI 3 条、地理编码 3/3、GCJ-02 偏差 0.13 m；
+   真实 polyline 几何点数 3/8/11/27/28/35/41，浏览器端确认按几何绘制（非两点直连）。
+   Key 在 `.env.local`（gitignore），探针 `.e2e/amap-real-key-probe.ps1` 可随时复跑。
 2. **高德 MCP 真实链路**：`MCP_ENABLED=true` + `AMAP_MAPS_API_KEY` 未用真实 Key 跑；12 个工具的
    业务输出未逐一核对。
 3. **FR-11 / FR-12 延后（P1）**：个性化 RAG 与酒店/餐饮实时房态价格依赖服务商授权与库存接口

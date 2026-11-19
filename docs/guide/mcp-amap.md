@@ -249,6 +249,19 @@ MCP 服务器 [amap] 接入失败，已跳过: timeout initialize
 | **前端 JS API 真实渲染**（2026-11-19 实测） | 配好 `VITE_AMAP_KEY` + `VITE_AMAP_SECURITY_CODE` 后打开行程页：`window.AMap` 加载成功、`AMap.Map` 可用、`.amap-container` + `canvas` 已创建，共 **33 个高德域请求**（`webapi.amap.com` / `jsapi.amap.com` / `jsapi-data1..5` / `o4.amap.com` / `restapi.amap.com` 的 `jscode` 校验），页面无「地图加载失败」降级提示。**这是「前端地图真实渲染」从推测转为已验证** |
 | **后端「Web 服务」Key 真实联调**（2026-11-19 实跑两次，`amap-real-key-probe.ps1` 结论均 **PASS**） | 独立实例 + 独立 H2：`/v3/place/text` `status=1` 返回 3 条 POI；`/v3/geocode/geo` 3/3 `status=1`（西湖 `120.130396,30.259242`、杭州东站 `120.212600,30.290851`、天安门 `116.397463,39.909187`，均为 GCJ-02），且地理编码点直接算路成功（11353 m）；`route-legs` 两次分别 **6/7** 与 **4/7** 段 `source=amap`（首段 10.7 km / 驾车 31 min，剩余段为 QPS 限流降级，见 §5.2）；GCJ-02 一致性：与高德 `/v3/assistant/coordinate/convert` 偏差 **0.13 m**、偏移量 **554.7 m**、`gcj02ToWgs84` 往返 **0 m**。证据：`.e2e/amap-key-20261119-143839/`、`.e2e/amap-key-20261119-143613/` |
 
+### 5.1.1 第三枚 Key：真实联调 PASS（2026-11-19 晚）
+
+- 指纹 `5f74d350`（不落明文），服务平台 = **Web服务**，`.env.local` 的 `AMAP_KEY` 已配置（gitignore）。
+- `amap-real-key-probe.ps1` 全 PASS：**`route-legs` 7/7 段 `source=amap`**（另一次 6/7，1 段因 `10021` 限流降级）、
+  直连 `/v3/place/text` 3 条 POI、`/v3/geocode/geo` 3/3、GCJ-02 与高德 `/v3/assistant/coordinate/convert`
+  偏差 **0.13 m**（偏移 554.7 m、往返 0 m）。
+- **polyline 真实几何**：7/7 段都有几何，点数 **3 / 8 / 11 / 27 / 28 / 35 / 41**（`route-legs` 实测）。
+  浏览器端用 Playwright 接管 `window.AMap` 的赋值并包装 `Polyline` 构造，确认地图收到的正是这些多点路径
+  （不是两点直连）；截图 `.evidence/polyline-browser.png`。
+- 探针本身也随 P2 口径更新：第 1 步只要求「已配置且口径自洽」（未真实调用前报 `estimated` 属预期），
+  新增 **1b**：真实算路成功后状态页必须翻转为 `routeProvider=amap`、`amapVerified=true`——
+  补上了「成功了一直不报 amap」这个反向缺陷的检测。
+
 ### 5.2 未验证 / 已知缺口（不要当成已支持）
 
 - **Key 类型踩坑·第二例（2026-11-19 晚）**：用户补发的第二枚 Key（指纹 `5239ded8`）与前端

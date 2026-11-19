@@ -490,10 +490,16 @@ async function fr05(routeTripId) {
   await step('FR-05', '05.5', 'GCJ-02 校验：天安门坐标非 WGS-84 原始值（偏移 300~1200m）', async () => {
     const geo = await getJson(`https://restapi.amap.com/v3/geocode/geo?key=${AMAP_KEY}&address=${encodeURIComponent('天安门广场')}`);
     const [lng, lat] = geo.geocodes[0].location.split(',').map(Number);
-    // WGS-84 参考：天安门广场 116.3912, 39.9067；GCJ-02 约 116.3975, 39.9087
-    const dist = haversine(lng, lat, 116.3912, 39.9067);
+    // WGS-84 参考：**天安门广场**（广场中心在城楼以南约 660m）约 116.3912, 39.9031。
+    // 旧版这里写的是 39.9067（天安门城楼的纬度），于是 2026-11-19 晚高德返回广场中心
+    // 39.903182 时「纬度必须大于参考」的断言误报——那是参考点标错，不是坐标系错误。
+    // 判定口径改为：偏移量落在 GCJ-02 合理区间 + 经度有 EAST 向的可见偏移（境内 GCJ 的稳定特征），
+    // 不再假设纬度方向（广场/城楼的纬度关系会随 POI 取点而不同）。
+    const refLng = 116.3912;
+    const refLat = 39.9031;
+    const dist = haversine(lng, lat, refLng, refLat);
     assert(dist > 300 && dist < 1200, `与 WGS-84 偏移 ${dist.toFixed(0)}m 不在 GCJ-02 合理区间`);
-    assert(lng > 116.3912 && lat > 39.9067, `GCJ 偏移方向异常: ${lng},${lat}`);
+    assert(lng - refLng > 0.004, `GCJ 经度偏移不足（期望东偏 >0.004°）: ${lng},${lat}`);
     return `GCJ=(${lng},${lat}) 相对 WGS 偏移=${dist.toFixed(0)}m`;
   });
 }
