@@ -465,6 +465,8 @@ powershell -ExecutionPolicy Bypass -File .e2e\amap-real-key-probe.ps1 -AmapKey "
   按天分组返回相邻行程点，字段含 `distanceKm` / `walkMinutes` / `driveMinutes` / `taxiCost` / `source`
   （`amap` = 高德真实路径，`estimated` = 本地 haversine 估算）。
   链路是 `RouteService.route()` → `AmapDataService.driving()`（MCP → REST）→ 失败降级 haversine。
+  2026-11-19 晚起另有 `polyline`（真实道路几何，WGS-84 `[lat,lng]`、≤200 点、无几何为 `[]`）——
+  MCP 与 REST 共用同一 `parseRoute`，MCP 返回同构 JSON 时同样能解析出几何；形状不同则几何缺失、UI 回退两点直连（fail-soft）。
 - **POI / 地理编码**：后端**没有**对外 REST 接口。`AmapDataService.searchPoi()` 目前没有生产调用方
   （规划候选仍来自内置/联网城市目录）；`AmapGeocodeClient` 只被 `OnlineCityService` / `CityGeoLocator` 内部使用。
   因此脚本第 4a 步如实记 `SKIP`，第 4b 步改为**直连高德官方 REST**（与 `AmapDataService` 相同的

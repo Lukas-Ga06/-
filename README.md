@@ -597,37 +597,45 @@ Spring Boot 3.5、全栈 Docker 化，以及若干轮逻辑缺陷修复与安全
 
 按优先级继续推进：
 
-**P0 产品力（下一迭代首选：真实数据源联调）**
-- 高德 MCP 已接成一等配置（`travel.mcp.servers`，12 个 `mcp_amap_*` 工具 + Windows `npx` 兼容 + 失败降级），
-  见 [docs/guide/mcp-amap.md](docs/guide/mcp-amap.md)；
-- **前端地图链路已验证真实渲染**（`VITE_AMAP_KEY` + `VITE_AMAP_SECURITY_CODE`：`AMap` 加载、canvas 创建、
-  33 个高德域请求、页面无降级提示）；
-- **后端「Web 服务」Key 真实联调已 PASS**（2026-11-19 实跑两次，`.e2e/amap-real-key-probe.ps1` 结论均 PASS）：
-  POI `/v3/place/text` 返回 3 条；地理编码 `/v3/geocode/geo` 3/3 命中（西湖 / 杭州东站 / 天安门，GCJ-02），
-  且地理编码点可直接算路（11353 m）；`route-legs` 两次分别为 **6/7** 与 **4/7** 段 `source=amap`
-  （首段 10.7 km / 驾车 31 min）；GCJ-02 与高德官方 `/v3/assistant/coordinate/convert` 偏差 **0.13 m**
-  （偏移量 554.7 m、往返 0 m）。证据 `.e2e/amap-key-20261119-143839/`、`.e2e/amap-key-20261119-143613/`，
-  Key 类型踩坑与排查表见 [docs/guide/mcp-amap.md](docs/guide/mcp-amap.md) §5.2 / §7；
-- **已知缺口**：高德并发配额下返回 `CUQPS_HAS_EXCEEDED_THE_LIMIT`（10021）时后端静默降级 `estimated`
-  并被缓存 10 分钟（实测 8 并发 3 次 10021 → 7 段里 3 段估算），`AmapDataService` 缺「重试 + WARN 记录」；
-  MCP 链路（`MCP_ENABLED=true` + `AMAP_MAPS_API_KEY`）尚未用真实 Key 跑过；
-- 酒店/餐厅开放平台同理由同一套 MCP 配置扩展（天气已接 Open-Meteo）。
+**本轮收口（2026-11-19 晚：数据可信度 + 真实道路几何）**
 
-**P1 数据层与部署可信度（第十批已完成主体）**
-- schema 单一权威已落地：`V1__baseline.sql` + `V13` 双方言补齐 + 两个 profile `ddl-auto=validate`；
-  已在真实 MySQL **8.0.46** 上验通「全新库 / 存量库升级 / V8 幂等」三条路径，
-  并在**真实 MySQL 8.4.10**（便携实例，独立 datadir / `:3307`）上完成实机回归：全新库 17 个迁移 +
-  `validate` 通过（25 表）、核心链路、以及「仅重启后端 / 仅重启 MySQL / 整栈重启」三类恢复；
-  证据 `.evidence/mysql84-3307-20261119-144026/`，脚本 `.e2e/acceptance/mysql-native-3307-acceptance.ps1`；
-- 知识库不变量已落地：ACTIVE 唯一（MySQL 生成列 + 唯一索引）、旧版本块保留窗口与每日清理、
-  `doc_key` 唯一键消除并发首建重复入库；
-- **仍待办**：Flyway 对 8.4 的官方支持滞后（启动仅 WARN，实测 17 个迁移全通过，建议升级 Flyway）；
-  极端旧库的列类型（`health_record.weight` / `operation_history.*_state`）
-  若从未被旧 `ddl-auto` 收敛过，需要手工 `MODIFY`。
+- **P1 端到端时间预算**：`/api/agent/chat` 与 `/api/agent/stream` 建不可变 deadline（默认 30s，`AGENT_BUDGET_*` 可调/可关），
+  阶段前检查剩余预算、单次 LLM 读超时按剩余预算封顶；耗尽按 ADR-002 降级且**如实披露**
+  （回复文案 + `budget_degraded` 事件 + `DEGRADE` 追踪任务）。实测慢依赖完整规划
+  **128.13s / 5 次调用 → 30.05s / 1 次调用**（-76.1%，省 97.5s）。
+- **P2 能力自报**：`routeProvider` 改为「已配置 ∧ 最近一次真实调用成功」，新增
+  `routeConfigured` / `amapVerified` / `routeLastError` / `llmVerified`；**无效 Key 场景 10/10 断言 PASS**，
+  状态页与 `route-legs` 口径一致，不再宣称「使用高德真实路径」；健康页按「已配置 / 已验证」两档呈现。
+- **P6 QPS 限流**：`10021` 一次退避重试（220~400ms 抖动）+ WARN 带 infocode；`estimated` 结果改 **60s 短 TTL**，
+  不再把一次限流钉死 10 分钟。
+- **真实道路几何**：解析 `route.paths[].steps[].polyline` → GCJ-02→WGS-84 → Douglas-Peucker 抽稀（12m，≤200 点），
+  `route-legs.polyline` 常驻（无几何为 `[]`，**绝不补假点**）；前端逐点转 GCJ-02 画真实路线，
+  无几何回退两点直连（ADR-009 演进）。
+- **首屏体积**：echarts 改 `echarts/core` 按需注册（补 ECharts 6 的 `LegacyGridContainLabel`），
+  移除 antd 强制合并块——首屏 JS 静态闭包 **1168.79 → 558.26 KiB（-52.2%）**，echarts **1086.71 KiB → 550.60 kB**。
+- **MySQL 8.4 旧库升级**：新增 `mysql-upgrade-acceptance.ps1`，V16 真实旧 schema 灌业务数据 → 增量 V17/V18 →
+  **80/80 断言 PASS**（24/24 表行数与旧列哈希一致、新列回填、旧 runId 可查、迁移不重跑、三态重启）。
+- **暗色地图与图表**：高德 `amap://styles/dark` + 主题切换不重建地图；图表双色板按主题取色；
+  真实浏览器量化：地图区域平均亮度 220.66→61.13，图表文字对比度 13.68:1 / 6.81:1；
+  WebKit iPhone 13 / Chromium Pixel 7 PWA 复跑 **32 项 0 FAIL**。
+- 验证基线：后端 `mvn verify` **449/449**、前端 **192/192**（26 文件）、合并后真实 HTTP `fr-acceptance` **27/27**。
 
-**P2 体验与运营（第十批已完成）**
-- 可观测性：`agent.stage{intent|plan|tool|reflect|commit}` Timer、`sse.disconnects{complete|timeout|error|cancelled}`；
-- 会话历史已进规划 Prompt（最近 4 条、每条 120 字，仅 LLM 路径）；
-- 暗色模式、390px 移动端无横向溢出（7 个场景实测）、PWA 离线查看行程（只读三条 API 走 NetworkFirst）；
-- **仍待办**：Safari/iOS 真机与 PWA、echarts/maplibre 暗色配色、二期工具
-  （compare_hotel / check_opening_hours / search_ticket）。
+**仍待办（按阻塞程度）**
+
+1. **高德「Web 服务」Key**：本机 `.env.local` 仍无该 Key（只有前端 JS API Key），
+   所以**真实道路 polyline 在浏览器里的实线渲染、POI/地理编码复验**仍缺一键到底的联调；
+   `.e2e/amap-real-key-probe.ps1` 就绪，拿到 Key 后直接跑（必须是「Web 服务」类型，JS API Key 会报 `10009`）。
+2. **高德 MCP 真实链路**：`MCP_ENABLED=true` + `AMAP_MAPS_API_KEY` 未用真实 Key 跑；12 个工具的
+   业务输出未逐一核对。
+3. **FR-11 / FR-12 延后（P1）**：个性化 RAG 与酒店/餐饮实时房态价格依赖服务商授权与库存接口
+   （高德只有地图/POI 能力），决策与前置条件见
+   [provider-rag 决策](docs/review/2026-11-19-provider-rag-decision.md)；本轮唯一建议动手的防守项是
+   价格「参考价 + 来源 + 深链」。
+4. **DeepSeek 余额（402）**：FR-03 真模型复验仍被余额卡住，链路已用本地 OpenAI 兼容替身验通。
+5. **真机 Safari / iOS 安装**：WebKit 仿真已全过，真机系统级安装与底图渲染仍需人工点一遍。
+6. **Flyway 对 MySQL 8.4 官方支持滞后**：启动仅 WARN（"latest supported version of MySQL is 8.1"），
+   17 个迁移与 `validate` 实测全通过；建议后续升级 Flyway。
+7. **已知边界（不是缺陷，写清楚免得被当成已覆盖）**：端到端预算**不约束审核阶段内部的外部调用超时**
+   （高德算路 6s / 天气 5s / MCP 工具 30s 各自为政），最坏会多出一个在途调用的自身超时；
+   冷 JVM 首轮 12 分钟长跑 RSS 会因堆提交/metaspace 扩张而 +20%（`jcmd` 诊断：全量 GC 后活跃堆 56MB、
+   空闲 60s RSS 恒定），预热后同口径为 +2.5%。

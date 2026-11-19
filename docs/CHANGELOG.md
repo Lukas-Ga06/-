@@ -2,6 +2,51 @@
 
 按主题记录行为变化。**第四节是最需要注意的**：其中几项改变了原有的使用习惯。
 
+## 数据可信度与真实道路几何收口（2026-11-19 晚）
+
+> 完整复核：[docs/review/2026-11-19-fix-verification.md](review/2026-11-19-fix-verification.md)。
+> 修的是同日上午验收报告点名的 P1/P2/P3/P5/P6，并补上真实道路几何、首屏分包与 MySQL 旧库升级回归。
+> 基线：后端 449 用例、前端 192 用例、合并后真实 HTTP 27/27。
+
+### 一、行为变化（用户能感知的）
+
+1. **慢依赖不再把一次对话拖到分钟级**：新增端到端时间预算（默认 30s，`AGENT_BUDGET_ENABLED` / `AGENT_BUDGET_TOTAL_MS`）。
+   实测 128.13s → 30.05s；耗尽时**降级而非报错**，并在回复、SSE `budget_degraded`、运行追踪 `DEGRADE` 任务与日志里如实说明
+   「跳过研究/审核/润色，结果未经完整校验」。设 `AGENT_BUDGET_ENABLED=false` 可完全回退旧行为。
+2. **状态页不再把「配置了」说成「能用」**：`/api/system/status` 新增 `llmVerified`、`routeConfigured`、`amapVerified`、
+   `routeLastError`；`routeProvider` 改为「已配置 ∧ 最近一次真实调用成功」。**无效 Key 时不再报 `amap`**
+   （旧行为：报 amap + 「使用高德真实路径」，实际全 estimated）。
+3. **路线地图画真实道路**：`route-legs.polyline`（WGS-84 `[lat,lng]`、≤200 点、抽稀）有几何时前端逐点转 GCJ-02 画实线；
+   无几何仍回退两点直连。`estimated` 段永远是虚线 + 空几何，**不补假点**。
+4. **暗色模式真正生效**：行程地图切 `amap://styles/dark`；预算/支出图表按主题取色（此前写死浅色，暗色下文字不可读）；
+   健康页新增「运行能力自检」卡片，按「未配置 / 已配置未验证 / 已验证」如实呈现。
+5. **高德 QPS 限流不再静默**：`10021` 退避重试一次 + WARN 带 infocode；估算结果缓存从 10 分钟改为 60 秒，恢复后能更快重新走真实路径。
+
+### 二、修复清单
+
+| 级别 | 问题 | 修复 |
+|---|---|---|
+| P1 | 5 个串行 LLM 阶段可拖到 128s，同步接口无总超时 | 不可变 deadline + 阶段门禁 + LLM 读超时按剩余预算封顶 + 可观测降级 |
+| P2 | 无效 Key 时 `routeProvider` 仍报 `amap` | 口径改为「配置 ∧ 最近真实成功」，附 `routeConfigured`/`amapVerified`/`routeLastError`；前端两档呈现 |
+| P3 | 降级日志丢根因 | `ErrorSummary`：`包装类型 -> 根因类型: 消息`，并对 `key=` 脱敏 |
+| P5 | LLM 全失败仍报 `llmConfigured=true` 像「在线」 | `llmVerified` 与 `llmConfigured` 分离 |
+| P6 | 10021 静默降级且被缓存 10 分钟 | 一次退避重试（220~400ms 抖动）+ WARN（infocode）+ estimated 60s TTL |
+
+### 三、性能与部署
+
+- **首屏**：echarts 改 `echarts/core` 按需注册（补 ECharts 6 的 `LegacyGridContainLabel`，否则 `containLabel` 静默失效），
+  移除 antd 强制合并块。首屏 JS 静态闭包 **1168.79 → 558.26 KiB（-52.2%）**、echarts **1086.71 KiB → 550.60 kB**；
+  maps（maplibre，1.06 MB）仍懒加载，**故意不抬** `chunkSizeWarningLimit`。
+- **MySQL 8.4 旧库升级**：新增 `mysql-upgrade-acceptance.ps1`——V16 真实旧 schema 灌业务数据 → 增量 V17/V18 →
+  **80/80 断言 PASS**（24/24 表行数与旧列哈希一致、新列回填、旧 runId 可查、迁移不重跑、三态重启）。
+  顺带确认 **V15 不是可运行发布版本**（旧代码启动缺 `pending_plan.content_hash`），旧基线应取 V16。
+
+### 四、已知边界（别当成已覆盖）
+
+- 预算**不约束**审核阶段内部的外部调用超时（高德 6s / 天气 5s / MCP 30s），最坏多出一个在途超时。
+- 冷 JVM 首轮 12 分钟长跑 RSS +20%（`jcmd` 证明是堆提交/metaspace 扩张，非泄漏），预热后 +2.5%。
+- 真实高德 Key 下的 polyline 实线渲染、MCP 真实链路、FR-03 真模型、真机 Safari 仍未验证（见复核报告 §9）。
+
 ## V2.2 正式验收（2026-11-19）
 
 > 完整报告：[docs/review/2026-11-19-acceptance.md](review/2026-11-19-acceptance.md)。

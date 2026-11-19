@@ -174,6 +174,11 @@ SW 缓存的数据永远渲染不出来（只做到「不白屏、不踢人」�
 | P5 | 中 | LLM 100% 失败时 `/api/system/status` 仍报 `llmConfigured=true` | 区分 configured / last-call-ok |
 | P6 | 中 | 高德 QPS 限流（10021）静默降级 + 结果被缓存 10 分钟；8 并发实测 3 次命中 | `AmapDataService.direction` 对 10021 做退避重试 + WARN（记 infocode），不缓存失败结果 |
 
+> **同日晚上已修复并复核**：P1/P2/P3/P5/P6 全部收口，另补上真实道路 polyline、首屏分包与 MySQL 旧库升级回归。
+> 逐项证据与仍然未验的项见 [2026-11-19-fix-verification.md](2026-11-19-fix-verification.md)：
+> P1 端到端 128.13s→30.05s、P2 无效 Key 10/10 断言 PASS、P6 重试+60s TTL、MySQL 旧库升级 80/80 PASS、
+> 首屏静态闭包 1168.79→558.26 KiB。本表保留验收当时的原始结论，不做追溯修改。
+
 ### 4.3 FR-03 的真模型说明
 
 DeepSeek Key 余额为 0（402）。为不把「链路没验证」写成「已验证」，用本地 OpenAI 兼容替身（`.e2e/acceptance/stub-openai-llm.mjs`）
