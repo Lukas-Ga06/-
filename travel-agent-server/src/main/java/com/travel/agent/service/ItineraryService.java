@@ -6,6 +6,7 @@ import com.travel.agent.entity.ItineraryItem;
 import com.travel.agent.entity.Trip;
 import com.travel.agent.exception.BusinessException;
 import com.travel.agent.repository.ItineraryItemRepository;
+import com.travel.agent.repository.TripRepository;
 import com.travel.agent.util.Paging;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
@@ -32,13 +33,31 @@ public class ItineraryService {
     private static final int MAX_ITINERARY_ROWS = Paging.MAX_LIMIT;
 
     private final ItineraryItemRepository repository;
+    /** 行程城市与日期：价格深链（携程 cityId / checkin+checkout）以它为准，不信任条目自身字段 */
+    private final TripRepository tripRepository;
+    /** 参考价自报（ADR-006）：纯本地推算，无网络调用 */
+    private final PriceReferenceService priceReferenceService;
 
     public List<ItineraryDtos.ItineraryItemDTO> listByTrip(Long tripId) {
         Pageable pageable = PageRequest.of(0, MAX_ITINERARY_ROWS,
                 Sort.by(Sort.Order.asc("dayIndex"), Sort.Order.asc("startTime"), Sort.Order.asc("id")));
+        // 同一事务/持久化上下文内该查询会被缓存；这里只为拿到城市与起止日期，不改变返回语义
+        Trip trip = tripRepository.findById(tripId).orElse(null);
         return repository.findByTripId(tripId, pageable).stream()
-                .map(ItineraryDtos.ItineraryItemDTO::from)
+                .map(item -> toDto(item, trip))
                 .toList();
+    }
+
+    /**
+     * 实体 → DTO（带参考价）。
+     *
+     * <p>列表、手动新增、手动修改、Agent 工具等所有「对外返回行程项」的路径都必须走这里，
+     * 否则会出现「列表有 price、新增返回没有」的形状不一致（前端同一套渲染代码）。
+     * 内部快照/还原（{@link ItineraryDtos.ItineraryItemDTO#from(ItineraryItem)}）刻意不带价格：
+     * 价格是展示层的实时推算结果，不落库、不进撤销快照，读取时按当前行程重算。
+     */
+    public ItineraryDtos.ItineraryItemDTO toDto(ItineraryItem item, Trip trip) {
+        return ItineraryDtos.ItineraryItemDTO.from(item, priceReferenceService.build(item, trip));
     }
 
     public List<ItineraryItem> listEntities(Long tripId) {

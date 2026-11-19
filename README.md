@@ -631,8 +631,10 @@ Spring Boot 3.5、全栈 Docker 化，以及若干轮逻辑缺陷修复与安全
    业务输出未逐一核对。
 3. **FR-11 / FR-12 延后（P1）**：个性化 RAG 与酒店/餐饮实时房态价格依赖服务商授权与库存接口
    （高德只有地图/POI 能力），决策与前置条件见
-   [provider-rag 决策](docs/review/2026-11-19-provider-rag-decision.md)；本轮唯一建议动手的防守项是
-   价格「参考价 + 来源 + 深链」。
+   [provider-rag 决策](docs/review/2026-11-19-provider-rag-decision.md)。**防守项已实现（2026-11-19 晚）**：
+   行程项价格改为「参考价 + 来源 + 深链」——`price` 对象带 `kind=reference`/`source=local-estimate`/
+   免责声明，酒店给携程 canonical 查价链接（仅北京/上海/杭州，表外不猜 id）、有坐标条目给高德 URI，
+   状态页 `priceProvider=reference-estimate`。**仍未接实时房态/库存**（那需要 OTA 商务授权）。
 4. **DeepSeek 余额（402）**：FR-03 真模型复验仍被余额卡住，链路已用本地 OpenAI 兼容替身验通。
 5. **真机 Safari / iOS 安装**：WebKit 仿真已全过，真机系统级安装与底图渲染仍需人工点一遍。
 6. **Flyway 对 MySQL 8.4 官方支持滞后**：启动仅 WARN（"latest supported version of MySQL is 8.1"），

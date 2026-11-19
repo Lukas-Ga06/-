@@ -130,3 +130,52 @@ describe('Timeline · 转场行（FR-07 route-legs）', () => {
     expect(row.textContent).toContain('4.2 km');
   });
 });
+
+describe('Timeline · 行程卡片价格溯源（price 可选）', () => {
+  const price = {
+    amount: 520,
+    currency: 'CNY',
+    kind: 'reference',
+    label: '参考价',
+    source: 'local-estimate',
+    sourceLabel: '本地估算',
+    disclaimer: '非实时报价：未接入房态/库存，实际价格与可订状态以 OTA 页面为准',
+    links: [
+      { provider: 'ctrip', label: '去携程查价', url: 'https://hotels.ctrip.com/hotels/1.html', kind: 'price' },
+      { provider: 'amap', label: '在地图查看', url: 'https://uri.amap.com/marker?position=1,2', kind: 'map' },
+    ],
+  };
+
+  it('时间线内的卡片同样渲染「参考价」标签、来源小字与两个深链', () => {
+    const { container } = render(
+      <Timeline
+        trip={null}
+        items={[item({ cost: 520, price }), item({ id: 2, title: '豫园', startTime: '11:00' })]}
+        focus={null}
+      />,
+    );
+
+    expect(screen.getByTestId('price-tag').textContent).toBe('参考价');
+    expect(screen.getByTestId('price-source').textContent).toContain('本地估算');
+    expect(screen.getByTestId('price-disclaimer').textContent).toContain('非实时报价');
+    expect(screen.getAllByTestId('price-link')).toHaveLength(2);
+
+    // 第二条没有 price：只显示旧行为，不重复出现标签
+    expect(container.querySelectorAll('[data-testid="price-tag"]')).toHaveLength(1);
+  });
+
+  it('price 缺失 / 为 null 时时间线行为与改动前一致（无标签、无链接、不抛错）', () => {
+    const { container } = render(
+      <Timeline
+        trip={null}
+        items={[item({ id: 1, cost: 520 }), item({ id: 2, title: '豫园', cost: null, price: null })]}
+        focus={null}
+      />,
+    );
+
+    expect(container.querySelectorAll('[data-testid="price-tag"]')).toHaveLength(0);
+    expect(container.querySelectorAll('[data-testid="price-link"]')).toHaveLength(0);
+    expect(container.textContent).toContain('¥520');
+    expect(container.textContent).not.toContain('立即预订');
+  });
+});

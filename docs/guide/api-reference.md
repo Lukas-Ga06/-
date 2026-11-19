@@ -322,9 +322,34 @@ GET /api/photos/12/raw?ticket=...                    # 只能用 media-read 票�
 ### 3.8 GET /api/trips/{id}/itinerary — 行程项列表
 鉴权：登录 ｜ 源码：`TripController#itinerary:92` ｜ 参数：路径 `id`
 ```json
-{"code":0,"message":"success","data":[{"id":11,"tripId":1,"dayIndex":1,"itemType":"attraction","title":"西湖断桥","startTime":"2026-11-20T09:00:00","endTime":"2026-11-20T11:00:00","latitude":30.259,"longitude":120.148,"cost":0.00,"tags":["室外","免费"],"description":"清晨人少"}]}
+{"code":0,"message":"success","data":[{"id":11,"tripId":1,"dayIndex":1,"itemType":"attraction","title":"西湖断桥","startTime":"2026-11-20T09:00:00","endTime":"2026-11-20T11:00:00","latitude":30.259,"longitude":120.148,"cost":0.00,"tags":["室外","免费"],"description":"清晨人少","price":null}]}
 ```
 错误：`401`；`404`
+
+**`price`（参考价 + 来源 + 深链，ADR-006 补齐）**：`cost` 为 `null` 或 `0` 时 `price: null`，否则：
+
+```json
+"price": {
+  "amount": 520.00, "currency": "CNY",
+  "kind": "reference", "label": "参考价",
+  "source": "local-estimate", "sourceLabel": "本地估算",
+  "disclaimer": "非实时报价：未接入房态/库存，实际价格与可订状态以 OTA 页面为准",
+  "links": [
+    {"provider":"ctrip","label":"去携程查价","url":"https://hotels.ctrip.com/hotels/list?flexType=1&cityId=17&provinceId=0&districtId=0&countryId=1&checkin=2026-11-20&checkout=2026-11-21","kind":"price"},
+    {"provider":"amap","label":"在地图查看","url":"https://uri.amap.com/marker?position=120.148,30.259&name=%E8%A5%BF%E6%B9%96%E6%96%AD%E6%A1%A5&src=travel-agent&coordinate=wgs84&callnative=0","kind":"map"}
+  ]
+}
+```
+
+| 项 | 约定 |
+| --- | --- |
+| `kind` | 固定 `reference`；当前**没有**任何实时房态/库存源，不许出现「实时/可订/有房」 |
+| `source` | 固定 `local-estimate`（静态目录或模型生成的本地估算） |
+| `links.kind=price` | 仅**酒店**：携程 canonical 列表（`cityId` 表：北京 `1`、上海 `2`、杭州 `17`，其余城市**不给链接**；缺行程起止日期也不给）；简化的 `?city=` 形式会跳登录页，禁止使用 |
+| `links.kind=map` | 所有有坐标的条目：高德 URI，`position={lng},{lat}`、`coordinate=wgs84`（业务坐标是 WGS-84，由高德纠偏） |
+| 不可用源 | **大众点评**：实测 `302` 到 `account.dianping.com/pclogin` / `verify.meituan.com`，不能当深链 |
+
+`GET /api/system/status` 同步新增 `priceProvider: "reference-estimate"` 与 `priceHint`，与 `routeProvider` 同口径。
 
 ### 3.9 GET /api/trips/{id}/route-legs — 每日路线段（V2.2 FR-07）
 鉴权：登录 ｜ 源码：`TripController#routeLegs` ｜ 参数：路径 `id`

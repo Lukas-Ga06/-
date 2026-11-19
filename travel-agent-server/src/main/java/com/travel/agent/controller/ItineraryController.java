@@ -33,7 +33,7 @@ public class ItineraryController {
         // 手工修改同样进撤销链（与本次修改同事务）
         var saved = historyService.withHistory(trip, user.getId(), "手动修改行程项",
                 () -> itineraryService.updateItem(trip, id, request));
-        return ApiResponse.ok(ItineraryDtos.ItineraryItemDTO.from(saved));
+        return ApiResponse.ok(itineraryService.toDto(saved, trip));
     }
 
     @DeleteMapping("/{id}")

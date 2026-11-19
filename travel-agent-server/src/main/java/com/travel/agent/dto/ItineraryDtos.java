@@ -33,7 +33,13 @@ public class ItineraryDtos {
         private BigDecimal cost;
         private List<String> tags;
         private String description;
+        /**
+         * 参考价（ADR-006：估算必须自报家门）。{@code cost} 为 null 或 0 时该字段为 null；
+         * 由 {@code PriceReferenceService} 构建，纯本地推算，绝非实时报价。
+         */
+        private PriceDTO price;
 
+        /** 不带价格的映射：仅用于内部快照/还原（价格在读取时按当前行程重新推算，不落库） */
         public static ItineraryItemDTO from(ItineraryItem e) {
             return ItineraryItemDTO.builder()
                     .id(e.getId())
@@ -50,6 +56,47 @@ public class ItineraryDtos {
                     .description(e.getDescription())
                     .build();
         }
+
+        /** 带参考价的映射：所有对外响应（列表 / 新增 / 修改）都必须走这个入口 */
+        public static ItineraryItemDTO from(ItineraryItem e, PriceDTO price) {
+            ItineraryItemDTO dto = from(e);
+            dto.setPrice(price);
+            return dto;
+        }
+    }
+
+    /**
+     * 价格自报结构（前端契约，字段名/取值已锁定，不要改）。
+     *
+     * <p>{@code kind} 固定 {@code reference}、{@code source} 固定 {@code local-estimate}：
+     * 当前没有接入任何实时房价/库存源，估算不能伪装成实时（ADR-006）。
+     * {@code links} 无可用项时是空数组，不是 null——前端可无条件遍历。
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class PriceDTO {
+        private BigDecimal amount;
+        private String currency;    // CNY
+        private String kind;        // reference
+        private String label;       // 参考价
+        private String source;      // local-estimate
+        private String sourceLabel; // 本地估算
+        private String disclaimer;
+        private List<PriceLinkDTO> links;
+    }
+
+    /** 价格深链：{@code kind} 取 {@code price}（查价）/ {@code map}（地图查看） */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class PriceLinkDTO {
+        private String provider; // ctrip / amap
+        private String label;
+        private String url;
+        private String kind;
     }
 
     /**

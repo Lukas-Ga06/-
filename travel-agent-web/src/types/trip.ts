@@ -62,6 +62,40 @@ export function tripPhaseClass(trip: Trip): string {
 
 export type ItemType = 'hotel' | 'attraction' | 'restaurant' | 'transport' | string;
 
+/**
+ * 价格深链：`kind=price` 去 OTA 查价（如携程），`kind=map` 在地图上查看位置。
+ * 旧后端不返回 `price`，这里所有字段都按可选/可空处理。
+ */
+export interface ItineraryPriceLink {
+  provider?: string | null;
+  label?: string | null;
+  url?: string | null;
+  kind?: 'price' | 'map' | string | null;
+}
+
+/**
+ * 价格溯源（后端新增）。`amount` 只是本地估算的参考价，未接入房态/库存，
+ * 展示层只能表述为「参考价」，不得显示成实时报价或可订状态。
+ *
+ * 兼容性：旧后端**完全没有** `price` 字段；`cost` 为 null/0 时后端给 `price: null`。
+ * 因此这里每个子字段都可选/可空，任何缺失都退回「只展示金额」的旧行为。
+ */
+export interface ItineraryPrice {
+  amount?: number | null;
+  currency?: string | null;
+  /** 价格类型，当前只有 reference（参考价） */
+  kind?: 'reference' | string | null;
+  /** 金额旁的小标签文案，后端给「参考价」 */
+  label?: string | null;
+  /** 来源标识，如 local-estimate */
+  source?: string | null;
+  /** 来源的人类可读名，如「本地估算」 */
+  sourceLabel?: string | null;
+  /** 免责声明：必须原样展示，不得改写成承诺 */
+  disclaimer?: string | null;
+  links?: ItineraryPriceLink[] | null;
+}
+
 export interface ItineraryItem {
   id: number | null;
   tripId?: number | null;
@@ -75,6 +109,8 @@ export interface ItineraryItem {
   cost: number | null;
   tags?: string[] | null;
   description?: string | null;
+  /** 价格溯源（可选）：缺失或 null 时保持只展示金额的旧行为 */
+  price?: ItineraryPrice | null;
 }
 
 export interface AddItemPayload {

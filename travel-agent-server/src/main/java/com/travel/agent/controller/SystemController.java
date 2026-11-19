@@ -43,6 +43,11 @@ public class SystemController {
     private final com.travel.agent.service.RouteService routeService;
     /** P5：最近一次 LLM 调用结果（与「配置了 Key」分离） */
     private final LlmRuntimeStatus llmRuntimeStatus;
+    /**
+     * 价格能力自报（ADR-006）：当前只有本地参考估算，没有实时房态/库存源。
+     * 与 routeProvider 口径一致——没有的能力不许在状态页上宣称。
+     */
+    private final com.travel.agent.service.PriceReferenceService priceReferenceService;
 
     @GetMapping("/status")
     public ApiResponse<Map<String, Object>> status() {
@@ -77,6 +82,11 @@ public class SystemController {
         status.put("amapVerified", routeVerified);
         status.put("routeLastError", routeLastError);
         status.put("routeHint", routeHint(routeProvider, routeConfigured, routeLastError));
+
+        // 价格数据来源：只有本地参考估算（reference-estimate），没有实时房价/库存提供商。
+        // priceHint 必须与之一致——前端据此在价格旁固定展示「参考价」与免责声明。
+        status.put("priceProvider", priceReferenceService.provider());
+        status.put("priceHint", priceReferenceService.hint());
         status.put("ocrConfigured", invoiceTextExtractor.ocrConfigured());
         status.put("ocrHint", invoiceTextExtractor.ocrConfigured()
                 ? "已配置 Tesseract：图片发票可直接 OCR"

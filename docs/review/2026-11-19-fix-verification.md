@@ -19,6 +19,7 @@
 | Safari/iOS/PWA 真机、暗色地图/图表 | ✅ 暗色已修复并量化；⚠ 真机仍需人工 | 地图平均亮度 220.66→61.13；图表文字对比度 13.68:1 / 6.81:1；WebKit iPhone 13 + Chromium Pixel 7 PWA **32 项 0 FAIL** |
 | 生产压测 / 第三方异常 / 长跑 | ✅ 已复跑出新基线 | 并发 40/40 + 20/20、第三方 3 类降级成功、长跑 576/576（预热后 RSS +2.5%） |
 | FR-11 个性化 RAG / FR-12 实时房态价格 | ⛔ **仍延后（P1）** | 依赖 OTA 商务授权与库存接口；见 [provider-rag 决策](2026-11-19-provider-rag-decision.md) |
+| FR-12 防守项「参考价 + 来源 + 深链」 | ✅ **已实现（同日更晚，最小版）** | `price{kind=reference,source=local-estimate,disclaimer,links}`；酒店→携程 canonical（北京 1/上海 2/杭州 17，表外不猜）、条目→高德 URI；`priceProvider=reference-estimate`。后端 467、前端 201 用例；真实 HTTP 冒烟过 |
 | 高德「Web 服务」Key 联调 | ⛔ **仍缺一枚可复用 Key** | 本机 `.env.local` 只有前端 JS API Key；探测脚本已就绪 |
 
 **验证基线**：后端 `mvn verify` **449/449** 全绿；前端 `typecheck` 0 error + **192/192**（26 文件）+ build 成功；
@@ -181,6 +182,8 @@ WebKit/PWA 复跑：iPhone 13（WebKit）**15 PASS + 1 INFO**、Pixel 7（Chromi
 5. **P6 的真实限流时序**：重试行为由 MockRestServiceServer 验证，真实 10021 时序未复现（需真实 Key + 并发）。
 6. **P1 边界**：审核阶段内部的外部调用超时不受预算约束（见 §2）。
 7. **FR-11/FR-12**：按决策继续延后，前置是商务授权与库存接口，不是代码。
+   同日更晚已实现其中的**防守项**（参考价 + 来源 + 深链，不改 schema），见 CHANGELOG §四；
+   「实时可订价」仍**未**接入。
 
 ## 10. 复现命令
 

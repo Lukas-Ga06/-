@@ -128,7 +128,7 @@ public class TripController {
         Trip trip = tripService.getOwned(id, user.getId());
         var saved = historyService.withHistory(trip, user.getId(), "手动新增行程项：" + request.getTitle(),
                 () -> itineraryService.addItem(trip, request));
-        return ApiResponse.ok(ItineraryDtos.ItineraryItemDTO.from(saved));
+        return ApiResponse.ok(itineraryService.toDto(saved, trip));
     }
 
     /** 路书导出：行程 + 每日安排 + 预算小结 → PDF（浏览器内联预览，可另存） */

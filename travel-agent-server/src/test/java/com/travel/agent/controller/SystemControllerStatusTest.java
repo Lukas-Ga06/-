@@ -7,6 +7,7 @@ import com.travel.agent.llm.LlmRuntimeStatus;
 import com.travel.agent.service.AmapDataService;
 import com.travel.agent.service.InvoiceTextExtractor;
 import com.travel.agent.service.LlmQuotaService;
+import com.travel.agent.service.PriceReferenceService;
 import com.travel.agent.service.RouteService;
 import org.junit.jupiter.api.Test;
 
@@ -39,7 +40,8 @@ class SystemControllerStatusTest {
         when(llmProperties.getQuotaDailyLimit()).thenReturn(0);
         when(amapProperties.usable()).thenReturn(false);
         return new SystemController(llmProperties, invoiceTextExtractor, rateLimitProperties,
-                llmQuotaService, amapProperties, new RouteService(amap), llmRuntimeStatus);
+                llmQuotaService, amapProperties, new RouteService(amap), llmRuntimeStatus,
+                new PriceReferenceService());
     }
 
     private static AmapDataService amap(boolean configured, boolean verified, String lastError) {
