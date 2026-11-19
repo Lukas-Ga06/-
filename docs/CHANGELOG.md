@@ -53,6 +53,8 @@
 - 前端 157 → **166** 用例全绿（`typecheck` + `test` + `build`）：新增 `stageText.test.ts`（6）、
   `AgentActivityPanel` 2 个用例，以及 `agent.test.ts` 1 个「SSE 事件白名单含 delegate/recover/conflict」回归用例
   （EventSource 只能按登记名监听，漏登记会静默丢事件——这是本批自查发现并修掉的真实缺陷）。
+- e2e **5/5 通过**（Playwright chromium：登录→建行程→路书、攻略整合表单、从零规划表单、路由守卫、PWA 资源），
+  跑在「生产 jar + `vite preview`」上，验证前后端契约在真实浏览器里闭合。
 - 真实 HTTP 冒烟：见 [docs/guide/v2.2-iteration.md](guide/v2.2-iteration.md) §6.4。
 
 ### 五、需要注意的行为变化
