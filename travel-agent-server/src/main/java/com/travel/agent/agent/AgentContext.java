@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.travel.agent.dto.ChatDtos;
 import com.travel.agent.entity.ConversationMessage;
 import lombok.Data;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.HashMap;
 import java.util.List;
@@ -12,6 +13,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 
 /** Agent 上下文：每次 Agent 调用的全部环境信息 */
+@Slf4j
 @Data
 public class AgentContext {
 
@@ -71,6 +73,61 @@ public class AgentContext {
      */
     @JsonIgnore
     private volatile boolean cancelled;
+
+    /**
+     * 本轮端到端时间预算（P1）。
+     *
+     * <p>由 {@code AgentController} 在请求入口创建（同步 /chat 与 SSE 共用同一份语义），
+     * 阶段开始前据此检查剩余预算并按 ADR-002 降级。未显式设置时是
+     * {@link AgentBudget#unlimited()}——渠道入口、单测直接构造的上下文行为与升级前一致。
+     */
+    @JsonIgnore
+    private AgentBudget budget = AgentBudget.unlimited();
+
+    /**
+     * 预算降级留痕：哪个阶段因预算耗尽降级、当时的剩余预算。
+     *
+     * <p>用写时复制列表：PREVIEW / REVIEW 这类并行阶段可能各自记录，读侧（收尾提示、
+     * 追踪任务、单测断言）不应与写入竞争。同一阶段只保留第一条——第一条最能说明在哪一步耗尽。
+     */
+    @JsonIgnore
+    @lombok.EqualsAndHashCode.Exclude
+    private final transient List<BudgetDegradation> budgetDegradations = new CopyOnWriteArrayList<>();
+
+    /** 一条预算降级记录：stage=阶段标识（见 {@link AgentBudget}），detail=降级说明，remainingMs=降级时剩余预算 */
+    public record BudgetDegradation(String stage, String detail, long remainingMs) {
+    }
+
+    /**
+     * 本轮预算：<b>永不返回 null</b>。显式设置成 null（渠道/旧调用方）等价于「不受预算约束」，
+     * 这样各阶段的检查代码不需要到处判空，未设置预算的入口行为也与升级前一致。
+     */
+    public AgentBudget getBudget() {
+        return budget == null ? AgentBudget.unlimited() : budget;
+    }
+
+    /**
+     * 记录一次「预算耗尽 → 阶段降级」。
+     *
+     * <p>三件事必须同时发生，缺一不可（验收口径：降级可观测、不得静默）：
+     * WARN 日志带 runId 与剩余预算（运维可查，且与「LLM 不可用」的降级日志区分开）、
+     * {@code budget_degraded} 事件（SSE 客户端可见）、上下文里的留痕（收尾提示与追踪任务据此生成）。
+     */
+    public void recordBudgetDegradation(String stage, String detail) {
+        if (budgetDegradations.stream().anyMatch(d -> d.stage().equals(stage))) {
+            return;
+        }
+        long remaining = getBudget().remainingMs();
+        budgetDegradations.add(new BudgetDegradation(stage, detail, remaining));
+        log.warn("Agent 预算耗尽触发降级: runId={} stage={} remainingMs={} detail={}",
+                runId, stage, remaining, detail);
+        emit("budget_degraded", Map.of("stage", stage, "detail", detail, "remainingMs", remaining));
+    }
+
+    /** 本轮是否发生过预算降级（收尾提示 / 追踪任务 / 单测断言用） */
+    public boolean hasBudgetDegradations() {
+        return !budgetDegradations.isEmpty();
+    }
 
     private AgentState state = AgentState.RECEIVE;
     private Map<String, Object> variables = new HashMap<>();

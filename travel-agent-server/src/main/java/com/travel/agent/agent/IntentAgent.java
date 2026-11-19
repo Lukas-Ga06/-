@@ -47,11 +47,17 @@ public class IntentAgent {
 
     public IntentResult detect(AgentContext ctx, Trip trip) {
         String message = ctx.getMessage() == null ? "" : ctx.getMessage();
-        if (llmClient.available()) {
-            IntentResult result = llmDetect(ctx, trip, message);
+        AgentBudget budget = ctx.getBudget();
+        if (llmClient.available() && budget.allowsLlmCall(AgentBudget.MIN_LLM_CALL_MS)) {
+            IntentResult result = llmDetect(ctx, trip, message, budget);
             if (result != null && plausible(result, message)) {
                 return result;
             }
+        } else if (llmClient.available()) {
+            // 只有「模型可用、但时间预算不够」才算预算降级；无模型是既有的规则兜底，
+            // 两条路径的日志与追踪必须能区分开（P1 验收：不得把两者混为一谈）。
+            ctx.recordBudgetDegradation(AgentBudget.STAGE_INTENT,
+                    "预算不足，跳过 LLM 意图识别，改用规则引擎");
         }
         IntentResult rule = ruleDetect(ctx, trip, message);
         // 规则路径同样产出需求槽位（FR-01）：追问与规划都依赖这份确定性解析
@@ -83,7 +89,7 @@ public class IntentAgent {
         return true;
     }
 
-    private IntentResult llmDetect(AgentContext ctx, Trip trip, String message) {
+    private IntentResult llmDetect(AgentContext ctx, Trip trip, String message, AgentBudget budget) {
         try {
             String historyBlock = renderHistory(ctx);
             String toolsBlock = renderToolCatalog();
@@ -111,7 +117,7 @@ public class IntentAgent {
                     当前用户是否已有行程：%s
                     %s用户消息：
                     """.formatted(toolsBlock, trip != null ? "有 (tripId=" + trip.getId() + ")" : "无", historyBlock) + message;
-            String raw = llmClient.chat(List.of(
+            String raw = budget.chat(llmClient, List.of(
                     LlmMessage.system("你只输出 JSON，不要输出任何其他内容。"),
                     LlmMessage.user(prompt)), 0.0);
             if (raw == null) {

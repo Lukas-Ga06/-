@@ -82,6 +82,24 @@ public class AgentEngine {
     /** 追问/兜底说明里「出发日期按明天」的展示格式 */
     private static final DateTimeFormatter SHORT_DATE = DateTimeFormatter.ofPattern("M月d日");
 
+    // ==================== P1 端到端时间预算：降级留痕 ====================
+
+    /** 预算降级追踪任务的接收方（/api/agent/runs/{runId} 的任务列表里可直接查到） */
+    static final String BUDGET_TASK_RECEIVER = "budget-guard";
+    /** 预算降级追踪任务类型：任务列表里一眼可见「本轮发生过预算降级」（对外契约，单测据此断言） */
+    public static final String BUDGET_TASK_TYPE = "DEGRADE";
+    /** 用户可见的预算降级提示前缀（幂等判断用：complete 与 finish 都会走到提示逻辑） */
+    static final String BUDGET_NOTICE_PREFIX = "⏳ 时间预算";
+
+    /** 降级阶段的用户可读文案：不写内部术语（review/REPLAN），说人话并点明「没做什么」 */
+    private static final Map<String, String> BUDGET_STAGE_LABELS = Map.of(
+            AgentBudget.STAGE_INTENT, "跳过 LLM 意图识别（改用规则引擎）",
+            AgentBudget.STAGE_RESEARCH, "跳过研究取证",
+            AgentBudget.STAGE_PLAN, "跳过 LLM 结构化规划（改用规则规划）",
+            AgentBudget.STAGE_REVIEW, "跳过审核与重规划（未做路线/天气校验）",
+            AgentBudget.STAGE_NARRATION, "跳过文案润色",
+            AgentBudget.STAGE_TOOL, "未执行外部工具查询");
+
     private final IntentAgent intentAgent;
     private final PlannerAgent plannerAgent;
     private final ExecutorAgent executorAgent;
@@ -133,6 +151,8 @@ public class AgentEngine {
             }
             AgentDtos.AgentResult result = doHandle(ctx);
             finishRunRecord(ctx, result);
+            // 预算降级必须可追踪：单独落一条 DEGRADE 任务（放在 run 收尾之后，不影响结果状态）
+            recordBudgetTrace(ctx);
             return result;
         } finally {
             com.travel.agent.security.UserContext.clear();
@@ -310,6 +330,9 @@ public class AgentEngine {
 
     /** 出口统一落一条助手消息（也吃掉 null message 的返回），异常时同样不挡主流程 */
     private AgentDtos.AgentResult finish(AgentContext ctx, AgentDtos.AgentResult result, String intent) {
+        // 预算降级的说明必须在返回给用户之前补上（handler 自己发的 complete 事件可能已先到，
+        // 所以 complete() 与 finish() 两处都要挂，靠前缀幂等避免重复）
+        attachBudgetNotice(ctx, result);
         try {
             conversationService.append(ctx.getUserId(), ctx.getConversationId(),
                     ConversationMessage.ROLE_ASSISTANT, result == null ? null : result.getMessage(), intent);
@@ -317,6 +340,72 @@ public class AgentEngine {
             log.warn("会话记忆写入失败: {}", e.getMessage());
         }
         return result;
+    }
+
+    // ==================== P1 端到端时间预算：用户提示与追踪留痕 ====================
+
+    /**
+     * 把预算降级写进用户可见的回复（message + warnings）。
+     *
+     * <p>ADR-002 允许「什么都没做」，但不允许「静默假成功」：既然跳过了审核/研究，
+     * 就必须在回复里说清楚跳过了什么，让用户自己决定要不要重试。
+     * 幂等：同一轮可能先后经过 complete() 与 finish()，靠前缀去重。
+     */
+    private void attachBudgetNotice(AgentContext ctx, AgentDtos.AgentResult result) {
+        if (result == null || !ctx.hasBudgetDegradations()) {
+            return;
+        }
+        String notice = budgetNoticeLine(ctx);
+        boolean inMessage = result.getMessage() != null && result.getMessage().contains(BUDGET_NOTICE_PREFIX);
+        boolean inWarnings = result.getWarnings() != null
+                && result.getWarnings().stream().anyMatch(w -> w != null && w.contains(BUDGET_NOTICE_PREFIX));
+        if (inMessage && inWarnings) {
+            return;
+        }
+        if (!inMessage) {
+            result.appendMessage("\n" + notice);
+        }
+        if (!inWarnings) {
+            // 不原地改 handler 给的集合（可能是不可变 List）：复制一份再追加
+            List<String> warnings = result.getWarnings() == null
+                    ? new ArrayList<>() : new ArrayList<>(result.getWarnings());
+            warnings.add(notice);
+            result.setWarnings(warnings);
+        }
+    }
+
+    /** 「预算耗尽 → 降级了哪个阶段」的用户可读说明（同一阶段只出现一次） */
+    private static String budgetNoticeLine(AgentContext ctx) {
+        String stages = ctx.getBudgetDegradations().stream()
+                .map(d -> BUDGET_STAGE_LABELS.getOrDefault(d.stage(), d.stage()))
+                .distinct()
+                .collect(java.util.stream.Collectors.joining("、"));
+        return BUDGET_NOTICE_PREFIX + "（" + String.format(java.util.Locale.ROOT, "%.1f",
+                ctx.getBudget().totalMs() / 1000.0) + "s）已用尽，为保证按时返回做了降级："
+                + stages + "。本次结果未经完整校验，可稍后重试获取完整结果。";
+    }
+
+    /**
+     * 把预算降级落到运行追踪里：一条 DEGRADE 任务，summary 写明「哪个阶段 → 剩余多少预算」。
+     *
+     * <p>与「LLM 不可用降级」区分：只有「模型/阶段本来能跑、但时间预算不够」才会写这条任务。
+     * {@link com.travel.agent.service.AgentTraceService} 内部吞写入异常（ADR-001），这里再兜一层。
+     */
+    private void recordBudgetTrace(AgentContext ctx) {
+        if (ctx.getRunId() == null || !ctx.hasBudgetDegradations()) {
+            return;
+        }
+        try {
+            String summary = ctx.getBudgetDegradations().stream()
+                    .map(d -> d.stage() + "：预算耗尽降级（剩余 " + d.remainingMs() + "ms）")
+                    .collect(java.util.stream.Collectors.joining("；"));
+            String taskId = traceService.startTask(ctx.getRunId(), ctx.getUserId(),
+                    BUDGET_TASK_RECEIVER, BUDGET_TASK_TYPE);
+            traceService.finishTask(taskId, com.travel.agent.entity.AgentTask.STATUS_SUCCEEDED,
+                    truncateForTask(summary), null);
+        } catch (RuntimeException e) {
+            log.debug("记录预算降级任务失败: runId={} err={}", ctx.getRunId(), e.getMessage());
+        }
     }
 
     private AgentDtos.AgentResult planAndPresent(AgentContext ctx, IntentResult intent, Trip trip,
@@ -396,53 +485,77 @@ public class AgentEngine {
         ctx.setState(AgentState.EXECUTE);
         final AgentPlan candidate = plan;
         AgentDtos.AgentResult preview;
-        PlanReviewLoop.Outcome outcome;
+        // null 表示本轮因预算耗尽跳过了审核（此时没有审核结论，也不能假装「审核通过」）
+        PlanReviewLoop.Outcome outcome = null;
         Timer.Sample reflectSample = stageTimer.start();
         try {
-            java.util.List<Coordinator.Receipt<?>> parallel = coordinator.dispatchAll(ctx, java.util.List.of(
-                    new Coordinator.ParallelTask<>(
-                            Coordinator.TaskSpec.after(com.travel.agent.entity.AgentTask.RECEIVER_EXECUTOR,
-                                    "PREVIEW", planTask),
-                            () -> executorAgent.preview(ctx, candidate, trip),
-                            p -> "生成 Diff 预览："
-                                    + (p.getDiff() == null ? 0 : p.getDiff().getChanges().size()) + " 项变更"),
-                    new Coordinator.ParallelTask<>(
-                            Coordinator.TaskSpec.after(com.travel.agent.entity.AgentTask.RECEIVER_REVIEWER,
-                                    "REVIEW", planTask),
-                            () -> reflectAgent.reviewVerdict(candidate, trip),
-                            v -> v.passed() ? "审核通过"
-                                    : "审核未通过：" + v.highIssues().size() + " 项高风险")));
-            preview = (AgentDtos.AgentResult) parallel.get(0).value();
-            Coordinator.TaskHandle previewTask = parallel.get(0).handle();
-            Coordinator.TaskHandle reviewTask = parallel.get(1).handle();
-            ReflectAgent.ReviewVerdict initialVerdict = (ReflectAgent.ReviewVerdict) parallel.get(1).value();
-
-            // 反思（V2.2 FR-06）：审核发现 HIGH 级硬约束问题 → 派 REPLAN 任务（依赖 REVIEW）做有限
-            // 重规划，再审一遍。之前这里只把审核警告拼到消息上，用户照样能确认超预算/赶不上的方案——
-            // 审核发现问题却不改变结果，等于没有审核。
-            ctx.setState(AgentState.REFLECT);
-            outcome = planReviewLoop.run(ctx, candidate, trip, reviewTask, initialVerdict);
-            // 重规划可能改过条目/时间/费用：用最终计划重建 Diff，保证用户看到的就是最后要提交的内容。
-            // 这次预览是「回收重派」（replacesTaskId=首轮预览，发 recover 事件）：首轮结果作废，
-            // 同一逻辑工作只留一份最终结果。
-            if (outcome.attempts() > 0) {
-                final AgentPlan repairedPlan = outcome.plan();
-                preview = coordinator.redispatch(ctx,
+            if (!ctx.getBudget().allows(AgentBudget.MIN_REVIEW_MS)) {
+                // 预算降级（ADR-002）：审核要查路线与天气，是整条链路最慢的外部依赖段。
+                // 跳过审核与重规划，但 **保留** 纯本地的 Diff 预览——用户仍能拿到可确认的方案，
+                // 只是回复里必须如实说明「本次未经审核」，绝不静默当成功。
+                ctx.recordBudgetDegradation(AgentBudget.STAGE_REVIEW,
+                        "预算耗尽，已跳过审核与重规划（未做路线/天气/预算硬约束校验）");
+                preview = coordinator.dispatch(ctx,
                         Coordinator.TaskSpec.after(com.travel.agent.entity.AgentTask.RECEIVER_EXECUTOR,
-                                        "PREVIEW", outcome.reviewTask())
-                                .replacing(previewTask, 1, "重规划后重建 Diff 预览"),
-                        () -> executorAgent.preview(ctx, repairedPlan, trip),
-                        p -> "重建 Diff 预览："
+                                "PREVIEW", planTask),
+                        () -> executorAgent.preview(ctx, candidate, trip),
+                        p -> "生成 Diff 预览（预算降级，跳过审核）："
                                 + (p.getDiff() == null ? 0 : p.getDiff().getChanges().size()) + " 项变更")
                         .value();
+            } else {
+                java.util.List<Coordinator.Receipt<?>> parallel = coordinator.dispatchAll(ctx, java.util.List.of(
+                        new Coordinator.ParallelTask<>(
+                                Coordinator.TaskSpec.after(com.travel.agent.entity.AgentTask.RECEIVER_EXECUTOR,
+                                        "PREVIEW", planTask),
+                                () -> executorAgent.preview(ctx, candidate, trip),
+                                p -> "生成 Diff 预览："
+                                        + (p.getDiff() == null ? 0 : p.getDiff().getChanges().size()) + " 项变更"),
+                        new Coordinator.ParallelTask<>(
+                                Coordinator.TaskSpec.after(com.travel.agent.entity.AgentTask.RECEIVER_REVIEWER,
+                                        "REVIEW", planTask),
+                                () -> reflectAgent.reviewVerdict(candidate, trip),
+                                v -> v.passed() ? "审核通过"
+                                        : "审核未通过：" + v.highIssues().size() + " 项高风险")));
+                preview = (AgentDtos.AgentResult) parallel.get(0).value();
+                Coordinator.TaskHandle previewTask = parallel.get(0).handle();
+                Coordinator.TaskHandle reviewTask = parallel.get(1).handle();
+                ReflectAgent.ReviewVerdict initialVerdict = (ReflectAgent.ReviewVerdict) parallel.get(1).value();
+
+                // 反思（V2.2 FR-06）：审核发现 HIGH 级硬约束问题 → 派 REPLAN 任务（依赖 REVIEW）做有限
+                // 重规划，再审一遍。之前这里只把审核警告拼到消息上，用户照样能确认超预算/赶不上的方案——
+                // 审核发现问题却不改变结果，等于没有审核。
+                ctx.setState(AgentState.REFLECT);
+                outcome = planReviewLoop.run(ctx, candidate, trip, reviewTask, initialVerdict);
+                // 重规划可能改过条目/时间/费用：用最终计划重建 Diff，保证用户看到的就是最后要提交的内容。
+                // 这次预览是「回收重派」（replacesTaskId=首轮预览，发 recover 事件）：首轮结果作废，
+                // 同一逻辑工作只留一份最终结果。
+                if (outcome.attempts() > 0) {
+                    final AgentPlan repairedPlan = outcome.plan();
+                    preview = coordinator.redispatch(ctx,
+                            Coordinator.TaskSpec.after(com.travel.agent.entity.AgentTask.RECEIVER_EXECUTOR,
+                                            "PREVIEW", outcome.reviewTask())
+                                    .replacing(previewTask, 1, "重规划后重建 Diff 预览"),
+                            () -> executorAgent.preview(ctx, repairedPlan, trip),
+                            p -> "重建 Diff 预览："
+                                    + (p.getDiff() == null ? 0 : p.getDiff().getChanges().size()) + " 项变更")
+                            .value();
+                }
             }
         } finally {
             stageTimer.stop(AgentStageTimer.STAGE_REFLECT, reflectSample);
         }
-        final AgentPlan planned = outcome.attempts() > 0 ? outcome.plan() : candidate;
-        // 模板事实 + 模型润色：润色失败或不可用时原样返回模板（必须在修复之后，数字才是最终值）
-        preview.setMessage(planNarrationService.polish(composePlanMessage(planned)));
-        applyReview(preview, outcome);
+        final AgentPlan planned = outcome != null && outcome.attempts() > 0 ? outcome.plan() : candidate;
+        // 模板事实 + 模型润色（必须在审核/修复之后，数字才是最终值）。
+        // P1：润色是锦上添花且要再调一次模型——预算不够就用模板原文，并留下降级痕迹。
+        if (ctx.getBudget().allows(AgentBudget.MIN_NARRATION_MS)) {
+            preview.setMessage(planNarrationService.polish(composePlanMessage(planned)));
+        } else {
+            ctx.recordBudgetDegradation(AgentBudget.STAGE_NARRATION, "预算耗尽，跳过文案润色（使用模板文案）");
+            preview.setMessage(composePlanMessage(planned));
+        }
+        if (outcome != null) {
+            applyReview(preview, outcome);
+        }
         // FR-01：兜底项必须明示——「不答也能继续」不等于「静默替用户决定」
         if (!defaulted.isEmpty()) {
             preview.appendMessage("\nℹ 没提到的信息已按默认：" + String.join("、", defaulted) + "。可以随时让我改。");
@@ -646,6 +759,17 @@ public class AgentEngine {
         if (abortIfCancelled(ctx, "before-tool")) {
             return aborted(ctx);
         }
+        // P1：预算耗尽时不再发起外部工具调用（MCP/HTTP 可能很慢）；如实告诉用户「没查」，
+        // 而不是返回一个空的「已查询」——那等于伪造一次外部查询（ADR-002 / ADR-006）。
+        if (!ctx.getBudget().allows(AgentBudget.MIN_TOOL_MS)) {
+            ctx.recordBudgetDegradation(AgentBudget.STAGE_TOOL, "预算耗尽，未执行外部工具查询");
+            return complete(ctx, AgentDtos.AgentResult.builder()
+                    .intent(intent.getIntent())
+                    .status(AgentDtos.STATUS_COMPLETED)
+                    .message("⏳ 时间预算已用尽，本次没有执行外部工具「" + toolName + "」的查询，请稍后重试。")
+                    .warnings(new ArrayList<>())
+                    .build());
+        }
         // tool 阶段：外部 MCP / 内置只读工具调用（ToolInvoker 内部含审计与 tool_call/tool_result 事件）
         // 任务图：TOOL 依赖 INTENT（先知道要调什么，才谈得上调工具）
         Timer.Sample toolSample = stageTimer.start();
@@ -687,6 +811,8 @@ public class AgentEngine {
     }
 
     private AgentDtos.AgentResult complete(AgentContext ctx, AgentDtos.AgentResult result) {
+        // 预算降级提示必须在 complete 事件之前挂上：SSE 客户端拿到的最终结果要与同步接口一致
+        attachBudgetNotice(ctx, result);
         ctx.emit("complete", result);
         return result;
     }
