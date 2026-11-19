@@ -602,9 +602,11 @@ Spring Boot 3.5、全栈 Docker 化，以及若干轮逻辑缺陷修复与安全
   见 [docs/guide/mcp-amap.md](docs/guide/mcp-amap.md)；
 - **前端地图链路已验证真实渲染**（`VITE_AMAP_KEY` + `VITE_AMAP_SECURITY_CODE`：`AMap` 加载、canvas 创建、
   33 个高德域请求、页面无降级提示）；
-- **仍差后端「Web 服务」Key** 做真实 POI/路径/GCJ-02 联调（2026-11-19 实测：把 Web端/JS API Key 填给后端
-  会返回 `USERKEY_PLAT_NOMATCH / 10009` 并静默降级为 `estimated`）。拿到后按该文档「真实 Key 联调（一键验证）」
-  跑 `.e2e/amap-real-key-probe.ps1` 即可产出证据；
+- **仍差后端「Web 服务」Key** 做真实 POI / 地理编码 / 路径 / GCJ-02 联调（2026-11-19 实测：把 Web端/JS API Key 填给
+  后端会返回 `USERKEY_PLAT_NOMATCH / 10009` 并静默降级为 `estimated`）。探针已覆盖 4 项：POI（`/v3/place/text`）、
+  地理编码（`/v3/geocode/geo`，再把地理编码点直接算路验证同一坐标系）、路径（`route-legs` 的 `source=amap`）、
+  GCJ-02（后端 `CoordinateTransform` 与高德 `/v3/assistant/coordinate/convert` 比对，偏差 ≤5 米）；拿到 Key 后按
+  该文档「真实 Key 联调（一键验证）」跑 `.e2e/amap-real-key-probe.ps1` 即可产出证据；
 - 酒店/餐厅开放平台同理由同一套 MCP 配置扩展（天气已接 Open-Meteo）。
 
 **P1 数据层与部署可信度（第十批已完成主体）**

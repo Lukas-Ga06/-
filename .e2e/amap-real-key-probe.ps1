@@ -13,10 +13,14 @@
       2) demo/demo123 登录（curl.exe + UTF-8 body 文件，避免 PowerShell 5.1 中文乱码）
       3) 规划一个两日游 -> 确认 -> GET /api/trips/{id}/route-legs，统计总段数 / amap 段数 / estimated 段数，
          断言至少一段 source=amap；全部 estimated 时判定 FAIL 并给出排查提示
-      4) POI / 地理编码：
+      4) POI / 地理编码 / 坐标：
          4a) 后端对外 REST 接口 —— 当前**没有**该接口（见 docs/guide/mcp-amap.md 新增章节），如实记 SKIP；
          4b) 直连高德 REST /v3/place/text 与 /v3/direction/driving 做 Key 诊断（与 AmapDataService 同一端点），
              记录返回条数并校验坐标落在 GCJ-02 合理范围（中国境内经纬度包围盒）
+         4c) 直连 /v3/geocode/geo（与 AmapGeocodeClient 同一端点）解析 3 个地址，
+             再把地理编码点直接喂给 /v3/direction/driving 算路，证明两者坐标系统一（GCJ-02）；
+         4d) GCJ-02 转换一致性：用 JDK 单文件源码启动器调用后端 CoordinateTransform.wgs84ToGcj02
+             与高德 /v3/assistant/coordinate/convert（coordsys=gps）对比，校验偏差、偏移量级与往返误差
       5) 汇总 PASS/FAIL 表写入 -OutDir\summary.md（并写一份同内容的 summmary.md，兼容需求原文拼写）
 
     进程安全：启动时记录 java 进程 PID，结束时只用 taskkill /PID <pid> /T 停掉**本脚本启动的那棵树**；
@@ -857,12 +861,315 @@ function Invoke-StepPoi {
     Add-Check '4b' '直连高德 REST 诊断' 'PASS' ('place/text status=1，返回 ' + $pois.Count + ' 条 POI，坐标均在中国境内合理范围（GCJ-02）；direction/driving 见 07 号证据')
 }
 
+# ============================== 4c/4d：地理编码与 GCJ-02 ==============================
+
+function Get-MetersBetween([double]$lat1, [double]$lng1, [double]$lat2, [double]$lng2) {
+    # 球面距离（米）：只用于坐标系一致性的量级判定，不参与业务计算
+    $rad = [Math]::PI / 180.0
+    $dLat = ($lat2 - $lat1) * $rad
+    $dLng = ($lng2 - $lng1) * $rad
+    $a = [Math]::Sin($dLat / 2) * [Math]::Sin($dLat / 2) +
+         [Math]::Cos($lat1 * $rad) * [Math]::Cos($lat2 * $rad) *
+         [Math]::Sin($dLng / 2) * [Math]::Sin($dLng / 2)
+    return 6371000.0 * 2 * [Math]::Atan2([Math]::Sqrt($a), [Math]::Sqrt(1 - $a))
+}
+
+# 解析高德 location 字段（"经度,纬度"，GCJ-02）；非法或 0,0 返回 $null（与 CoordinateTransform.parseGcj02Location 同口径）
+function ConvertFrom-AmapLocation([string]$location) {
+    if ([string]::IsNullOrWhiteSpace($location)) { return $null }
+    $parts = ([string]$location).Split(',')
+    if ($parts.Length -ne 2) { return $null }
+    $lng = 0.0
+    $lat = 0.0
+    if (-not [double]::TryParse($parts[0].Trim(), [ref]$lng)) { return $null }
+    if (-not [double]::TryParse($parts[1].Trim(), [ref]$lat)) { return $null }
+    if ($lat -eq 0.0 -and $lng -eq 0.0) { return $null }
+    return [pscustomobject]@{ lat = $lat; lng = $lng }
+}
+
+# 坐标拼进 URL 时固定用 "." 小数点（与系统区域设置无关）
+function Format-Invariant([double]$v) {
+    return $v.ToString('0.######', [System.Globalization.CultureInfo]::InvariantCulture)
+}
+
+function Resolve-GcjClasspath {
+    $classes = Join-Path $script:ServerDir 'target\classes'
+    $cls = Join-Path $classes 'com\travel\agent\util\CoordinateTransform.class'
+    if (Test-Path -LiteralPath $cls) { return $classes }
+    return $null
+}
+
+# 直接调用后端的 CoordinateTransform（不在脚本里重写公式）：JDK 单文件源码启动器 + target\classes。
+# 返回 @{ gcjLat; gcjLng; backLat; backLng }（原点 WGS-84 → GCJ-02，再把 GCJ-02 反算回 WGS-84）或 $null
+function Invoke-BackendGcjTransform([string]$classPath, [double]$lat, [double]$lng) {
+    $src = Join-Path $script:TmpDir 'BackendGcjProbe.java'
+    if (-not (Test-Path -LiteralPath $src)) {
+        # 源码保持纯 ASCII：中文 Windows 的 javac 默认按 GBK 读源码，源码里写中文会编译失败
+        $code = @'
+import com.travel.agent.util.CoordinateTransform;
+import java.util.Locale;
+
+/** Real-key probe helper: call the backend coordinate transform (temporary file, not in repo). */
+public class BackendGcjProbe {
+    public static void main(String[] args) {
+        double lat = Double.parseDouble(args[0]);
+        double lng = Double.parseDouble(args[1]);
+        double[] gcj = CoordinateTransform.wgs84ToGcj02(lat, lng);
+        double[] back = CoordinateTransform.gcj02ToWgs84(gcj[0], gcj[1]);
+        System.out.println(String.format(Locale.ROOT,
+            "{\"gcjLat\":%.8f,\"gcjLng\":%.8f,\"backLat\":%.8f,\"backLng\":%.8f}",
+            gcj[0], gcj[1], back[0], back[1]));
+    }
+}
+'@
+        Write-Utf8NoBom $src $code
+    }
+    try {
+        $out = & java -cp $classPath $src (Format-Invariant $lat) (Format-Invariant $lng) 2>&1
+    } catch {
+        return $null
+    }
+    $line = @($out | ForEach-Object { [string]$_ } |
+            Where-Object { $_.TrimStart().StartsWith('{') } | Select-Object -Last 1)
+    if (-not $line) { return $null }
+    return (ConvertFrom-JsonSafe ([string]$line))
+}
+
+# 4c) 地理编码：/v3/geocode/geo（AmapGeocodeClient 用的就是这一端点与 batch 参数）
+function Invoke-StepGeocode {
+    Write-StepTitle '[4c] 地理编码验证：/v3/geocode/geo（与 AmapGeocodeClient 同一端点）'
+    if ($SkipRestDiag) {
+        Add-Check '4c' '地理编码直连诊断' 'SKIP' '-SkipRestDiag 已指定，未发起直连诊断'
+        return
+    }
+
+    $queries = @(
+        [pscustomobject]@{ label = '杭州西湖'; address = '西湖'; city = '杭州' },
+        [pscustomobject]@{ label = '杭州东站'; address = '杭州东站'; city = '杭州' },
+        [pscustomobject]@{ label = '北京天安门'; address = '天安门'; city = '北京' }
+    )
+    $records = New-Object System.Collections.ArrayList
+    $points = @{}
+    $failures = New-Object System.Collections.ArrayList
+
+    foreach ($q in $queries) {
+        $url = 'https://restapi.amap.com/v3/geocode/geo?key=' + [System.Uri]::EscapeDataString($script:AmapKey) +
+               '&address=' + [System.Uri]::EscapeDataString($q.address) +
+               '&city=' + [System.Uri]::EscapeDataString($q.city)
+        $res = Invoke-CurlRequest -Method 'GET' -Url $url -MaxTime 30
+        [void]$records.Add([ordered]@{
+            label   = $q.label
+            address = $q.address
+            city    = $q.city
+            http    = $res.http
+            body    = $res.body
+        })
+        if ($res.http -ne 200) {
+            [void]$failures.Add($q.label + '：HTTP ' + $res.http)
+            continue
+        }
+        $json = ConvertFrom-JsonSafe $res.body
+        if (-not $json) {
+            [void]$failures.Add($q.label + '：返回不是 JSON')
+            continue
+        }
+        $status = [string]$json.status
+        $info = [string]$json.info
+        $infocode = [string]$json.infocode
+        $geocodes = @()
+        if ($json.geocodes) { $geocodes = @($json.geocodes) }
+        Write-Info ($q.label + '：status=' + $status + '  info=' + $info + '  infocode=' + $infocode + '  条数=' + $geocodes.Count)
+        if ($status -ne '1') {
+            [void]$failures.Add($q.label + '：status=' + $status + ' info=' + $info + ' infocode=' + $infocode)
+            continue
+        }
+        if ($geocodes.Count -eq 0) {
+            [void]$failures.Add($q.label + '：status=1 但返回 0 条')
+            continue
+        }
+        $first = $geocodes[0]
+        $loc = ConvertFrom-AmapLocation ([string]$first.location)
+        if (-not $loc) {
+            [void]$failures.Add($q.label + '：location 非法（' + [string]$first.location + '）')
+            continue
+        }
+        if (-not (Test-ChinaBbox $loc.lat $loc.lng)) {
+            [void]$failures.Add($q.label + '：坐标不在中国境内包围盒（' +
+                (Format-Invariant $loc.lat) + ',' + (Format-Invariant $loc.lng) + '）')
+            continue
+        }
+        $points[$q.label] = $loc
+        Write-Info ('  首个结果：' + [string]$first.province + '/' + [string]$first.city + '/' + [string]$first.district +
+            '  location=' + [string]$first.location + '（GCJ-02）')
+    }
+
+    [void](Write-EvidenceJson '08-direct-rest-geocode.json' $records)
+
+    # 地理编码得到的 GCJ-02 点直接喂给路径接口：能算路即证明两个接口同一坐标系
+    $chain = [ordered]@{
+        executed = $false
+        origin = $null
+        destination = $null
+        http = -1
+        distanceMeters = $null
+        durationSeconds = $null
+        note = ''
+        body = ''
+    }
+    if ($points.ContainsKey('杭州西湖') -and $points.ContainsKey('杭州东站')) {
+        $a = $points['杭州西湖']
+        $b = $points['杭州东站']
+        $chain.executed = $true
+        $chain.origin = (Format-Invariant $a.lng) + ',' + (Format-Invariant $a.lat)
+        $chain.destination = (Format-Invariant $b.lng) + ',' + (Format-Invariant $b.lat)
+        $dirUrl = 'https://restapi.amap.com/v3/direction/driving?key=' + [System.Uri]::EscapeDataString($script:AmapKey) +
+                  '&origin=' + $chain.origin + '&destination=' + $chain.destination
+        $dr = Invoke-CurlRequest -Method 'GET' -Url $dirUrl -MaxTime 30
+        $chain.http = $dr.http
+        $chain.body = $dr.body
+        $dir = ConvertFrom-JsonSafe $dr.body
+        if ($dir -and [string]$dir.status -eq '1' -and $dir.route -and @($dir.route.paths).Count -gt 0) {
+            $p0 = @($dir.route.paths)[0]
+            $chain.distanceMeters = [double]$p0.distance
+            $chain.durationSeconds = [double]$p0.duration
+            $chain.note = '地理编码点直接用于 /v3/direction/driving，两条链路坐标系统一（GCJ-02）'
+            Write-Info ('地理编码→路径：distance=' + $p0.distance + 'm duration=' + $p0.duration + 's（GCJ-02 坐标可直接算路）')
+        } else {
+            $chain.note = '地理编码点算路失败：' + $dr.body.Substring(0, [Math]::Min(160, $dr.body.Length))
+            Write-Info ('地理编码→路径：失败（' + $chain.note + '）')
+        }
+    } else {
+        $chain.note = '有效地理编码点不足，未做算路串联'
+    }
+    [void](Write-EvidenceJson '09-geocode-route.json' $chain)
+
+    if ($failures.Count -gt 0) {
+        Add-Check '4c' '地理编码直连诊断' 'FAIL' (($failures -join '；') +
+            '（INVALID_USER_KEY=Key 无效；USERKEY_PLAT_NOMATCH=Key 类型/平台不匹配；DAILY_QUERY_OVER_LIMIT=配额）')
+        return
+    }
+    if (-not $chain.executed -or [double]$chain.distanceMeters -le 0) {
+        Add-Check '4c' '地理编码直连诊断' 'FAIL' ('地理编码返回 ' + $points.Count +
+            ' 个有效点，但用这些点算路失败：' + $chain.note)
+        return
+    }
+    Add-Check '4c' '地理编码直连诊断' 'PASS' ('3 个地址 status=1，坐标均在中国境内包围盒；地理编码点→路径串联成功（' +
+        [string]$chain.distanceMeters + ' 米），说明两条链路同为 GCJ-02')
+}
+
+# 4d) GCJ-02 转换一致性：后端公式 vs 高德官方换算
+function Invoke-StepGcj02 {
+    Write-StepTitle '[4d] GCJ-02 转换一致性：后端 CoordinateTransform vs 高德 /v3/assistant/coordinate/convert'
+    if ($SkipRestDiag) {
+        Add-Check '4d' 'GCJ-02 转换一致性' 'SKIP' '-SkipRestDiag 已指定，未发起直连诊断'
+        return
+    }
+    $classPath = Resolve-GcjClasspath
+    if (-not $classPath) {
+        Add-Check '4d' 'GCJ-02 转换一致性' 'FAIL' ('找不到 ' +
+            (Join-Path $script:ServerDir 'target\classes\com\travel\agent\util\CoordinateTransform.class') +
+            '：先在 travel-agent-server 下执行 mvn -DskipTests compile 再重跑')
+        return
+    }
+
+    # 参照点：北京天安门 GPS（WGS-84）原始坐标。高德会对 gps 输入做 WGS-84→GCJ-02 偏移
+    $refLat = 39.907342
+    $refLng = 116.391275
+    $convUrl = 'https://restapi.amap.com/v3/assistant/coordinate/convert?key=' + [System.Uri]::EscapeDataString($script:AmapKey) +
+               '&locations=' + (Format-Invariant $refLng) + ',' + (Format-Invariant $refLat) + '&coordsys=gps'
+    $res = Invoke-CurlRequest -Method 'GET' -Url $convUrl -MaxTime 30
+
+    $evidence = [ordered]@{
+        referenceWgs84 = [ordered]@{ lat = $refLat; lng = $refLng }
+        amapHttp       = $res.http
+        amapStatus     = $null
+        amapGcj02      = $null
+        backend        = $null
+        diffMeters     = $null
+        gcjShiftMeters = $null
+        roundTripMeters = $null
+        verdict        = ''
+        rawAmap        = $res.body
+    }
+
+    if ($res.http -ne 200) {
+        $evidence.verdict = '高德 coordinate/convert 网络不可达（HTTP ' + $res.http + '）'
+        [void](Write-EvidenceJson '10-gcj02-transform.json' $evidence)
+        Add-Check '4d' 'GCJ-02 转换一致性' 'FAIL' $evidence.verdict
+        return
+    }
+    $json = ConvertFrom-JsonSafe $res.body
+    if (-not $json) {
+        $evidence.verdict = '高德 coordinate/convert 返回的不是 JSON'
+        [void](Write-EvidenceJson '10-gcj02-transform.json' $evidence)
+        Add-Check '4d' 'GCJ-02 转换一致性' 'FAIL' $evidence.verdict
+        return
+    }
+    $evidence.amapStatus = [string]$json.status
+    if ([string]$json.status -ne '1') {
+        $evidence.verdict = ('高德拒绝：status=' + [string]$json.status + ' info=' + [string]$json.info +
+            ' infocode=' + [string]$json.infocode)
+        [void](Write-EvidenceJson '10-gcj02-transform.json' $evidence)
+        Add-Check '4d' 'GCJ-02 转换一致性' 'FAIL' $evidence.verdict
+        return
+    }
+    $amapLoc = ConvertFrom-AmapLocation ([string]$json.locations)
+    if (-not $amapLoc) {
+        $evidence.verdict = '高德 coordinate/convert 未返回合法 locations：' + [string]$json.locations
+        [void](Write-EvidenceJson '10-gcj02-transform.json' $evidence)
+        Add-Check '4d' 'GCJ-02 转换一致性' 'FAIL' $evidence.verdict
+        return
+    }
+    $evidence.amapGcj02 = [ordered]@{ lat = $amapLoc.lat; lng = $amapLoc.lng }
+
+    $backend = Invoke-BackendGcjTransform -classPath $classPath -lat $refLat -lng $refLng
+    if (-not $backend) {
+        $evidence.verdict = '调用后端 CoordinateTransform 失败：需要 JDK（单文件源码启动器），且 target\classes 存在'
+        [void](Write-EvidenceJson '10-gcj02-transform.json' $evidence)
+        Add-Check '4d' 'GCJ-02 转换一致性' 'FAIL' $evidence.verdict
+        return
+    }
+    $evidence.backend = [ordered]@{
+        gcjLat = [double]$backend.gcjLat
+        gcjLng = [double]$backend.gcjLng
+        backLat = [double]$backend.backLat
+        backLng = [double]$backend.backLng
+    }
+
+    $diffM = Get-MetersBetween $amapLoc.lat $amapLoc.lng ([double]$backend.gcjLat) ([double]$backend.gcjLng)
+    $shiftM = Get-MetersBetween $refLat $refLng ([double]$backend.gcjLat) ([double]$backend.gcjLng)
+    $roundTripM = Get-MetersBetween $refLat $refLng ([double]$backend.backLat) ([double]$backend.backLng)
+    $evidence.diffMeters = [Math]::Round($diffM, 2)
+    $evidence.gcjShiftMeters = [Math]::Round($shiftM, 1)
+    $evidence.roundTripMeters = [Math]::Round($roundTripM, 2)
+
+    Write-Info ('高德 convert(gps→gcj02)：' + (Format-Invariant $amapLoc.lng) + ',' + (Format-Invariant $amapLoc.lat))
+    Write-Info ('仓库 wgs84ToGcj02：' + (Format-Invariant ([double]$backend.gcjLng)) + ',' + (Format-Invariant ([double]$backend.gcjLat)))
+    Write-Info ('与高德偏差 ' + $evidence.diffMeters + ' m；GCJ-02 偏移量 ' + $evidence.gcjShiftMeters +
+        ' m；往返误差 ' + $evidence.roundTripMeters + ' m')
+
+    # 阈值：与高德偏差 ≤5 m（同一公式实现差异在米级以内）；偏移量 100~1000 m（证明确实做了 GCJ-02 偏移而非恒等）；往返 ≤1 m
+    $ok = ($diffM -le 5.0) -and ($shiftM -ge 100.0) -and ($shiftM -le 1000.0) -and ($roundTripM -le 1.0)
+    if ($ok) {
+        $evidence.verdict = '后端公式与高德换算一致'
+        [void](Write-EvidenceJson '10-gcj02-transform.json' $evidence)
+        Add-Check '4d' 'GCJ-02 转换一致性' 'PASS' ('后端 wgs84ToGcj02 与高德 convert 偏差 ' + $evidence.diffMeters +
+            ' m（≤5）；GCJ-02 偏移量 ' + $evidence.gcjShiftMeters + ' m（100~1000）；gcj02ToWgs84 往返误差 ' +
+            $evidence.roundTripMeters + ' m（≤1）')
+    } else {
+        $evidence.verdict = '判定不通过'
+        [void](Write-EvidenceJson '10-gcj02-transform.json' $evidence)
+        Add-Check '4d' 'GCJ-02 转换一致性' 'FAIL' ('偏差 ' + $evidence.diffMeters + ' m（阈值 ≤5）、偏移量 ' +
+            $evidence.gcjShiftMeters + ' m（阈值 100~1000）、往返误差 ' + $evidence.roundTripMeters + ' m（阈值 ≤1）中至少一项越界')
+    }
+}
+
 # ============================== 汇总输出 ==============================
 
 function Get-OverallStatus {
     if ($script:Checks.Count -eq 0) { return 'FAIL' }
     $required = @('0', '1', '2', '3')
-    if (-not $SkipRestDiag) { $required += '4b' }
+    if (-not $SkipRestDiag) { $required += @('4b', '4c', '4d') }
     foreach ($c in $script:Checks) {
         if ($required -contains $c.id) {
             if ($c.status -eq 'FAIL') { return 'FAIL' }
@@ -872,9 +1179,9 @@ function Get-OverallStatus {
     return 'PASS'
 }
 
-# 汇总表按验证项编号排序（执行顺序上登录在第 1 步之前，表里仍按 0/1/2/3/4a/4b 展示）
+# 汇总表按验证项编号排序（执行顺序上登录在第 1 步之前，表里仍按 0/1/2/3/4a/4b/4c/4d 展示）
 function Get-SortedChecks {
-    $order = @('0', '1', '2', '3', '4a', '4b')
+    $order = @('0', '1', '2', '3', '4a', '4b', '4c', '4d')
     $ranked = New-Object System.Collections.ArrayList
     foreach ($c in $script:Checks) {
         $rank = $order.Length
@@ -932,7 +1239,8 @@ function Write-Summary {
     $files = @(
         '01-system-status.json', '02-login.json', '03-plan-response.json', '04-confirm-response.json',
         '05-route-legs.json', '06a-backend-poi-endpoint.txt', '06-direct-rest-poi.json',
-        '07-direct-rest-direction.json', 'checks.json', 'run-meta.json', 'server-stdout.log', 'server-stderr.log'
+        '07-direct-rest-direction.json', '08-direct-rest-geocode.json', '09-geocode-route.json',
+        '10-gcj02-transform.json', 'checks.json', 'run-meta.json', 'server-stdout.log', 'server-stderr.log'
     ) | Where-Object { Test-Path -LiteralPath (Join-Path $script:OutDir $_) }
 
     $md = New-Object System.Collections.ArrayList
@@ -998,6 +1306,8 @@ try {
     & {
     Assert-RepoLayout
     $AmapKey = ([string]$AmapKey).Trim()
+    # 显式回写 script 作用域：4b/4c/4d 与 Set-ProbeEnv 都读 $script:AmapKey（带空白的 Key 会让高德直接拒绝）
+    $script:AmapKey = $AmapKey
     $script:KeyFingerprint = Get-KeyFingerprint $AmapKey
 
     Initialize-OutDir
@@ -1048,6 +1358,14 @@ try {
         }
         if ($placeholder) { Write-Warn ('AmapKey 疑似占位值（含 "' + $placeholder + '"）：DryRun 通过，但真实联调大概率失败') }
         if ($shapeError) { Write-Warn ('AmapKey 格式提示：' + $shapeError) }
+        # 4d 需要 target\classes（编译产物）+ JDK 单文件源码启动器；缺了只提示，不算配置失败（完整跑时会 FAIL 并给指引）
+        $gcjCp = Resolve-GcjClasspath
+        if (-not $gcjCp) {
+            Write-Warn ('找不到 travel-agent-server\target\classes：4d 会 FAIL，先 mvn -DskipTests compile 再重跑')
+        }
+        if (-not (Get-Command javac -ErrorAction SilentlyContinue) -and -not (Get-Command java -ErrorAction SilentlyContinue)) {
+            Write-Warn 'PATH 里没有 java/javac：4d 无法调用后端 CoordinateTransform'
+        }
 
         $dry = [ordered]@{
             dryRun        = $true
@@ -1062,7 +1380,9 @@ try {
             mvn           = $script:MvnVersion
             problems      = @($problems)
             envVarsInjected = @('AMAP_KEY', 'AMAP_MAPS_API_KEY', 'JWT_SECRET', 'RATE_LIMIT_ENABLED', 'LLM_ENABLED', 'WEATHER_REAL', 'MCP_ENABLED', 'DEMO_ACCOUNT', 'SERVER_PORT', 'SPRING_DATASOURCE_URL', 'INVOICE_DIR', 'PHOTOS_DIR')
-            endpoints     = @('/actuator/health', '/api/system/status', '/api/auth/login', '/api/agent/chat', '/api/agent/confirm', '/api/trips/{id}/route-legs')
+            endpoints     = @('/actuator/health', '/api/system/status', '/api/auth/login', '/api/agent/chat', '/api/agent/confirm', '/api/trips/{id}/route-legs',
+                              '直连 /v3/place/text', '直连 /v3/geocode/geo', '直连 /v3/direction/driving', '直连 /v3/assistant/coordinate/convert')
+            gcjClasspath  = (Resolve-GcjClasspath)
         }
         $null = Write-EvidenceJson 'dryrun.json' $dry
         $dryLines = @('# DryRun 校验结果', '')
@@ -1148,10 +1468,14 @@ try {
         Add-Check '3' '两日游规划与路线段' 'SKIP' '登录失败，未执行'
         Add-Check '4a' '后端 POI/地理编码接口' 'SKIP' '登录失败，未执行'
         Add-Check '4b' '直连高德 REST 诊断' 'SKIP' '登录失败，未执行'
+        Add-Check '4c' '地理编码直连诊断' 'SKIP' '登录失败，未执行'
+        Add-Check '4d' 'GCJ-02 转换一致性' 'SKIP' '登录失败，未执行'
     } else {
         $status = Invoke-StepStatus
         Invoke-StepRouteLegs
         Invoke-StepPoi
+        Invoke-StepGeocode
+        Invoke-StepGcj02
     }
 
     $overall = Get-OverallStatus

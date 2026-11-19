@@ -283,10 +283,12 @@ MCP 服务器 [amap] 接入失败，已跳过: timeout initialize
 
 ## 7. 真实 Key 联调（一键验证）
 
-> 面向**已经拿到高德「Web 服务」Key、要证明真实 POI / 路径 / GCJ-02 坐标在本项目里生效**的人。
+> 面向**已经拿到高德「Web 服务」Key、要证明真实 POI / 地理编码 / 路径 / GCJ-02 坐标在本项目里生效**的人。
 > 工具是 `.e2e/amap-real-key-probe.ps1`（随仓库入库；`.tools/` 只放本地探针，不入版本库）。
 > 它**不改产品代码**：用独立端口 + 独立 H2 文件库拉起一个后端实例，跑「登录 → 规划两日游 → 确认 → 路线段」，
-> 把每一步的原始响应、统计与结论写到证据目录。本节也补上了 §5.2「没有真实 Key 所以未验证」那部分的验收路径。
+> 再用同一枚 Key 直连高德 `/v3/place/text`、`/v3/geocode/geo`、`/v3/direction/driving`、
+> `/v3/assistant/coordinate/convert` 诊断 POI / 地理编码 / 路径 / GCJ-02，把每一步的原始响应、统计与结论写到证据目录。
+> 本节也补上了 §5.2「没有真实 Key 所以未验证」那部分的验收路径。
 
 ### 7.1 申请 Key：类型必须选「Web 服务」
 
@@ -381,6 +383,19 @@ powershell -ExecutionPolicy Bypass -File .e2e\amap-real-key-probe.ps1 -AmapKey "
         place/text: status=1  info=OK  infocode=10000  条数=N（N≥1）
   PASS  4b 直连高德 REST 诊断：place/text status=1，返回 N 条 POI（N≥1），坐标均在中国境内合理范围（GCJ-02）...
 
+== [4c] 地理编码验证：/v3/geocode/geo（与 AmapGeocodeClient 同一端点）
+        杭州西湖：status=1  info=OK  infocode=10000  条数=1
+        首个结果：浙江省/杭州市/西湖区  location=120.13xxxx,30.24xxxx（GCJ-02）
+        杭州东站：status=1 ...；北京天安门：status=1 ...
+        地理编码→路径：distance=xxxxm duration=xxx s（GCJ-02 坐标可直接算路）
+  PASS  4c 地理编码直连诊断：3 个地址 status=1，坐标均在中国境内包围盒；地理编码点→路径串联成功（xxxx 米）...
+
+== [4d] GCJ-02 转换一致性：后端 CoordinateTransform vs 高德 /v3/assistant/coordinate/convert
+        高德 convert(gps→gcj02)：116.3975xx,39.9087xx
+        仓库 wgs84ToGcj02：116.3975xx,39.9087xx
+        与高德偏差 0.xx m；GCJ-02 偏移量 5xx m；往返误差 0.0x m
+  PASS  4d GCJ-02 转换一致性：后端 wgs84ToGcj02 与高德 convert 偏差 0.xx m（≤5）；GCJ-02 偏移量 xxx m（100~1000）；往返误差 0.0x m（≤1）
+
 ==== 结论：PASS ====
 ```
 
@@ -399,6 +414,9 @@ powershell -ExecutionPolicy Bypass -File .e2e\amap-real-key-probe.ps1 -AmapKey "
 | `05-route-legs.json` | 路线段原始响应（每段 `source` 字段即证据） |
 | `06a-backend-poi-endpoint.txt` | 「后端没有 POI/地理编码 REST 接口」的事实记录 |
 | `06-direct-rest-poi.json` / `07-direct-rest-direction.json` | 直连高德 REST 的原始响应（POI 条数/坐标；07 号在 4b 路径诊断执行时才有） |
+| `08-direct-rest-geocode.json` | 直连 `/v3/geocode/geo` 的原始响应（3 个地址：状态码、province/city/district、GCJ-02 location） |
+| `09-geocode-route.json` | 地理编码点直接喂给 `/v3/direction/driving` 的请求坐标、返回距离/时长（证明两条链路同为 GCJ-02） |
+| `10-gcj02-transform.json` | GCJ-02 一致性：参照 WGS-84 点、高德 convert 结果、后端 `CoordinateTransform` 结果、三项偏差与判定 |
 | `checks.json` / `run-meta.json` | 结构化判定、Key 指纹（SHA-256 前 8 位）、进程 PID 与清理结果 |
 | `cleanup.txt` | 结束时本脚本 PID、端口是否仍监听、进程是否存活（证明无残留） |
 | `server-stdout.log` / `server-stderr.log` | 实例日志（`MCP_ENABLED=false` 时日志会明确写「MCP 未启用」） |
@@ -407,14 +425,15 @@ powershell -ExecutionPolicy Bypass -File .e2e\amap-real-key-probe.ps1 -AmapKey "
 
 | 退出码 | 含义 |
 | --- | --- |
-| `0` | PASS：实例就绪、登录成功、`route-legs` 至少一段 `source=amap`、（未 `-SkipRestDiag` 时）直连 REST 成功 |
+| `0` | PASS：实例就绪、登录成功、`route-legs` 至少一段 `source=amap`；未 `-SkipRestDiag` 时还要 4b（POI）成功、4c（地理编码→算路串联）成功、4d（GCJ-02 偏差 ≤5 m、偏移 100~1000 m、往返 ≤1 m） |
 | `2` | 参数/配置问题（Key 格式、端口、工具缺失） |
 | `3` | 验证 FAIL（典型：Key 无效 → 全部 `estimated`） |
 | `4` | 实例启动失败（端口占用 / 健康检查超时 / `-SkipStart` 但端口没监听） |
 | `1` | 未预期异常 |
 
 > **`routeProvider=amap` 只代表「配置里读到了 Key」**（`AmapProperties.usable()` 只判断非空），**不代表 Key 有效**。
-> 真正证明 Key 有效的是第 3 步 `source=amap` 段数 > 0，以及第 4b 步直连 `status=1`。
+> 真正证明 Key 有效的是第 3 步 `source=amap` 段数 > 0、第 4b 步直连 `status=1`、第 4c 步地理编码点能直接算路、
+> 第 4d 步与高德官方换算偏差在 5 米内。
 
 ### 7.5 当前接口事实（脚本不会伪造不存在的接口）
 
@@ -426,6 +445,14 @@ powershell -ExecutionPolicy Bypass -File .e2e\amap-real-key-probe.ps1 -AmapKey "
   （规划候选仍来自内置/联网城市目录）；`AmapGeocodeClient` 只被 `OnlineCityService` / `CityGeoLocator` 内部使用。
   因此脚本第 4a 步如实记 `SKIP`，第 4b 步改为**直连高德官方 REST**（与 `AmapDataService` 相同的
   `/v3/place/text`、`/v3/direction/driving`）诊断 Key 本身：记录返回条数，并按中国境内经纬度包围盒校验 GCJ-02 坐标。
+- **地理编码（4c）**：直连 `/v3/geocode/geo`（与 `AmapGeocodeClient` 同一端点、同一 `location` 字段口径），
+  解析「杭州西湖 / 杭州东站 / 北京天安门」三条地址；再把两个杭州地理编码点原样传给 `/v3/direction/driving`，
+  能算出路径即说明两个接口**同一坐标系（GCJ-02）**，避免"坐标能返回但用不了"的假通过。
+- **GCJ-02（4d）**：不重写公式。脚本用 JDK 单文件源码启动器 + `travel-agent-server/target/classes` **直接调用后端
+  `CoordinateTransform.wgs84ToGcj02 / gcj02ToWgs84`**，把北京天安门参照点（WGS-84 `116.391275,39.907342`）
+  的换算结果与高德 `/v3/assistant/coordinate/convert?coordsys=gps`（高德官方 GCJ-02 换算）对比：
+  偏差 ≤5 m 说明公式与高德一致；偏移量 100~1000 m 说明确实做了 GCJ-02 偏移而不是恒等；
+  `gcj02ToWgs84` 往返 ≤1 m 说明反算收敛。该步需要 `target/classes`（`mvn -DskipTests compile` 或打过 jar 即有）。
 - **行程坐标**：行程条目经纬度来自城市目录（内部按 WGS-84 存储），不是每条 POI 的实时高德坐标；
   真实高德数据体现在 `source=amap` 的路段距离/时长上。
 
@@ -436,6 +463,10 @@ powershell -ExecutionPolicy Bypass -File .e2e\amap-real-key-probe.ps1 -AmapKey "
 | 第 1 步 `amapConfigured=false` / `routeProvider=estimated` | 进程没读到 `AMAP_KEY`（空 Key，或 `-SkipStart` 复用的旧实例没配） | 检查启动环境变量；用本脚本默认模式（自己起实例）重跑 |
 | 第 3 步全部 `estimated`，第 4b 步 `INVALID_USER_KEY`（infocode 10001） | Key 无效/复制错/被删除/未开通「Web 服务」 | 回控制台核对 Key 与服务平台，重新复制 |
 | 第 4b 步 `USERKEY_PLAT_NOMATCH`（infocode **10009**）——**2026-11-19 真实复现过** | **Key 类型错**：把 JS API（Web端）Key 用在了后端。特征：该 Key 在控制台还配着一枚「安全密钥」，且同一枚 Key 在前端 `VITE_AMAP_KEY` 里能正常渲染地图 | 换「Web 服务」类型 Key（同一应用下再添加一枚即可）；前端 `VITE_AMAP_KEY` 不能复用 |
+| 第 4b/4c/4d 步全部 `HTTP 0`、`curlExit=35`（SSL connect error）——**2026-11-19 在受限沙箱里真实复现过** | 本机到 `restapi.amap.com` 的 TLS 连接被拦/不稳定（代理、公司网关、运行沙箱），不是 Key 问题；此时后端也会把全部路段降级成 `estimated` | 放开网络后先手工 `curl.exe "https://restapi.amap.com/v3/place/text?key=<Key>&keywords=西湖"` 确认能拿到 JSON，再重跑脚本；纯离线环境加 `-SkipRestDiag`（4c/4d 一并 SKIP，不参与 PASS 判定） |
+| 第 4c 步 `status=1` 但「地理编码→路径」失败 | 把 `location` 的经纬度顺序弄反（高德是「经度,纬度」），或两个点落到了不走车的区域 | 本脚本按「经度,纬度」原样透传；若手工复现，检查顺序与城市参数 |
+| 第 4d 步 `找不到 target\classes\...CoordinateTransform.class` | 后端只留了 jar、没有编译产物 | 在 `travel-agent-server` 下 `mvn -DskipTests compile`；或先 `mvn -DskipTests package`（本脚本缺 jar 时也会自动打包） |
+| 第 4d 步「与高德偏差 >5 m」 | `CoordinateTransform` 的公式/常量被改动，或与前端 `coords.ts` 不同步 | 按 §1.1.1 的坐标契约核对两侧实现；不要靠调阈值掩盖 |
 | 第 4b 步 `USER_IP_ALIVE` / 白名单类错误 | Key 配了 IP 白名单，本机出口 IP 不在列表 | 控制台临时留空或加入出口 IP；公司网络注意出口 IP 会变 |
 | 第 4b 步 `DAILY_QUERY_OVER_LIMIT` / 配额类错误 | 日调用量/并发配额用尽 | 等配额重置或提额；联调时少跑几次 |
 | 第 4b 步网络不可达 / 超时（curl HTTP -1） | 本机访问不了 `restapi.amap.com`（代理/防火墙） | 配代理或换网络；后端此时会静默降级为 `estimated` |
@@ -456,20 +487,22 @@ powershell -ExecutionPolicy Bypass -File .e2e\amap-real-key-probe.ps1 -AmapKey "
 
 # 2) 用同一假 Key 走完整流程
 powershell -ExecutionPolicy Bypass -File .e2e\amap-real-key-probe.ps1 -AmapKey "fake-key-for-probe-0123456789abcdef"
-#    期望：exit 3；第 0/1/2 步 PASS，第 3/4b 步 FAIL（INVALID_USER_KEY），第 4a 步 SKIP；
+#    期望：exit 3；第 0/1/2 步 PASS，第 3/4b/4c/4d 步 FAIL（INVALID_USER_KEY），第 4a 步 SKIP；
 #          结束时 cleanup.txt 记录 pid、端口不再监听、进程存活=False，无残留 java
 ```
 
-2026-11-18 本机实测（Windows PowerShell 5.1、假 Key、未配任何真实高德 Key）：
+2026-11-19 复跑（Windows PowerShell 5.1、假 Key、未配任何真实高德 Key；本次新增 4c/4d）：
 
 | 步骤 | 结果 | 实测值 |
 | --- | --- | --- |
-| 0 实例准备 | PASS | 独立 H2 + 端口 18090，`/actuator/health=UP`，PID 记录并在结束时停止 |
+| 0 实例准备 | PASS | 独立 H2 + 独立端口，`/actuator/health=UP`，PID 记录并在结束时停止 |
 | 1 系统能力自检 | PASS | `amapConfigured=true`、`geoProvider=amap`、`routeProvider=amap`（仅配置层面） |
 | 2 demo 登录 | PASS | `username=demo` |
 | 3 两日游规划与路线段 | FAIL | 总段数=7、amap=0、estimated=7（真实 Key 下应为 amap≥1） |
 | 4a 后端 POI/地理编码接口 | SKIP | 当前没有该接口 |
 | 4b 直连高德 REST 诊断 | FAIL | `status=0`、`info=INVALID_USER_KEY`、`infocode=10001` |
+| 4c 地理编码直连诊断 | FAIL | 3 个地址均 `INVALID_USER_KEY`（10001） |
+| 4d GCJ-02 转换一致性 | FAIL | `coordinate/convert` 同样被拒（10001） |
 | 进程清理 | PASS | `cleanup.txt`：端口监听=False、进程存活=False |
 
 ### 7.8 与 §5 的关系
