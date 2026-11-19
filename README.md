@@ -533,7 +533,7 @@ cd travel-agent-server && mvn test
 cd travel-agent-web && npm run typecheck && npm test && npm run build
 ```
 
-当前覆盖（后端 394 个 / 前端 166 个 / e2e 5 个，以 CI 输出为准）：
+当前覆盖（后端 395 个 / 前端 166 个 / e2e 5 个，以 CI 输出为准）：
 
 - 认证与授权：401 契约、跨用户读写与删除行程；
 - Agent 计划落地：ADD_ITEM / MODIFY_ITEM / REMOVE_ITEM、跨行程操作守卫、确认提交与撤销（含撤销新建行程）；

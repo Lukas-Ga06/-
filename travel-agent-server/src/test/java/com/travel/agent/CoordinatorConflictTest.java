@@ -13,6 +13,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -144,6 +145,45 @@ class CoordinatorConflictTest extends IntegrationTestSupport {
         // 只允许留下一条冲突证据行：没有真正执行过（不存在 RUNNING/SUCCEEDED 的 REVIEW）
         assertThat(tasks(ctx)).noneMatch(task -> "REVIEW".equals(task.getTaskType())
                 && !AgentTask.STATUS_CONFLICT.equals(task.getStatus()));
+    }
+
+    @Test
+    @DisplayName("并行组真并行：两个 body 互相在屏障处等待对方开始，串行执行必然超时")
+    void dispatchAllRunsBodiesConcurrently() throws Exception {
+        Account account = registerNew();
+        AgentContext ctx = contextWithRun(account);
+
+        // 两个 body 都必须在屏障处等到对方；如果 dispatchAll 串行执行，第一项永远等不到
+        // 第二项，await 超时后抛异常——这是「真并行」的确定性证明，不依赖时间戳精度。
+        java.util.concurrent.CyclicBarrier barrier = new java.util.concurrent.CyclicBarrier(2);
+        java.util.function.Supplier<String> body = () -> {
+            try {
+                barrier.await(5, TimeUnit.SECONDS);
+            } catch (Exception e) {
+                throw new IllegalStateException("并行未发生（屏障等待失败）: " + e, e);
+            }
+            return "ok";
+        };
+
+        List<Coordinator.Receipt<?>> receipts = coordinator.dispatchAll(ctx, List.of(
+                new Coordinator.ParallelTask<>(
+                        Coordinator.TaskSpec.of("executor-agent", "PREVIEW"), body, value -> "预览完成"),
+                new Coordinator.ParallelTask<>(
+                        Coordinator.TaskSpec.of("reflect-agent", "REVIEW"), body, value -> "审核完成")));
+
+        // 回执按声明顺序返回，两行都成功（异常会被 dispatchAll 原样抛出，跑到这里即证明都没超时）
+        assertThat(receipts).hasSize(2);
+        assertThat(receipts.get(0).value()).isEqualTo("ok");
+        assertThat(receipts.get(1).value()).isEqualTo("ok");
+        assertThat(receipts.get(0).handle().receiver()).isEqualTo("executor-agent");
+        assertThat(receipts.get(1).handle().receiver()).isEqualTo("reflect-agent");
+
+        List<AgentTask> rows = tasks(ctx);
+        assertThat(rows).hasSize(2);
+        assertThat(rows).allMatch(task -> AgentTask.STATUS_SUCCEEDED.equals(task.getStatus()));
+        // 两行都在 body 执行前创建：创建时间不晚于任何一方的结束时间
+        assertThat(rows.get(0).getStartedAt()).isBeforeOrEqualTo(rows.get(1).getEndedAt());
+        assertThat(rows.get(1).getStartedAt()).isBeforeOrEqualTo(rows.get(0).getEndedAt());
     }
 
     @Test

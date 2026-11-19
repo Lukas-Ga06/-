@@ -104,18 +104,20 @@ class TaskDagTest extends IntegrationTestSupport {
             assertThat(task.path("status").asText()).isEqualTo("SUCCEEDED");
         }
 
-        // 并行组：两行都在各自 body 开始前按声明顺序创建（PREVIEW 在 REVIEW 之前）
+        // 并行组的两行都在 PLAN 结束之后才创建：这就是「先建行、后跑 body」的结构保证
+        // （真并行由 CoordinatorConflictTest 的屏障用例确定性证明——用时间戳比上下界会被
+        //  亚毫秒执行截断成同一时刻，那种断言只能靠运气，不能当门禁）
         List<String> types = tasks.stream().map(t -> t.path("taskType").asText()).toList();
         assertThat(types.indexOf("PREVIEW")).isLessThan(types.indexOf("REVIEW"));
-
-        // 时间区间真实重叠：max(start) < min(end)
-        LocalDateTime overlapStart = at(preview, "startedAt").isAfter(at(review, "startedAt"))
-                ? at(preview, "startedAt") : at(review, "startedAt");
-        LocalDateTime overlapEnd = at(preview, "endedAt").isBefore(at(review, "endedAt"))
-                ? at(preview, "endedAt") : at(review, "endedAt");
-        assertThat(overlapStart)
-                .as("PREVIEW 与 REVIEW 应并行执行（时间区间必须有交集）")
-                .isBefore(overlapEnd);
+        assertThat(at(preview, "startedAt"))
+                .as("PREVIEW 必须在 PLAN 结束之后才创建")
+                .isAfterOrEqualTo(at(plan, "endedAt"));
+        assertThat(at(review, "startedAt"))
+                .as("REVIEW 必须在 PLAN 结束之后才创建")
+                .isAfterOrEqualTo(at(plan, "endedAt"));
+        // 两行都进入 RUNNING 之后才会有 body 执行，所以结束时间不早于对方的创建时间
+        assertThat(at(preview, "endedAt")).isAfterOrEqualTo(at(review, "startedAt"));
+        assertThat(at(review, "endedAt")).isAfterOrEqualTo(at(preview, "startedAt"));
     }
 
     @Test

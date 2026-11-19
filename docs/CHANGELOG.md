@@ -46,8 +46,8 @@
 
 ### 四、测试与验证
 
-- 后端 389 → **394** 用例全绿（`mvn clean test`）。新增 `TaskDagTest`（2，依赖边/并行重叠/闲聊单节点）、
-  `CoordinatorConflictTest`（3，冲突拒绝/重派单结果/无 runId 退化）；`AgentReplanTest` 扩断言
+- 后端 389 → **395** 用例全绿（`mvn clean test`）。新增 `TaskDagTest`（2，依赖边齐全/先建行后跑 body/闲聊单节点）、
+  `CoordinatorConflictTest`（4，冲突拒绝/重派单结果/屏障证明真并行/无 runId 退化）；`AgentReplanTest` 扩断言
   （REPLAN 依赖 REVIEW、复审依赖 REPLAN、预览重派）；`SseDisconnectTest` 扩断言（委派后取消只发 start/run/delegate）。
 - `MigrationBaselineTest` 版本面更新到 V18。
 - 前端 157 → **166** 用例全绿（`typecheck` + `test` + `build`）：新增 `stageText.test.ts`（6）、
