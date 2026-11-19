@@ -292,7 +292,7 @@ docker compose down -v                # ⚠️ 连卷一起删：MySQL 数据与
 - **来源二**：`docs/DEVELOPMENT.md` 开头「环境变量」表（是否必需 / 未配置时的行为）。
 - **来源三（权威，已修复补齐）**：`application.yml` / `application-mysql.yml` 的 `${VAR:default}` 占位，
   以及 Java 的 `@Value("${...}")`；全仓库主代码**没有** `System.getenv`。
-- 合并去重后共 **59 个**变量（含 4 个仅 Docker 面变量；另有 2 个前端构建期变量单独列出，明细见 §5.8）；三源差异见 §5.9。
+- 合并去重后共 **61 个**变量（含 4 个仅 Docker 面变量；另有 2 个前端构建期变量单独列出，明细见 §5.8）；三源差异见 §5.9。
 
 > **默认值优先级**：环境变量 > `travel-agent-server/.env.local`（`spring.config.import` 加载，`[.properties]` 解析）
 > > `application.yml` 默认值。容器内不带 `.env.local`（已列入 `.dockerignore`），所以 compose 环境就是最终来源。
@@ -327,6 +327,18 @@ docker compose down -v                # ⚠️ 连卷一起删：MySQL 数据与
 | `EMBEDDING_BASE_URL` | `https://api.siliconflow.cn/v1` | 可选 | Embedding 端点 | SiliconFlow 默认端点 |
 | `EMBEDDING_API_KEY` | 空 | 可选（开启 Embedding 时必需） | Embedding Key | 仍走本地哈希 |
 | `EMBEDDING_MODEL` | `BAAI/bge-m3` | 可选 | Embedding 模型名 | `BAAI/bge-m3`；**换模型需清空 `rag_document`/`rag_chunk` 重建** |
+
+### 5.3.1 Agent 主链路时间预算（V2.2 收口）
+
+| 变量 | 默认值 | 是否必需 | 作用 | 未配置时的行为 |
+| --- | --- | --- | --- | --- |
+| `AGENT_BUDGET_ENABLED` | `true` | 可选 | 是否给 `/api/agent/chat` 与 `/api/agent/stream` 创建端到端时间预算 | 默认开启；设 `false` 完全回退旧行为（不建 deadline、所有阶段检查放行） |
+| `AGENT_BUDGET_TOTAL_MS` | `30000` | 可选 | 端到端总预算（毫秒），含排队时间；**耗尽不报错**，按 ADR-002 降级（intent→规则、research 跳过、结构化规划→规则规划、审核跳过） | 30 秒 |
+
+预算耗尽时的可观测面：回复里明确写「跳过审核/研究、结果未经完整校验，可稍后重试」；SSE 发 `budget_degraded` 事件；
+日志 WARN 带 `runId` 与剩余预算；运行追踪多一条 `taskType=DEGRADE` 任务。
+调大该值不会让请求变慢失控——单次 LLM 读超时也会被压到「剩余预算」以内；但**审核阶段内部的外部调用
+（高德算路 6s / 天气 5s / MCP 工具）仍受各自超时约束**，不受预算收紧，这是已知边界。
 
 ### 5.4 地图与天气
 
@@ -406,10 +418,11 @@ docker compose down -v                # ⚠️ 连卷一起删：MySQL 数据与
 | 存储与限流 | 13 | `INVOICE_DIR` `INVOICE_STORE` `PHOTO_MAX_PER_TRIP` `PHOTO_MAX_BYTES_PER_USER` `RATE_LIMIT_ENABLED` `RATE_LIMIT_AUTH` `RATE_LIMIT_AGENT` `RATE_LIMIT_UPLOAD` `RATE_LIMIT_DEFAULT` `RATE_LIMIT_SESSION` `RATE_LIMIT_WINDOW_SECONDS` `RATE_LIMIT_STORE` `PHOTOS_STORE` |
 | 数据库与其他 | 9 | `SPRING_PROFILES_ACTIVE` `MYSQL_HOST` `MYSQL_PORT` `MYSQL_DATABASE` `MYSQL_USERNAME` `MYSQL_PASSWORD` `MCP_ENABLED` `RAG_CHUNK_VERSION_RETENTION` `JAVA_OPTS` |
 | 会话记忆 | 2 | `CONVERSATION_HISTORY_LIMIT` `CONVERSATION_RETENTION_DAYS` |
+| Agent 时间预算 | 2 | `AGENT_BUDGET_ENABLED` `AGENT_BUDGET_TOTAL_MS` |
 | 容器时区（仅 mysql 服务） | 1 | `TZ` |
-| **合计** | **59** | 应用侧 55（= 两份 yml 占位去重数，`node .docgen/list-env.mjs` 输出 `55`；其中 `H2_CONSOLE_ENABLED`、`TICKET_TTL_SECONDS`、`RATE_LIMIT_TRUSTED_PROXIES` 未在 §5.2–§5.7 单列）+ `SPRING_PROFILES_ACTIVE` + `JAVA_OPTS` + `TZ` + `MYSQL_ROOT_PASSWORD` |
+| **合计** | **61** | 应用侧 57（= 两份 yml 占位去重数，`node .docgen/list-env.mjs` 输出 `57`；其中 `H2_CONSOLE_ENABLED`、`TICKET_TTL_SECONDS`、`RATE_LIMIT_TRUSTED_PROXIES` 未在 §5.2–§5.7 单列）+ `SPRING_PROFILES_ACTIVE` + `JAVA_OPTS` + `TZ` + `MYSQL_ROOT_PASSWORD` |
 
-> 口径提示：上表分组明细合计 **58** = 已展开的 52 个 yml 占位 + 2 个**前端构建期**变量（`VITE_AMAP_KEY`、`VITE_AMAP_SECURITY_CODE`，不是后端运行期变量）+ 4 个仅 Docker 面变量；`合计` 的 **59** = 55 个 yml 占位（含未单列的 `H2_CONSOLE_ENABLED` / `TICKET_TTL_SECONDS` / `RATE_LIMIT_TRUSTED_PROXIES`）+ 同样 4 个仅 Docker 面变量。
+> 口径提示：上表分组明细合计 **60** = 已展开的 54 个 yml 占位 + 2 个**前端构建期**变量（`VITE_AMAP_KEY`、`VITE_AMAP_SECURITY_CODE`，不是后端运行期变量）+ 4 个仅 Docker 面变量；`合计` 的 **61** = 57 个 yml 占位（含未单列的 `H2_CONSOLE_ENABLED` / `TICKET_TTL_SECONDS` / `RATE_LIMIT_TRUSTED_PROXIES`）+ 同样 4 个仅 Docker 面变量。
 
 来源分布（按定义位置；一个变量可能出现于多份配置文件）：
 
@@ -417,15 +430,15 @@ docker compose down -v                # ⚠️ 连卷一起删：MySQL 数据与
 | --- | --- | --- |
 | `application.yml` 的 `${VAR:default}` 占位 | 50 | 50 处、50 个不同变量（全部一次性引用；`AMAP_KEY` 只在 `travel.amap.key`，`AMAP_MAPS_API_KEY` 只在 `travel.mcp.servers[].env`） |
 | `application-mysql.yml` 的占位 | 5 | `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_DATABASE` / `MYSQL_USERNAME` / `MYSQL_PASSWORD` |
-| 两份 yml 合计（去重） | **55** | 等价于 `node .docgen/list-env.mjs` 输出的「Distinct env vars in yml: 55」 |
-| Java 代码内独立占位 | 2 | `TESSERACT_CMD`、`TESSDATA_PREFIX`（`InvoiceTextExtractor` 的 `@Value("${travel.ocr.tesseract:${TESSERACT_CMD:}}")` 嵌套写法；yml 里也有同名占位，故已含在上面 55 个中） |
+| 两份 yml 合计（去重） | **57** | 等价于 `node .docgen/list-env.mjs` 输出的「Distinct env vars in yml: 57」 |
+| Java 代码内独立占位 | 2 | `TESSERACT_CMD`、`TESSDATA_PREFIX`（`InvoiceTextExtractor` 的 `@Value("${travel.ocr.tesseract:${TESSERACT_CMD:}}")` 嵌套写法；yml 里也有同名占位，故已含在上面 57 个中） |
 | 仅由 `docker-compose.yml` / Dockerfile 提供 | 4 | `MYSQL_ROOT_PASSWORD`、`TZ`（mysql 服务）、`SPRING_PROFILES_ACTIVE`、`JAVA_OPTS`（后端 `ENTRYPOINT` 消费） |
 | `System.getenv` 直接读取 | **0** | 全仓库主代码没有 `System.getenv`（测试代码只用 `System.getProperty`） |
 
-对账：55（yml 去重）+ 4（仅 Docker 面）= **59**。复核命令：
+对账：57（yml 去重）+ 4（仅 Docker 面）= **61**。复核命令：
 
 ```bash
-node .docgen/list-env.mjs                                     # 期望：Distinct env vars in yml: 55
+node .docgen/list-env.mjs                                     # 期望：Distinct env vars in yml: 57
 grep -rhoE '\$\{[A-Z_]+' travel-agent-server/src/main/resources/application*.yml | sort -u | wc -l
 grep -rhoE '\$\{[A-Z_]+' travel-agent-server/src/main/java | sort -u | wc -l
 ```
@@ -928,10 +941,10 @@ docker compose start backend
 
 本文以仓库当前 HEAD 的源码为准做了逐项核对：
 
-- **环境变量总数：59**——应用侧 55（= 两份 yml 占位去重数，`node .docgen/list-env.mjs` 输出 `55`）
+- **环境变量总数：61**——应用侧 57（= 两份 yml 占位去重数，`node .docgen/list-env.mjs` 输出 `57`）
   \+ 仅 Docker 面 4（`MYSQL_ROOT_PASSWORD`、`SPRING_PROFILES_ACTIVE`、`JAVA_OPTS`、`TZ`）。分组明细见 §5.8，
   其中 `H2_CONSOLE_ENABLED`、`TICKET_TTL_SECONDS`、`RATE_LIMIT_TRUSTED_PROXIES` 三个占位未在 §5.2–§5.7 单列；
-- **来源分布**：`application.yml` 50 个不同占位（50 处）、`application-mysql.yml` 5 个、
+- **来源分布**：`application.yml` 52 个不同占位（52 处）、`application-mysql.yml` 5 个、
   Java 代码内独立占位 2 个（`TESSERACT_CMD`、`TESSDATA_PREFIX`，与 yml 同名重叠）、
   `docker-compose.yml`/Dockerfile 4 个、`System.getenv` 直接读取 **0** 个；
 - **刻意不进表的配置项**（无环境变量占位，只能走配置文件项或 `SPRING_APPLICATION_JSON`）：

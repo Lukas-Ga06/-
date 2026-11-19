@@ -528,10 +528,14 @@ export interface MapProvider {
   `Scale`、`ToolBar` 两种视角都有，`ControlBar` 只在 3D 加载。
 - **路线与标记**：按 `dayIndex` 分组，以两条 `AMap.Polyline` 叠加辉光与实线，当前 Day 加粗；
   标记继续使用 `buildMarkerElement` 的 DOM + `textContent` 安全构造，颜色沿用 `DAY_COLORS`。
+- **真实道路几何**（V2.2 收口）：`RouteLeg.polyline`（后端给的 WGS-84 `[lat,lng]`，已抽稀 ≤200 点）存在且 ≥2 点时，
+  `AMapProvider` 逐点 `toAmapLngLat()` 转 GCJ-02 后作为 `path` 绘制；缺省/空数组/单点时回退「两端点直连」。
+  `source=amap` 实线、`estimated` 虚线不变——**几何缺省时空着，绝不补假点**（ADR-009）。
+- **渲染去重**：Provider 对完整渲染内容（含标题、简介、类型、坐标、时间与 `focusDay`）生成 key；
+  同 id 的坐标或标题被 Agent 修改后也会重绘。几何另用「点数 + FNV-1a 摘要（1e-5° 量化）」入 key，
+  既不把整条坐标串塞进 key，又能在中段点变化时重绘。
 - **异步挂起**：SDK 未就绪时保存 `pendingItems`、`pendingDay`、定位目标与巡航请求，初始化后补齐；
   加载完成前 destroy 不会继续建图。
-- **渲染去重**：Provider 对完整渲染内容（含标题、简介、类型、坐标、时间与 `focusDay`）生成 key；
-  同一 id 的坐标或标题被 Agent 修改后也会重绘。
 - **Focus 联动**：`focus.latitude/longitude` 优先；缺失时退回 `focus.itemId` 在 `items` 里找坐标，
   通过 `setZoomAndCenter` 定位；巡航中来了 focus 会先 `stopTour()`。
 - **失败与恢复**：加载异常或 12 秒无 `complete` 时显示高德配置/网络提示；失败后若底图恢复，

@@ -134,10 +134,11 @@
 }
 
 /* 暗色下几处需要单独收一下的硬编码：地图底衬、表单占位、滚动条 */
+/* 地图底图本身已按主题切成高德 dark 样式（见 AMapProvider），容器衬底跟深色画布一致，
+   避免瓦片加载/边缘露出一圈浅色。 */
 [data-theme='dark'] .map-card .amap-container,
 [data-theme='dark'] .trip-map-body {
-  /* 底图是浅色栅格：容器仍用浅色衬底，避免暗色卡片里出现一块"漂浮的白图" */
-  background: #e8ecf1;
+  background: var(--bg);
 }
 
 [data-theme='dark'] .map-card .amap-controlbar,

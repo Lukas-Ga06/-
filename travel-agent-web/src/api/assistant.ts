@@ -127,12 +127,26 @@ export const searchKnowledge = (query: string) =>
 // ---------- 健康 ----------
 export interface SystemStatus {
   llmConfigured: boolean;
+  /**
+   * 最近一次真实 LLM 调用是否成功（V2.2 P5）。
+   * 旧后端没有该字段：调用方必须按 undefined 处理，不能当成「已验证」。
+   */
+  llmVerified?: boolean;
   llmModel?: string | null;
   llmHint: string;
   amapConfigured: boolean;
   geoProvider: string;
   geoHint: string;
   timezone: string;
+  /** 现行路线口径：amap | estimated（V2.2 FR-05） */
+  routeProvider?: string;
+  /** 是否配置了路线 Provider（后端 routeConfigured；旧后端缺省时回退 amapConfigured） */
+  routeConfigured?: boolean;
+  /** 最近一次真实路径调用是否成功（V2.2 P2）；旧后端缺省按 undefined 处理 */
+  amapVerified?: boolean;
+  /** 最近一次真实路径调用失败原因（含 infocode，不含 Key） */
+  routeLastError?: string | null;
+  routeHint?: string;
   /** 每日 LLM 配额：仅在配置了上限（>0）时返回 */
   llmQuotaUsed?: number;
   llmQuotaLimit?: number;

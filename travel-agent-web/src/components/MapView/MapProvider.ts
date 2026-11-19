@@ -1,4 +1,5 @@
 import type { ItineraryItem, RouteLeg } from '../../types/trip';
+import type { ThemeMode } from '../../store/themeStore';
 
 /**
  * 地图抽象层：行程地图当前由高德 JS API 实现。
@@ -24,4 +25,6 @@ export interface MapProvider {
   stopTour?(): void;
   /** 可选扩展：倾斜 3D 视角开关 */
   setPitched?(pitched: boolean): void;
+  /** 可选扩展：切换底图主题（暗色底图），不重建地图 */
+  setTheme?(theme: ThemeMode): void;
 }

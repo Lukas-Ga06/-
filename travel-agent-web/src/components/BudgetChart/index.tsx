@@ -1,7 +1,9 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { echarts, type EChartsType } from '../../lib/echarts';
 import { Empty } from 'antd';
 import type { ItineraryItem } from '../../types/trip';
+import { useThemeStore } from '../../store/themeStore';
+import { chartPalette } from '../../lib/chartTheme';
 
 const TYPE_LABELS: Record<string, string> = {
   hotel: '酒店',
@@ -11,19 +13,19 @@ const TYPE_LABELS: Record<string, string> = {
 };
 
 const PIE_COLORS = ['#1f6feb', '#16a34a', '#d97706', '#7c5cd6', '#d6457a', '#2f9fb8'];
-const TEXT = 'rgba(28, 28, 30, 0.9)';
-const TEXT_DIM = 'rgba(60, 60, 67, 0.55)';
-const AXIS = '#e4e6eb';
 
 interface Props {
   items: ItineraryItem[];
   budget?: number | null;
 }
 
-/** 预算图表：左饼图（按类型）+ 右柱图（按天），深色玻璃主题 */
+/** 预算图表：左饼图（按类型）+ 右柱图（按天）；文字/坐标轴颜色跟随主题 */
 export default function BudgetChart({ items, budget }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<EChartsType | null>(null);
+  const themeMode = useThemeStore((s) => s.mode);
+  // canvas 读不到 CSS 变量，按主题取等价色值（见 lib/chartTheme）
+  const palette = useMemo(() => chartPalette(themeMode), [themeMode]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -64,31 +66,36 @@ export default function BudgetChart({ items, budget }: Props) {
         subtext: budget ? `预算 ¥${budget}（已用 ${((total / budget) * 100).toFixed(0)}%）` : undefined,
         left: 'center',
         top: 8,
-        textStyle: { fontSize: 15, color: TEXT },
-        subtextStyle: { color: TEXT_DIM },
+        textStyle: { fontSize: 15, color: palette.text },
+        subtextStyle: { color: palette.textDim },
       },
       tooltip: {
         trigger: 'item',
         formatter: '{b}: ¥{c}',
-        backgroundColor: 'rgba(255, 255, 255, 0.96)',
-  borderColor: '#e4e6eb',
-        textStyle: { color: TEXT },
+        backgroundColor: palette.tooltipBg,
+        borderColor: palette.tooltipBorder,
+        textStyle: { color: palette.tooltipText },
       },
-      legend: { bottom: 0, left: '12%', textStyle: { color: TEXT_DIM }, itemStyle: { borderWidth: 0 } },
+      legend: {
+        bottom: 0,
+        left: '12%',
+        textStyle: { color: palette.textDim },
+        itemStyle: { borderWidth: 0 },
+      },
       grid: { right: '6%', top: '24%', bottom: '18%', width: '42%', containLabel: true },
       xAxis: {
         type: 'category',
         data: dayKeys.map((d) => `Day ${d}`),
-        axisLine: { lineStyle: { color: AXIS } },
-        axisTick: { lineStyle: { color: AXIS } },
-        axisLabel: { color: TEXT_DIM },
+        axisLine: { lineStyle: { color: palette.axisLine } },
+        axisTick: { lineStyle: { color: palette.axisLine } },
+        axisLabel: { color: palette.textDim },
       },
       yAxis: {
         type: 'value',
         name: '元',
-        nameTextStyle: { color: TEXT_DIM },
-        splitLine: { lineStyle: { color: AXIS } },
-        axisLabel: { color: TEXT_DIM },
+        nameTextStyle: { color: palette.textDim },
+        splitLine: { lineStyle: { color: palette.axisLine } },
+        axisLabel: { color: palette.textDim },
       },
       series: [
         {
@@ -100,9 +107,9 @@ export default function BudgetChart({ items, budget }: Props) {
             name,
             value: Number(value.toFixed(2)),
           })),
-          label: { formatter: '{b}\n¥{c}', color: TEXT_DIM },
+          label: { formatter: '{b}\n¥{c}', color: palette.textDim },
           color: PIE_COLORS,
-          itemStyle: { borderColor: '#ffffff', borderWidth: 2 },
+          itemStyle: { borderColor: palette.pieBorder, borderWidth: 2 },
         },
         {
           name: '每日花费',
@@ -119,7 +126,8 @@ export default function BudgetChart({ items, budget }: Props) {
         },
       ],
     });
-  }, [items, budget]);
+    // 主题切换时必须用新色板重画（canvas 不跟随 CSS 变量）
+  }, [items, budget, palette]);
 
   return (
     <div>

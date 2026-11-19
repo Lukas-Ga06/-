@@ -1,20 +1,24 @@
 import { useEffect, useRef, useState } from 'react';
-import { App, Button, DatePicker, Empty, InputNumber, Spin } from 'antd';
+import { App, Button, DatePicker, Empty, InputNumber, Spin, Tag } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import { echarts, type EChartsType } from '../../lib/echarts';
+import { chartPalette } from '../../lib/chartTheme';
 import AppShell from '../../components/AppShell';
 import { useThemeStore } from '../../store/themeStore';
 import {
-  healthSummary, listHealth, seedHealthDemo, upsertHealth,
-  type HealthRecord, type HealthSummary,
+  healthSummary, listHealth, seedHealthDemo, upsertHealth, systemStatus,
+  type HealthRecord, type HealthSummary, type SystemStatus,
 } from '../../api/assistant';
+import { formatLlmCapability, formatRouteCapability } from '../../lib/systemStatus';
 
 /** 健康模块：小米手环数据导入/记录 + 7 天趋势 + 建议 */
 export default function Health() {
   const { message } = App.useApp();
   const [records, setRecords] = useState<HealthRecord[]>([]);
   const [summary, setSummary] = useState<HealthSummary | null>(null);
+  const [status, setStatus] = useState<SystemStatus | null>(null);
+  const [statusFailed, setStatusFailed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [seeding, setSeeding] = useState(false);
   const [form, setForm] = useState<{ date: Dayjs; steps?: number; sleepHours?: number; heartRate?: number; weight?: number }>({
@@ -23,11 +27,8 @@ export default function Health() {
   const chartElRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<EChartsType | null>(null);
   const themeMode = useThemeStore((s) => s.mode);
-  // echarts 画在 canvas 上，读不到 CSS 变量，这里按主题给一组等价色值
-  const dark = themeMode === 'dark';
-  const chartColors = dark
-    ? { axis: '#6f7885', grid: '#333a46', bar: '#5b9bff', line: '#4ade80', legend: '#a0a7b4' }
-    : { axis: '#8b93a1', grid: '#e4e6eb', bar: '#1f6feb', line: '#16a34a', legend: '#5b6472' };
+  // canvas 读不到 CSS 变量，这里按主题取等价色值（与 BudgetChart/ExpensePanel 共用 lib/chartTheme）
+  const chartColors = chartPalette(themeMode);
 
   const load = async () => {
     try {
@@ -42,6 +43,13 @@ export default function Health() {
   };
 
   useEffect(() => { load(); }, []);
+
+  // 运行能力自检：配置态与最近调用态分开上报，失败不阻塞健康数据
+  useEffect(() => {
+    systemStatus()
+      .then(setStatus)
+      .catch(() => setStatusFailed(true));
+  }, []);
 
   // 趋势图：容器在 loading 结束（数据到达）之后才挂载，
   // 因此初始化必须依赖 loading，否则首次渲染时 ref 还是 null，图表永远不会创建。
@@ -65,13 +73,18 @@ export default function Health() {
     if (days.length === 0) { chart.clear(); return; }
     chart.setOption({
       backgroundColor: 'transparent',
-      tooltip: { trigger: 'axis' },
+      tooltip: {
+        trigger: 'axis',
+        backgroundColor: chartColors.tooltipBg,
+        borderColor: chartColors.tooltipBorder,
+        textStyle: { color: chartColors.tooltipText },
+      },
       legend: { top: 0, textStyle: { color: chartColors.legend } },
       grid: { left: 46, right: 46, top: 34, bottom: 26 },
-      xAxis: { type: 'category', data: days.map((d) => d.date.slice(5)), axisLabel: { color: chartColors.axis }, axisLine: { lineStyle: { color: chartColors.grid } } },
+      xAxis: { type: 'category', data: days.map((d) => d.date.slice(5)), axisLabel: { color: chartColors.axisLabel }, axisLine: { lineStyle: { color: chartColors.axisLine } } },
       yAxis: [
-        { type: 'value', name: '步数', splitLine: { lineStyle: { color: chartColors.grid } }, axisLabel: { color: chartColors.axis } },
-        { type: 'value', name: '小时', splitLine: { show: false }, axisLabel: { color: chartColors.axis } },
+        { type: 'value', name: '步数', splitLine: { lineStyle: { color: chartColors.axisLine } }, axisLabel: { color: chartColors.axisLabel } },
+        { type: 'value', name: '小时', splitLine: { show: false }, axisLabel: { color: chartColors.axisLabel } },
       ],
       series: [
         {
@@ -122,6 +135,13 @@ export default function Health() {
 
   const latest = summary?.latest;
 
+  // P2/P5 展示口径：「已配置」与「已验证」分开，绝不把配置态画成可用态
+  const llmCapability = formatLlmCapability(status);
+  const routeCapability = formatRouteCapability(status);
+  const selfcheckRow = { display: 'flex', alignItems: 'flex-start', gap: 8, padding: '6px 0', flexWrap: 'wrap' as const };
+  const selfcheckLabel = { minWidth: 68, fontSize: 12.5, fontWeight: 700, color: 'var(--ink-2)' };
+  const selfcheckDetail = { fontSize: 12, color: 'var(--ink-3)', flex: 1, minWidth: 220, lineHeight: 1.6 };
+
   return (
     <AppShell active="health">
       <div className="dash-wrap">
@@ -143,6 +163,43 @@ export default function Health() {
               <div className="stat-card"><div className="sc-icon green">🌙</div><div className="sc-num">{latest?.sleepHours ?? '-'}</div><div className="sc-label">今日睡眠(小时)</div></div>
               <div className="stat-card"><div className="sc-icon orange">❤️</div><div className="sc-num">{latest?.restingHeartRate ?? '-'}</div><div className="sc-label">静息心率</div></div>
               <div className="stat-card"><div className="sc-icon purple">⚖️</div><div className="sc-num">{latest?.weight ?? '-'}</div><div className="sc-label">体重(kg)</div></div>
+            </div>
+
+            <div className="dash-card span2">
+              <div className="dc-head">
+                <b>运行能力自检</b>
+                <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
+                  配置 ≠ 可用：按最近一次真实调用如实上报
+                </span>
+              </div>
+              {statusFailed ? (
+                <div style={{ fontSize: 12, color: 'var(--warn)' }}>
+                  自检接口 /api/system/status 不可用，无法确认当前能力（健康数据不受影响）
+                </div>
+              ) : !status ? (
+                <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>正在检测…</div>
+              ) : (
+                <>
+                  <div style={selfcheckRow} data-testid="selfcheck-llm">
+                    <span style={selfcheckLabel}>大模型</span>
+                    <Tag color={llmCapability.tagColor} data-testid="selfcheck-llm-state">
+                      {llmCapability.label}
+                    </Tag>
+                    <span style={selfcheckDetail}>{llmCapability.detail}</span>
+                  </div>
+                  <div style={selfcheckRow} data-testid="selfcheck-route">
+                    <span style={selfcheckLabel}>路线规划</span>
+                    <Tag color={routeCapability.tagColor} data-testid="selfcheck-route-state">
+                      {routeCapability.label}
+                    </Tag>
+                    <span style={selfcheckDetail}>{routeCapability.detail}</span>
+                  </div>
+                  <div style={{ fontSize: 11.5, color: 'var(--ink-3)', marginTop: 4 }}>
+                    当前口径：大模型 → {llmCapability.actual} · 路线 → {routeCapability.actual}
+                    {status.routeProvider ? ` · routeProvider=${status.routeProvider}` : ''}
+                  </div>
+                </>
+              )}
             </div>
 
             <div className="dash-card span2">

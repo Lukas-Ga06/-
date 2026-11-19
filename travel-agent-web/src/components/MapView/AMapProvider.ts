@@ -1,5 +1,6 @@
 import type { ItineraryItem, RouteLeg } from '../../types/trip';
 import { toAmapLngLat } from '../../lib/coords';
+import type { ThemeMode } from '../../store/themeStore';
 import type { MapProvider } from './MapProvider';
 import {
   loadAMap,
@@ -12,6 +13,15 @@ import {
 import { buildMarkerElement } from './markerElement';
 
 export const DAY_COLORS = ['#007aff', '#34c759', '#ff9500', '#af52de', '#ff2d55'];
+
+/**
+ * 高德 JS API 2.0 底图样式：暗色用官方 dark 样式（不是给容器加 CSS 滤镜）。
+ * 地图瓦片画在 canvas 里，CSS 变量影响不到，只能由 SDK 换样式。
+ */
+export const AMAP_STYLES: Record<ThemeMode, string> = {
+  light: 'amap://styles/normal',
+  dark: 'amap://styles/dark',
+};
 
 const DEFAULT_CENTER: [number, number] = toAmapLngLat(31.2304, 121.4737);
 const BASE_MAP_TIMEOUT_MS = 12_000;
@@ -105,6 +115,12 @@ interface DrawableLeg {
 export class AMapProvider implements MapProvider {
   private AMap: AMapNamespace | null = null;
   private map: AMapMap | null = null;
+  /** 地图容器：用于把当前底图样式写进 data-map-style（可观测，便于自检/验收） */
+  private container: HTMLDivElement | null = null;
+  /** 当前想要的底图主题；SDK 未就绪时先记住，加载完成后按它创建地图 */
+  private theme: ThemeMode = 'light';
+  /** 已经真正应用到地图实例上的主题；null = 地图还没创建 */
+  private appliedTheme: ThemeMode | null = null;
   private overlays: AMapOverlay[] = [];
   private pendingItems: ItineraryItem[] = [];
   private pendingDay: number | null = null;
@@ -122,10 +138,16 @@ export class AMapProvider implements MapProvider {
   constructor(
     private readonly viewMode: AMapViewMode = '3D',
     private readonly load: AMapLoader = loadAMap,
-  ) {}
+    theme: ThemeMode = 'light',
+  ) {
+    this.theme = theme;
+  }
 
   init(container: HTMLDivElement, onBaseMapStatus?: (status: BaseMapStatus) => void): void {
     this.statusCb = onBaseMapStatus;
+    this.container = container;
+    // 首帧就带上可观测的样式声明：SDK 异步加载期间页面也能看出「已请求暗色」
+    this.announceStyle();
     this.statusTimer = window.setTimeout(() => {
       this.reportFailure(new Error('高德底图加载超时，请检查网络、Key 与安全密钥'));
     }, BASE_MAP_TIMEOUT_MS);
@@ -142,14 +164,22 @@ export class AMapProvider implements MapProvider {
           center: DEFAULT_CENTER,
           pitch: pitched ? 55 : 0,
           rotation: pitched ? -18 : 0,
-          mapStyle: 'amap://styles/normal',
+          mapStyle: AMAP_STYLES[this.theme],
           showLabel: true,
           showBuildingBlock: pitched,
           buildingAnimation: pitched,
         });
         this.map = map;
-        map.on('complete', () => this.reportReady());
-        map.on('error', (event) => this.reportFailure(event));
+        this.appliedTheme = this.theme;
+        // 底图就绪/失败都写到容器上：既有 UI 回调，也便于自动化验收等待与取证
+        map.on('complete', () => {
+          this.container?.setAttribute('data-map-ready', 'ok');
+          this.reportReady();
+        });
+        map.on('error', (event) => {
+          this.container?.setAttribute('data-map-ready', 'error');
+          this.reportFailure(event);
+        });
 
         if (AMap.Scale) map.addControl(new AMap.Scale());
         if (AMap.ToolBar) map.addControl(new AMap.ToolBar());
@@ -167,6 +197,29 @@ export class AMapProvider implements MapProvider {
         if (this.tourItems) this.startTour(this.tourItems);
       })
       .catch((error: unknown) => this.reportFailure(error));
+  }
+
+  /** 把期望的底图样式写到容器属性（可观测）；真正应用与否由 appliedTheme 区分 */
+  private announceStyle(): void {
+    this.container?.setAttribute('data-map-theme', this.theme);
+    this.container?.setAttribute('data-map-style', AMAP_STYLES[this.theme]);
+  }
+
+  /**
+   * 切换底图主题（不重建地图）：
+   * - SDK 还在异步加载：只记住期望主题，`init` 构造地图时直接用暗色样式，请求不丢；
+   * - 地图已就绪：调用高德 `setMapStyle` 换底图，并按新主题重绘覆盖物。
+   */
+  setTheme(theme: ThemeMode): void {
+    if (theme === this.theme && this.appliedTheme === theme) return;
+    this.theme = theme;
+    this.announceStyle();
+    const map = this.map;
+    if (!map) return;
+    map.setMapStyle?.(AMAP_STYLES[theme]);
+    this.appliedTheme = theme;
+    // 主题进了 render 的 lastRenderKey，同一批数据也会按新主题重绘一次。
+    this.render(this.pendingItems, this.pendingDay, this.pendingLegs);
   }
 
   private reportReady(): void {
@@ -210,6 +263,8 @@ export class AMapProvider implements MapProvider {
     // id 不变但坐标、标题或时间被 Agent 修改时也必须重绘；
     // legs 一并进 key：确认提交后 itinerary 可能原样返回，只有转场段变了。
     const key = JSON.stringify([
+      // 主题参与缓存 key：主题切换后同一批行程数据也要按新底图/新配色重绘
+      this.theme,
       focusDay,
       items.map((item) => [
         item.id,
@@ -423,6 +478,8 @@ export class AMapProvider implements MapProvider {
     this.map?.destroy();
     this.map = null;
     this.AMap = null;
+    this.container = null;
+    this.appliedTheme = null;
     this.statusCb = undefined;
     this.pendingFocus = null;
   }

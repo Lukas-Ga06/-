@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ItineraryItem, RouteLeg } from '../../types/trip';
 import { toAmapLngLat } from '../../lib/coords';
-import { AMapProvider, DAY_COLORS } from './AMapProvider';
+import { AMapProvider, AMAP_STYLES, DAY_COLORS } from './AMapProvider';
 import { loadAMap, type AMapMap, type AMapNamespace } from './amapLoader';
 
 function item(patch: Partial<ItineraryItem> = {}): ItineraryItem {
@@ -58,6 +58,7 @@ function createMapMock(): MockMap {
     setPitch: vi.fn(),
     setRotation: vi.fn(),
     getRotation: vi.fn(() => 0),
+    setMapStyle: vi.fn(),
     destroy: vi.fn(),
   };
   return Object.assign(map, {
@@ -441,6 +442,97 @@ describe('AMapProvider', () => {
     await flushLoader();
 
     expect(AMap.Map).not.toHaveBeenCalled();
+  });
+
+  it('初始主题为暗色时直接用高德 dark 底图样式构造地图', async () => {
+    const map = createMapMock();
+    const { AMap } = createAMapMock(map);
+    const container = document.createElement('div');
+    provider = new AMapProvider('3D', () => Promise.resolve(AMap), 'dark');
+
+    provider.init(container);
+    await flushLoader();
+
+    expect(AMap.Map).toHaveBeenCalledTimes(1);
+    expect(AMap.Map).toHaveBeenCalledWith(
+      container,
+      expect.objectContaining({ mapStyle: AMAP_STYLES.dark }),
+    );
+    // 可观测：容器上能读到当前请求的底图样式（验收脚本据此断言，不靠肉眼）
+    expect(container.dataset.mapStyle).toBe(AMAP_STYLES.dark);
+    expect(container.dataset.mapTheme).toBe('dark');
+  });
+
+  it('主题切换调用 setMapStyle 且不重建地图', async () => {
+    const map = createMapMock();
+    const { AMap } = createAMapMock(map);
+    const container = document.createElement('div');
+    provider = new AMapProvider('3D', () => Promise.resolve(AMap), 'light');
+    provider.init(container);
+    await flushLoader();
+    provider.render([item()], 1);
+
+    provider.setTheme('dark');
+
+    expect(map.setMapStyle).toHaveBeenCalledTimes(1);
+    expect(map.setMapStyle).toHaveBeenCalledWith(AMAP_STYLES.dark);
+    // 不重建：Map 只构造过一次，也没有销毁
+    expect(AMap.Map).toHaveBeenCalledTimes(1);
+    expect(map.destroy).not.toHaveBeenCalled();
+    expect(container.dataset.mapStyle).toBe(AMAP_STYLES.dark);
+  });
+
+  it('SDK 未就绪时的主题请求不会丢：加载完成后按暗色创建地图', async () => {
+    const map = createMapMock();
+    const { AMap } = createAMapMock(map);
+    let resolveLoader!: (value: AMapNamespace) => void;
+    const container = document.createElement('div');
+    provider = new AMapProvider(
+      '3D',
+      () => new Promise((resolve) => {
+        resolveLoader = resolve;
+      }),
+      'light',
+    );
+    provider.init(container);
+
+    // SDK 还没 resolve：主题请求先挂起
+    provider.setTheme('dark');
+    expect(container.dataset.mapStyle).toBe(AMAP_STYLES.dark);
+    expect(map.setMapStyle).not.toHaveBeenCalled();
+
+    resolveLoader(AMap);
+    await flushLoader();
+
+    // 加载完成后用挂起的主题构造地图，而不是回落 light
+    expect(AMap.Map).toHaveBeenCalledWith(
+      container,
+      expect.objectContaining({ mapStyle: AMAP_STYLES.dark }),
+    );
+    expect(container.dataset.mapStyle).toBe(AMAP_STYLES.dark);
+  });
+
+  it('主题变化参与 render 缓存 key：同一批数据会按新主题重绘一次', async () => {
+    const map = createMapMock();
+    const { AMap, Marker } = createAMapMock(map);
+    provider = new AMapProvider('3D', () => Promise.resolve(AMap), 'light');
+    provider.init(document.createElement('div'));
+    await flushLoader();
+    provider.render([item()], 1);
+    expect(Marker).toHaveBeenCalledTimes(1);
+
+    // 主题变了：即便 items 原样，也必须重绘（key 里有 theme）
+    provider.setTheme('dark');
+    expect(Marker).toHaveBeenCalledTimes(2);
+    expect(map.remove).toHaveBeenCalled();
+
+    // key 已被新主题更新：同主题下重复 render 不再重绘
+    provider.render([item()], 1);
+    expect(Marker).toHaveBeenCalledTimes(2);
+
+    // 再切回浅色又是一次有效变化
+    provider.setTheme('light');
+    expect(Marker).toHaveBeenCalledTimes(3);
   });
 
   it('缺少 Web 端 Key 时给出明确配置错误', async () => {

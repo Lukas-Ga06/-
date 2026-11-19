@@ -3,6 +3,7 @@ import type { ItineraryItem, RouteLeg } from '../../types/trip';
 import type { AgentFocus } from '../../types/agent';
 import type { MapProvider } from './MapProvider';
 import { AMapProvider } from './AMapProvider';
+import { useThemeStore } from '../../store/themeStore';
 
 interface Props {
   items: ItineraryItem[];
@@ -24,12 +25,18 @@ export default function MapView({ items, focus, focusDay, routeLegs }: Props) {
   const [engine, setEngine] = useState<Engine>('3d');
   const [touring, setTouring] = useState(false);
   const [mapLoadFailed, setMapLoadFailed] = useState(false);
+  const themeMode = useThemeStore((s) => s.mode);
 
   // 初始化 / 视角切换。高德 SDK 只加载一次，Provider 负责挂起异步加载期间的渲染请求。
+  // 主题不作为依赖：切主题只换底图样式，绝不重建地图（重建会丢相机与覆盖物）。
   useEffect(() => {
     if (!containerRef.current || providerRef.current) return;
     setMapLoadFailed(false);
-    const provider: MapProvider = new AMapProvider(engine === '3d' ? '3D' : '2D');
+    const provider: MapProvider = new AMapProvider(
+      engine === '3d' ? '3D' : '2D',
+      undefined,
+      useThemeStore.getState().mode,
+    );
     provider.init(containerRef.current, (status) => {
       setMapLoadFailed(status === 'failed');
     });
@@ -40,6 +47,11 @@ export default function MapView({ items, focus, focusDay, routeLegs }: Props) {
       setTouring(false);
     };
   }, [engine]);
+
+  // 主题切换：只让 Provider 换底图样式（SDK 未就绪时它会把请求挂起）。
+  useEffect(() => {
+    providerRef.current?.setTheme?.(themeMode);
+  }, [themeMode]);
 
   // 数据渲染（Provider 内部按完整行程内容去重；legs 内容变化也要重绘）
   useEffect(() => {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { App, Button, DatePicker, Empty, Form, Input, InputNumber, List, Popconfirm, Progress, Select } from 'antd';
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
@@ -8,9 +8,11 @@ import { getBudgetExecution } from '../../api/trip';
 import { DEFAULT_PAGE_SIZE } from '../../api/client';
 import PaginationBar from '../PaginationBar';
 import { CATEGORY_COLORS, EXPENSE_CATEGORIES, PAYMENT_COLORS, PAYMENT_METHODS, type Expense } from '../../types/expense';
+import { useThemeStore } from '../../store/themeStore';
+import { chartPalette } from '../../lib/chartTheme';
 
-const TEXT = 'rgba(28, 28, 30, 0.9)';
-const TEXT_DIM = 'rgba(60, 60, 67, 0.55)';
+/** tooltip 无论主题都是深色底，正文必须用浅色（不能用主题的深色 text） */
+const TOOLTIP_TEXT_ON_DARK = '#f2f5fa';
 
 interface Props {
   tripId: number;
@@ -48,6 +50,9 @@ export default function ExpensePanel({ tripId, budget, planned }: Props) {
   const [form] = Form.useForm();
   const chartElRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<EChartsType | null>(null);
+  const themeMode = useThemeStore((s) => s.mode);
+  // canvas 读不到 CSS 变量，按主题取等价色值（见 lib/chartTheme）
+  const palette = useMemo(() => chartPalette(themeMode), [themeMode]);
 
   const load = async (nextOffset: number, options: { silent?: boolean } = {}) => {
     if (options.silent) setPaging(true);
@@ -123,7 +128,7 @@ export default function ExpensePanel({ tripId, budget, planned }: Props) {
         formatter: '{b}: ¥{c} ({d}%)',
         backgroundColor: 'rgba(17, 26, 51, 0.95)',
         borderColor: 'rgba(255, 255, 255, 0.2)',
-        textStyle: { color: TEXT },
+        textStyle: { color: TOOLTIP_TEXT_ON_DARK },
       },
       series: [
         {
@@ -132,13 +137,14 @@ export default function ExpensePanel({ tripId, budget, planned }: Props) {
           center: ['50%', '50%'],
           data,
           color: data.map((d) => CATEGORY_COLORS[d.name] ?? '#cbd5e1'),
-          label: { color: TEXT_DIM, formatter: '{b} ¥{c}' },
-          itemStyle: { borderColor: 'rgba(10, 16, 36, 0.85)', borderWidth: 2 },
+          label: { color: palette.textDim, formatter: '{b} ¥{c}' },
+          itemStyle: { borderColor: palette.pieBorder, borderWidth: 2 },
         },
       ],
     });
+    // 主题切换时必须用新色板重画（canvas 不跟随 CSS 变量）
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [summary]);
+  }, [summary, palette]);
 
   const over = budget != null && total > budget;
   const percent = budget ? Math.min((total / budget) * 100, 100) : 0;

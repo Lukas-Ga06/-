@@ -332,12 +332,23 @@ GET /api/photos/12/raw?ticket=...                    # 只能用 media-read 票�
 {"code":0,"message":"success","data":[
   {"dayIndex":1,"sequence":1,"fromItemId":11,"toItemId":12,"fromTitle":"外滩","toTitle":"豫园",
    "fromLatitude":31.2397,"fromLongitude":121.4998,"toLatitude":31.227,"toLongitude":121.4921,
-   "distanceKm":1.9,"walkMinutes":25,"driveMinutes":9,"taxiCost":17.0,"source":"estimated"}]}
+   "distanceKm":1.9,"walkMinutes":25,"driveMinutes":9,"taxiCost":17.0,"source":"estimated","polyline":[]}]}
 ```
 按天输出「相邻且有坐标」的行程点之间的路段：`sequence` 为当天内段序号（从 1 开始）；
 `source` 标注距离来源——`amap`（高德真实路径）或 `estimated`（本地 haversine 估算）。
 **`taxiCost` 始终为本地估算**（未接入计价 Provider），前端不得显示成实时价格。
 无坐标条目（如「当日交通（打车）」费用汇总行）自动跳过，不产生假路线。
+
+`polyline`（V2.2 收口）是**真实道路几何**，契约固定为：
+
+| 项 | 约定 |
+| --- | --- |
+| 类型 | `number[][]`，每点 `[lat, lng]`（**纬度在前**） |
+| 坐标系 | **WGS-84**（与全仓业务坐标一致；前端渲染前逐点转 GCJ-02） |
+| 内容 | 高德 `route.paths[].steps[].polyline` 拼接 → GCJ-02→WGS-84 → Douglas-Peucker 抽稀（12 m 容差），**≤200 点**，首尾点必保留 |
+| 缺省 | 字段**常驻不为 null**；`estimated` 段与「真实接口无几何」一律为 `[]`——**绝不返回假点**（ADR-006/ADR-009） |
+
+前端语义：`polyline.length >= 2` 时按几何画线（`source=amap` 实线），否则回退「两端点直连」。
 错误：`401`；`404`（他人行程同样 404）
 
 ### 3.10 POST /api/trips/{id}/itinerary — 新增行程项
@@ -1074,9 +1085,23 @@ data:{"planId":"plan-8f3c","tripId":null,"message":"…","intent":"PLAN_TRIP","s
 ### 14.1 GET /api/system/status — 运行能力自检
 鉴权：登录 ｜ 源码：`SystemController#status:37` ｜ 参数：无（不返回任何密钥）
 ```json
-{"code":0,"message":"success","data":{"llmConfigured":true,"llmModel":"deepseek-chat","llmHint":"已接入大模型：意图识别、方案生成与文案润色走模型","amapConfigured":false,"geoProvider":"osm","geoHint":"未配置 AMAP_KEY：城市定位退回 OSM Nominatim，国内网络可能较慢或失败","timezone":"Asia/Shanghai","ocrConfigured":false,"ocrHint":"未配置 OCR：支持 PDF 电子发票与粘贴文本；图片需设置 TESSERACT_CMD","pendingPlanStore":"database","rateLimitEnabled":true,"llmQuotaUsed":3,"llmQuotaLimit":50}}
+{"code":0,"message":"success","data":{"llmConfigured":true,"llmVerified":false,"llmModel":"deepseek-chat","llmHint":"已接入大模型：意图识别、方案生成与文案润色走模型","amapConfigured":false,"geoProvider":"osm","geoHint":"未配置 AMAP_KEY：城市定位退回 OSM Nominatim，国内网络可能较慢或失败","timezone":"Asia/Shanghai","routeProvider":"estimated","routeConfigured":false,"amapVerified":false,"routeLastError":null,"routeHint":"路线为本地距离估算（未配置 AMAP_KEY / 高德 MCP）：距离与耗时为近似值","ocrConfigured":false,"ocrHint":"未配置 OCR：支持 PDF 电子发票与粘贴文本；图片需设置 TESSERACT_CMD","pendingPlanStore":"database","rateLimitEnabled":true,"llmQuotaUsed":3,"llmQuotaLimit":50}}
 ```
 错误：`401`。`llmQuotaUsed` / `llmQuotaLimit` 仅在 `travel.llm.quota-daily-limit > 0` 且已登录时出现。
+
+**「配置了」与「真的能用」必须分开报**（V2.2 验收 P2/P5）：
+
+| 字段 | 含义 |
+| --- | --- |
+| `llmConfigured` | 配置里有 LLM Key |
+| `llmVerified` | **最近一次真实 LLM 调用是否成功**（未调用过 = `false`） |
+| `routeProvider` | 现行口径，取值域严格 `amap` \| `estimated`；`amap` ⇔ `routeConfigured && amapVerified` |
+| `routeConfigured` | 配了 `AMAP_KEY` 或检测到高德 MCP 工具 |
+| `amapVerified` | 最近一次真实路径调用是否成功（MCP 或 REST 任一成功） |
+| `routeLastError` | 最近一次失败原因，形如 `infocode=10001, info=INVALID_USER_KEY`；含 infocode、**不含 Key**；成功/未调用为 `null` |
+
+`routeHint` 四态：已验证 amap / 未配置 / 已配置但最近失败（带 infocode）/ 已配置但尚未验证。
+**无效 Key、QPS 限流重试仍失败、启动后尚未成功调用过，一律 `estimated`**——估算不得伪装成实时（ADR-006）。
 
 ---
 
