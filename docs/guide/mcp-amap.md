@@ -246,11 +246,15 @@ MCP 服务器 [amap] 接入失败，已跳过: timeout initialize
 | 端到端注册 | 12 个工具全部注册为 `mcp_amap_*`，全部 `readOnly=true`；`AmapMcpAdapter` 12 个语义能力全部映射成功 |
 | Windows | `cmd /c` 自动补全后 `npx` 能正常拉起 |
 | 降级 | 关 MCP / 无 Key / 握手失败三种情况，应用启动与其它工具均不受影响 |
+| **前端 JS API 真实渲染**（2026-11-19 实测） | 配好 `VITE_AMAP_KEY` + `VITE_AMAP_SECURITY_CODE` 后打开行程页：`window.AMap` 加载成功、`AMap.Map` 可用、`.amap-container` + `canvas` 已创建，共 **33 个高德域请求**（`webapi.amap.com` / `jsapi.amap.com` / `jsapi-data1..5` / `o4.amap.com` / `restapi.amap.com` 的 `jscode` 校验），页面无「地图加载失败」降级提示。**这是「前端地图真实渲染」从推测转为已验证** |
 
 ### 5.2 未验证（不要当成已支持）
 
-- **没有后端高德「Web 服务」真实 Key**，所以：POI / 路径 / 天气的**真实返回体结构**、**GCJ-02 坐标**、
-  以及「MCP 场景下该 Key 是否还有额外限制」都只到「握手 + 工具清单 + 错误降级」级别。
+- **后端「Web 服务」真实 Key 仍未取得**（2026-11-19 实测撞墙）：把「Web端(JS API)」类型的 Key 填给后端
+  `AMAP_KEY` 时，高德返回 `status=0  info=USERKEY_PLAT_NOMATCH  infocode=10009`（**请求 Key 与绑定平台不匹配**），
+  `PlaceService`/`RouteService` 随后**静默降级**为 `estimated`——所以：POI / 路径 / 天气的**真实返回体结构**、
+  **GCJ-02 坐标**、「MCP 场景下该 Key 是否还有额外限制」仍只到「握手 + 工具清单 + 错误降级」级别。
+  **同一应用下再加一枚「服务平台 = Web服务」的 Key** 即可按 §7 跑通。
 - 12 个工具只验证了「能被注册与调用到」；**各自的业务输出没有逐一核对**（例如 `maps_distance` 的
   `type` 取值、`maps_direction_transit_integrated` 的换乘结构）。
 - 真实行程里的 POI/路径采纳：见 3.4，MCP 尚未接进规划候选清单。
@@ -289,6 +293,13 @@ MCP 服务器 [amap] 接入失败，已跳过: timeout initialize
 1. 打开高德开放平台控制台 <https://console.amap.com/> →「应用管理 / 我的应用」→ 创建应用；
 2. 添加 Key 时「服务平台」选 **Web 服务**（不是「Web端(JS API)」，也不是 iOS/Android）；
 3. 复制 Key。若控制台给该 Key 配了 **IP 白名单**，本机联调要把出口 IP 加进去，或临时留空。
+
+> ⚠️ **实测踩坑（2026-11-19）**：同一应用里「Web端(JS API)」和「Web服务」是**两枚不同的 Key**。
+> 把 Web端 Key（通常还配着一枚「安全密钥」，那是 JS API 专用的）填进后端 `AMAP_KEY`，探针会以
+> `status=0 info=USERKEY_PLAT_NOMATCH infocode=10009` 失败，且**后端日志没有任何错误**——
+> 因为 `AmapDataService.parseRoute` 拿到非法返回就降级成 `estimated`。区分口径：
+> 控制台里该 Key 的「服务平台」必须显示 **Web服务**；「安全密钥」只与前端 `VITE_AMAP_SECURITY_CODE` 配对，
+> 后端完全用不到它。
 
 三个 Key 变量不要混（与 §1.1 一致，这里只列本节能用到的）：
 
@@ -424,7 +435,7 @@ powershell -ExecutionPolicy Bypass -File .e2e\amap-real-key-probe.ps1 -AmapKey "
 | --- | --- | --- |
 | 第 1 步 `amapConfigured=false` / `routeProvider=estimated` | 进程没读到 `AMAP_KEY`（空 Key，或 `-SkipStart` 复用的旧实例没配） | 检查启动环境变量；用本脚本默认模式（自己起实例）重跑 |
 | 第 3 步全部 `estimated`，第 4b 步 `INVALID_USER_KEY`（infocode 10001） | Key 无效/复制错/被删除/未开通「Web 服务」 | 回控制台核对 Key 与服务平台，重新复制 |
-| 第 4b 步 `USERKEY_PLAT_NOMATCH` | **Key 类型错**：把 JS API（Web端）Key 用在了后端 | 换「Web 服务」类型 Key；前端 `VITE_AMAP_KEY` 不能复用 |
+| 第 4b 步 `USERKEY_PLAT_NOMATCH`（infocode **10009**）——**2026-11-19 真实复现过** | **Key 类型错**：把 JS API（Web端）Key 用在了后端。特征：该 Key 在控制台还配着一枚「安全密钥」，且同一枚 Key 在前端 `VITE_AMAP_KEY` 里能正常渲染地图 | 换「Web 服务」类型 Key（同一应用下再添加一枚即可）；前端 `VITE_AMAP_KEY` 不能复用 |
 | 第 4b 步 `USER_IP_ALIVE` / 白名单类错误 | Key 配了 IP 白名单，本机出口 IP 不在列表 | 控制台临时留空或加入出口 IP；公司网络注意出口 IP 会变 |
 | 第 4b 步 `DAILY_QUERY_OVER_LIMIT` / 配额类错误 | 日调用量/并发配额用尽 | 等配额重置或提额；联调时少跑几次 |
 | 第 4b 步网络不可达 / 超时（curl HTTP -1） | 本机访问不了 `restapi.amap.com`（代理/防火墙） | 配代理或换网络；后端此时会静默降级为 `estimated` |

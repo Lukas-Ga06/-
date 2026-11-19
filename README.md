@@ -599,9 +599,13 @@ Spring Boot 3.5、全栈 Docker 化，以及若干轮逻辑缺陷修复与安全
 
 **P0 产品力（下一迭代首选：真实数据源联调）**
 - 高德 MCP 已接成一等配置（`travel.mcp.servers`，12 个 `mcp_amap_*` 工具 + Windows `npx` 兼容 + 失败降级），
-  见 [docs/guide/mcp-amap.md](docs/guide/mcp-amap.md)；**还差后端「Web 服务」Key 做真实 POI/路径/GCJ-02 联调**，
-  拿到 Key 后按该文档「真实 Key 联调（一键验证）」跑 `.tools/amap-real-key-probe.ps1` 即可产出证据；
-  酒店/餐厅开放平台同理由同一套 MCP 配置扩展（天气已接 Open-Meteo）。
+  见 [docs/guide/mcp-amap.md](docs/guide/mcp-amap.md)；
+- **前端地图链路已验证真实渲染**（`VITE_AMAP_KEY` + `VITE_AMAP_SECURITY_CODE`：`AMap` 加载、canvas 创建、
+  33 个高德域请求、页面无降级提示）；
+- **仍差后端「Web 服务」Key** 做真实 POI/路径/GCJ-02 联调（2026-11-19 实测：把 Web端/JS API Key 填给后端
+  会返回 `USERKEY_PLAT_NOMATCH / 10009` 并静默降级为 `estimated`）。拿到后按该文档「真实 Key 联调（一键验证）」
+  跑 `.e2e/amap-real-key-probe.ps1` 即可产出证据；
+- 酒店/餐厅开放平台同理由同一套 MCP 配置扩展（天气已接 Open-Meteo）。
 
 **P1 数据层与部署可信度（第十批已完成主体）**
 - schema 单一权威已落地：`V1__baseline.sql` + `V13` 双方言补齐 + 两个 profile `ddl-auto=validate`；
