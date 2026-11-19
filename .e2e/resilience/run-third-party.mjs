@@ -210,6 +210,10 @@ async function partAmap() {
       geoProvider: sys.json?.data?.geoProvider ?? null,
       geoHint: sys.json?.data?.geoHint ?? null,
       routeProvider: sys.json?.data?.routeProvider ?? null,
+      // P2：配置态 / 最近一次真实调用是否成功 / 失败原因（含 infocode），三者必须与 route-legs 口径一致
+      routeConfigured: sys.json?.data?.routeConfigured ?? null,
+      amapVerified: sys.json?.data?.amapVerified ?? null,
+      routeLastError: sys.json?.data?.routeLastError ?? null,
       routeHint: sys.json?.data?.routeHint ?? null,
     },
     planChat: flow.plan,
@@ -250,7 +254,12 @@ if (!runners[part]) {
 runners[part]()
   .then(() => {
     const tp = loadReport().thirdParty || {};
-    const key = { 'llm402-real': 'real402', 'stub-errors': 'stubErrors', refused: 'connectionRefused', amap: 'amap' }[part];
+    const key =
+      part === 'amap'
+        ? (process.env.AMAP_VARIANT || '').trim()
+          ? `amap_${process.env.AMAP_VARIANT.trim()}`
+          : 'amap'
+        : { 'llm402-real': 'real402', 'stub-errors': 'stubErrors', refused: 'connectionRefused' }[part];
     console.log(JSON.stringify({ part, result: tp[key] }, null, 2).slice(0, 4000));
   })
   .catch((e) => {

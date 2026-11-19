@@ -88,6 +88,9 @@ async function chat(token, message, timeoutMs) {
     hasPlan: Boolean(r.json?.data?.diff || r.json?.data?.planId),
     messageLen: (r.json?.data?.message || '').length,
     messageHead: (r.json?.data?.message || '').slice(0, 180),
+    /** P1：完整文案与 warnings 用于判断「预算降级是否如实告知」 */
+    messageFull: r.json?.data?.message || '',
+    warnings: r.json?.data?.warnings || [],
     error: r.error,
   };
 }
@@ -242,6 +245,12 @@ async function main() {
   const slowPlanResp = await chat(token, PLAN_MSG, 8 * 60_000);
   const slowPlanStub = await stubStats();
   const runtimeAfterPlan = await snapshotRuntime(token);
+  /** P1：预算生效时回复文案会回显「时间预算（30.0s）已用尽 … 未经完整校验」 */
+  const budgetEcho = /时间预算（([\d.]+)s）已用尽/.exec(slowPlanResp.messageFull || '');
+  const degradedStages = (/做了降级：(.+?)。本次结果未经完整校验/.exec(slowPlanResp.messageFull || '')?.[1] || '')
+    .split('、')
+    .map((x) => x.trim())
+    .filter(Boolean);
   result.slowPlan = {
     mode: `slow(${STUB_DELAY_MS}ms)`,
     message: PLAN_MSG,
@@ -250,10 +259,26 @@ async function main() {
     stubAborted: slowPlanStub.requests.filter((r) => r.clientAborted).length,
     stubDetail: slowPlanStub.requests,
     perCallTimeoutMs: READ_TIMEOUT_MS,
-    /** 串行 LLM 阶段越多，端到端等待越长：不存在总预算/熔断 */
-    theoreticalBudgetMs: READ_TIMEOUT_MS * slowPlanStub.total,
+    /** 旧口径对照：无总预算时理论耗时 = 读超时 × 调用数（旧基线 5 次 = 150s）。预算开启后仅作历史对照。 */
+    theoreticalBudgetMsWithoutCap: READ_TIMEOUT_MS * slowPlanStub.total,
+    /** P1 实测：预算是否把端到端收敛到 30s 量级、降级是否在文案里如实告知 */
+    budget: {
+      configuredMsHint: budgetEcho ? Number(budgetEcho[1]) * 1000 : null,
+      degradedNoticePresent: Boolean(budgetEcho),
+      degradedStages,
+      llmCallsHit: slowPlanStub.total,
+      oldBaselineMs: 128_125.2,
+      convergedToBudget: slowPlanResp.ms <= 35_000,
+      savedMs: Math.round((128_125.2 - slowPlanResp.ms) * 10) / 10,
+    },
     runtimeAfterSlow: runtimeAfterPlan,
     degradedLog: degradedLogLines(slowPlanCursor).slice(0, 10),
+    /**
+     * 日志游标注意：Boot 的 file appender 有缓冲，上一次请求（402/500 用例）的 WARN 可能在本轮
+     * 游标之后才落盘，因此 degradedLog 里可能混入旧行。超时/降级的主证据以 response、stub 传输记录
+     * 与 run 追踪的 DEGRADE 任务为准（见 run-budget-p1.mjs）。
+     */
+    degradedLogNote: 'file appender 有缓冲，日志行序可能滞后于请求边界；本轮 P1 主证据为 p1Budget 段',
   };
 
   // ---------- E. 依赖恢复：验证没有挂死的线程/连接 ----------
@@ -286,12 +311,16 @@ async function main() {
     noThreadHangAfterRecovery: result.recovery.allOk === true,
     degradationWarnedInLog: result.logEvidence.length > 0,
     slowWithinTimeoutNotMisreported: withinResp.ok === true,
+    /** P1：端到端在 30s 预算 + 5s 余量内收敛；不收敛即为产品缺陷（如实 REVIEW） */
+    endToEndWithinBudget: slowPlanResp.ms <= 35_000,
+    /** P1：降级必须在用户可见文案里如实说明（跳过哪些阶段 + 未经完整校验） */
+    budgetDegradeDisclosed: Boolean(budgetEcho) && degradedStages.length > 0,
   };
   result.conclusion = Object.values(result.verdict).every(Boolean) ? 'PASS' : 'REVIEW';
-  result.endToEndNotBounded =
-    slowPlanResp.ms > READ_TIMEOUT_MS + 5000
-      ? `端到端 ${slowPlanResp.ms}ms ≈ ${slowPlanStub.total} 个串行 LLM 阶段（4×30s 读超时 + 1×8s 润色超时），无总预算/熔断`
-      : null;
+  result.endToEndBounded = slowPlanResp.ms <= 35_000;
+  result.endToEndNotBounded = result.endToEndBounded
+    ? null
+    : `端到端 ${slowPlanResp.ms}ms 仍超出 30s 预算量级（本轮 ${slowPlanStub.total} 次 LLM 调用）：预算未生效，属产品缺陷`;
 
   await saveSection('slowLlm', result);
   console.log(
@@ -304,6 +333,8 @@ async function main() {
         slowLightStubAborted: result.slowLight.stub.aborted,
         slowPlanMs: slowPlanResp.ms,
         slowPlanLlmHits: slowPlanStub.total,
+        slowPlanBudget: result.slowPlan.budget,
+        endToEndBounded: result.endToEndBounded,
         recoveryP50: result.recovery.latency.p50,
         verdict: result.verdict,
       },

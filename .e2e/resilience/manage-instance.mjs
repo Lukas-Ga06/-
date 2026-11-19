@@ -81,6 +81,9 @@ async function serve() {
   rmSync(STOP_FLAG, { force: true });
   const amapKey = arg('amap-key', '');
   const llmBase = arg('llm-base', STUB_BASE);
+  /** 并发/长跑沿用旧基线的「LLM 关闭（规则引擎）」口径：--llm-enabled=false 起实例 */
+  const llmEnabled = arg('llm-enabled', 'true') !== 'false';
+  
   // 独立 scratch 库：每次启动清空，避免上一次被强杀留下的 .lock.db 干扰
   // （首次尝试沿用产品默认的 AUTO_SERVER=TRUE，被强杀后残留锁会让 H2 报 50100，
   //   这里改成单进程 file 模式 + 每次全新库，测试口径不受影响：仍然是 H2 文件库）
@@ -94,7 +97,7 @@ async function serve() {
     `--server.port=${PORT}`,
     '--spring.datasource.url=jdbc:h2:file:./data/travel-agent;MODE=MySQL',
     `--travel.jwt.secret=${JWT_SECRET}`,
-    '--travel.llm.enabled=true',
+    `--travel.llm.enabled=${llmEnabled}`,
     `--travel.llm.base-url=${llmBase}`,
     '--travel.llm.api-key=resilience-stub-key',
     '--travel.llm.read-timeout-ms=30000',

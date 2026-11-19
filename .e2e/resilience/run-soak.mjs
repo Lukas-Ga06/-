@@ -18,7 +18,7 @@ import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs
 import { join } from 'node:path';
 import { ROOT, PORTS, base, httpJson, registerTemp, stats, writeJson, countBy, slope, sleep, round1 } from './lib.mjs';
 
-const MAIN = PORTS.main;
+const MAIN = Number(process.env.MAIN_PORT || PORTS.main);
 const REPORT = join(ROOT, '.evidence', 'reports', 'resilience.json');
 const RUN_DIR = join(ROOT, '.evidence', 'resilience-run');
 const RAW_JSONL = join(RUN_DIR, 'soak-requests.jsonl');

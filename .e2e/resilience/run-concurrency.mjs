@@ -14,7 +14,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ROOT, PORTS, base, httpJson, login, registerTemp, stats, countBy, writeJson, runConcurrent, ACCOUNT, metricValue as mval } from './lib.mjs';
 
-const MAIN = PORTS.main;
+const MAIN = Number(process.env.MAIN_PORT || PORTS.main);
 const REPORT = join(ROOT, '.evidence', 'reports', 'resilience.json');
 const ROUNDS = 2;
 const CHAT_CONCURRENCY = 20;

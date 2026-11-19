@@ -157,7 +157,7 @@ report.soak.process = process;
 report.soak.latency.windows2min = windowStats(requests, 2 * 60_000);
 report.soak.latency.windows5min = windowStats(requests, 5 * 60_000);
 report.soak.analysisNote =
-  '进程采样来自 soak-proc.csv（每 5s 一次，目标 pid 为 18090 的监听进程）；时间以 ISO 时间戳为准重算。slopeMBPerMinLastHalf 用后一半样本，用于排除 JVM 预热造成的「假增长」。';
+  '进程采样来自 soak-proc.csv（每 5s 一次，目标 pid 为当前自建实例的 java 进程）；时间以 ISO 时间戳为准重算。slopeMBPerMinLastHalf 用后一半样本，用于排除 JVM 预热造成的「假增长」；窗口均值回归与 jcmd 堆诊断（见 resilience-postfix.json → soakColdStart.jcmd）用于区分泄漏与堆扩张。';
 report.soak.verdict.rssNoMonotonicBlowup =
   process.rssMB.slopeMBPerMinWindowMeans < 5 &&
   process.rssMB.slopeMBPerMinWhole < 5 &&
