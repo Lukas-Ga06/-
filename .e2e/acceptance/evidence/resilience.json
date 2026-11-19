@@ -1,0 +1,2431 @@
+{
+  "slowLlm": {
+    "name": "slow-llm",
+    "startedAt": "2026-11-19T06:28:01.763Z",
+    "topology": {
+      "instance": "http://127.0.0.1:18100（独立后端实例 + 独立 H2 文件库）",
+      "llmStub": "http://127.0.0.1:18110/v1（OpenAI 兼容替身，只替换模型端 HTTP 应答）",
+      "llmReadTimeoutMs": 30000,
+      "stubSlowDelayMs": 35000,
+      "stubWithinTimeoutDelayMs": 20000
+    },
+    "systemStatus": {
+      "llmConfigured": true,
+      "llmModel": "deepseek-chat",
+      "llmHint": "已接入大模型：意图识别、方案生成与文案润色走模型",
+      "amapConfigured": false,
+      "geoProvider": "osm",
+      "geoHint": "未配置 AMAP_KEY：城市定位退回 OSM Nominatim，国内网络可能较慢或失败",
+      "timezone": "Asia/Shanghai",
+      "routeProvider": "estimated",
+      "routeHint": "路线为本地距离估算（未配置 AMAP_KEY / 高德 MCP）：距离与耗时为近似值",
+      "ocrConfigured": false,
+      "ocrHint": "未配置 OCR：支持 PDF 电子发票与粘贴文本；图片需设置 TESSERACT_CMD",
+      "pendingPlanStore": "database",
+      "rateLimitEnabled": false
+    },
+    "runtimeBefore": {
+      "jvmThreadsLive": 32,
+      "jvmThreadsPeak": 33,
+      "httpActive": null,
+      "jvmMemoryUsedBytes": 254900456,
+      "hikariPending": 0,
+      "llmCallsFailed": null,
+      "llmCallsOk": null
+    },
+    "baselineLight": {
+      "mode": "ok（替身立即 200，内容 \"{}\"）",
+      "message": "谢谢",
+      "requests": [
+        {
+          "status": 200,
+          "ok": true,
+          "code": 0,
+          "ms": 33.3,
+          "intent": "CHITCHAT",
+          "resultStatus": "COMPLETED",
+          "planId": null,
+          "hasPlan": false,
+          "messageLen": 196,
+          "messageHead": "我是你的个人智能助理，目前可用：\n① 规划行程：「帮我规划上海三日游，2 人，预算 3000，酒店近地铁」\n② 动态调整：「明天下雨，把户外景点换掉」（也可以先点选时间轴上的安排，说「这个换成类似的」）\n③ 记账：「记一笔午餐 45 元」「微信付了 55 元打车」\n④ 备忘：「记一下明天办签证」「我的备忘」\n⑤ 预算查询：「现在花了多少钱？」\n⑥ 旅游问答：",
+          "error": null
+        },
+        {
+          "status": 200,
+          "ok": true,
+          "code": 0,
+          "ms": 24.4,
+          "intent": "CHITCHAT",
+          "resultStatus": "COMPLETED",
+          "planId": null,
+          "hasPlan": false,
+          "messageLen": 196,
+          "messageHead": "我是你的个人智能助理，目前可用：\n① 规划行程：「帮我规划上海三日游，2 人，预算 3000，酒店近地铁」\n② 动态调整：「明天下雨，把户外景点换掉」（也可以先点选时间轴上的安排，说「这个换成类似的」）\n③ 记账：「记一笔午餐 45 元」「微信付了 55 元打车」\n④ 备忘：「记一下明天办签证」「我的备忘」\n⑤ 预算查询：「现在花了多少钱？」\n⑥ 旅游问答：",
+          "error": null
+        },
+        {
+          "status": 200,
+          "ok": true,
+          "code": 0,
+          "ms": 18.5,
+          "intent": "CHITCHAT",
+          "resultStatus": "COMPLETED",
+          "planId": null,
+          "hasPlan": false,
+          "messageLen": 196,
+          "messageHead": "我是你的个人智能助理，目前可用：\n① 规划行程：「帮我规划上海三日游，2 人，预算 3000，酒店近地铁」\n② 动态调整：「明天下雨，把户外景点换掉」（也可以先点选时间轴上的安排，说「这个换成类似的」）\n③ 记账：「记一笔午餐 45 元」「微信付了 55 元打车」\n④ 备忘：「记一下明天办签证」「我的备忘」\n⑤ 预算查询：「现在花了多少钱？」\n⑥ 旅游问答：",
+          "error": null
+        }
+      ],
+      "latency": {
+        "count": 3,
+        "min": 18.5,
+        "p50": 24.4,
+        "p90": 33.3,
+        "p95": 33.3,
+        "p99": 33.3,
+        "max": 33.3,
+        "mean": 25.4
+      },
+      "stubHits": 3
+    },
+    "baselinePlan": {
+      "mode": "ok",
+      "message": "杭州两日游，两个人，预算2000元",
+      "requests": [
+        {
+          "status": 200,
+          "ok": true,
+          "code": 0,
+          "ms": 167.2,
+          "intent": "PLAN_TRIP",
+          "resultStatus": "NEED_CONFIRMATION",
+          "planId": "fc8030ae-409a-4970-9924-f6cfd64308f8",
+          "hasPlan": true,
+          "messageLen": 129,
+          "messageHead": "已为你规划「杭州2日游」（11月20日出发，2 人）：4个景点、4顿美食，酒店已按你的偏好挑选，预计总花费 ¥1259，在你 ¥2000 的预算内。请查看时间轴与地图，确认后即可保存行程。\nℹ 没提到的信息已按默认：出发日期按 11月20日。可以随时让我改。",
+          "error": null
+        },
+        {
+          "status": 200,
+          "ok": true,
+          "code": 0,
+          "ms": 130,
+          "intent": "PLAN_TRIP",
+          "resultStatus": "NEED_CONFIRMATION",
+          "planId": "0b4cb6cc-d5e6-4e11-815d-3892bbaab916",
+          "hasPlan": true,
+          "messageLen": 129,
+          "messageHead": "已为你规划「杭州2日游」（11月20日出发，2 人）：4个景点、4顿美食，酒店已按你的偏好挑选，预计总花费 ¥1259，在你 ¥2000 的预算内。请查看时间轴与地图，确认后即可保存行程。\nℹ 没提到的信息已按默认：出发日期按 11月20日。可以随时让我改。",
+          "error": null
+        }
+      ],
+      "latency": {
+        "count": 2,
+        "min": 130,
+        "p50": 130,
+        "p90": 167.2,
+        "p95": 167.2,
+        "p99": 167.2,
+        "max": 167.2,
+        "mean": 148.6
+      },
+      "stubHitsPerRequest": 8
+    },
+    "slowWithinTimeout": {
+      "mode": "slow(20000ms < readTimeout 30000ms)",
+      "message": "谢谢",
+      "response": {
+        "status": 200,
+        "ok": true,
+        "code": 0,
+        "ms": 20019.9,
+        "intent": "CHITCHAT",
+        "resultStatus": "COMPLETED",
+        "planId": null,
+        "hasPlan": false,
+        "messageLen": 196,
+        "messageHead": "我是你的个人智能助理，目前可用：\n① 规划行程：「帮我规划上海三日游，2 人，预算 3000，酒店近地铁」\n② 动态调整：「明天下雨，把户外景点换掉」（也可以先点选时间轴上的安排，说「这个换成类似的」）\n③ 记账：「记一笔午餐 45 元」「微信付了 55 元打车」\n④ 备忘：「记一下明天办签证」「我的备忘」\n⑤ 预算查询：「现在花了多少钱？」\n⑥ 旅游问答：",
+        "error": null
+      },
+      "stubHits": 1,
+      "stubAborted": 0,
+      "latencyOverheadVsBaselineMs": 19995.5,
+      "degradedLog": []
+    },
+    "slowLight": {
+      "mode": "slow(35000ms > readTimeout 30000ms)",
+      "message": "谢谢",
+      "response": {
+        "status": 200,
+        "ok": true,
+        "code": 0,
+        "ms": 30029.7,
+        "intent": "CHITCHAT",
+        "resultStatus": "COMPLETED",
+        "planId": null,
+        "hasPlan": false,
+        "messageLen": 196,
+        "messageHead": "我是你的个人智能助理，目前可用：\n① 规划行程：「帮我规划上海三日游，2 人，预算 3000，酒店近地铁」\n② 动态调整：「明天下雨，把户外景点换掉」（也可以先点选时间轴上的安排，说「这个换成类似的」）\n③ 记账：「记一笔午餐 45 元」「微信付了 55 元打车」\n④ 备忘：「记一下明天办签证」「我的备忘」\n⑤ 预算查询：「现在花了多少钱？」\n⑥ 旅游问答：",
+        "error": null
+      },
+      "withinReadTimeoutPlusMargin": true,
+      "overrunMs": 30,
+      "stub": {
+        "total": 1,
+        "aborted": 1,
+        "detail": [
+          {
+            "id": 1,
+            "arrivedAt": "2026-11-19T06:28:23.357Z",
+            "mode": "slow",
+            "delayMs": 35000,
+            "promptBytes": 1377,
+            "finished": false,
+            "clientAborted": true,
+            "answeredStatus": null,
+            "clientAbortedAt": "2026-11-19T06:28:53.368Z"
+          }
+        ]
+      },
+      "probesWhileSlow": [
+        {
+          "atMs": 5027,
+          "healthMs": 8.6,
+          "health": "UP",
+          "runsMs": 18.8,
+          "runsStatus": 200,
+          "statusMs": 3.5,
+          "statusCode": 200
+        },
+        {
+          "atMs": 10043,
+          "healthMs": 6.2,
+          "health": "UP",
+          "runsMs": 5.4,
+          "runsStatus": 200,
+          "statusMs": 3.1,
+          "statusCode": 200
+        },
+        {
+          "atMs": 15066,
+          "healthMs": 11.9,
+          "health": "UP",
+          "runsMs": 9.5,
+          "runsStatus": 200,
+          "statusMs": 3.2,
+          "statusCode": 200
+        },
+        {
+          "atMs": 20077,
+          "healthMs": 10.3,
+          "health": "UP",
+          "runsMs": 5.8,
+          "runsStatus": 200,
+          "statusMs": 3.3,
+          "statusCode": 200
+        },
+        {
+          "atMs": 25100,
+          "healthMs": 6.3,
+          "health": "UP",
+          "runsMs": 8.3,
+          "runsStatus": 200,
+          "statusMs": 3.7,
+          "statusCode": 200
+        },
+        {
+          "atMs": 30124,
+          "healthMs": 10.9,
+          "health": "UP",
+          "runsMs": 6.2,
+          "runsStatus": 200,
+          "statusMs": 2.3,
+          "statusCode": 200
+        }
+      ],
+      "otherEndpointsStayedFast": true,
+      "runtimeAfterSlow": {
+        "jvmThreadsLive": 34,
+        "jvmThreadsPeak": 35,
+        "httpActive": null,
+        "jvmMemoryUsedBytes": 271529904,
+        "hikariPending": 0,
+        "llmCallsFailed": null,
+        "llmCallsOk": null
+      },
+      "degradedLog": [
+        "WARN [6e68c3289c5c4c39] 36372 --- [travel-agent-server] [http-nio-18100-exec-2] c.t.agent.llm.OpenAiCompatibleLlmClient  : LLM 调用失败，降级为规则模板: Error while extracting response for type [com.fasterxml.jackson.databind.JsonNode] and content type [application/octet-stream]"
+      ]
+    },
+    "slowPlan": {
+      "mode": "slow(35000ms)",
+      "message": "杭州两日游，两个人，预算2000元",
+      "response": {
+        "status": 200,
+        "ok": true,
+        "code": 0,
+        "ms": 128125.2,
+        "intent": "PLAN_TRIP",
+        "resultStatus": "NEED_CONFIRMATION",
+        "planId": "aab634f2-54d7-4f51-bde8-3e66f9f59084",
+        "hasPlan": true,
+        "messageLen": 129,
+        "messageHead": "已为你规划「杭州2日游」（11月20日出发，2 人）：4个景点、4顿美食，酒店已按你的偏好挑选，预计总花费 ¥1259，在你 ¥2000 的预算内。请查看时间轴与地图，确认后即可保存行程。\nℹ 没提到的信息已按默认：出发日期按 11月20日。可以随时让我改。",
+        "error": null
+      },
+      "llmCallsHit": 5,
+      "stubAborted": 5,
+      "stubDetail": [
+        {
+          "id": 1,
+          "arrivedAt": "2026-11-19T06:28:53.512Z",
+          "mode": "slow",
+          "delayMs": 35000,
+          "promptBytes": 1392,
+          "finished": false,
+          "clientAborted": true,
+          "answeredStatus": null,
+          "clientAbortedAt": "2026-11-19T06:29:23.524Z"
+        },
+        {
+          "id": 2,
+          "arrivedAt": "2026-11-19T06:29:23.536Z",
+          "mode": "slow",
+          "delayMs": 35000,
+          "promptBytes": 741,
+          "finished": false,
+          "clientAborted": true,
+          "answeredStatus": null,
+          "clientAbortedAt": "2026-11-19T06:29:53.550Z"
+        },
+        {
+          "id": 3,
+          "arrivedAt": "2026-11-19T06:29:53.554Z",
+          "mode": "slow",
+          "delayMs": 35000,
+          "promptBytes": 929,
+          "finished": false,
+          "clientAborted": true,
+          "answeredStatus": null,
+          "clientAbortedAt": "2026-11-19T06:30:23.565Z"
+        },
+        {
+          "id": 4,
+          "arrivedAt": "2026-11-19T06:30:23.567Z",
+          "mode": "slow",
+          "delayMs": 35000,
+          "promptBytes": 1008,
+          "finished": false,
+          "clientAborted": true,
+          "answeredStatus": null,
+          "clientAbortedAt": "2026-11-19T06:30:53.581Z"
+        },
+        {
+          "id": 5,
+          "arrivedAt": "2026-11-19T06:30:53.613Z",
+          "mode": "slow",
+          "delayMs": 35000,
+          "promptBytes": 429,
+          "finished": false,
+          "clientAborted": true,
+          "answeredStatus": null,
+          "clientAbortedAt": "2026-11-19T06:31:01.617Z"
+        }
+      ],
+      "perCallTimeoutMs": 30000,
+      "theoreticalBudgetMs": 150000,
+      "runtimeAfterSlow": {
+        "jvmThreadsLive": 34,
+        "jvmThreadsPeak": 35,
+        "httpActive": null,
+        "jvmMemoryUsedBytes": 232648128,
+        "hikariPending": 0,
+        "llmCallsFailed": null,
+        "llmCallsOk": null
+      },
+      "degradedLog": [
+        "WARN [e70230ac38fa451d] 36372 --- [travel-agent-server] [http-nio-18100-exec-8] c.t.agent.llm.OpenAiCompatibleLlmClient  : LLM 调用失败，降级为规则模板: Error while extracting response for type [com.fasterxml.jackson.databind.JsonNode] and content type [application/octet-stream]",
+        "WARN [e70230ac38fa451d] 36372 --- [travel-agent-server] [http-nio-18100-exec-8] c.t.agent.llm.OpenAiCompatibleLlmClient  : LLM 调用失败，降级为规则模板: Error while extracting response for type [com.fasterxml.jackson.databind.JsonNode] and content type [application/octet-stream]",
+        "WARN [e70230ac38fa451d] 36372 --- [travel-agent-server] [http-nio-18100-exec-8] c.t.agent.llm.OpenAiCompatibleLlmClient  : LLM 调用失败，降级为规则模板: Error while extracting response for type [com.fasterxml.jackson.databind.JsonNode] and content type [application/octet-stream]",
+        "WARN [e70230ac38fa451d] 36372 --- [travel-agent-server] [http-nio-18100-exec-8] c.t.agent.llm.OpenAiCompatibleLlmClient  : LLM 调用失败，降级为规则模板: Error while extracting response for type [com.fasterxml.jackson.databind.JsonNode] and content type [application/octet-stream]",
+        "WARN [e70230ac38fa451d] 36372 --- [travel-agent-server] [http-nio-18100-exec-8] c.t.agent.llm.OpenAiCompatibleLlmClient  : LLM 调用失败，降级为规则模板: Error while extracting response for type [com.fasterxml.jackson.databind.JsonNode] and content type [application/octet-stream]"
+      ]
+    },
+    "recovery": {
+      "requests": [
+        {
+          "status": 200,
+          "ok": true,
+          "code": 0,
+          "ms": 29.1,
+          "intent": "CHITCHAT",
+          "resultStatus": "COMPLETED",
+          "planId": null,
+          "hasPlan": false,
+          "messageLen": 196,
+          "messageHead": "我是你的个人智能助理，目前可用：\n① 规划行程：「帮我规划上海三日游，2 人，预算 3000，酒店近地铁」\n② 动态调整：「明天下雨，把户外景点换掉」（也可以先点选时间轴上的安排，说「这个换成类似的」）\n③ 记账：「记一笔午餐 45 元」「微信付了 55 元打车」\n④ 备忘：「记一下明天办签证」「我的备忘」\n⑤ 预算查询：「现在花了多少钱？」\n⑥ 旅游问答：",
+          "error": null
+        },
+        {
+          "status": 200,
+          "ok": true,
+          "code": 0,
+          "ms": 21.6,
+          "intent": "CHITCHAT",
+          "resultStatus": "COMPLETED",
+          "planId": null,
+          "hasPlan": false,
+          "messageLen": 196,
+          "messageHead": "我是你的个人智能助理，目前可用：\n① 规划行程：「帮我规划上海三日游，2 人，预算 3000，酒店近地铁」\n② 动态调整：「明天下雨，把户外景点换掉」（也可以先点选时间轴上的安排，说「这个换成类似的」）\n③ 记账：「记一笔午餐 45 元」「微信付了 55 元打车」\n④ 备忘：「记一下明天办签证」「我的备忘」\n⑤ 预算查询：「现在花了多少钱？」\n⑥ 旅游问答：",
+          "error": null
+        },
+        {
+          "status": 200,
+          "ok": true,
+          "code": 0,
+          "ms": 20.9,
+          "intent": "CHITCHAT",
+          "resultStatus": "COMPLETED",
+          "planId": null,
+          "hasPlan": false,
+          "messageLen": 196,
+          "messageHead": "我是你的个人智能助理，目前可用：\n① 规划行程：「帮我规划上海三日游，2 人，预算 3000，酒店近地铁」\n② 动态调整：「明天下雨，把户外景点换掉」（也可以先点选时间轴上的安排，说「这个换成类似的」）\n③ 记账：「记一笔午餐 45 元」「微信付了 55 元打车」\n④ 备忘：「记一下明天办签证」「我的备忘」\n⑤ 预算查询：「现在花了多少钱？」\n⑥ 旅游问答：",
+          "error": null
+        },
+        {
+          "status": 200,
+          "ok": true,
+          "code": 0,
+          "ms": 20.7,
+          "intent": "CHITCHAT",
+          "resultStatus": "COMPLETED",
+          "planId": null,
+          "hasPlan": false,
+          "messageLen": 196,
+          "messageHead": "我是你的个人智能助理，目前可用：\n① 规划行程：「帮我规划上海三日游，2 人，预算 3000，酒店近地铁」\n② 动态调整：「明天下雨，把户外景点换掉」（也可以先点选时间轴上的安排，说「这个换成类似的」）\n③ 记账：「记一笔午餐 45 元」「微信付了 55 元打车」\n④ 备忘：「记一下明天办签证」「我的备忘」\n⑤ 预算查询：「现在花了多少钱？」\n⑥ 旅游问答：",
+          "error": null
+        },
+        {
+          "status": 200,
+          "ok": true,
+          "code": 0,
+          "ms": 22.7,
+          "intent": "CHITCHAT",
+          "resultStatus": "COMPLETED",
+          "planId": null,
+          "hasPlan": false,
+          "messageLen": 196,
+          "messageHead": "我是你的个人智能助理，目前可用：\n① 规划行程：「帮我规划上海三日游，2 人，预算 3000，酒店近地铁」\n② 动态调整：「明天下雨，把户外景点换掉」（也可以先点选时间轴上的安排，说「这个换成类似的」）\n③ 记账：「记一笔午餐 45 元」「微信付了 55 元打车」\n④ 备忘：「记一下明天办签证」「我的备忘」\n⑤ 预算查询：「现在花了多少钱？」\n⑥ 旅游问答：",
+          "error": null
+        }
+      ],
+      "latency": {
+        "count": 5,
+        "min": 20.7,
+        "p50": 21.6,
+        "p90": 29.1,
+        "p95": 29.1,
+        "p99": 29.1,
+        "max": 29.1,
+        "mean": 23
+      },
+      "stubHits": 5,
+      "allOk": true,
+      "runtimeAfterRecovery": {
+        "jvmThreadsLive": 35,
+        "jvmThreadsPeak": 35,
+        "httpActive": null,
+        "jvmMemoryUsedBytes": 236393360,
+        "hikariPending": 0,
+        "llmCallsFailed": null,
+        "llmCallsOk": null
+      },
+      "threadDeltaVsBefore": 3
+    },
+    "logEvidence": [
+      "WARN [6e68c3289c5c4c39] 36372 --- [travel-agent-server] [http-nio-18100-exec-2] c.t.agent.llm.OpenAiCompatibleLlmClient  : LLM 调用失败，降级为规则模板: Error while extracting response for type [com.fasterxml.jackson.databind.JsonNode] and content type [application/octet-stream]",
+      "WARN [e70230ac38fa451d] 36372 --- [travel-agent-server] [http-nio-18100-exec-8] c.t.agent.llm.OpenAiCompatibleLlmClient  : LLM 调用失败，降级为规则模板: Error while extracting response for type [com.fasterxml.jackson.databind.JsonNode] and content type [application/octet-stream]",
+      "WARN [e70230ac38fa451d] 36372 --- [travel-agent-server] [http-nio-18100-exec-8] c.t.agent.llm.OpenAiCompatibleLlmClient  : LLM 调用失败，降级为规则模板: Error while extracting response for type [com.fasterxml.jackson.databind.JsonNode] and content type [application/octet-stream]",
+      "WARN [e70230ac38fa451d] 36372 --- [travel-agent-server] [http-nio-18100-exec-8] c.t.agent.llm.OpenAiCompatibleLlmClient  : LLM 调用失败，降级为规则模板: Error while extracting response for type [com.fasterxml.jackson.databind.JsonNode] and content type [application/octet-stream]",
+      "WARN [e70230ac38fa451d] 36372 --- [travel-agent-server] [http-nio-18100-exec-8] c.t.agent.llm.OpenAiCompatibleLlmClient  : LLM 调用失败，降级为规则模板: Error while extracting response for type [com.fasterxml.jackson.databind.JsonNode] and content type [application/octet-stream]",
+      "WARN [e70230ac38fa451d] 36372 --- [travel-agent-server] [http-nio-18100-exec-8] c.t.agent.llm.OpenAiCompatibleLlmClient  : LLM 调用失败，降级为规则模板: Error while extracting response for type [com.fasterxml.jackson.databind.JsonNode] and content type [application/octet-stream]"
+    ],
+    "verdict": {
+      "perCallTimeoutEnforced": true,
+      "transportTimeoutProven": true,
+      "degradedToRulePath": true,
+      "noHttpErrorOnSlowDependency": true,
+      "otherEndpointsStayedFast": true,
+      "noThreadHangAfterRecovery": true,
+      "degradationWarnedInLog": true,
+      "slowWithinTimeoutNotMisreported": true
+    },
+    "finishedAt": "2026-11-19T06:31:02.841Z",
+    "conclusion": "PASS",
+    "endToEndNotBounded": "端到端 128125.2ms ≈ 5 个串行 LLM 阶段 × 30s（无总预算/熔断）",
+    "logEvidenceNote": "日志文件由 Boot 以平台字符集(GBK)写出，已按 GBK 解码；6 条告警 = 慢单调用 1 条 + 慢规划 5 条（4×30s 读超时 + 1×8s 润色超时）",
+    "logCauseQuality": "告警只打印了异常 wrapper 的 message（Error while extracting response ... content type [application/octet-stream]），未带 cause，日志里看不出根因是读超时",
+    "metricsNote": "本段 runtimeBefore/runtimeAfterSlow 里的 llmCallsFailed/llmCallsOk 为 null：采集时用的是只认 VALUE 统计量的取值函数（Counter 的统计量是 COUNT），已在 run-third-party 的 402/500/连接拒绝用例里改用 metricValue 重新取证，失败计数见 thirdParty.*.llmCallsFailedDelta"
+  },
+  "meta": {
+    "generatedAt": "2026-11-19T06:48:01.076Z",
+    "node": "v20.17.0",
+    "host": "127.0.0.1",
+    "percentile": "nearest-rank"
+  },
+  "thirdParty": {
+    "real402": {
+      "target": "http://127.0.0.1:18091（真实 DeepSeek Key，余额 0）",
+      "expectedThirdPartyError": "HTTP 402 Insufficient Balance",
+      "systemStatus": {
+        "llmConfigured": true,
+        "llmModel": "deepseek-chat",
+        "llmHint": "已接入大模型：意图识别、方案生成与文案润色走模型",
+        "amapConfigured": false,
+        "geoProvider": "osm",
+        "geoHint": "未配置 AMAP_KEY：城市定位退回 OSM Nominatim，国内网络可能较慢或失败",
+        "timezone": "Asia/Shanghai",
+        "routeProvider": "estimated",
+        "routeHint": "路线为本地距离估算（未配置 AMAP_KEY / 高德 MCP）：距离与耗时为近似值",
+        "ocrConfigured": true,
+        "ocrHint": "已配置 Tesseract：图片发票可直接 OCR",
+        "pendingPlanStore": "database",
+        "rateLimitEnabled": false
+      },
+      "llmCallsMetric": {
+        "failedBefore": 11,
+        "failedAfter": 17,
+        "failedDelta": 6,
+        "okBefore": null,
+        "okAfter": null,
+        "okDelta": null,
+        "note": "llm.calls{result=failed} 由 OpenAiCompatibleLlmClient 在异常时自增，是「真实收到 402」的服务端证据"
+      },
+      "lightChat": {
+        "status": 200,
+        "ok": true,
+        "code": 0,
+        "ms": 491.1,
+        "intent": "CHITCHAT",
+        "resultStatus": "COMPLETED",
+        "planId": null,
+        "tripId": null,
+        "hasPlan": false,
+        "messageHead": "我是你的个人智能助理，目前可用：\n① 规划行程：「帮我规划上海三日游，2 人，预算 3000，酒店近地铁」\n② 动态调整：「明天下雨，把户外景点换掉」（也可以先点选时间轴上的安排，说「这个换成类似的」）\n③ 记账：「记一笔午餐 45 元」「微信付了 55 元打车」\n④ 备忘：「记一下明天办签证」「我的备忘」\n⑤ 预算查询：「现在花了多少钱？」\n⑥ 旅游问答：「上海有什么适合亲子游的地方？」",
+        "error": null
+      },
+      "planChat": {
+        "status": 200,
+        "ok": true,
+        "code": 0,
+        "ms": 2589.4,
+        "intent": "PLAN_TRIP",
+        "resultStatus": "NEED_CONFIRMATION",
+        "planId": "340a0ece-021d-4fae-a119-51d157a82fcc",
+        "tripId": null,
+        "hasPlan": true,
+        "messageHead": "已为你规划「杭州2日游」（11月20日出发，2 人）：4个景点、4顿美食，酒店已按你的偏好挑选，预计总花费 ¥1259，在你 ¥2000 的预算内。请查看时间轴与地图，确认后即可保存行程。\nℹ 没提到的信息已按默认：出发日期按 11月20日。可以随时让我改。",
+        "error": null
+      },
+      "degradedButFunctional": true,
+      "verdict": "PASS"
+    },
+    "updatedAt": "2026-11-19T06:34:55.101Z",
+    "stubErrors": {
+      "target": "http://127.0.0.1:18100 → stub http://127.0.0.1:18110/v1",
+      "cases": [
+        {
+          "mode": "http402",
+          "expectedThirdPartyError": "HTTP 402",
+          "response": {
+            "status": 200,
+            "ok": true,
+            "code": 0,
+            "ms": 102.8,
+            "intent": "PLAN_TRIP",
+            "resultStatus": "NEED_CONFIRMATION",
+            "planId": "e17e9aa3-da32-4f2e-96cb-780ca120f12b",
+            "tripId": null,
+            "hasPlan": true,
+            "messageHead": "已为你规划「杭州2日游」（11月20日出发，2 人）：4个景点、4顿美食，酒店已按你的偏好挑选，预计总花费 ¥1259，在你 ¥2000 的预算内。请查看时间轴与地图，确认后即可保存行程。\nℹ 没提到的信息已按默认：出发日期按 11月20日。可以随时让我改。",
+            "error": null
+          },
+          "stubHits": 5,
+          "stubAnsweredStatuses": [
+            402
+          ],
+          "llmCallsFailedBefore": 16,
+          "llmCallsFailedAfter": 21,
+          "llmCallsFailedDelta": 5,
+          "degradedWarnCount": 4,
+          "degradedWarnSample": [
+            "WARN [260f14d05c034a3d] 36372 --- [travel-agent-server] [http-nio-18100-exec-10] c.t.agent.llm.OpenAiCompatibleLlmClient  : LLM 调用失败，降级为规则模板: 402 Payment Required: \"{\"error\":{\"message\":\"Insufficient Balance (stub)\",\"type\":\"insufficient_quota\",\"code\":\"insufficient_balance\"}}\"",
+            "WARN [260f14d05c034a3d] 36372 --- [travel-agent-server] [http-nio-18100-exec-10] c.t.agent.llm.OpenAiCompatibleLlmClient  : LLM 调用失败，降级为规则模板: 402 Payment Required: \"{\"error\":{\"message\":\"Insufficient Balance (stub)\",\"type\":\"insufficient_quota\",\"code\":\"insufficient_balance\"}}\"",
+            "WARN [260f14d05c034a3d] 36372 --- [travel-agent-server] [http-nio-18100-exec-10] c.t.agent.llm.OpenAiCompatibleLlmClient  : LLM 调用失败，降级为规则模板: 402 Payment Required: \"{\"error\":{\"message\":\"Insufficient Balance (stub)\",\"type\":\"insufficient_quota\",\"code\":\"insufficient_balance\"}}\"",
+            "WARN [260f14d05c034a3d] 36372 --- [travel-agent-server] [http-nio-18100-exec-10] c.t.agent.llm.OpenAiCompatibleLlmClient  : LLM 调用失败，降级为规则模板: 402 Payment Required: \"{\"error\":{\"message\":\"Insufficient Balance (stub)\",\"type\":\"insufficient_quota\",\"code\":\"insufficient_balance\"}}\""
+          ],
+          "containsExpectedHttpCode": true,
+          "degradedButFunctional": true,
+          "verdict": "PASS"
+        },
+        {
+          "mode": "http500",
+          "expectedThirdPartyError": "HTTP 500",
+          "response": {
+            "status": 200,
+            "ok": true,
+            "code": 0,
+            "ms": 94.3,
+            "intent": "PLAN_TRIP",
+            "resultStatus": "NEED_CONFIRMATION",
+            "planId": "8a59ba4c-65f2-4d24-b5e5-4b4c43447ecd",
+            "tripId": null,
+            "hasPlan": true,
+            "messageHead": "已为你规划「杭州2日游」（11月20日出发，2 人）：4个景点、4顿美食，酒店已按你的偏好挑选，预计总花费 ¥1259，在你 ¥2000 的预算内。请查看时间轴与地图，确认后即可保存行程。\nℹ 没提到的信息已按默认：出发日期按 11月20日。可以随时让我改。",
+            "error": null
+          },
+          "stubHits": 5,
+          "stubAnsweredStatuses": [
+            500
+          ],
+          "llmCallsFailedBefore": 21,
+          "llmCallsFailedAfter": 26,
+          "llmCallsFailedDelta": 5,
+          "degradedWarnCount": 4,
+          "degradedWarnSample": [
+            "WARN [1aaca83b415f473d] 36372 --- [travel-agent-server] [http-nio-18100-exec-6] c.t.agent.llm.OpenAiCompatibleLlmClient  : LLM 调用失败，降级为规则模板: 500 Internal Server Error: \"{\"error\":{\"message\":\"stub internal error\",\"type\":\"server_error\"}}\"",
+            "WARN [1aaca83b415f473d] 36372 --- [travel-agent-server] [http-nio-18100-exec-6] c.t.agent.llm.OpenAiCompatibleLlmClient  : LLM 调用失败，降级为规则模板: 500 Internal Server Error: \"{\"error\":{\"message\":\"stub internal error\",\"type\":\"server_error\"}}\"",
+            "WARN [1aaca83b415f473d] 36372 --- [travel-agent-server] [http-nio-18100-exec-6] c.t.agent.llm.OpenAiCompatibleLlmClient  : LLM 调用失败，降级为规则模板: 500 Internal Server Error: \"{\"error\":{\"message\":\"stub internal error\",\"type\":\"server_error\"}}\"",
+            "WARN [1aaca83b415f473d] 36372 --- [travel-agent-server] [http-nio-18100-exec-6] c.t.agent.llm.OpenAiCompatibleLlmClient  : LLM 调用失败，降级为规则模板: 500 Internal Server Error: \"{\"error\":{\"message\":\"stub internal error\",\"type\":\"server_error\"}}\""
+          ],
+          "containsExpectedHttpCode": true,
+          "degradedButFunctional": true,
+          "verdict": "PASS"
+        }
+      ],
+      "allWarnLines": [
+        "WARN [260f14d05c034a3d] 36372 --- [travel-agent-server] [http-nio-18100-exec-10] c.t.agent.llm.OpenAiCompatibleLlmClient  : LLM 调用失败，降级为规则模板: 402 Payment Required: \"{\"error\":{\"message\":\"Insufficient Balance (stub)\",\"type\":\"insufficient_quota\",\"code\":\"insufficient_balance\"}}\"",
+        "WARN [260f14d05c034a3d] 36372 --- [travel-agent-server] [http-nio-18100-exec-10] c.t.agent.llm.OpenAiCompatibleLlmClient  : LLM 调用失败，降级为规则模板: 402 Payment Required: \"{\"error\":{\"message\":\"Insufficient Balance (stub)\",\"type\":\"insufficient_quota\",\"code\":\"insufficient_balance\"}}\"",
+        "WARN [260f14d05c034a3d] 36372 --- [travel-agent-server] [http-nio-18100-exec-10] c.t.agent.llm.OpenAiCompatibleLlmClient  : LLM 调用失败，降级为规则模板: 402 Payment Required: \"{\"error\":{\"message\":\"Insufficient Balance (stub)\",\"type\":\"insufficient_quota\",\"code\":\"insufficient_balance\"}}\"",
+        "WARN [260f14d05c034a3d] 36372 --- [travel-agent-server] [http-nio-18100-exec-10] c.t.agent.llm.OpenAiCompatibleLlmClient  : LLM 调用失败，降级为规则模板: 402 Payment Required: \"{\"error\":{\"message\":\"Insufficient Balance (stub)\",\"type\":\"insufficient_quota\",\"code\":\"insufficient_balance\"}}\"",
+        "WARN [1aaca83b415f473d] 36372 --- [travel-agent-server] [http-nio-18100-exec-6] c.t.agent.llm.OpenAiCompatibleLlmClient  : LLM 调用失败，降级为规则模板: 500 Internal Server Error: \"{\"error\":{\"message\":\"stub internal error\",\"type\":\"server_error\"}}\"",
+        "WARN [1aaca83b415f473d] 36372 --- [travel-agent-server] [http-nio-18100-exec-6] c.t.agent.llm.OpenAiCompatibleLlmClient  : LLM 调用失败，降级为规则模板: 500 Internal Server Error: \"{\"error\":{\"message\":\"stub internal error\",\"type\":\"server_error\"}}\"",
+        "WARN [1aaca83b415f473d] 36372 --- [travel-agent-server] [http-nio-18100-exec-6] c.t.agent.llm.OpenAiCompatibleLlmClient  : LLM 调用失败，降级为规则模板: 500 Internal Server Error: \"{\"error\":{\"message\":\"stub internal error\",\"type\":\"server_error\"}}\"",
+        "WARN [1aaca83b415f473d] 36372 --- [travel-agent-server] [http-nio-18100-exec-6] c.t.agent.llm.OpenAiCompatibleLlmClient  : LLM 调用失败，降级为规则模板: 500 Internal Server Error: \"{\"error\":{\"message\":\"stub internal error\",\"type\":\"server_error\"}}\"",
+        "WARN [1aaca83b415f473d] 36372 --- [travel-agent-server] [http-nio-18100-exec-6] c.t.agent.llm.OpenAiCompatibleLlmClient  : LLM 调用失败，降级为规则模板: 500 Internal Server Error: \"{\"error\":{\"message\":\"stub internal error\",\"type\":\"server_error\"}}\""
+      ],
+      "verdict": "PASS"
+    },
+    "connectionRefused": {
+      "target": "http://127.0.0.1:18100 → LLM_BASE_URL=http://127.0.0.1:18110/v1（替身已停止，端口未监听）",
+      "stubReachable": false,
+      "stubProbeError": "TypeError: fetch failed",
+      "response": {
+        "status": 200,
+        "ok": true,
+        "code": 0,
+        "ms": 68.6,
+        "intent": "PLAN_TRIP",
+        "resultStatus": "NEED_CONFIRMATION",
+        "planId": "56559af0-106f-4d8a-9cc8-1d5d9754c13d",
+        "tripId": null,
+        "hasPlan": true,
+        "messageHead": "已为你规划「杭州2日游」（11月20日出发，2 人）：4个景点、4顿美食，酒店已按你的偏好挑选，预计总花费 ¥1259，在你 ¥2000 的预算内。请查看时间轴与地图，确认后即可保存行程。\nℹ 没提到的信息已按默认：出发日期按 11月20日。可以随时让我改。",
+        "error": null
+      },
+      "llmCallsFailedBefore": 26,
+      "llmCallsFailedAfter": 31,
+      "llmCallsFailedDelta": 5,
+      "degradedWarnCount": 4,
+      "degradedWarnSample": [
+        "WARN [fb870f66098b4433] 36372 --- [travel-agent-server] [http-nio-18100-exec-5] c.t.agent.llm.OpenAiCompatibleLlmClient  : LLM 调用失败，降级为规则模板: I/O error on POST request for \"http://127.0.0.1:18110/v1/chat/completions\": Connection refused: no further information",
+        "WARN [fb870f66098b4433] 36372 --- [travel-agent-server] [http-nio-18100-exec-5] c.t.agent.llm.OpenAiCompatibleLlmClient  : LLM 调用失败，降级为规则模板: I/O error on POST request for \"http://127.0.0.1:18110/v1/chat/completions\": Connection refused: no further information",
+        "WARN [fb870f66098b4433] 36372 --- [travel-agent-server] [http-nio-18100-exec-5] c.t.agent.llm.OpenAiCompatibleLlmClient  : LLM 调用失败，降级为规则模板: I/O error on POST request for \"http://127.0.0.1:18110/v1/chat/completions\": Connection refused: no further information",
+        "WARN [fb870f66098b4433] 36372 --- [travel-agent-server] [http-nio-18100-exec-5] c.t.agent.llm.OpenAiCompatibleLlmClient  : LLM 调用失败，降级为规则模板: I/O error on POST request for \"http://127.0.0.1:18110/v1/chat/completions\": Connection refused: no further information"
+      ],
+      "containsConnectionRefused": true,
+      "degradedButFunctional": true,
+      "fastFailMs": 68.6,
+      "verdict": "PASS"
+    },
+    "amap_18090_no_key": {
+      "target": "http://127.0.0.1:18090",
+      "amapKeyState": "未配置 AMAP_KEY（实例 18090 现状）",
+      "systemStatus": {
+        "amapConfigured": false,
+        "geoProvider": "osm",
+        "geoHint": "未配置 AMAP_KEY：城市定位退回 OSM Nominatim，国内网络可能较慢或失败",
+        "routeProvider": "estimated",
+        "routeHint": "路线为本地距离估算（未配置 AMAP_KEY / 高德 MCP）：距离与耗时为近似值"
+      },
+      "planChat": {
+        "status": 200,
+        "ok": true,
+        "code": 0,
+        "ms": 26.8,
+        "intent": "PLAN_TRIP",
+        "resultStatus": "NEED_CONFIRMATION",
+        "planId": "ff66df65-75cb-4dc1-97fb-da5bad1aa34a",
+        "tripId": null,
+        "hasPlan": true,
+        "messageHead": "已为你规划「杭州2日游」（11月20日出发，2 人）：4个景点、4顿美食，酒店已按你的偏好挑选，预计总花费 ¥1259，在你 ¥2000 的预算内。请查看时间轴与地图，确认后即可保存行程。\nℹ 没提到的信息已按默认：出发日期按 11月20日。可以随时让我改。",
+        "error": null
+      },
+      "confirm": {
+        "status": 200,
+        "ok": true,
+        "code": 0,
+        "ms": 17.8,
+        "message": "行程已保存，祝你旅途愉快！可以在对话里随时让我调整。\n✅ 已同步：日程时间块、预算快照、足迹地图。",
+        "tripId": 13,
+        "execution": {
+          "executionId": "520bfa84-c42d-41f2-a58e-d59102b5d9e0",
+          "planId": "ff66df65-75cb-4dc1-97fb-da5bad1aa34a",
+          "tripId": 13,
+          "status": "SUCCEEDED",
+          "modules": [
+            {
+              "module": "calendar",
+              "status": "SUCCEEDED",
+              "detail": "2 天行程已同步为日程时间块（本次新建 2 条）",
+              "idempotencyKey": "plan:ff66df65-75cb-4dc1-97fb-da5bad1aa34a:module:calendar",
+              "retryCount": null,
+              "error": null
+            },
+            {
+              "module": "budget",
+              "status": "SUCCEEDED",
+              "detail": "计划预算快照已记录：预算上限 ¥2000，计划成本 ¥1259；实际支出需手动记账，估算不会自动变成已消费",
+              "idempotencyKey": null,
+              "retryCount": null,
+              "error": null
+            },
+            {
+              "module": "footprint",
+              "status": "SUCCEEDED",
+              "detail": "行程「杭州」已进入足迹地图（计划标记，到访由行程日期派生）",
+              "idempotencyKey": null,
+              "retryCount": null,
+              "error": null
+            }
+          ]
+        }
+      },
+      "tripId": 13,
+      "routeLegs": {
+        "status": 200,
+        "ok": true,
+        "count": 7,
+        "sourceDistribution": {
+          "estimated": 7
+        },
+        "allEstimated": true,
+        "sample": [
+          {
+            "dayIndex": 1,
+            "sequence": 1,
+            "fromItemId": 148,
+            "toItemId": 149,
+            "fromTitle": "入住 · 滨江汉庭酒店",
+            "toTitle": "西湖风景区",
+            "fromLatitude": 30.208,
+            "fromLongitude": 120.211,
+            "toLatitude": 30.2431,
+            "toLongitude": 120.149,
+            "distanceKm": 7.1,
+            "walkMinutes": 95,
+            "driveMinutes": 21,
+            "taxiCost": 29,
+            "source": "estimated"
+          },
+          {
+            "dayIndex": 1,
+            "sequence": 2,
+            "fromItemId": 149,
+            "toItemId": 150,
+            "fromTitle": "西湖风景区",
+            "toTitle": "午餐 · 楼外楼",
+            "fromLatitude": 30.2431,
+            "fromLongitude": 120.149,
+            "toLatitude": 30.25,
+            "toLongitude": 120.145,
+            "distanceKm": 0.9,
+            "walkMinutes": 11,
+            "driveMinutes": 6,
+            "taxiCost": 14,
+            "source": "estimated"
+          }
+        ]
+      },
+      "selfReportConsistent": true,
+      "verdict": "PASS"
+    },
+    "amap_18100_invalid_key": {
+      "target": "http://127.0.0.1:18100",
+      "amapKeyState": "配置了无效 AMAP_KEY=INVALID_RESILIENCE_TEST_KEY_0001",
+      "systemStatus": {
+        "amapConfigured": true,
+        "geoProvider": "amap",
+        "geoHint": "高德 Web 服务已配置：城市与 POI 定位使用真实数据",
+        "routeProvider": "amap",
+        "routeHint": "路线使用高德真实路径规划（打车费用仍为本地估算）"
+      },
+      "planChat": {
+        "status": 200,
+        "ok": true,
+        "code": 0,
+        "ms": 958.9,
+        "intent": "PLAN_TRIP",
+        "resultStatus": "NEED_CONFIRMATION",
+        "planId": "df1ab979-a88f-483b-847c-f3d65d08333a",
+        "tripId": null,
+        "hasPlan": true,
+        "messageHead": "已为你规划「杭州2日游」（11月20日出发，2 人）：4个景点、4顿美食，酒店已按你的偏好挑选，预计总花费 ¥1259，在你 ¥2000 的预算内。请查看时间轴与地图，确认后即可保存行程。\nℹ 没提到的信息已按默认：出发日期按 11月20日。可以随时让我改。",
+        "error": null
+      },
+      "confirm": {
+        "status": 200,
+        "ok": true,
+        "code": 0,
+        "ms": 91.1,
+        "message": "行程已保存，祝你旅途愉快！可以在对话里随时让我调整。\n✅ 已同步：日程时间块、预算快照、足迹地图。",
+        "tripId": 1,
+        "execution": {
+          "executionId": "4e4ce328-a0ad-43ab-b95f-fa9324179529",
+          "planId": "df1ab979-a88f-483b-847c-f3d65d08333a",
+          "tripId": 1,
+          "status": "SUCCEEDED",
+          "modules": [
+            {
+              "module": "calendar",
+              "status": "SUCCEEDED",
+              "detail": "2 天行程已同步为日程时间块（本次新建 2 条）",
+              "idempotencyKey": "plan:df1ab979-a88f-483b-847c-f3d65d08333a:module:calendar",
+              "retryCount": null,
+              "error": null
+            },
+            {
+              "module": "budget",
+              "status": "SUCCEEDED",
+              "detail": "计划预算快照已记录：预算上限 ¥2000，计划成本 ¥1259；实际支出需手动记账，估算不会自动变成已消费",
+              "idempotencyKey": null,
+              "retryCount": null,
+              "error": null
+            },
+            {
+              "module": "footprint",
+              "status": "SUCCEEDED",
+              "detail": "行程「杭州」已进入足迹地图（计划标记，到访由行程日期派生）",
+              "idempotencyKey": null,
+              "retryCount": null,
+              "error": null
+            }
+          ]
+        }
+      },
+      "tripId": 1,
+      "routeLegs": {
+        "status": 200,
+        "ok": true,
+        "count": 7,
+        "sourceDistribution": {
+          "estimated": 7
+        },
+        "allEstimated": true,
+        "sample": [
+          {
+            "dayIndex": 1,
+            "sequence": 1,
+            "fromItemId": 1,
+            "toItemId": 2,
+            "fromTitle": "入住 · 滨江汉庭酒店",
+            "toTitle": "西湖风景区",
+            "fromLatitude": 30.208,
+            "fromLongitude": 120.211,
+            "toLatitude": 30.2431,
+            "toLongitude": 120.149,
+            "distanceKm": 7.1,
+            "walkMinutes": 95,
+            "driveMinutes": 21,
+            "taxiCost": 29,
+            "source": "estimated"
+          },
+          {
+            "dayIndex": 1,
+            "sequence": 2,
+            "fromItemId": 2,
+            "toItemId": 3,
+            "fromTitle": "西湖风景区",
+            "toTitle": "午餐 · 楼外楼",
+            "fromLatitude": 30.2431,
+            "fromLongitude": 120.149,
+            "toLatitude": 30.25,
+            "toLongitude": 120.145,
+            "distanceKm": 0.9,
+            "walkMinutes": 11,
+            "driveMinutes": 6,
+            "taxiCost": 14,
+            "source": "estimated"
+          }
+        ]
+      },
+      "selfReportConsistent": false,
+      "verdict": "REVIEW"
+    }
+  },
+  "concurrency": {
+    "name": "concurrency",
+    "startedAt": "2026-11-19T06:35:03.364Z",
+    "endpoint": "http://127.0.0.1:18090",
+    "systemStatus": {
+      "llmConfigured": false,
+      "llmModel": null,
+      "llmHint": "未配置 LLM_API_KEY：当前为规则引擎模式（功能完整，超纲目的地与生僻说法识别较弱）",
+      "amapConfigured": false,
+      "geoProvider": "osm",
+      "geoHint": "未配置 AMAP_KEY：城市定位退回 OSM Nominatim，国内网络可能较慢或失败",
+      "timezone": "Asia/Shanghai",
+      "routeProvider": "estimated",
+      "routeHint": "路线为本地距离估算（未配置 AMAP_KEY / 高德 MCP）：距离与耗时为近似值",
+      "ocrConfigured": true,
+      "ocrHint": "已配置 Tesseract：图片发票可直接 OCR",
+      "pendingPlanStore": "database",
+      "rateLimitEnabled": false
+    },
+    "params": {
+      "rounds": 2,
+      "chatConcurrency": 20,
+      "runsConcurrency": 10,
+      "chatTimeoutMs": 120000,
+      "messageTemplate": "杭州两日游，两个人，预算${2000+10*i}元",
+      "user": "concmwn6e4fs0",
+      "note": "独立临时账号，避免污染验收账号 demo"
+    },
+    "rounds": [
+      {
+        "round": 1,
+        "budgets": [
+          2100,
+          2110,
+          2120,
+          2130,
+          2140,
+          2150,
+          2160,
+          2170,
+          2180,
+          2190,
+          2200,
+          2210,
+          2220,
+          2230,
+          2240,
+          2250,
+          2260,
+          2270,
+          2280,
+          2290
+        ],
+        "chat": {
+          "count": 20,
+          "wallMs": 66,
+          "latency": {
+            "count": 20,
+            "min": 50.1,
+            "p50": 58.9,
+            "p90": 60.9,
+            "p95": 61.1,
+            "p99": 62.3,
+            "max": 62.3,
+            "mean": 57.7
+          },
+          "statusDistribution": {
+            "ok": 20
+          },
+          "httpStatusDistribution": {
+            "200": 20
+          },
+          "successCount": 20,
+          "successRate": 1,
+          "clientTimeouts": 0,
+          "server5xx": 0,
+          "planIdCount": 20,
+          "uniquePlanIds": 20,
+          "duplicatePlanIds": [],
+          "budgetEchoMismatch": [],
+          "budgetCrossLeak": [],
+          "tripIdAnomalies": [],
+          "nonPlanResponses": [],
+          "samples": [
+            {
+              "budget": 2100,
+              "status": 200,
+              "ms": 53.9,
+              "code": 0,
+              "intent": "PLAN_TRIP",
+              "planId": "3b3f5626-2a91-4e83-950e-6987188a8c83",
+              "warnings": 0,
+              "requiresAck": false,
+              "error": null
+            },
+            {
+              "budget": 2110,
+              "status": 200,
+              "ms": 50.1,
+              "code": 0,
+              "intent": "PLAN_TRIP",
+              "planId": "ce891e7d-64bc-4cc8-a893-eeaada421843",
+              "warnings": 0,
+              "requiresAck": false,
+              "error": null
+            },
+            {
+              "budget": 2120,
+              "status": 200,
+              "ms": 54.3,
+              "code": 0,
+              "intent": "PLAN_TRIP",
+              "planId": "2994887f-7a27-4efd-9391-54a7b3219742",
+              "warnings": 0,
+              "requiresAck": false,
+              "error": null
+            },
+            {
+              "budget": 2130,
+              "status": 200,
+              "ms": 51.9,
+              "code": 0,
+              "intent": "PLAN_TRIP",
+              "planId": "f86bda6c-cbb0-47ad-8395-cca160d21daa",
+              "warnings": 0,
+              "requiresAck": false,
+              "error": null
+            },
+            {
+              "budget": 2140,
+              "status": 200,
+              "ms": 60.9,
+              "code": 0,
+              "intent": "PLAN_TRIP",
+              "planId": "e33b5c07-d07e-4656-b2af-cebb8771d434",
+              "warnings": 0,
+              "requiresAck": false,
+              "error": null
+            },
+            {
+              "budget": 2150,
+              "status": 200,
+              "ms": 50.2,
+              "code": 0,
+              "intent": "PLAN_TRIP",
+              "planId": "d33126b0-d45c-40ae-a97a-6adbbed49dae",
+              "warnings": 0,
+              "requiresAck": false,
+              "error": null
+            },
+            {
+              "budget": 2160,
+              "status": 200,
+              "ms": 58.2,
+              "code": 0,
+              "intent": "PLAN_TRIP",
+              "planId": "a6d9cf30-4a79-4351-9d19-47cd48699c56",
+              "warnings": 0,
+              "requiresAck": false,
+              "error": null
+            },
+            {
+              "budget": 2170,
+              "status": 200,
+              "ms": 56.4,
+              "code": 0,
+              "intent": "PLAN_TRIP",
+              "planId": "46cb89ef-1e57-40e5-89dd-f95bd5217096",
+              "warnings": 0,
+              "requiresAck": false,
+              "error": null
+            },
+            {
+              "budget": 2180,
+              "status": 200,
+              "ms": 58.9,
+              "code": 0,
+              "intent": "PLAN_TRIP",
+              "planId": "b394c5e3-a6da-405e-90b8-85bd4d9ea86f",
+              "warnings": 0,
+              "requiresAck": false,
+              "error": null
+            },
+            {
+              "budget": 2190,
+              "status": 200,
+              "ms": 58.1,
+              "code": 0,
+              "intent": "PLAN_TRIP",
+              "planId": "14f65bd8-6889-44ff-a171-92b4cf0016fa",
+              "warnings": 0,
+              "requiresAck": false,
+              "error": null
+            },
+            {
+              "budget": 2200,
+              "status": 200,
+              "ms": 59.8,
+              "code": 0,
+              "intent": "PLAN_TRIP",
+              "planId": "08c06968-cf07-43e0-8fb8-54c91d5e7dc0",
+              "warnings": 0,
+              "requiresAck": false,
+              "error": null
+            },
+            {
+              "budget": 2210,
+              "status": 200,
+              "ms": 62.3,
+              "code": 0,
+              "intent": "PLAN_TRIP",
+              "planId": "7c662bbf-1a05-4d84-809b-9404dbf6ece0",
+              "warnings": 0,
+              "requiresAck": false,
+              "error": null
+            },
+            {
+              "budget": 2220,
+              "status": 200,
+              "ms": 58.5,
+              "code": 0,
+              "intent": "PLAN_TRIP",
+              "planId": "c638a948-3ed6-443a-8c7e-3500e4e02255",
+              "warnings": 0,
+              "requiresAck": false,
+              "error": null
+            },
+            {
+              "budget": 2230,
+              "status": 200,
+              "ms": 59.6,
+              "code": 0,
+              "intent": "PLAN_TRIP",
+              "planId": "67b38728-4753-4991-99df-82c29b471d37",
+              "warnings": 0,
+              "requiresAck": false,
+              "error": null
+            },
+            {
+              "budget": 2240,
+              "status": 200,
+              "ms": 59.1,
+              "code": 0,
+              "intent": "PLAN_TRIP",
+              "planId": "0f16671f-8cbe-4fa4-b846-437903443a06",
+              "warnings": 0,
+              "requiresAck": false,
+              "error": null
+            },
+            {
+              "budget": 2250,
+              "status": 200,
+              "ms": 61.1,
+              "code": 0,
+              "intent": "PLAN_TRIP",
+              "planId": "a710b865-74c5-4c2f-9493-601ecfd4ba93",
+              "warnings": 0,
+              "requiresAck": false,
+              "error": null
+            },
+            {
+              "budget": 2260,
+              "status": 200,
+              "ms": 60.8,
+              "code": 0,
+              "intent": "PLAN_TRIP",
+              "planId": "bdae15d9-46b3-4116-92da-bae4ae68d9c0",
+              "warnings": 0,
+              "requiresAck": false,
+              "error": null
+            },
+            {
+              "budget": 2270,
+              "status": 200,
+              "ms": 59.3,
+              "code": 0,
+              "intent": "PLAN_TRIP",
+              "planId": "39a709d7-349f-4259-88ef-0169d22f20ca",
+              "warnings": 0,
+              "requiresAck": false,
+              "error": null
+            },
+            {
+              "budget": 2280,
+              "status": 200,
+              "ms": 60.2,
+              "code": 0,
+              "intent": "PLAN_TRIP",
+              "planId": "1b20806d-d765-414f-8337-de437df1ca16",
+              "warnings": 0,
+              "requiresAck": false,
+              "error": null
+            },
+            {
+              "budget": 2290,
+              "status": 200,
+              "ms": 60.3,
+              "code": 0,
+              "intent": "PLAN_TRIP",
+              "planId": "52da1333-7c96-4dbe-9ce5-fb817c7f003e",
+              "warnings": 0,
+              "requiresAck": false,
+              "error": null
+            }
+          ]
+        },
+        "runs": {
+          "count": 10,
+          "wallMs": 8,
+          "latency": {
+            "count": 10,
+            "min": 4.9,
+            "p50": 5.6,
+            "p90": 7.3,
+            "p95": 7.4,
+            "p99": 7.4,
+            "max": 7.4,
+            "mean": 6.1
+          },
+          "statusDistribution": {
+            "ok": 10
+          },
+          "successCount": 10,
+          "listSizes": [
+            20,
+            20,
+            20,
+            20,
+            20,
+            20,
+            20,
+            20,
+            20,
+            20
+          ],
+          "server5xx": 0,
+          "samples": [
+            {
+              "status": 200,
+              "ms": 6.8,
+              "count": 20,
+              "error": null
+            },
+            {
+              "status": 200,
+              "ms": 5.6,
+              "count": 20,
+              "error": null
+            },
+            {
+              "status": 200,
+              "ms": 7.3,
+              "count": 20,
+              "error": null
+            },
+            {
+              "status": 200,
+              "ms": 7.4,
+              "count": 20,
+              "error": null
+            },
+            {
+              "status": 200,
+              "ms": 5.5,
+              "count": 20,
+              "error": null
+            },
+            {
+              "status": 200,
+              "ms": 6.7,
+              "count": 20,
+              "error": null
+            },
+            {
+              "status": 200,
+              "ms": 5.4,
+              "count": 20,
+              "error": null
+            },
+            {
+              "status": 200,
+              "ms": 4.9,
+              "count": 20,
+              "error": null
+            },
+            {
+              "status": 200,
+              "ms": 6,
+              "count": 20,
+              "error": null
+            },
+            {
+              "status": 200,
+              "ms": 5.5,
+              "count": 20,
+              "error": null
+            }
+          ]
+        }
+      },
+      {
+        "round": 2,
+        "budgets": [
+          2200,
+          2210,
+          2220,
+          2230,
+          2240,
+          2250,
+          2260,
+          2270,
+          2280,
+          2290,
+          2300,
+          2310,
+          2320,
+          2330,
+          2340,
+          2350,
+          2360,
+          2370,
+          2380,
+          2390
+        ],
+        "chat": {
+          "count": 20,
+          "wallMs": 48,
+          "latency": {
+            "count": 20,
+            "min": 37.5,
+            "p50": 40.6,
+            "p90": 45.4,
+            "p95": 45.7,
+            "p99": 47.4,
+            "max": 47.4,
+            "mean": 41.8
+          },
+          "statusDistribution": {
+            "ok": 20
+          },
+          "httpStatusDistribution": {
+            "200": 20
+          },
+          "successCount": 20,
+          "successRate": 1,
+          "clientTimeouts": 0,
+          "server5xx": 0,
+          "planIdCount": 20,
+          "uniquePlanIds": 20,
+          "duplicatePlanIds": [],
+          "budgetEchoMismatch": [],
+          "budgetCrossLeak": [],
+          "tripIdAnomalies": [],
+          "nonPlanResponses": [],
+          "samples": [
+            {
+              "budget": 2200,
+              "status": 200,
+              "ms": 44.6,
+              "code": 0,
+              "intent": "PLAN_TRIP",
+              "planId": "e1cb501f-5393-4014-b1f4-679b6d37d356",
+              "warnings": 0,
+              "requiresAck": false,
+              "error": null
+            },
+            {
+              "budget": 2210,
+              "status": 200,
+              "ms": 45.7,
+              "code": 0,
+              "intent": "PLAN_TRIP",
+              "planId": "74253f2a-c2b4-4f4c-bcaf-61cbb969c54a",
+              "warnings": 0,
+              "requiresAck": false,
+              "error": null
+            },
+            {
+              "budget": 2220,
+              "status": 200,
+              "ms": 37.5,
+              "code": 0,
+              "intent": "PLAN_TRIP",
+              "planId": "402519e5-9ef1-4e81-87e7-4b85a924743b",
+              "warnings": 0,
+              "requiresAck": false,
+              "error": null
+            },
+            {
+              "budget": 2230,
+              "status": 200,
+              "ms": 47.4,
+              "code": 0,
+              "intent": "PLAN_TRIP",
+              "planId": "d63c2a85-d80c-4619-94c3-5dbcdb161503",
+              "warnings": 0,
+              "requiresAck": false,
+              "error": null
+            },
+            {
+              "budget": 2240,
+              "status": 200,
+              "ms": 44.7,
+              "code": 0,
+              "intent": "PLAN_TRIP",
+              "planId": "2d9c13a8-70c7-4a19-bf4d-be584f94ada3",
+              "warnings": 0,
+              "requiresAck": false,
+              "error": null
+            },
+            {
+              "budget": 2250,
+              "status": 200,
+              "ms": 38.8,
+              "code": 0,
+              "intent": "PLAN_TRIP",
+              "planId": "07a58c72-4b08-4466-82e1-4a8eaec03b08",
+              "warnings": 0,
+              "requiresAck": false,
+              "error": null
+            },
+            {
+              "budget": 2260,
+              "status": 200,
+              "ms": 37.7,
+              "code": 0,
+              "intent": "PLAN_TRIP",
+              "planId": "0dd110fc-a1cb-4bff-9139-1086b14e1490",
+              "warnings": 0,
+              "requiresAck": false,
+              "error": null
+            },
+            {
+              "budget": 2270,
+              "status": 200,
+              "ms": 45.2,
+              "code": 0,
+              "intent": "PLAN_TRIP",
+              "planId": "92b2a59e-9b18-41d3-8833-f01ed275e4cf",
+              "warnings": 0,
+              "requiresAck": false,
+              "error": null
+            },
+            {
+              "budget": 2280,
+              "status": 200,
+              "ms": 39.7,
+              "code": 0,
+              "intent": "PLAN_TRIP",
+              "planId": "ce61e017-56bc-41f3-bff2-bc06b98d64ce",
+              "warnings": 0,
+              "requiresAck": false,
+              "error": null
+            },
+            {
+              "budget": 2290,
+              "status": 200,
+              "ms": 40.5,
+              "code": 0,
+              "intent": "PLAN_TRIP",
+              "planId": "2efe2ce7-31ab-43ae-bc56-8c71e648feed",
+              "warnings": 0,
+              "requiresAck": false,
+              "error": null
+            },
+            {
+              "budget": 2300,
+              "status": 200,
+              "ms": 41.3,
+              "code": 0,
+              "intent": "PLAN_TRIP",
+              "planId": "cae41e0a-e57f-4849-b358-fd38e57ee526",
+              "warnings": 0,
+              "requiresAck": false,
+              "error": null
+            },
+            {
+              "budget": 2310,
+              "status": 200,
+              "ms": 45.1,
+              "code": 0,
+              "intent": "PLAN_TRIP",
+              "planId": "2f3361e5-f360-4705-8b42-6ee1b6818019",
+              "warnings": 0,
+              "requiresAck": false,
+              "error": null
+            },
+            {
+              "budget": 2320,
+              "status": 200,
+              "ms": 40.6,
+              "code": 0,
+              "intent": "PLAN_TRIP",
+              "planId": "55d4cf16-21c2-4d79-9412-b66acea54ea5",
+              "warnings": 0,
+              "requiresAck": false,
+              "error": null
+            },
+            {
+              "budget": 2330,
+              "status": 200,
+              "ms": 45.4,
+              "code": 0,
+              "intent": "PLAN_TRIP",
+              "planId": "534f7b2d-2e64-48bc-a6cb-41334450c97b",
+              "warnings": 0,
+              "requiresAck": false,
+              "error": null
+            },
+            {
+              "budget": 2340,
+              "status": 200,
+              "ms": 37.9,
+              "code": 0,
+              "intent": "PLAN_TRIP",
+              "planId": "bbd48c09-8ce1-499d-a917-e6604ee63f06",
+              "warnings": 0,
+              "requiresAck": false,
+              "error": null
+            },
+            {
+              "budget": 2350,
+              "status": 200,
+              "ms": 44.1,
+              "code": 0,
+              "intent": "PLAN_TRIP",
+              "planId": "68da551b-0d06-4450-b542-e716e3633348",
+              "warnings": 0,
+              "requiresAck": false,
+              "error": null
+            },
+            {
+              "budget": 2360,
+              "status": 200,
+              "ms": 41.5,
+              "code": 0,
+              "intent": "PLAN_TRIP",
+              "planId": "902ff224-ee36-4142-ac1c-10c8e35acd16",
+              "warnings": 0,
+              "requiresAck": false,
+              "error": null
+            },
+            {
+              "budget": 2370,
+              "status": 200,
+              "ms": 40.1,
+              "code": 0,
+              "intent": "PLAN_TRIP",
+              "planId": "db39d3df-4d4b-4c47-9cf0-2b4a860691ed",
+              "warnings": 0,
+              "requiresAck": false,
+              "error": null
+            },
+            {
+              "budget": 2380,
+              "status": 200,
+              "ms": 38.1,
+              "code": 0,
+              "intent": "PLAN_TRIP",
+              "planId": "f45b0a40-c78c-4ba3-9116-73cbdcaf23be",
+              "warnings": 0,
+              "requiresAck": false,
+              "error": null
+            },
+            {
+              "budget": 2390,
+              "status": 200,
+              "ms": 40.3,
+              "code": 0,
+              "intent": "PLAN_TRIP",
+              "planId": "6dd88445-3fa6-404a-903d-d90976741229",
+              "warnings": 0,
+              "requiresAck": false,
+              "error": null
+            }
+          ]
+        },
+        "runs": {
+          "count": 10,
+          "wallMs": 15,
+          "latency": {
+            "count": 10,
+            "min": 12,
+            "p50": 13.2,
+            "p90": 14.1,
+            "p95": 15,
+            "p99": 15,
+            "max": 15,
+            "mean": 13.3
+          },
+          "statusDistribution": {
+            "ok": 10
+          },
+          "successCount": 10,
+          "listSizes": [
+            20,
+            20,
+            20,
+            20,
+            20,
+            20,
+            20,
+            20,
+            20,
+            20
+          ],
+          "server5xx": 0,
+          "samples": [
+            {
+              "status": 200,
+              "ms": 15,
+              "count": 20,
+              "error": null
+            },
+            {
+              "status": 200,
+              "ms": 13.4,
+              "count": 20,
+              "error": null
+            },
+            {
+              "status": 200,
+              "ms": 14.1,
+              "count": 20,
+              "error": null
+            },
+            {
+              "status": 200,
+              "ms": 13.9,
+              "count": 20,
+              "error": null
+            },
+            {
+              "status": 200,
+              "ms": 13,
+              "count": 20,
+              "error": null
+            },
+            {
+              "status": 200,
+              "ms": 13.2,
+              "count": 20,
+              "error": null
+            },
+            {
+              "status": 200,
+              "ms": 12.8,
+              "count": 20,
+              "error": null
+            },
+            {
+              "status": 200,
+              "ms": 13.2,
+              "count": 20,
+              "error": null
+            },
+            {
+              "status": 200,
+              "ms": 12.5,
+              "count": 20,
+              "error": null
+            },
+            {
+              "status": 200,
+              "ms": 12,
+              "count": 20,
+              "error": null
+            }
+          ]
+        }
+      }
+    ],
+    "planIds": [
+      "3b3f5626-2a91-4e83-950e-6987188a8c83",
+      "ce891e7d-64bc-4cc8-a893-eeaada421843",
+      "2994887f-7a27-4efd-9391-54a7b3219742",
+      "f86bda6c-cbb0-47ad-8395-cca160d21daa",
+      "e33b5c07-d07e-4656-b2af-cebb8771d434",
+      "d33126b0-d45c-40ae-a97a-6adbbed49dae",
+      "a6d9cf30-4a79-4351-9d19-47cd48699c56",
+      "46cb89ef-1e57-40e5-89dd-f95bd5217096",
+      "b394c5e3-a6da-405e-90b8-85bd4d9ea86f",
+      "14f65bd8-6889-44ff-a171-92b4cf0016fa",
+      "08c06968-cf07-43e0-8fb8-54c91d5e7dc0",
+      "7c662bbf-1a05-4d84-809b-9404dbf6ece0",
+      "c638a948-3ed6-443a-8c7e-3500e4e02255",
+      "67b38728-4753-4991-99df-82c29b471d37",
+      "0f16671f-8cbe-4fa4-b846-437903443a06",
+      "a710b865-74c5-4c2f-9493-601ecfd4ba93",
+      "bdae15d9-46b3-4116-92da-bae4ae68d9c0",
+      "39a709d7-349f-4259-88ef-0169d22f20ca",
+      "1b20806d-d765-414f-8337-de437df1ca16",
+      "52da1333-7c96-4dbe-9ce5-fb817c7f003e",
+      "e1cb501f-5393-4014-b1f4-679b6d37d356",
+      "74253f2a-c2b4-4f4c-bcaf-61cbb969c54a",
+      "402519e5-9ef1-4e81-87e7-4b85a924743b",
+      "d63c2a85-d80c-4619-94c3-5dbcdb161503",
+      "2d9c13a8-70c7-4a19-bf4d-be584f94ada3",
+      "07a58c72-4b08-4466-82e1-4a8eaec03b08",
+      "0dd110fc-a1cb-4bff-9139-1086b14e1490",
+      "92b2a59e-9b18-41d3-8833-f01ed275e4cf",
+      "ce61e017-56bc-41f3-bff2-bc06b98d64ce",
+      "2efe2ce7-31ab-43ae-bc56-8c71e648feed",
+      "cae41e0a-e57f-4849-b358-fd38e57ee526",
+      "2f3361e5-f360-4705-8b42-6ee1b6818019",
+      "55d4cf16-21c2-4d79-9412-b66acea54ea5",
+      "534f7b2d-2e64-48bc-a6cb-41334450c97b",
+      "bbd48c09-8ce1-499d-a917-e6604ee63f06",
+      "68da551b-0d06-4450-b542-e716e3633348",
+      "902ff224-ee36-4142-ac1c-10c8e35acd16",
+      "db39d3df-4d4b-4c47-9cf0-2b4a860691ed",
+      "f45b0a40-c78c-4ba3-9116-73cbdcaf23be",
+      "6dd88445-3fa6-404a-903d-d90976741229"
+    ],
+    "serverMetrics": {
+      "httpServerRequestsBefore": 333,
+      "httpServerRequestsAfter": 398,
+      "status500Count": null
+    },
+    "verdict": {
+      "allChatSucceeded": true,
+      "allRunsSucceeded": true,
+      "no5xx": true,
+      "noClientTimeout": true,
+      "noDuplicatePlanId": true,
+      "noBudgetCrossTalk": true,
+      "noTripIdAnomaly": true,
+      "runsMessageIntegrity": true
+    },
+    "verification": {
+      "queriedRuns": 40,
+      "expectedChatRuns": 40,
+      "matchedChatRuns": 40,
+      "unexpectedRunMessages": [],
+      "uniqueRunIds": 40,
+      "runStatusDistribution": {
+        "SUCCEEDED": 40
+      },
+      "runDurationMs": {
+        "count": 40,
+        "min": 25,
+        "p50": 36,
+        "p90": 42,
+        "p95": 43,
+        "p99": 43,
+        "max": 43,
+        "mean": 35.7
+      },
+      "messageIntegrityOk": true
+    },
+    "summary": {
+      "chatLatency": {
+        "count": 40,
+        "min": 37.5,
+        "p50": 47.4,
+        "p90": 60.3,
+        "p95": 60.9,
+        "p99": 62.3,
+        "max": 62.3,
+        "mean": 49.8
+      },
+      "runsLatency": {
+        "count": 20,
+        "min": 4.9,
+        "p50": 7.4,
+        "p90": 13.9,
+        "p95": 14.1,
+        "p99": 15,
+        "max": 15,
+        "mean": 9.7
+      },
+      "totalChatRequests": 40,
+      "totalChatSuccess": 40,
+      "totalRunsRequests": 20,
+      "totalRunsSuccess": 20,
+      "server5xx": 0,
+      "clientTimeouts": 0,
+      "duplicatePlanIds": 0,
+      "budgetEchoMismatch": 0,
+      "budgetCrossLeak": 0,
+      "tripIdAnomalies": 0
+    },
+    "conclusion": "PASS",
+    "finishedAt": "2026-11-19T06:35:07.567Z",
+    "rateLimitEnabled": false,
+    "llmConfigured": false,
+    "note": "statusDistribution 已按 samples 的 code 字段重算（原脚本把 req.json?.code 当成对象字段，标签错写成 biz-undefined，不影响 successCount）"
+  },
+  "soak": {
+    "name": "soak",
+    "endpoint": "http://127.0.0.1:18090",
+    "startedAt": "2026-11-19T06:36:04.835Z",
+    "endedAt": "2026-11-19T06:48:01.061Z",
+    "actualDurationSeconds": 716.2,
+    "requestedDurationMinutes": 12,
+    "intervalMs": 5000,
+    "durationHonored": true,
+    "user": "soakmwn6ffqc0",
+    "systemStatus": {
+      "llmConfigured": false,
+      "llmModel": null,
+      "llmHint": "未配置 LLM_API_KEY：当前为规则引擎模式（功能完整，超纲目的地与生僻说法识别较弱）",
+      "amapConfigured": false,
+      "geoProvider": "osm",
+      "geoHint": "未配置 AMAP_KEY：城市定位退回 OSM Nominatim，国内网络可能较慢或失败",
+      "timezone": "Asia/Shanghai",
+      "routeProvider": "estimated",
+      "routeHint": "路线为本地距离估算（未配置 AMAP_KEY / 高德 MCP）：距离与耗时为近似值",
+      "ocrConfigured": true,
+      "ocrHint": "已配置 Tesseract：图片发票可直接 OCR",
+      "pendingPlanStore": "database",
+      "rateLimitEnabled": false
+    },
+    "mix": {
+      "perCycle": [
+        "chat",
+        "trips",
+        "runs",
+        "health"
+      ],
+      "cycles": 144,
+      "chatMessages": [
+        "你好",
+        "谢谢",
+        "北京有哪些必去景点？",
+        "两个人去成都玩三天怎么安排比较好？"
+      ]
+    },
+    "totals": {
+      "requests": 576,
+      "ok": 576,
+      "failures": 0,
+      "untrackedNetworkFailures": 0,
+      "server5xx": 0,
+      "byHttpStatus": {
+        "200": 576
+      },
+      "byKindFailures": {}
+    },
+    "latency": {
+      "all": {
+        "count": 576,
+        "min": 1.5,
+        "p50": 3.7,
+        "p90": 7.3,
+        "p95": 8.6,
+        "p99": 12.8,
+        "max": 187.9,
+        "mean": 4.7
+      },
+      "byKind": {
+        "chat": {
+          "count": 144,
+          "ok": 144,
+          "failures": [],
+          "latency": {
+            "count": 144,
+            "min": 3.5,
+            "p50": 6.5,
+            "p90": 10.2,
+            "p95": 11.8,
+            "p99": 65.8,
+            "max": 187.9,
+            "mean": 8.6
+          }
+        },
+        "trips": {
+          "count": 144,
+          "ok": 144,
+          "failures": [],
+          "latency": {
+            "count": 144,
+            "min": 1.7,
+            "p50": 2.7,
+            "p90": 4.1,
+            "p95": 4.6,
+            "p99": 5.2,
+            "max": 5.3,
+            "mean": 2.9
+          }
+        },
+        "runs": {
+          "count": 144,
+          "ok": 144,
+          "failures": [],
+          "latency": {
+            "count": 144,
+            "min": 1.5,
+            "p50": 2.6,
+            "p90": 4.1,
+            "p95": 4.4,
+            "p99": 5,
+            "max": 5.8,
+            "mean": 2.8
+          }
+        },
+        "health": {
+          "count": 144,
+          "ok": 144,
+          "failures": [],
+          "latency": {
+            "count": 144,
+            "min": 2.8,
+            "p50": 4.2,
+            "p90": 7,
+            "p95": 7.9,
+            "p99": 9,
+            "max": 10.2,
+            "mean": 4.6
+          }
+        }
+      },
+      "windows2min": [
+        {
+          "windowStartMin": 0,
+          "count": 96,
+          "latency": {
+            "count": 96,
+            "min": 2.1,
+            "p50": 4.2,
+            "p90": 7.2,
+            "p95": 8.6,
+            "p99": 187.9,
+            "max": 187.9,
+            "mean": 6.5
+          }
+        },
+        {
+          "windowStartMin": 2,
+          "count": 96,
+          "latency": {
+            "count": 96,
+            "min": 2,
+            "p50": 4.2,
+            "p90": 7.5,
+            "p95": 8.4,
+            "p99": 12.8,
+            "max": 12.8,
+            "mean": 4.7
+          }
+        },
+        {
+          "windowStartMin": 4,
+          "count": 96,
+          "latency": {
+            "count": 96,
+            "min": 1.9,
+            "p50": 4.2,
+            "p90": 8.2,
+            "p95": 10.2,
+            "p99": 65.8,
+            "max": 65.8,
+            "mean": 5.3
+          }
+        },
+        {
+          "windowStartMin": 6,
+          "count": 96,
+          "latency": {
+            "count": 96,
+            "min": 1.7,
+            "p50": 3.1,
+            "p90": 7,
+            "p95": 8.4,
+            "p99": 12.8,
+            "max": 12.8,
+            "mean": 4
+          }
+        },
+        {
+          "windowStartMin": 8,
+          "count": 96,
+          "latency": {
+            "count": 96,
+            "min": 1.5,
+            "p50": 3.7,
+            "p90": 7.8,
+            "p95": 9.2,
+            "p99": 11.4,
+            "max": 11.4,
+            "mean": 4.2
+          }
+        },
+        {
+          "windowStartMin": 10,
+          "count": 96,
+          "latency": {
+            "count": 96,
+            "min": 1.6,
+            "p50": 3,
+            "p90": 6.4,
+            "p95": 7.1,
+            "p99": 13.8,
+            "max": 13.8,
+            "mean": 3.7
+          }
+        }
+      ],
+      "windows5min": [
+        {
+          "windowStartMin": 0,
+          "count": 240,
+          "latency": {
+            "count": 240,
+            "min": 2,
+            "p50": 4.2,
+            "p90": 7.6,
+            "p95": 8.6,
+            "p99": 12.8,
+            "max": 187.9,
+            "mean": 5.4
+          }
+        },
+        {
+          "windowStartMin": 5,
+          "count": 240,
+          "latency": {
+            "count": 240,
+            "min": 1.5,
+            "p50": 3.4,
+            "p90": 7.3,
+            "p95": 8.8,
+            "p99": 11.4,
+            "max": 65.8,
+            "mean": 4.4
+          }
+        },
+        {
+          "windowStartMin": 10,
+          "count": 96,
+          "latency": {
+            "count": 96,
+            "min": 1.6,
+            "p50": 3,
+            "p90": 6.4,
+            "p95": 7.1,
+            "p99": 13.8,
+            "max": 13.8,
+            "mean": 3.7
+          }
+        }
+      ]
+    },
+    "process": {
+      "samples": 145,
+      "sampleIntervalSeconds": 5,
+      "rssMB": {
+        "start": 408,
+        "end": 416.1,
+        "min": 349,
+        "max": 438.3,
+        "deltaMB": 8.1,
+        "growthPct": 2,
+        "slopeMBPerMinWhole": -3.4,
+        "slopeMBPerMinLastHalf": 12.5,
+        "slopeMBPerMinWindowMeans": -3.6,
+        "peakAtSeconds": 264.9,
+        "windows2min": [
+          {
+            "startMin": 0,
+            "samples": 24,
+            "min": 410.2,
+            "mean": 424.1,
+            "max": 431.9
+          },
+          {
+            "startMin": 2,
+            "samples": 24,
+            "min": 431.9,
+            "mean": 435.1,
+            "max": 438.1
+          },
+          {
+            "startMin": 4,
+            "samples": 23,
+            "min": 430.2,
+            "mean": 433.4,
+            "max": 438.3
+          },
+          {
+            "startMin": 6,
+            "samples": 24,
+            "min": 349,
+            "mean": 397.6,
+            "max": 432.4
+          },
+          {
+            "startMin": 8,
+            "samples": 24,
+            "min": 361.9,
+            "mean": 383.7,
+            "max": 408.1
+          },
+          {
+            "startMin": 10,
+            "samples": 24,
+            "min": 406.9,
+            "mean": 411.5,
+            "max": 415.5
+          }
+        ]
+      },
+      "threads": {
+        "start": 84,
+        "end": 86,
+        "min": 84,
+        "max": 87,
+        "slopePerMinWhole": 0
+      },
+      "dbBytes": {
+        "start": 2007040,
+        "end": 3715072,
+        "deltaBytes": 1708032,
+        "deltaMB": 1.6,
+        "slopeBytesPerMin": 143258
+      },
+      "curve": [
+        {
+          "tMin": 0,
+          "rssMB": 408,
+          "threads": 84,
+          "dbMB": 1.9
+        },
+        {
+          "tMin": 0.5,
+          "rssMB": 416,
+          "threads": 84,
+          "dbMB": 2
+        },
+        {
+          "tMin": 1,
+          "rssMB": 426.3,
+          "threads": 84,
+          "dbMB": 2.1
+        },
+        {
+          "tMin": 1.5,
+          "rssMB": 429.6,
+          "threads": 84,
+          "dbMB": 2.2
+        },
+        {
+          "tMin": 2,
+          "rssMB": 431.9,
+          "threads": 84,
+          "dbMB": 2.3
+        },
+        {
+          "tMin": 2.5,
+          "rssMB": 433.7,
+          "threads": 84,
+          "dbMB": 2.4
+        },
+        {
+          "tMin": 3,
+          "rssMB": 434.8,
+          "threads": 84,
+          "dbMB": 2.4
+        },
+        {
+          "tMin": 3.5,
+          "rssMB": 437.3,
+          "threads": 84,
+          "dbMB": 2.5
+        },
+        {
+          "tMin": 4,
+          "rssMB": 438.1,
+          "threads": 86,
+          "dbMB": 2.5
+        },
+        {
+          "tMin": 4.5,
+          "rssMB": 438.3,
+          "threads": 84,
+          "dbMB": 2.6
+        },
+        {
+          "tMin": 5,
+          "rssMB": 430.5,
+          "threads": 86,
+          "dbMB": 2.7
+        },
+        {
+          "tMin": 5.5,
+          "rssMB": 431.1,
+          "threads": 84,
+          "dbMB": 2.7
+        },
+        {
+          "tMin": 6,
+          "rssMB": 431.4,
+          "threads": 84,
+          "dbMB": 2.9
+        },
+        {
+          "tMin": 6.5,
+          "rssMB": 432.2,
+          "threads": 84,
+          "dbMB": 2.9
+        },
+        {
+          "tMin": 7,
+          "rssMB": 432.3,
+          "threads": 84,
+          "dbMB": 3
+        },
+        {
+          "tMin": 7.5,
+          "rssMB": 356.9,
+          "threads": 84,
+          "dbMB": 3.1
+        },
+        {
+          "tMin": 8,
+          "rssMB": 361.9,
+          "threads": 84,
+          "dbMB": 3.2
+        },
+        {
+          "tMin": 8.5,
+          "rssMB": 363.6,
+          "threads": 84,
+          "dbMB": 3.2
+        },
+        {
+          "tMin": 9,
+          "rssMB": 387.8,
+          "threads": 84,
+          "dbMB": 3.3
+        },
+        {
+          "tMin": 9.5,
+          "rssMB": 405.2,
+          "threads": 84,
+          "dbMB": 3.3
+        },
+        {
+          "tMin": 10,
+          "rssMB": 406.9,
+          "threads": 84,
+          "dbMB": 3.4
+        },
+        {
+          "tMin": 10.5,
+          "rssMB": 408.4,
+          "threads": 84,
+          "dbMB": 3.4
+        },
+        {
+          "tMin": 11,
+          "rssMB": 412,
+          "threads": 84,
+          "dbMB": 3.5
+        },
+        {
+          "tMin": 11.5,
+          "rssMB": 415.4,
+          "threads": 84,
+          "dbMB": 3.5
+        },
+        {
+          "tMin": 12,
+          "rssMB": 416.1,
+          "threads": 86,
+          "dbMB": 3.5
+        }
+      ]
+    },
+    "healthAtEnd": {
+      "actuatorStatus": "UP",
+      "httpStatus": 200,
+      "ms": 4.4,
+      "runsOk": true,
+      "llmConfigured": false,
+      "routeProvider": "estimated"
+    },
+    "failureSamples": [],
+    "verdict": {
+      "noUnexpectedFailures": true,
+      "noServer5xx": true,
+      "healthStillUp": true,
+      "rssNoMonotonicBlowup": true,
+      "durationHonored": true,
+      "rssReason": "全程逐点回归 -3.4 MB/min，2 分钟窗口均值回归 -3.6 MB/min，RSS 349~438.3 MB（起 408 → 终 416.1），呈 GC 锯齿而非单调上升；线程 84~87"
+    },
+    "conclusion": "PASS",
+    "analysisNote": "进程采样来自 soak-proc.csv（每 5s 一次，目标 pid 为 18090 的监听进程）；时间以 ISO 时间戳为准重算。slopeMBPerMinLastHalf 用后一半样本，用于排除 JVM 预热造成的「假增长」。"
+  },
+  "summary": {
+    "generatedAt": "2026-11-19T06:49:47.473Z",
+    "endpoint": "http://127.0.0.1:18090（主实例）+ 自建实例 18100 与 LLM 替身 18110",
+    "tests": {
+      "concurrency": {
+        "conclusion": "PASS",
+        "rounds": 2,
+        "chatRequests": 40,
+        "chatSuccess": 40,
+        "runsRequests": 20,
+        "runsSuccess": 20,
+        "chatLatency": {
+          "count": 40,
+          "min": 37.5,
+          "p50": 47.4,
+          "p90": 60.3,
+          "p95": 60.9,
+          "p99": 62.3,
+          "max": 62.3,
+          "mean": 49.8
+        },
+        "runsLatency": {
+          "count": 20,
+          "min": 4.9,
+          "p50": 7.4,
+          "p90": 13.9,
+          "p95": 14.1,
+          "p99": 15,
+          "max": 15,
+          "mean": 9.7
+        },
+        "server5xx": 0,
+        "clientTimeouts": 0,
+        "duplicatePlanIds": 0,
+        "dataCrosstalk": 0
+      },
+      "slowDependency": {
+        "conclusion": "PASS",
+        "perCallTimeoutEnforced": true,
+        "degradedToRulePath": true,
+        "noThreadHangAfterRecovery": true,
+        "baselineMs": {
+          "light": 24.4,
+          "plan": 130
+        },
+        "slowMs": {
+          "light": 30029.7,
+          "plan": 128125.2
+        },
+        "endToEndNotBounded": true
+      },
+      "thirdParty": {
+        "real402": "PASS",
+        "stub402": "PASS",
+        "stub500": "PASS",
+        "connectionRefused": "PASS",
+        "amapNoKey": "PASS",
+        "amapInvalidKey": "REVIEW"
+      },
+      "soak": {
+        "conclusion": "PASS",
+        "actualDurationSeconds": 716.2,
+        "requests": 576,
+        "failures": 0,
+        "server5xx": 0,
+        "latency": {
+          "count": 576,
+          "min": 1.5,
+          "p50": 3.7,
+          "p90": 7.3,
+          "p95": 8.6,
+          "p99": 12.8,
+          "max": 187.9,
+          "mean": 4.7
+        },
+        "p95Trend2min": [
+          8.6,
+          8.4,
+          10.2,
+          8.4,
+          9.2,
+          7.1
+        ],
+        "rss": {
+          "start": 408,
+          "end": 416.1,
+          "min": 349,
+          "max": 438.3,
+          "deltaMB": 8.1,
+          "growthPct": 2,
+          "slopeMBPerMinWhole": -3.4,
+          "slopeMBPerMinLastHalf": 12.5,
+          "slopeMBPerMinWindowMeans": -3.6,
+          "peakAtSeconds": 264.9,
+          "windows2min": [
+            {
+              "startMin": 0,
+              "samples": 24,
+              "min": 410.2,
+              "mean": 424.1,
+              "max": 431.9
+            },
+            {
+              "startMin": 2,
+              "samples": 24,
+              "min": 431.9,
+              "mean": 435.1,
+              "max": 438.1
+            },
+            {
+              "startMin": 4,
+              "samples": 23,
+              "min": 430.2,
+              "mean": 433.4,
+              "max": 438.3
+            },
+            {
+              "startMin": 6,
+              "samples": 24,
+              "min": 349,
+              "mean": 397.6,
+              "max": 432.4
+            },
+            {
+              "startMin": 8,
+              "samples": 24,
+              "min": 361.9,
+              "mean": 383.7,
+              "max": 408.1
+            },
+            {
+              "startMin": 10,
+              "samples": 24,
+              "min": 406.9,
+              "mean": 411.5,
+              "max": 415.5
+            }
+          ]
+        },
+        "threads": {
+          "start": 84,
+          "end": 86,
+          "min": 84,
+          "max": 87,
+          "slopePerMinWhole": 0
+        },
+        "dbBytes": {
+          "start": 2007040,
+          "end": 3715072,
+          "deltaBytes": 1708032,
+          "deltaMB": 1.6,
+          "slopeBytesPerMin": 143258
+        },
+        "healthAtEnd": "UP"
+      }
+    },
+    "issues": [
+      "慢 LLM 下一次规划端到端 128s（4×30s 读超时 + 1×8s 润色超时），无总预算/熔断",
+      "高德 Key 无效时 /api/system/status 仍报 routeProvider=amap（真实路径），与实际全部 estimated 不一致",
+      "LLM 失败只在 WARN 日志与 llm.calls{result=failed} 指标里可见，/api/system/status 的 llmConfigured 仍为 true，用户侧无降级标识",
+      "降级 WARN 只打印异常 wrapper message（读超时表现为 \"Error while extracting response ... application/octet-stream\"），不带 cause，排障时无法区分超时/解析失败",
+      "Boot file appender 默认平台字符集：日志文件在中文 Windows 上是 GBK，UTF-8 采集/检索会乱码"
+    ],
+    "conclusion": "可接受（四项功能均未失败；存在 5 项体验/可观测性改进项，其中「慢依赖无端到端预算」与「高德无效 Key 自报不准」建议列入整改）"
+  }
+}

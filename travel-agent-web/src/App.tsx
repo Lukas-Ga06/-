@@ -153,6 +153,17 @@ export default function App() {
             useAuthStore.getState().logout();
             return;
           }
+          // 纯网络错误（断网 / 服务完全不可达）：PWA 的离线承诺是「已打开过的行程还能看」，
+          // 此时必须用上次登录的公开资料先渲染界面，否则 /auth/me 一失败就整站停在恢复页，
+          // 预缓存的 app shell 与运行时缓存的行程数据永远显示不出来。
+          // 恢复在线后由 online 监听重新校验（401 才登出）。
+          if (status === undefined) {
+            const cached = useAuthStore.getState().restoreCachedUser();
+            if (cached) {
+              message.warning('网络不可用：已进入离线模式，仅显示本地缓存数据');
+              return;
+            }
+          }
           const delay = ME_RETRY_DELAYS_MS[attempt];
           if (shouldRetryMe(status) && delay !== undefined) {
             await sleep(delay);
@@ -178,6 +189,24 @@ export default function App() {
       cancelled = true;
     };
   }, [setUser, markAuthChecked, message]);
+
+  // 恢复在线：重新校验登录态。401 才登出（登录确实过期），其它失败保持离线界面，
+  // 避免弱网抖动把用户踢回登录页；成功后顺带刷新缓存里的用户资料。
+  useEffect(() => {
+    const revalidate = async (): Promise<void> => {
+      if (!useAuthStore.getState().user) return;
+      try {
+        const resp = await meApi();
+        setUser({ id: resp.id, username: resp.username, nickname: resp.nickname });
+      } catch (err) {
+        if (isAuthExpired(getErrorStatus(err))) {
+          useAuthStore.getState().logout();
+        }
+      }
+    };
+    window.addEventListener('online', revalidate);
+    return () => window.removeEventListener('online', revalidate);
+  }, [setUser]);
 
   return (
     <BrowserRouter>

@@ -343,8 +343,10 @@ antd 侧同步切 `darkAlgorithm`（`main.tsx` 的 `PALETTE`）。
 1. **P0 真实数据源联调**：高德 MCP 通道已接通（见 [guide/mcp-amap.md](guide/mcp-amap.md)），
    还差后端「Web 服务」Key（`AMAP_MAPS_API_KEY`）做真实 POI/路径/天气与 GCJ-02 坐标联调；
    酒店/餐厅开放平台同理由 `travel.mcp.servers` 扩展；
-2. **P1 MySQL 8.4 实机回归**：本机是 8.0.46，`V1–V13`（MySQL 侧）全链与 `validate` 都在 8.0 上验证；
-   8.4 的认证插件/弃用项差异需实机确认；顺带在现网库上验收 V13 的大表 DDL 影响（建议低峰窗口）；
+2. **P1 MySQL 8.4 实机回归（已完成 2026-11-19）**：便携版 8.4.10 实例（独立 datadir / `:3307`）上，
+   全新库 17 个迁移 + `validate` + 核心链路 + 「仅重启后端 / 仅重启 MySQL / 整栈重启」三类恢复全部通过；
+   证据 `.evidence/mysql84-3307-20261119-144026/`、脚本 `.e2e/acceptance/mysql-native-3307-acceptance.ps1`。
+   遗留：Flyway 对 8.4 仅 WARN（建议升级）；现网库 V13 大表 DDL 影响仍建议低峰窗口验收；
 3. **P1 极端旧库列类型收敛**：若某库自 `init.sql` 之后从未跑过 `ddl-auto=update`，
    `health_record.weight` 可能还是 `DECIMAL(5,1)`、`operation_history.*_state` 还是 `JSON`，
    `validate` 会报类型不符——需按 deployment 文档清单手工 `MODIFY`；

@@ -615,10 +615,14 @@ Spring Boot 3.5、全栈 Docker 化，以及若干轮逻辑缺陷修复与安全
 
 **P1 数据层与部署可信度（第十批已完成主体）**
 - schema 单一权威已落地：`V1__baseline.sql` + `V13` 双方言补齐 + 两个 profile `ddl-auto=validate`；
-  已在真实 MySQL **8.0.46** 上验通「全新库 / 存量库升级 / V8 幂等」三条路径（8.4 未实机）；
+  已在真实 MySQL **8.0.46** 上验通「全新库 / 存量库升级 / V8 幂等」三条路径，
+  并在**真实 MySQL 8.4.10**（便携实例，独立 datadir / `:3307`）上完成实机回归：全新库 17 个迁移 +
+  `validate` 通过（25 表）、核心链路、以及「仅重启后端 / 仅重启 MySQL / 整栈重启」三类恢复；
+  证据 `.evidence/mysql84-3307-20261119-144026/`，脚本 `.e2e/acceptance/mysql-native-3307-acceptance.ps1`；
 - 知识库不变量已落地：ACTIVE 唯一（MySQL 生成列 + 唯一索引）、旧版本块保留窗口与每日清理、
   `doc_key` 唯一键消除并发首建重复入库；
-- **仍待办**：MySQL 8.4 实机回归；极端旧库的列类型（`health_record.weight` / `operation_history.*_state`）
+- **仍待办**：Flyway 对 8.4 的官方支持滞后（启动仅 WARN，实测 17 个迁移全通过，建议升级 Flyway）；
+  极端旧库的列类型（`health_record.weight` / `operation_history.*_state`）
   若从未被旧 `ddl-auto` 收敛过，需要手工 `MODIFY`。
 
 **P2 体验与运营（第十批已完成）**

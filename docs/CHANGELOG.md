@@ -2,6 +2,65 @@
 
 按主题记录行为变化。**第四节是最需要注意的**：其中几项改变了原有的使用习惯。
 
+## V2.2 正式验收（2026-11-19）
+
+> 完整报告：[docs/review/2026-11-19-acceptance.md](review/2026-11-19-acceptance.md)。
+> 本轮不改业务契约；唯一的行为变化是 **PWA 离线冷启动**（见下）。验收依据是真实 HTTP 断言 + 真浏览器 + 全新 MySQL 8.4.10。
+
+### 一、验收结论
+
+- **已验收**：FR-01 / FR-02 / FR-03（链路，真模型待余额）/ FR-04 / FR-06 / FR-07（estimated 路径）/
+  FR-08 / FR-09 / FR-10。
+- **仍待验收**：**FR-05**——高德「Web 服务」Key 本次未提供，真实 POI/地理编码/路线/GCJ-02 无法联调；
+  无 Key 降级路径已验证（7/7 段 `estimated`、状态自报 `estimated`）。
+- 同一套 `fr-acceptance.mjs`（27 项断言）在隔离 H2 与**全新 MySQL 8.4.10** 上各跑一轮，均 **27/27 PASS**。
+
+### 二、行为变化：PWA 离线冷启动不再被登录态校验挡住（修复）
+
+- **旧行为**：断网冷启动时 `/auth/me` 网络失败 → 落「登录状态校验失败」兜底页；Service Worker 虽缓存了
+  app shell 与行程数据，却永远渲染不出来（只做到「不白屏、不踢人」）。
+- **新行为**：`authStore` 在本地缓存**上次登录的公开资料（id/username/nickname，绝不含 token）**；
+  启动恢复遇到纯网络错误时先用它渲染离线界面，`online` 事件恢复后重新 `/auth/me`，**只有 401 才登出**。
+  429/5xx 且无缓存时保持原有「保留登录态 + 提示重试」行为；登出会清掉本地缓存。
+- 影响：离线可真正查看已缓存的行程/预算（缓存窗口仍为 5 分钟）；未登录用户无任何变化。
+- 前端用例 166 → **172**（新增 `authStore.test.ts` 6 个）。
+
+### 三、全新 MySQL 8.4.10 实机（Compose 不可用时的等价验证）
+
+- 本机无 Docker/WSL/Podman，改用便携 `mysql-8.4.10-winx64` 独立实例（独立 datadir，不碰 `:3306` 的 8.0）。
+- 全新库：`V1..V18` 17 个迁移 0 失败、`ddl-auto=validate` 通过（25 表）；核心链路通过；
+  仅重启后端 / 仅重启 MySQL / 整栈重启三种情况下数据不丢、`flyway_schema_history` 恒 17 行（迁移不重跑）。
+- 脚本：`.e2e/acceptance/mysql-local-acceptance.ps1`、`.e2e/acceptance/mysql-native-3307-acceptance.ps1`、
+  Docker 就绪后可直接跑 `.e2e/acceptance/mysql-compose-acceptance.ps1`。
+
+### 四、验收发现的遗留问题（未在本轮修）
+
+| 级别 | 问题 |
+|---|---|
+| P1 | 慢依赖无端到端时间预算/熔断：5 个串行 LLM 阶段可把一次规划拖到 128s（同步接口无总超时） |
+| P2 | 高德**无效 Key** 时 `/api/system/status` 仍报 `routeProvider=amap`（路线实际全 estimated）——自报失真，违反 ADR-006 |
+| P3/P4/P5 | 降级日志丢根因；日志文件默认 GBK；LLM 100% 失败时仍报 `llmConfigured=true` |
+
+### 五、产品决策
+
+实时酒店/餐饮 Provider 与个性化 RAG 均**延后（P1）**，理由、触发条件与最小方案见
+[docs/review/2026-11-19-provider-rag-decision.md](review/2026-11-19-provider-rag-decision.md)。
+
+## MySQL 8.4.10 实机回归（2026-11-19）
+
+> 补齐 P1 最后一条「8.4 未实机」：用便携版 `mysql-8.4.10-winx64` 起独立实例（独立 basedir/datadir、
+> `:3307`、X plugin 关闭），与 `:3306` 的 8.0 服务互不影响；不改任何迁移脚本与 REST 契约。
+
+- **全新库迁移**：`V1..V18` 共 17 个迁移 0 失败、`ddl-auto=validate` 通过（25 张表，启动 16.6s）。
+- **核心链路**：登录 → 规划（`NEED_CONFIRMATION` + 64 位 contentHash）→ 确认（calendar/budget/footprint
+  三模块 `SUCCEEDED`）→ 追踪（`INTENT→PLAN→PREVIEW→REVIEW→COMMIT`、23 次工具调用）→ `route-legs` 10 段。
+- **重启恢复三态**：仅重启后端（14.4s，行程指纹与库内 MD5 一致）；仅重启 MySQL（后端 3.1s 连接池恢复并
+  可写）；整栈重启（12.6s）。三种情况下 `flyway_schema_history` 恒为 17 行——**迁移不重跑**。
+- **新发现**：Spring Boot 3.5.7 自带 Flyway 对 MySQL 8.4 打印 `latest supported version of MySQL is 8.1`
+  的 WARN（仅提示，迁移全部成功）；已记入 [deployment §6.3.2](guide/deployment.md) 遗留并建议升级 Flyway。
+- 工具：`.tools/mysql8410-3307/setup.ps1`（实例生命周期）+ `.e2e/acceptance/mysql-native-3307-acceptance.ps1`
+  （30 条断言，可重跑）；证据 `.evidence/mysql84-3307-20261119-144026/`。
+
 ## 第十五批：任务图（FR-02 / FR-04：依赖、并行、委派与回收重派，2026-11-18）
 
 > 承接第十四批 §7：一次运行的任务只能被「记录」不能「编排」——任务之间没有依赖关系，

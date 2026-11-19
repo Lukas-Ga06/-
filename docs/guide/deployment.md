@@ -578,13 +578,15 @@ MySQL = `migration` + `migration-mysql`），否则工具会算出不同的 reso
 
 | 环境 | 已验证 |
 | --- | --- |
+| **真实 MySQL `8.4.10`**（便携版本地实例，独立 datadir / `:3307`，与 `:3306` 的 8.0 服务互不影响） | ① 全新库 `V1..V18`：17 个迁移全部成功、`validate` 通过（25 表，启动 16.6s）；② 核心链路：登录 → 规划（`NEED_CONFIRMATION` + 64 位 contentHash）→ 确认（calendar/budget/footprint 三模块 `SUCCEEDED`）→ 追踪（`INTENT→PLAN→PREVIEW→REVIEW→COMMIT`、23 次工具调用）→ `route-legs` 10 段（无 Key → `estimated`）；③ 重启恢复三态：仅重启后端（14.4s，行程指纹与库内 MD5 一致、迁移不重跑）、仅重启 MySQL（后端 3.1s 连接池恢复、写入可用）、整栈重启（12.6s，数据一致）。证据 `.evidence/mysql84-3307-20261119-144026/`，脚本 `.e2e/acceptance/mysql-native-3307-acceptance.ps1` |
 | **真实 MySQL `8.0.46`**（本机，**不是 8.4**） | ① 全新库 `V1..V13` 13 个迁移 + `validate` 通过（21 表，启动 14.6s）；② 存量库（`flyway.target=10` 模拟现网）→ 只增量 V11/V12/V13 + `validate` 通过；③ `V8` 幂等：先手工建唯一键再跑，走「已存在 → 跳过」分支，无 `Duplicate key name` |
 | H2（2.3.232，`MODE=MySQL`） | 全新库 `V1..V13(h2)` + `validate` 通过；**现有 dev 库副本**升级只增量 V13(h2)（全部 `IF NOT EXISTS` 空转）+ `validate` 通过 |
 
-遗留风险两条：① **MySQL 8.4 未实机**（本机只有 8.0.46）；所有 DDL 都是 8.0/8.4 共同语法，风险低但未实证，
-升级 8.4 前建议先在预发跑一次全新库 + 存量库升级；② 极端旧库若 `health_record.weight` 还是 `DECIMAL(5,1)`、
-`operation_history.before_state`/`after_state` 还是 `JSON`，`validate` 会报类型不符，需手工收紧列类型（两处都只是
-「列更宽松」，不影响读写，可以择机处理）。
+遗留风险两条：① **Flyway 对 8.4 的官方支持滞后**：Spring Boot 3.5.7 带的 Flyway 在连 8.4.10 时打印
+`MySQL 8.4 is newer than this version of Flyway ... latest supported version of MySQL is 8.1`（仅 WARN）；本轮 17 个迁移
+与 `validate` 全部通过，说明 DDL 未踩到差异，但升级 8.4 前建议顺手升级 Flyway（或显式接受该告警）；② 极端旧库若
+`health_record.weight` 还是 `DECIMAL(5,1)`、`operation_history.before_state`/`after_state` 还是 `JSON`，`validate` 会报
+类型不符，需手工收紧列类型（两处都只是「列更宽松」，不影响读写，可以择机处理）。
 
 #### 6.3.3 迁移失败后的处理
 

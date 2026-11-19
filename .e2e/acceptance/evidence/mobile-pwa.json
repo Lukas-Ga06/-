@@ -1,0 +1,773 @@
+{
+  "schema": "mobile-pwa/1",
+  "generatedAt": "2026-11-19T07:02:32.302Z",
+  "environment": {
+    "base": "http://127.0.0.1:4173",
+    "api": "http://127.0.0.1:18090",
+    "node": "v20.17.0",
+    "platform": "win32 x64",
+    "playwright": "1.64.1",
+    "cwd": "D:\\travel-agent",
+    "command": "node .e2e/mobile/mobile-pwa-check.mjs --base http://127.0.0.1:4173 --api http://127.0.0.1:18090 --out .evidence\\reports\\mobile-pwa-playwright.json"
+  },
+  "preflight": {
+    "base": {
+      "ok": true,
+      "detail": "GET http://127.0.0.1:4173/manifest.webmanifest -> 200"
+    },
+    "api": {
+      "ok": true,
+      "detail": "POST http://127.0.0.1:18090/api/auth/login -> 200"
+    }
+  },
+  "devices": [
+    {
+      "device": "iPhone 13",
+      "deviceId": "iphone-13",
+      "requestedEngine": "webkit",
+      "engine": "webkit",
+      "engineFallback": null,
+      "deviceProfile": {
+        "viewport": {
+          "width": 390,
+          "height": 664
+        },
+        "deviceScaleFactor": 3,
+        "isMobile": true,
+        "hasTouch": true
+      },
+      "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.2 Mobile/15E148 Safari/604.1",
+      "checks": [
+        {
+          "id": "a_login",
+          "name": "登录页在移动视口可用（能登录 demo/demo123）",
+          "status": "PASS",
+          "detail": "loginUrl=http://127.0.0.1:4173/login postLoginUrl=http://127.0.0.1:4173/ innerWidth=390 overflowPx=0"
+        },
+        {
+          "id": "a_login_no_overflow",
+          "name": "登录页无横向溢出（scrollWidth <= innerWidth+1）",
+          "status": "PASS",
+          "detail": "scrollWidth=390 innerWidth=390 overflowPx=0"
+        },
+        {
+          "id": "b_travel_list",
+          "name": "行程列表：无横向溢出且主内容可见",
+          "status": "PASS",
+          "detail": "tripRows=12 innerWidth=390 scrollWidth=390 overflowPx=0 mainVisible=true heading=🧭 旅行规划"
+        },
+        {
+          "id": "b_trip_detail",
+          "name": "行程详情：无横向溢出且主内容（时间轴）可见",
+          "status": "PASS",
+          "detail": "tripId=12 timelineRows=5 innerWidth=390 scrollWidth=390 overflowPx=0 budgetDrawerOpened=true"
+        },
+        {
+          "id": "c_manifest",
+          "name": "manifest 200 且 name/short_name/start_url/display=standalone/icons(192,512) 齐全",
+          "status": "PASS",
+          "detail": "status=200 type=application/manifest+json; charset=utf-8 name=AI 个人助理 short_name=个人助理 start_url=/ display=standalone sizes=192x192/512x512/512x512"
+        },
+        {
+          "id": "c_manifest_link",
+          "name": "index.html 含 <link rel=\"manifest\">",
+          "status": "PASS",
+          "detail": "href=/manifest.webmanifest"
+        },
+        {
+          "id": "c_sw_active",
+          "name": "navigator.serviceWorker.ready 有 active worker",
+          "status": "PASS",
+          "detail": "activeState=activated scope=http://127.0.0.1:4173/ script=http://127.0.0.1:4173/sw.js"
+        },
+        {
+          "id": "c_sw_controller",
+          "name": "页面被 service worker 控制（controller 非空）",
+          "status": "PASS",
+          "detail": "controller=http://127.0.0.1:4173/sw.js"
+        },
+        {
+          "id": "d_runtime_cache_warm",
+          "name": "itinerary-v1 运行时缓存已命中 itinerary（打开过的行程）",
+          "status": "PASS",
+          "detail": "caches=workbox-precache-v2-http://127.0.0.1:4173/,itinerary-v1 itineraryEntries=http://127.0.0.1:4173/api/trips/12/itinerary"
+        },
+        {
+          "id": "d_runtime_cache_budget",
+          "name": "itinerary-v1 运行时缓存已命中 budget（打开过预算分析）",
+          "status": "PASS",
+          "detail": "http://127.0.0.1:4173/api/trips/12/budget"
+        },
+        {
+          "id": "d_offline_shell",
+          "name": "离线 reload 后 app shell 能打开（非浏览器错误页/白屏）",
+          "status": "PASS",
+          "detail": "url=http://127.0.0.1:4173/trip/12 title=AI 个人助理 · 旅行规划 · 记账 · 备忘 rootChildren=1 textLength=649"
+        },
+        {
+          "id": "d_offline_banner",
+          "name": "离线提示条 [data-testid=offline-banner] 出现",
+          "status": "PASS",
+          "detail": "offline-banner 可见"
+        },
+        {
+          "id": "d_offline_cached_data",
+          "name": "离线时已看过的行程数据仍渲染",
+          "status": "PASS",
+          "detail": "pathname=/trip/12 tripHeading=行程 timelineRows=5 sessionRecoveryFailed=false loginForm=false text=离线：显示缓存数据 ✕ 行程 加载中… 已花 ¥1566 / 预算 ¥- 撤销 路书 记账 预算分析 地图 Day 1 高德地图加载失败，请检查 VITE_AMAP_KEY、VITE_AMAP_SECURITY_CODE 和网络连接 🏔 3D 🗺 2D ▶ 沿路线巡航 ⬛ 俯视 AI 助手 随时调整行程 🤖 你好，我是 AI 旅行助手 ✈️ 可以说： · 帮我规划上海三日游，2人，预算3000，酒店近地铁 · 明天下雨，把户外景点换掉 · 点选时间轴安排后说「这个换成类似的」 · 上海有什么适合亲子游的地方？…"
+        },
+        {
+          "id": "d_offline_auth_me",
+          "name": "离线时 /api/auth/me 的行为（不把用户踢回登录页）",
+          "status": "PASS",
+          "detail": "kickedToLogin=false pathname=/trip/12 sessionRecoveryFailed=false meRequests=[{\"method\":\"GET\",\"url\":\"http://127.0.0.1:4173/api/auth/me\"}] meFailures=[{\"url\":\"http://127.0.0.1:4173/api/auth/me\",\"failure\":\"WebKit encountered an internal error\"}] meResponses=[]"
+        },
+        {
+          "id": "d_offline_note",
+          "name": "离线时页面实际 URL/标题/关键文本（如实记录，不代表断言）",
+          "status": "INFO",
+          "detail": "url=http://127.0.0.1:4173/trip/12 title=AI 个人助理 · 旅行规划 · 记账 · 备忘 text=离线：显示缓存数据 ✕ 行程 加载中… 已花 ¥1566 / 预算 ¥- 撤销 路书 记账 预算分析 地图 Day 1 高德地图加载失败，请检查 VITE_AMAP_KEY、VITE_AMAP_SECURITY_CODE 和网络连接 🏔 3D 🗺 2D ▶ 沿路线巡航 ⬛ 俯视 AI 助手 随时调整行程 🤖 你好，我是 AI 旅行助手 ✈️ 可以说： · 帮我规划上海三日游，2人，预算3000，酒店近地铁 · 明天下雨，把户外景点换掉 · 点选时间轴安排后说「这个换成类似的」 · 上海有什么适合亲子游的地方？ Day 1 Day 2 09:00 09:30 酒店 入住 · 王府井亚朵酒店 ¥520 酒店 近地铁 王府井商圈，步行可达故宫东门，地铁口近在咫尺。 10:00 11:45 景点 故宫博物院 ¥120 历史 文化 地标 亲子 明清两代皇宫，世界文化遗产，周一闭馆，需提前7天预…"
+        },
+        {
+          "id": "e_recovery",
+          "name": "恢复在线后行程数据重新渲染且无横向溢出",
+          "status": "PASS",
+          "detail": "url=http://127.0.0.1:4173/trip/12 timelineRows=5 loginForm=false onLine=true overflowPx=0"
+        }
+      ],
+      "evidence": {
+        "login": {
+          "loginPageOverflow": {
+            "innerWidth": 390,
+            "scrollWidth": 390,
+            "overflowPx": 0,
+            "pass": true,
+            "docClientWidth": 390,
+            "horizontalScrollbar": false
+          },
+          "loggedIn": true,
+          "loginUrl": "http://127.0.0.1:4173/login",
+          "postLoginUrl": "http://127.0.0.1:4173/",
+          "viewport": {
+            "innerWidth": 390,
+            "innerHeight": 664,
+            "dpr": 3,
+            "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.2 Mobile/15E148 Safari/604.1"
+          }
+        },
+        "travel": {
+          "overflow": {
+            "innerWidth": 390,
+            "scrollWidth": 390,
+            "overflowPx": 0,
+            "pass": true,
+            "docClientWidth": 390,
+            "horizontalScrollbar": false
+          },
+          "tripRows": 12,
+          "mainVisible": true,
+          "heading": "🧭 旅行规划",
+          "text": "🧭 旅行规划 演示用户 的旅行空间 · 一句话生成行程，行中随时调整 🧳 行程 📅 日程 🌍 足迹 Enter 发送 开始规划 试试： 上海三日游，预算3000元，酒店离地铁近一点 周末去杭州玩，2人，帮我规划一下 北京亲子游，玩三天，预算6000元 我的行程 个人资料 北 北京2日游 1 天后出发 北京 · 11月20日 - 11月21日 ¥4000 取消 › 上 上海3日游 1 天后出发 上海 · 11月20日 - 11月22日 ¥100 取消 › 杭 杭州2日游 1 天后出发 杭州 · 11月20日 - 11月21日 ¥3000 取消 › 上 上海3日游 1 天后出发 上海 · 11月20日 - 11月22日 ¥5000 取消 › 北 北京2日游 1 天后出发 北京 · 11月20日 - 11月21日 ¥4000 取消 › 上 上海3日游 1 天后出发 上海 · 11月20日"
+        },
+        "trip": {
+          "tripCount": 12,
+          "tripId": 12,
+          "tripName": "北京2日游",
+          "overflow": {
+            "innerWidth": 390,
+            "scrollWidth": 390,
+            "overflowPx": 0,
+            "pass": true,
+            "docClientWidth": 390,
+            "horizontalScrollbar": false
+          },
+          "timelineRows": 5,
+          "mainVisible": true,
+          "heading": "北京2日游",
+          "subtitle": "北京 · 2 天 · 2 人 · 1 天后出发 · 10 个安排",
+          "budgetDrawerOpened": true,
+          "text": "北京2日游 北京 · 2 天 · 2 人 · 1 天后出发 · 10 个安排 已花 ¥1566 / 预算 ¥4000 撤销 路书 记账 预算分析 地图 Day 1 10 公里 + - 🏔 3D 🗺 2D ▶ 沿路线巡航 ⬛ 俯视 AI 助手 随时调整行程 🤖 你好，我是 AI 旅行助手 ✈️ 可以说： · 帮我规划上海三日游，2人，预算3000，酒店近地铁 · 明天下雨，把户外景点换掉 · 点选时间轴安排后说「这个换成类似的」 · 上海有什么适合亲子游的地方？ Day 1 · 11月20日 Day 2 · 11月21日 09:00 09:30 酒店 入住 · 王府井亚朵酒店 ¥520 酒店 近地铁 王府井商圈，步行可达故宫东门，地铁口近在咫尺。 🚕 1.4 km · 驾车 7 分钟 / 步行 18 分钟 · 约 ¥15 估算 10:00 11:45 景点 故宫博物院 ¥120 历史 文化 地标 亲子 明清两代皇宫，世界文化遗产，周一闭馆，需提前7天预约。 🚕 0.5 km · 驾车 5 分钟 / 步行 7 分钟 · 约 ¥13 估算 12:00 13:30 餐饮 午餐 · 四"
+        },
+        "manifest": {
+          "status": 200,
+          "contentType": "application/manifest+json; charset=utf-8",
+          "json": {
+            "name": "AI 个人助理",
+            "short_name": "个人助理",
+            "description": "旅行规划 · 记账 · 备忘 · 办公 · 学习 · 健康",
+            "start_url": "/",
+            "display": "standalone",
+            "background_color": "#ffffff",
+            "theme_color": "#1677ff",
+            "lang": "zh-CN",
+            "scope": "/",
+            "icons": [
+              {
+                "src": "favicon.svg",
+                "sizes": "192x192",
+                "type": "image/svg+xml",
+                "purpose": "any"
+              },
+              {
+                "src": "favicon.svg",
+                "sizes": "512x512",
+                "type": "image/svg+xml",
+                "purpose": "any"
+              },
+              {
+                "src": "favicon.svg",
+                "sizes": "512x512",
+                "type": "image/svg+xml",
+                "purpose": "maskable"
+              }
+            ]
+          },
+          "linkHref": "/manifest.webmanifest",
+          "iconSizes": [
+            "192x192",
+            "512x512",
+            "512x512"
+          ],
+          "has192": true,
+          "has512": true
+        },
+        "sw": {
+          "ready": {
+            "scope": "http://127.0.0.1:4173/",
+            "activeState": "activated",
+            "scriptURL": "http://127.0.0.1:4173/sw.js"
+          },
+          "controlled": true,
+          "state": {
+            "supported": true,
+            "controllerScriptUrl": "http://127.0.0.1:4173/sw.js",
+            "controllerState": "activated",
+            "registration": {
+              "scope": "http://127.0.0.1:4173/",
+              "activeState": "activated",
+              "activeScriptURL": "http://127.0.0.1:4173/sw.js",
+              "waiting": false,
+              "installing": false
+            },
+            "registrationError": null,
+            "caches": [
+              "workbox-precache-v2-http://127.0.0.1:4173/",
+              "itinerary-v1"
+            ]
+          }
+        },
+        "offline": {
+          "offlineBeforeReload": true,
+          "state": {
+            "url": "http://127.0.0.1:4173/trip/12",
+            "title": "AI 个人助理 · 旅行规划 · 记账 · 备忘",
+            "pathname": "/trip/12",
+            "innerWidth": 390,
+            "innerHeight": 664,
+            "onLine": false,
+            "textLength": 649,
+            "textSnippet": "离线：显示缓存数据 ✕ 行程 加载中… 已花 ¥1566 / 预算 ¥- 撤销 路书 记账 预算分析 地图 Day 1 高德地图加载失败，请检查 VITE_AMAP_KEY、VITE_AMAP_SECURITY_CODE 和网络连接 🏔 3D 🗺 2D ▶ 沿路线巡航 ⬛ 俯视 AI 助手 随时调整行程 🤖 你好，我是 AI 旅行助手 ✈️ 可以说： · 帮我规划上海三日游，2人，预算3000，酒店近地铁 · 明天下雨，把户外景点换掉 · 点选时间轴安排后说「这个换成类似的」 · 上海有什么适合亲子游的地方？ Day 1 Day 2 09:00 09:30 酒店 入住 · 王府井亚朵酒店 ¥520 酒店 近地铁 王府井商圈，步行可达故宫东门，地铁口近在咫尺。 10:00 11:45 景点 故宫博物院 ¥120 历史 文化 地标 亲子 明清两代皇宫，世界文化遗产，周一闭馆，需提前7天预约。 12:00 13:30 餐饮 午餐 · 四季民福烤鸭店 ¥300 北京烤鸭 性价比最高的烤鸭店之一，故宫店可边吃边看角楼。 14:00 16:30 景点 中国国家博物馆 免费 历史 文化 室内 亲子 天安门广场东侧，古代中国、复兴之路等常设展值得细看。 18:00 19:30 餐饮 晚餐 · 东来顺 ¥220 涮羊肉 百年老字号铜锅涮肉，手切鲜羊肉必点。 🏠 首页 🧭 旅行 🤖 助手 👤 我的 🌙 主题 网络不可用：已进入离线模式，仅显示本地缓存数据 Network Error",
+            "rootChildCount": 1,
+            "hasOfflineBanner": true,
+            "hasSessionRecoveryFailed": false,
+            "hasLoginForm": false,
+            "hasAppShell": true,
+            "hasTripHeading": true,
+            "tripHeading": "行程",
+            "timelineRows": 5,
+            "runtimeCacheHint": null
+          },
+          "browserErrorPage": false,
+          "swOffline": {
+            "supported": true,
+            "controllerScriptUrl": "http://127.0.0.1:4173/sw.js",
+            "controllerState": "activated",
+            "registration": {
+              "scope": "http://127.0.0.1:4173/",
+              "activeState": "activated",
+              "activeScriptURL": "http://127.0.0.1:4173/sw.js",
+              "waiting": false,
+              "installing": false
+            },
+            "registrationError": null,
+            "caches": [
+              "workbox-precache-v2-http://127.0.0.1:4173/",
+              "itinerary-v1"
+            ]
+          },
+          "offlineAfterReload": false,
+          "authMe": {
+            "requests": [
+              {
+                "method": "GET",
+                "url": "http://127.0.0.1:4173/api/auth/me"
+              }
+            ],
+            "responses": [
+              {
+                "status": 200,
+                "url": "http://127.0.0.1:4173/api/auth/me",
+                "bodySnippet": "{\"code\":0,\"message\":\"success\",\"data\":{\"token\":null,\"id\":1,\"username\":\"demo\",\"nickname\":\"演示用户\"}}"
+              },
+              {
+                "status": 200,
+                "url": "http://127.0.0.1:4173/api/auth/me",
+                "bodySnippet": "{\"code\":0,\"message\":\"success\",\"data\":{\"token\":null,\"id\":1,\"username\":\"demo\",\"nickname\":\"演示用户\"}}"
+              }
+            ],
+            "failures": [
+              {
+                "url": "http://127.0.0.1:4173/api/auth/me",
+                "failure": "WebKit encountered an internal error"
+              }
+            ]
+          }
+        },
+        "recovery": {
+          "state": {
+            "url": "http://127.0.0.1:4173/trip/12",
+            "title": "AI 个人助理 · 旅行规划 · 记账 · 备忘",
+            "pathname": "/trip/12",
+            "innerWidth": 390,
+            "innerHeight": 664,
+            "onLine": true,
+            "textLength": 771,
+            "textSnippet": "北京2日游 北京 · 2 天 · 2 人 · 1 天后出发 · 10 个安排 已花 ¥1566 / 预算 ¥4000 撤销 路书 记账 预算分析 地图 Day 1 10 公里 + - 🏔 3D 🗺 2D ▶ 沿路线巡航 ⬛ 俯视 AI 助手 随时调整行程 🤖 你好，我是 AI 旅行助手 ✈️ 可以说： · 帮我规划上海三日游，2人，预算3000，酒店近地铁 · 明天下雨，把户外景点换掉 · 点选时间轴安排后说「这个换成类似的」 · 上海有什么适合亲子游的地方？ Day 1 · 11月20日 Day 2 · 11月21日 09:00 09:30 酒店 入住 · 王府井亚朵酒店 ¥520 酒店 近地铁 王府井商圈，步行可达故宫东门，地铁口近在咫尺。 🚕 1.4 km · 驾车 7 分钟 / 步行 18 分钟 · 约 ¥15 估算 10:00 11:45 景点 故宫博物院 ¥120 历史 文化 地标 亲子 明清两代皇宫，世界文化遗产，周一闭馆，需提前7天预约。 🚕 0.5 km · 驾车 5 分钟 / 步行 7 分钟 · 约 ¥13 估算 12:00 13:30 餐饮 午餐 · 四季民福烤鸭店 ¥300 北京烤鸭 性价比最高的烤鸭店之一，故宫店可边吃边看角楼。 🚕 0.9 km · 驾车 6 分钟 / 步行 12 分钟 · 约 ¥14 估算 14:00 16:30 景点 中国国家博物馆 免费 历史 文化 室内 亲子 天安门广场东侧，古代中国、复兴之路等常设展值得细看。 🚕 1.3 km · 驾车 7 分钟 / 步行 17 分钟 · 约 ¥15 估算 18:00 19:30 餐饮 晚餐 · 东来顺 ¥220 涮羊肉 百年老字号铜锅涮肉，手切鲜羊肉必点。 🏠 首页 🧭 旅行 🤖 助手 👤 我的 🌙 主题",
+            "rootChildCount": 1,
+            "hasOfflineBanner": false,
+            "hasSessionRecoveryFailed": false,
+            "hasLoginForm": false,
+            "hasAppShell": true,
+            "hasTripHeading": true,
+            "tripHeading": "北京2日游",
+            "timelineRows": 5,
+            "runtimeCacheHint": null
+          },
+          "onLine": true,
+          "overflow": {
+            "innerWidth": 390,
+            "scrollWidth": 390,
+            "overflowPx": 0,
+            "pass": true,
+            "docClientWidth": 390,
+            "horizontalScrollbar": false
+          }
+        },
+        "runtimeCache": {
+          "runtime": {
+            "exists": true,
+            "urls": [
+              "http://127.0.0.1:4173/api/trips",
+              "http://127.0.0.1:4173/api/trips/12/itinerary",
+              "http://127.0.0.1:4173/api/trips/12/budget"
+            ]
+          },
+          "allCacheNames": [
+            "workbox-precache-v2-http://127.0.0.1:4173/",
+            "itinerary-v1"
+          ]
+        }
+      },
+      "screenshots": [
+        "D:\\travel-agent\\.evidence\\screenshots\\mobile-iphone-login.png",
+        "D:\\travel-agent\\.evidence\\screenshots\\mobile-iphone-trip.png",
+        "D:\\travel-agent\\.evidence\\screenshots\\mobile-iphone-offline.png"
+      ],
+      "deviceErrors": [],
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+        "Failed to load resource: WebKit encountered an internal error",
+        "Failed to load resource: WebKit encountered an internal error",
+        "Failed to load resource: WebKit encountered an internal error",
+        "Failed to load resource: WebKit encountered an internal error",
+        "Failed to load resource: WebKit encountered an internal error",
+        "Failed to load resource: WebKit encountered an internal error",
+        "Failed to load resource: WebKit encountered an internal error",
+        "Network error",
+        "Failed to load resource: WebKit encountered an internal error",
+        "Network error",
+        "Failed to load resource: WebKit encountered an internal error",
+        "Network error",
+        "Failed to load resource: WebKit encountered an internal error",
+        "Network error",
+        "Failed to load resource: WebKit encountered an internal error",
+        "Failed to load resource: WebKit encountered an internal error",
+        "Failed to load resource: WebKit encountered an internal error",
+        "Failed to load resource: WebKit encountered an internal error",
+        "Failed to load resource: WebKit encountered an internal error"
+      ]
+    },
+    {
+      "device": "Pixel 7",
+      "deviceId": "pixel-7",
+      "requestedEngine": "chromium",
+      "engine": "chromium",
+      "engineFallback": null,
+      "deviceProfile": {
+        "viewport": {
+          "width": 412,
+          "height": 839
+        },
+        "deviceScaleFactor": 2.625,
+        "isMobile": true,
+        "hasTouch": true
+      },
+      "ua": "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.8078.4 Mobile Safari/537.36",
+      "checks": [
+        {
+          "id": "a_login",
+          "name": "登录页在移动视口可用（能登录 demo/demo123）",
+          "status": "PASS",
+          "detail": "loginUrl=http://127.0.0.1:4173/login postLoginUrl=http://127.0.0.1:4173/ innerWidth=412 overflowPx=0"
+        },
+        {
+          "id": "a_login_no_overflow",
+          "name": "登录页无横向溢出（scrollWidth <= innerWidth+1）",
+          "status": "PASS",
+          "detail": "scrollWidth=412 innerWidth=412 overflowPx=0"
+        },
+        {
+          "id": "b_travel_list",
+          "name": "行程列表：无横向溢出且主内容可见",
+          "status": "PASS",
+          "detail": "tripRows=12 innerWidth=412 scrollWidth=412 overflowPx=0 mainVisible=true heading=🧭 旅行规划"
+        },
+        {
+          "id": "b_trip_detail",
+          "name": "行程详情：无横向溢出且主内容（时间轴）可见",
+          "status": "PASS",
+          "detail": "tripId=12 timelineRows=5 innerWidth=412 scrollWidth=412 overflowPx=0 budgetDrawerOpened=true"
+        },
+        {
+          "id": "c_manifest",
+          "name": "manifest 200 且 name/short_name/start_url/display=standalone/icons(192,512) 齐全",
+          "status": "PASS",
+          "detail": "status=200 type=application/manifest+json; charset=utf-8 name=AI 个人助理 short_name=个人助理 start_url=/ display=standalone sizes=192x192/512x512/512x512"
+        },
+        {
+          "id": "c_manifest_link",
+          "name": "index.html 含 <link rel=\"manifest\">",
+          "status": "PASS",
+          "detail": "href=/manifest.webmanifest"
+        },
+        {
+          "id": "c_sw_active",
+          "name": "navigator.serviceWorker.ready 有 active worker",
+          "status": "PASS",
+          "detail": "activeState=activated scope=http://127.0.0.1:4173/ script=http://127.0.0.1:4173/sw.js"
+        },
+        {
+          "id": "c_sw_controller",
+          "name": "页面被 service worker 控制（controller 非空）",
+          "status": "PASS",
+          "detail": "controller=http://127.0.0.1:4173/sw.js"
+        },
+        {
+          "id": "d_runtime_cache_warm",
+          "name": "itinerary-v1 运行时缓存已命中 itinerary（打开过的行程）",
+          "status": "PASS",
+          "detail": "caches=workbox-precache-v2-http://127.0.0.1:4173/,itinerary-v1 itineraryEntries=http://127.0.0.1:4173/api/trips/12/itinerary"
+        },
+        {
+          "id": "d_runtime_cache_budget",
+          "name": "itinerary-v1 运行时缓存已命中 budget（打开过预算分析）",
+          "status": "PASS",
+          "detail": "http://127.0.0.1:4173/api/trips/12/budget"
+        },
+        {
+          "id": "d_offline_shell",
+          "name": "离线 reload 后 app shell 能打开（非浏览器错误页/白屏）",
+          "status": "PASS",
+          "detail": "url=http://127.0.0.1:4173/trip/12 title=AI 个人助理 · 旅行规划 · 记账 · 备忘 rootChildren=1 textLength=611"
+        },
+        {
+          "id": "d_offline_banner",
+          "name": "离线提示条 [data-testid=offline-banner] 出现",
+          "status": "PASS",
+          "detail": "offline-banner 可见"
+        },
+        {
+          "id": "d_offline_cached_data",
+          "name": "离线时已看过的行程数据仍渲染",
+          "status": "PASS",
+          "detail": "pathname=/trip/12 tripHeading=行程 timelineRows=5 sessionRecoveryFailed=false loginForm=false text=离线：显示缓存数据 ✕ 行程 加载中… 已花 ¥1566 / 预算 ¥- 撤销 路书 记账 预算分析 地图 Day 1 高德地图加载失败，请检查 VITE_AMAP_KEY、VITE_AMAP_SECURITY_CODE 和网络连接 🏔 3D 🗺 2D ▶ 沿路线巡航 ⬛ 俯视 AI 助手 随时调整行程 🤖 你好，我是 AI 旅行助手 ✈️ 可以说： · 帮我规划上海三日游，2人，预算3000，酒店近地铁 · 明天下雨，把户外景点换掉 · 点选时间轴安排后说「这个换成类似的」 · 上海有什么适合亲子游的地方？…"
+        },
+        {
+          "id": "d_offline_auth_me",
+          "name": "离线时 /api/auth/me 的行为（不把用户踢回登录页）",
+          "status": "PASS",
+          "detail": "kickedToLogin=false pathname=/trip/12 sessionRecoveryFailed=false meRequests=[{\"method\":\"GET\",\"url\":\"http://127.0.0.1:4173/api/auth/me\"}] meFailures=[{\"url\":\"http://127.0.0.1:4173/api/auth/me\",\"failure\":\"net::ERR_INTERNET_DISCONNECTED\"}] meResponses=[]"
+        },
+        {
+          "id": "d_offline_note",
+          "name": "离线时页面实际 URL/标题/关键文本（如实记录，不代表断言）",
+          "status": "INFO",
+          "detail": "url=http://127.0.0.1:4173/trip/12 title=AI 个人助理 · 旅行规划 · 记账 · 备忘 text=离线：显示缓存数据 ✕ 行程 加载中… 已花 ¥1566 / 预算 ¥- 撤销 路书 记账 预算分析 地图 Day 1 高德地图加载失败，请检查 VITE_AMAP_KEY、VITE_AMAP_SECURITY_CODE 和网络连接 🏔 3D 🗺 2D ▶ 沿路线巡航 ⬛ 俯视 AI 助手 随时调整行程 🤖 你好，我是 AI 旅行助手 ✈️ 可以说： · 帮我规划上海三日游，2人，预算3000，酒店近地铁 · 明天下雨，把户外景点换掉 · 点选时间轴安排后说「这个换成类似的」 · 上海有什么适合亲子游的地方？ Day 1 Day 2 09:00 09:30 酒店 入住 · 王府井亚朵酒店 ¥520 酒店 近地铁 王府井商圈，步行可达故宫东门，地铁口近在咫尺。 10:00 11:45 景点 故宫博物院 ¥120 历史 文化 地标 亲子 明清两代皇宫，世界文化遗产，周一闭馆，需提前7天预…"
+        },
+        {
+          "id": "e_recovery",
+          "name": "恢复在线后行程数据重新渲染且无横向溢出",
+          "status": "PASS",
+          "detail": "url=http://127.0.0.1:4173/trip/12 timelineRows=5 loginForm=false onLine=true overflowPx=0"
+        }
+      ],
+      "evidence": {
+        "login": {
+          "loginPageOverflow": {
+            "innerWidth": 412,
+            "scrollWidth": 412,
+            "overflowPx": 0,
+            "pass": true,
+            "docClientWidth": 412,
+            "horizontalScrollbar": false
+          },
+          "loggedIn": true,
+          "loginUrl": "http://127.0.0.1:4173/login",
+          "postLoginUrl": "http://127.0.0.1:4173/",
+          "viewport": {
+            "innerWidth": 412,
+            "innerHeight": 839,
+            "dpr": 2.625,
+            "ua": "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.8078.4 Mobile Safari/537.36"
+          }
+        },
+        "travel": {
+          "overflow": {
+            "innerWidth": 412,
+            "scrollWidth": 412,
+            "overflowPx": 0,
+            "pass": true,
+            "docClientWidth": 412,
+            "horizontalScrollbar": false
+          },
+          "tripRows": 12,
+          "mainVisible": true,
+          "heading": "🧭 旅行规划",
+          "text": "🧭 旅行规划 演示用户 的旅行空间 · 一句话生成行程，行中随时调整 🧳 行程 📅 日程 🌍 足迹 Enter 发送 开始规划 试试： 上海三日游，预算3000元，酒店离地铁近一点 周末去杭州玩，2人，帮我规划一下 北京亲子游，玩三天，预算6000元 我的行程 个人资料 北 北京2日游 1 天后出发 北京 · 11月20日 - 11月21日 ¥4000 取消 › 上 上海3日游 1 天后出发 上海 · 11月20日 - 11月22日 ¥100 取消 › 杭 杭州2日游 1 天后出发 杭州 · 11月20日 - 11月21日 ¥3000 取消 › 上 上海3日游 1 天后出发 上海 · 11月20日 - 11月22日 ¥5000 取消 › 北 北京2日游 1 天后出发 北京 · 11月20日 - 11月21日 ¥4000 取消 › 上 上海3日游 1 天后出发 上海 · 11月20日"
+        },
+        "trip": {
+          "tripCount": 12,
+          "tripId": 12,
+          "tripName": "北京2日游",
+          "overflow": {
+            "innerWidth": 412,
+            "scrollWidth": 412,
+            "overflowPx": 0,
+            "pass": true,
+            "docClientWidth": 412,
+            "horizontalScrollbar": false
+          },
+          "timelineRows": 5,
+          "mainVisible": true,
+          "heading": "北京2日游",
+          "subtitle": "北京 · 2 天 · 2 人 · 1 天后出发 · 10 个安排",
+          "budgetDrawerOpened": true,
+          "text": "北京2日游 北京 · 2 天 · 2 人 · 1 天后出发 · 10 个安排 已花 ¥1566 / 预算 ¥4000 撤销 路书 记账 预算分析 地图 Day 1 🏨 入住 · 王府井亚朵酒店 📍 故宫博物院 🍽 午餐 · 四季民福烤鸭店 📍 中国国家博物馆 🍽 晚餐 · 东来顺 📍 颐和园 🍽 午餐 · 海碗居 📍 中国科学技术馆 🍽 晚餐 · 护国寺小吃 20 公里 + - 🏔 3D 🗺 2D ▶ 沿路线巡航 ⬛ 俯视 AI 助手 随时调整行程 🤖 你好，我是 AI 旅行助手 ✈️ 可以说： · 帮我规划上海三日游，2人，预算3000，酒店近地铁 · 明天下雨，把户外景点换掉 · 点选时间轴安排后说「这个换成类似的」 · 上海有什么适合亲子游的地方？ Day 1 · 11月20日 Day 2 · 11月21日 09:00 09:30 酒店 入住 · 王府井亚朵酒店 ¥520 酒店 近地铁 王府井商圈，步行可达故宫东门，地铁口近在咫尺。 🚕 1.4 km · 驾车 7 分钟 / 步行 18 分钟 · 约 ¥15 估算 10:00 11:45 景点 故宫博物院"
+        },
+        "manifest": {
+          "status": 200,
+          "contentType": "application/manifest+json; charset=utf-8",
+          "json": {
+            "name": "AI 个人助理",
+            "short_name": "个人助理",
+            "description": "旅行规划 · 记账 · 备忘 · 办公 · 学习 · 健康",
+            "start_url": "/",
+            "display": "standalone",
+            "background_color": "#ffffff",
+            "theme_color": "#1677ff",
+            "lang": "zh-CN",
+            "scope": "/",
+            "icons": [
+              {
+                "src": "favicon.svg",
+                "sizes": "192x192",
+                "type": "image/svg+xml",
+                "purpose": "any"
+              },
+              {
+                "src": "favicon.svg",
+                "sizes": "512x512",
+                "type": "image/svg+xml",
+                "purpose": "any"
+              },
+              {
+                "src": "favicon.svg",
+                "sizes": "512x512",
+                "type": "image/svg+xml",
+                "purpose": "maskable"
+              }
+            ]
+          },
+          "linkHref": "/manifest.webmanifest",
+          "iconSizes": [
+            "192x192",
+            "512x512",
+            "512x512"
+          ],
+          "has192": true,
+          "has512": true
+        },
+        "sw": {
+          "ready": {
+            "scope": "http://127.0.0.1:4173/",
+            "activeState": "activated",
+            "scriptURL": "http://127.0.0.1:4173/sw.js"
+          },
+          "controlled": true,
+          "state": {
+            "supported": true,
+            "controllerScriptUrl": "http://127.0.0.1:4173/sw.js",
+            "controllerState": "activated",
+            "registration": {
+              "scope": "http://127.0.0.1:4173/",
+              "activeState": "activated",
+              "activeScriptURL": "http://127.0.0.1:4173/sw.js",
+              "waiting": false,
+              "installing": false
+            },
+            "registrationError": null,
+            "caches": [
+              "workbox-precache-v2-http://127.0.0.1:4173/",
+              "itinerary-v1"
+            ]
+          }
+        },
+        "offline": {
+          "offlineBeforeReload": true,
+          "state": {
+            "url": "http://127.0.0.1:4173/trip/12",
+            "title": "AI 个人助理 · 旅行规划 · 记账 · 备忘",
+            "pathname": "/trip/12",
+            "innerWidth": 412,
+            "innerHeight": 839,
+            "onLine": false,
+            "textLength": 611,
+            "textSnippet": "离线：显示缓存数据 ✕ 行程 加载中… 已花 ¥1566 / 预算 ¥- 撤销 路书 记账 预算分析 地图 Day 1 高德地图加载失败，请检查 VITE_AMAP_KEY、VITE_AMAP_SECURITY_CODE 和网络连接 🏔 3D 🗺 2D ▶ 沿路线巡航 ⬛ 俯视 AI 助手 随时调整行程 🤖 你好，我是 AI 旅行助手 ✈️ 可以说： · 帮我规划上海三日游，2人，预算3000，酒店近地铁 · 明天下雨，把户外景点换掉 · 点选时间轴安排后说「这个换成类似的」 · 上海有什么适合亲子游的地方？ Day 1 Day 2 09:00 09:30 酒店 入住 · 王府井亚朵酒店 ¥520 酒店 近地铁 王府井商圈，步行可达故宫东门，地铁口近在咫尺。 10:00 11:45 景点 故宫博物院 ¥120 历史 文化 地标 亲子 明清两代皇宫，世界文化遗产，周一闭馆，需提前7天预约。 12:00 13:30 餐饮 午餐 · 四季民福烤鸭店 ¥300 北京烤鸭 性价比最高的烤鸭店之一，故宫店可边吃边看角楼。 14:00 16:30 景点 中国国家博物馆 免费 历史 文化 室内 亲子 天安门广场东侧，古代中国、复兴之路等常设展值得细看。 18:00 19:30 餐饮 晚餐 · 东来顺 ¥220 涮羊肉 百年老字号铜锅涮肉，手切鲜羊肉必点。 🏠 首页 🧭 旅行 🤖 助手 👤 我的 🌙 主题",
+            "rootChildCount": 1,
+            "hasOfflineBanner": true,
+            "hasSessionRecoveryFailed": false,
+            "hasLoginForm": false,
+            "hasAppShell": true,
+            "hasTripHeading": true,
+            "tripHeading": "行程",
+            "timelineRows": 5,
+            "runtimeCacheHint": null
+          },
+          "browserErrorPage": false,
+          "swOffline": {
+            "supported": true,
+            "controllerScriptUrl": "http://127.0.0.1:4173/sw.js",
+            "controllerState": "activated",
+            "registration": {
+              "scope": "http://127.0.0.1:4173/",
+              "activeState": "activated",
+              "activeScriptURL": "http://127.0.0.1:4173/sw.js",
+              "waiting": false,
+              "installing": false
+            },
+            "registrationError": null,
+            "caches": [
+              "workbox-precache-v2-http://127.0.0.1:4173/",
+              "itinerary-v1"
+            ]
+          },
+          "offlineAfterReload": false,
+          "authMe": {
+            "requests": [
+              {
+                "method": "GET",
+                "url": "http://127.0.0.1:4173/api/auth/me"
+              }
+            ],
+            "responses": [
+              {
+                "status": 200,
+                "url": "http://127.0.0.1:4173/api/auth/me",
+                "bodySnippet": "{\"code\":0,\"message\":\"success\",\"data\":{\"token\":null,\"id\":1,\"username\":\"demo\",\"nickname\":\"演示用户\"}}"
+              },
+              {
+                "status": 200,
+                "url": "http://127.0.0.1:4173/api/auth/me",
+                "bodySnippet": "{\"code\":0,\"message\":\"success\",\"data\":{\"token\":null,\"id\":1,\"username\":\"demo\",\"nickname\":\"演示用户\"}}"
+              }
+            ],
+            "failures": [
+              {
+                "url": "http://127.0.0.1:4173/api/auth/me",
+                "failure": "net::ERR_INTERNET_DISCONNECTED"
+              }
+            ]
+          }
+        },
+        "recovery": {
+          "state": {
+            "url": "http://127.0.0.1:4173/trip/12",
+            "title": "AI 个人助理 · 旅行规划 · 记账 · 备忘",
+            "pathname": "/trip/12",
+            "innerWidth": 412,
+            "innerHeight": 839,
+            "onLine": true,
+            "textLength": 879,
+            "textSnippet": "北京2日游 北京 · 2 天 · 2 人 · 1 天后出发 · 10 个安排 已花 ¥1566 / 预算 ¥4000 撤销 路书 记账 预算分析 地图 Day 1 🏨 入住 · 王府井亚朵酒店 📍 故宫博物院 🍽 午餐 · 四季民福烤鸭店 📍 中国国家博物馆 🍽 晚餐 · 东来顺 📍 颐和园 🍽 午餐 · 海碗居 📍 中国科学技术馆 🍽 晚餐 · 护国寺小吃 20 公里 + - 🏔 3D 🗺 2D ▶ 沿路线巡航 ⬛ 俯视 AI 助手 随时调整行程 🤖 你好，我是 AI 旅行助手 ✈️ 可以说： · 帮我规划上海三日游，2人，预算3000，酒店近地铁 · 明天下雨，把户外景点换掉 · 点选时间轴安排后说「这个换成类似的」 · 上海有什么适合亲子游的地方？ Day 1 · 11月20日 Day 2 · 11月21日 09:00 09:30 酒店 入住 · 王府井亚朵酒店 ¥520 酒店 近地铁 王府井商圈，步行可达故宫东门，地铁口近在咫尺。 🚕 1.4 km · 驾车 7 分钟 / 步行 18 分钟 · 约 ¥15 估算 10:00 11:45 景点 故宫博物院 ¥120 历史 文化 地标 亲子 明清两代皇宫，世界文化遗产，周一闭馆，需提前7天预约。 🚕 0.5 km · 驾车 5 分钟 / 步行 7 分钟 · 约 ¥13 估算 12:00 13:30 餐饮 午餐 · 四季民福烤鸭店 ¥300 北京烤鸭 性价比最高的烤鸭店之一，故宫店可边吃边看角楼。 🚕 0.9 km · 驾车 6 分钟 / 步行 12 分钟 · 约 ¥14 估算 14:00 16:30 景点 中国国家博物馆 免费 历史 文化 室内 亲子 天安门广场东侧，古代中国、复兴之路等常设展值得细看。 🚕 1.3 km · 驾车 7 分钟 / 步行 17 分钟 · 约 ¥15 估算 18",
+            "rootChildCount": 1,
+            "hasOfflineBanner": false,
+            "hasSessionRecoveryFailed": false,
+            "hasLoginForm": false,
+            "hasAppShell": true,
+            "hasTripHeading": true,
+            "tripHeading": "北京2日游",
+            "timelineRows": 5,
+            "runtimeCacheHint": null
+          },
+          "onLine": true,
+          "overflow": {
+            "innerWidth": 412,
+            "scrollWidth": 412,
+            "overflowPx": 0,
+            "pass": true,
+            "docClientWidth": 412,
+            "horizontalScrollbar": false
+          }
+        },
+        "runtimeCache": {
+          "runtime": {
+            "exists": true,
+            "urls": [
+              "http://127.0.0.1:4173/api/trips",
+              "http://127.0.0.1:4173/api/trips/12/itinerary",
+              "http://127.0.0.1:4173/api/trips/12/budget"
+            ]
+          },
+          "allCacheNames": [
+            "workbox-precache-v2-http://127.0.0.1:4173/",
+            "itinerary-v1"
+          ]
+        }
+      },
+      "screenshots": [
+        "D:\\travel-agent\\.evidence\\screenshots\\mobile-pixel-login.png",
+        "D:\\travel-agent\\.evidence\\screenshots\\mobile-pixel-trip.png",
+        "D:\\travel-agent\\.evidence\\screenshots\\mobile-pixel-offline.png"
+      ],
+      "deviceErrors": [],
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+        "Failed to load resource: net::ERR_INTERNET_DISCONNECTED",
+        "Failed to load resource: net::ERR_INTERNET_DISCONNECTED",
+        "[amap] 地图加载失败 Error: 高德 JS API 加载失败，请检查网络、Key 与安全密钥。请在 travel-agent-web/.env.local 配置 VITE_AMAP_KEY 和 VITE_AMAP_SECURITY_CODE\n    at l (http://127.0.0.1:4173/assets/Trip-BHwur78L.js:1:1712)\n    at HTM…",
+        "Failed to load resource: net::ERR_INTERNET_DISCONNECTED",
+        "Failed to load resource: net::ERR_INTERNET_DISCONNECTED",
+        "Failed to load resource: net::ERR_INTERNET_DISCONNECTED",
+        "Failed to load resource: net::ERR_INTERNET_DISCONNECTED"
+      ]
+    }
+  ],
+  "overall": "PASS",
+  "blocked": null,
+  "notes": [
+    "PASS/FAIL 均来自本次真实浏览器运行；未运行的项标注 BLOCKED，不做推断。",
+    "iPhone 组优先 webkit（真 Safari 引擎）；webkit 未安装时退化为 chromium + devices[\"iPhone 13\"]，并在 engineFallback 里记录。",
+    "离线判定用 context.setOffline(true)（CDP 网络模拟），等价于飞行模式；navigator.onLine 会随之为 false。"
+  ],
+  "checklist": "### 真机自测清单（人工复验，仿真 ≠ 真机）\n\n| 平台 | 步骤 | 预期 |\n| --- | --- | --- |\n| iPhone Safari | 1. Safari 打开 `http://<host>:4173/`，登录 demo/demo123<br>2. 分享 → 添加到主屏幕<br>3. 从主屏图标启动（standalone） | 主屏出现「个人助理」图标；启动后无 Safari 地址栏（display=standalone）；状态栏颜色为主题色 #1677ff |\n| iPhone Safari | 4. 打开「旅行规划」→ 点开一趟行程 → 点「预算分析」<br>5. 打开飞行模式<br>6. 下拉刷新或完全杀掉后从主屏图标重开 | 页面不白屏、不出现 Safari 错误页；顶部出现「离线：显示缓存数据」提示条；已看过的行程（时间轴/预算）仍可见；**不应被踢回登录页** |\n| iPhone Safari | 7. 关闭飞行模式 | 提示条自动消失；页面数据自动/刷新后恢复；无持续报错 |\n| Android Chrome | 1. Chrome 打开 `http://<host>:4173/`，登录<br>2. 菜单 →「安装应用」/「添加到主屏幕」<br>3. 从桌面图标启动 | 出现安装横幅/菜单项（manifest + SW 满足可安装性）；standalone 启动；无地址栏 |\n| Android Chrome | 4. 浏览行程与预算后打开飞行模式<br>5. 从桌面图标冷启动 | app shell 由 SW 预缓存打开；离线提示条出现；已缓存行程可见；不被踢回登录页 |\n| Android Chrome | 6. 关闭飞行模式并下拉刷新 | 恢复正常在线数据；提示条消失 |\n| 桌面 Chrome | 1. 打开 `http://<host>:4173/`，登录<br>2. 地址栏右侧安装图标 / 菜单 → 安装「AI 个人助理」 | manifest 200、SW 已激活、controller 非空 → 安装入口可用 |\n| 桌面 Chrome | 3. DevTools → Application → Service Workers / Cache Storage | `sw.js` activated；Cache Storage 有预缓存与 `itinerary-v1`；打开过行程后出现 itinerary/budget 条目 |\n| 桌面 Chrome | 4. DevTools → Network → Offline，然后刷新 | app shell 打开、离线提示条出现；已看过行程尽量渲染（当前实现受 /auth/me 离线失败影响，见报告结论） |"
+}
