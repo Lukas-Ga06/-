@@ -251,16 +251,22 @@ MCP 服务器 [amap] 接入失败，已跳过: timeout initialize
 
 ### 5.2 未验证 / 已知缺口（不要当成已支持）
 
-- **Key 类型踩坑（已定论，2026-11-19）**：同一枚「Web端(JS API)」Key 当后端 `AMAP_KEY` 用时，
+- **Key 类型踩坑·第二例（2026-11-19 晚）**：用户补发的第二枚 Key（指纹 `5239ded8`）与前端
+  `VITE_AMAP_KEY` **逐字节相同**，仍属「Web端(JS API)」。四个端点（place/text、geocode/geo ×3、direction、
+  coordinate/convert）**全部** `status=0 info=USERKEY_PLAT_NOMATCH infocode=10009`，后端 7/7 段降级 `estimated`。
+  该 Key 已从 `.env.local` 撤下（不留无效配置）。**取 Key 时看控制台『服务平台』列，不是应用名**：
+  同一个应用下可以有多个 Key，只有服务平台为 **Web服务** 的那枚能用于后端。
+  这次失败同时验证了 P2 修复：状态页报 `amapConfigured=true` + `routeProvider=estimated` +
+  「高德已配置但尚未验证」，**没有再谎称使用高德真实路径**。
+- **Key 类型踩坑·第一例（已定论，2026-11-19 白天）**：同一枚「Web端(JS API)」Key 当后端 `AMAP_KEY` 用时，
   `/v3/place/text`、`/v3/geocode/geo`、`/v3/assistant/coordinate/convert` **全部**返回
   `status=0 info=USERKEY_PLAT_NOMATCH infocode=10009`，`PlaceService`/`RouteService` 随后静默降级为 `estimated`；
   此时后端日志**没有错误**（`parseRoute` 拿到 `status!=1` 就返回 null）。换成同应用下「服务平台 = Web服务」的
   另一枚 Key 后即 PASS（见 §5.1）。「安全密钥」只与前端 `VITE_AMAP_SECURITY_CODE` 配对，后端完全用不到。
-- **高德 QPS 限流未产品化处理**：并发算路超过 Key 的并发配额时高德返回
-  `status=0 info=CUQPS_HAS_EXCEEDED_THE_LIMIT infocode=10021`，`AmapDataService.parseRoute` 同样静默降级为
-  `estimated`，且 `RouteService` 会把这次 `estimated` 结果缓存 10 分钟。本机实测 **8 个并发请求有 3 个 10021**，
-  对应到一次两日游规划就是「7 段里 3 段 estimated」。这是**可观测性 + 重试**的缺口（没有 WARN、没有重试），
-  不是 Key 或坐标问题；联调 PASS 的判定口径是「`amap` 段数 ≥1」，不要求全段真实。
+- ~~高德 QPS 限流未产品化处理~~ → **2026-11-19 晚已修（P6）**：`AmapDataService.direction` 对
+  `status=0 info=CUQPS_HAS_EXCEEDED_THE_LIMIT infocode=10021` 做**一次**退避重试（220~400ms 抖动），
+  重试仍失败打 WARN 并带 infocode；`estimated` 结果改为 **60 秒**短 TTL，不再把一次限流钉死 10 分钟。
+  真实 10021 时序仍待真实 Key 并发复现（单测用 `MockRestServiceServer` 覆盖了重试/告警/不缓存失败三件事）。
 - 12 个 MCP 工具只验证了「能被注册与调用到」；**各自的业务输出没有逐一核对**（例如 `maps_distance` 的
   `type` 取值、`maps_direction_transit_integrated` 的换乘结构），真实 Key 下的 MCP 链路（`MCP_ENABLED=true` +
   `AMAP_MAPS_API_KEY`）也还没有跑过。
@@ -489,7 +495,7 @@ powershell -ExecutionPolicy Bypass -File .e2e\amap-real-key-probe.ps1 -AmapKey "
 | 第 1 步 `amapConfigured=false` / `routeProvider=estimated` | 进程没读到 `AMAP_KEY`（空 Key，或 `-SkipStart` 复用的旧实例没配） | 检查启动环境变量；用本脚本默认模式（自己起实例）重跑 |
 | 第 3 步全部 `estimated`，第 4b 步 `INVALID_USER_KEY`（infocode 10001） | Key 无效/复制错/被删除/未开通「Web 服务」 | 回控制台核对 Key 与服务平台，重新复制 |
 | 第 4b/4c/4d 步 `USERKEY_PLAT_NOMATCH`（infocode **10009**）——**2026-11-19 真实复现过两次** | **Key 类型错**：把 JS API（Web端）Key 用在了后端（该 Key 与前端 `VITE_AMAP_KEY` 是同一枚，控制台还配着「安全密钥」） | 换「Web 服务」类型 Key（同一应用下再添加一枚即可）；前端 `VITE_AMAP_KEY` 不能复用，安全密钥后端用不到 |
-| 第 3 步部分 `estimated`，但 4b/4c/4d 全 PASS | **并发限流** `CUQPS_HAS_EXCEEDED_THE_LIMIT`（infocode **10021**）：规划并行算路超过 Key 的并发配额时高德直接拒绝，`AmapDataService.parseRoute` 拿到 `status!=1` **静默**返回 null → 该段降级 `estimated` 并被 `RouteService` 缓存 10 分钟，日志里没有 WARN。**2026-11-19 实测：8 个并发请求 3 个 10021** | 控制台提高并发配额；或给 `AmapDataService.direction` 加「10021 重试 + 退避 + 记 infocode」（当前未做，见 §5.2）。联调判定只看 `amap≥1` |
+| 第 3 步部分 `estimated`，但 4b/4c/4d 全 PASS | **并发限流** `CUQPS_HAS_EXCEEDED_THE_LIMIT`（infocode **10021**）：规划并行算路超过 Key 的并发配额时高德直接拒绝，`AmapDataService.parseRoute` 拿到 `status!=1` **静默**返回 null → 该段降级 `estimated` 并被 `RouteService` 缓存 10 分钟，日志里没有 WARN。**2026-11-19 实测：8 个并发请求 3 个 10021** | 控制台提高并发配额；或给 `AmapDataService.direction` 加「10021 重试 + 退避 + 记 infocode」（已在 2026-11-19 晚修复：一次退避重试 + WARN + estimated 60s TTL，见 §5.2）。联调判定只看 `amap≥1` |
 | 第 4b/4c/4d 步全部 `HTTP 0`、`curlExit=35`（SSL connect error）——**2026-11-19 在受限沙箱里真实复现过** | 本机到 `restapi.amap.com` 的 TLS 连接被拦/不稳定（代理、公司网关、运行沙箱），不是 Key 问题；此时后端也会把全部路段降级成 `estimated` | 放开网络后先手工 `curl.exe "https://restapi.amap.com/v3/place/text?key=<Key>&keywords=西湖"` 确认能拿到 JSON，再重跑脚本；纯离线环境加 `-SkipRestDiag`（4c/4d 一并 SKIP，不参与 PASS 判定） |
 | 第 4c 步 `status=1` 但「地理编码→路径」失败 | 把 `location` 的经纬度顺序弄反（高德是「经度,纬度」），或两个点落到了不走车的区域 | 本脚本按「经度,纬度」原样透传；若手工复现，检查顺序与城市参数 |
 | 第 4d 步 `找不到 target\classes\...CoordinateTransform.class` | 后端只留了 jar、没有编译产物 | 在 `travel-agent-server` 下 `mvn -DskipTests compile`；或先 `mvn -DskipTests package`（本脚本缺 jar 时也会自动打包） |
