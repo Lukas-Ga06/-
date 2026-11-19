@@ -8,7 +8,9 @@
 
 ## 0. 结论先行
 
-**FR-01 ~ FR-04、FR-06 ~ FR-10 已验收；FR-05 仍待验收（缺高德「Web 服务」Key）。**
+**FR-01 ~ FR-10 已全部验收。** FR-05 的真实 REST 链路由同日并行会话用真实「Web 服务」Key 跑了两次并 PASS
+（本报告 §3.6 逐文件核对了证据）；仍留两项尾巴：MCP 真实 Key 链路未验、高德 QPS 限流未做重试/可观测。
+FR-03 的真模型复验仍受 DeepSeek 余额（402）限制，链路已用本地替身验通。
 PWA 离线恢复在验收中发现真实缺陷并已修复；稳定性四项通过但有 1 个设计问题（慢依赖无端到端预算）。
 Docker Compose 因本机无 Docker 未执行，改用**全新便携 MySQL 8.4.10 实例**做了等价验证（偏差已记录，Compose 脚本已就绪）。
 
@@ -18,9 +20,9 @@ Docker Compose 因本机无 Docker 未执行，改用**全新便携 MySQL 8.4.10
 | FR-02 | Coordinator 任务编排（依赖图/并行/重派） | ✅ **已验收** | 3/3：依赖边、PREVIEW‖REVIEW 重叠、REPLAN + 重派 `replacesTaskId` |
 | FR-03 | Agent 自主工具调用循环 | ✅ **已验收**（链路） | RESEARCH 自主选 `query_weather` → 观察 → FINAL；**真模型 402，见 §4.2** |
 | FR-04 | 多 Agent 任务协议 + 过程事件 | ✅ **已验收** | 4 类 receiver、任务字段齐全、SSE `run/delegate/complete` |
-| FR-05 | 真实旅行 Provider（POI/地理编码/路线/GCJ-02） | ⛔ **待验收** | 无 Key 时 7/7 `estimated` 正确降级；**真实 Key 未提供**，无效 Key 自检失真（P2） |
+| FR-05 | 真实旅行 Provider（POI/地理编码/路线/GCJ-02） | ✅ **已验收**（REST 链路） | 真实「Web 服务」Key 两次实测：`route-legs` **6/7** 与 **4/7** 段 `source=amap`；POI 3 条、地理编码 3/3、GCJ-02 偏差 **0.13m**。MCP 真实链路未验；无效 Key 自报失真（P2）仍待修 |
 | FR-06 | Reviewer 审核与动态调整 | ✅ **已验收** | 预算 100 → `blocked` + `requiresAcknowledgement`；无 ack 拒绝、带 ack 通过 |
-| FR-07 | 交互地图与行程（路线段/来源徽标） | ✅ **已验收**（estimated 路径） | `route-legs` 7 段字段完整、`source` 合法；`amap` 段需 FR-05 Key 后复验 |
+| FR-07 | 交互地图与行程（路线段/来源徽标） | ✅ **已验收**（estimated 路径） | `route-legs` 7 段字段完整、`source` 合法；`amap` 段数据已在 FR-05 出现，但「实线/虚线」在浏览器里的区分渲染未用真实 Key 复验 |
 | FR-08 | 计划版本与内容指纹确认 | ✅ **已验收** | 64 位 SHA-256；错误指纹拒绝且方案不消费；正确指纹提交成功 |
 | FR-09 | 确认后幂等同步 | ✅ **已验收** | 三模块 `SUCCEEDED`、台账可查、重复确认被拦截 |
 | FR-10 | 全链路 Trace | ✅ **已验收** | run 可回查、45 次工具调用 100% 成功、未登录 401、他人 run 404 |
@@ -42,7 +44,7 @@ Docker Compose 因本机无 Docker 未执行，改用**全新便携 MySQL 8.4.10
 | 项 | 计划 | 实际 | 影响 |
 |---|---|---|---|
 | 数据库 | **Docker Compose + `mysql:8.4`** | 本机**无 Docker / WSL / Podman**（非管理员，Docker Desktop 需提权 + 重启）。改用便携 `mysql-8.4.10-winx64`（独立 basedir/datadir、`:3317`，不碰 `:3306` 的 8.0 服务） | 迁移/核心链路/重启恢复**等价验证通过**；`docker compose up --build` 路径未执行，脚本 `.e2e/acceptance/mysql-compose-acceptance.ps1` 已就绪 |
-| 高德 | 「Web 服务」Key 真实联调 | **Key 未提供**（用户选择自行提供，截至本报告未收到） | FR-05 不能标记已验收；无 Key 降级路径已验证 |
+| 高德 | 「Web 服务」Key 真实联调 | 本会话未收到 Key 明文；但同日 **14:31–14:39 的并行会话**用真实 Key 跑了两次探针（`.e2e/amap-key-20261119-143613/`、`143839/`，Key 指纹 `56257ebd`）并提交文档 | FR-05 依据该证据验收（REST 链路）；本会话**逐文件核对**了 checks/route-legs/GCJ 证据，但未亲手复跑 |
 | 大模型 | DeepSeek 真实调用 | Key 存在但**余额为 0**：`402 Insufficient Balance`（见 `evidence/llm-402-evidence.md`） | FR-03 用本地 OpenAI 兼容替身完成链路验收；真模型复验命令已给 |
 | 真机 | iPhone Safari / Android Chrome | 用 Playwright **WebKit 2370（WebKit 27.2）+ Chromium 156** 真引擎仿真；真机系统级安装 UI 无法自动化 | 仿真全部 PASS；真机清单见移动端报告 §5 |
 
@@ -135,14 +137,23 @@ SW 缓存的数据永远渲染不出来（只做到「不白屏、不踢人」�
 
 完整数据与复现命令见 [2026-11-19-resilience.md](2026-11-19-resilience.md)。
 
-### 3.6 真实高德联调（本次阻塞）
+### 3.6 真实高德联调（FR-05，REST 链路已 PASS）
 
-| 项 | 结果 |
-|---|---|
-| Key 平台类型 | 前端 JS API Key 已验证可渲染（历史证据）；后端「Web 服务」Key **本次未提供** |
-| 无 Key 降级 | `routeProvider=estimated`、7/7 `source=estimated`、`routeHint` 如实说明「估算」 ✅ |
-| 无效 Key | 路线仍降级 estimated，但状态页仍宣称 amap ❌（P2，代码：`RouteService.provider()` 只看配置不看调用结果） |
-| 待做 | 拿到 Key 后一条命令：`fr-acceptance.mjs --expect-amap --amap-key <key>`，断言 `routeProvider=amap`、至少一段 `source=amap`、直连 geocode/POI/driving、GCJ-02 偏移 300~1200m |
+真实「Web 服务」Key（指纹 `56257ebd`，不落明文）由并行会话在 14:31–14:39 起独立实例（`:18097` + 独立 H2）
+跑了两次探针，结论均 PASS；本节逐文件核对了 `checks.json` / `05-route-legs.json` / `10-gcj02-transform.json`。
+
+| 项 | 实测结果 | 判定 |
+|---|---|---|
+| 系统自检 | `amapConfigured=true`、`geoProvider=amap`、`routeProvider=amap` | PASS |
+| 路线段 | 7 段中 **6 段 `source=amap`**（另一次 4/7）；首段「滨江汉庭酒店 → 西湖风景区」10.7km / 驾车 31min | PASS（判定口径 amap≥1） |
+| 直连 POI | `/v3/place/text` `status=1`，3 条 POI（西湖风景名胜区 / 断桥残雪 / 湖滨公园），坐标境内 | PASS |
+| 地理编码 | `/v3/geocode/geo` **3/3** `status=1`：西湖 120.130396,30.259242、杭州东站 120.212600,30.290851、天安门 116.397463,39.909187 | PASS |
+| GCJ-02 | 后端 `wgs84ToGcj02` 与高德 `/v3/assistant/coordinate/convert` 偏差 **0.13m**；偏移量 554.7m；往返误差 **0m** | PASS |
+| Key 类型踩坑 | 同一枚「Web端(JS API)」Key 在 place/geocode/convert 四个端点全部 `USERKEY_PLAT_NOMATCH / 10009`，后端静默降级 | 已定论（文档 §5.2/§7） |
+| 无 Key 降级 | `routeProvider=estimated`、7/7 `source=estimated`、`routeHint` 如实说明「估算」 | PASS |
+| 无效 Key | 路线仍降级 estimated，但状态页仍宣称 amap | ❌ P2（`RouteService.provider()` 只看配置不看调用结果） |
+| QPS 限流 | 8 并发算路 3 次 `CUQPS_HAS_EXCEEDED_THE_LIMIT / 10021` → 静默降级且结果被缓存 10 分钟 | ⚠ P6（缺重试与 WARN） |
+| MCP 真实链路 | `MCP_ENABLED=true` + `AMAP_MAPS_API_KEY` 未用真实 Key 跑 | 遗留项（12 个工具的业务输出未逐一核对） |
 
 ## 4. 本轮发现
 
@@ -161,6 +172,7 @@ SW 缓存的数据永远渲染不出来（只做到「不白屏、不踢人」�
 | P3 | 中 | 降级日志丢根因（只打 wrapper message） | 记录 cause（SocketTimeout/ConnectException） |
 | P4 | 低 | 日志文件默认平台字符集（中文 Windows = GBK），UTF-8 检索漏匹配 | logging.charset 固定 UTF-8 |
 | P5 | 中 | LLM 100% 失败时 `/api/system/status` 仍报 `llmConfigured=true` | 区分 configured / last-call-ok |
+| P6 | 中 | 高德 QPS 限流（10021）静默降级 + 结果被缓存 10 分钟；8 并发实测 3 次命中 | `AmapDataService.direction` 对 10021 做退避重试 + WARN（记 infocode），不缓存失败结果 |
 
 ### 4.3 FR-03 的真模型说明
 
@@ -181,12 +193,13 @@ DeepSeek Key 余额为 0（402）。为不把「链路没验证」写成「已�
 
 ## 6. 遗留清单（按阻塞程度）
 
-1. **高德「Web 服务」Key**（阻塞 FR-05，也阻塞 FR-07 的 amap 分支）：拿到后跑 `--expect-amap` 一轮即可收口。
-2. **Docker Deskop**：本机仍无 `docker` 命令；装好后执行
+1. **高德 MCP 真实链路**：`MCP_ENABLED=true` + `AMAP_MAPS_API_KEY` 尚未用真实 Key 跑；12 个工具的业务输出未逐一核对。
+2. **Docker Desktop**：本机仍无 `docker` 命令；装好后执行
    `.e2e/acceptance/mysql-compose-acceptance.ps1 -AmapKey <key>` 即可产出与 §3.3 等价的 Compose 证据（含 `mysql:8.4` 镜像）。
 3. **DeepSeek 余额**：充值后复验 FR-03 真模型。
-4. **P1/P2 修复**：建议下一批优先；P2 与 FR-05 一起验收。
+4. **P1/P2/P6 修复**：建议下一批优先；P2 与 FR-05 的「无效 Key 自报」一起收口。
 5. **真机人工确认**：按移动端报告 §5 清单在 iPhone/Android 上点一遍。
+6. **Key 保管**：真实高德 Key 只在并行会话的进程环境里用过，未写入仓库/.env.local；后续联调请继续走环境变量。
 
 ## 7. 复现命令
 
@@ -229,4 +242,6 @@ node .e2e/resilience/run-concurrency.mjs; node .e2e/resilience/run-soak.mjs
 | `evidence/fr-03-stub-llm.json` / `llm-402-evidence.md` | FR-03 链路证据 + 真模型 402 原文 |
 | `evidence/mobile-pwa.json` / `mobile-pwa-summary.md` / `screenshots/` | 移动端 32 项结果与截图 |
 | `evidence/resilience.json` | 并发/慢依赖/第三方/长跑原始数据 |
+| `.e2e/amap-key-20261119-143839/`（本地，gitignore） | 高德真实 Key：checks.json、POI、geocode、GCJ-02、route-legs（6/7 amap） |
+| `.e2e/amap-key-20261119-143613/`（本地，gitignore） | 高德真实 Key 第二次实跑（4/7 amap） |
 | `.evidence/`（本地） | 原始库、日志、完整截图（约 780MB，gitignore） |
