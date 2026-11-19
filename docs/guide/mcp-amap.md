@@ -247,17 +247,25 @@ MCP 服务器 [amap] 接入失败，已跳过: timeout initialize
 | Windows | `cmd /c` 自动补全后 `npx` 能正常拉起 |
 | 降级 | 关 MCP / 无 Key / 握手失败三种情况，应用启动与其它工具均不受影响 |
 | **前端 JS API 真实渲染**（2026-11-19 实测） | 配好 `VITE_AMAP_KEY` + `VITE_AMAP_SECURITY_CODE` 后打开行程页：`window.AMap` 加载成功、`AMap.Map` 可用、`.amap-container` + `canvas` 已创建，共 **33 个高德域请求**（`webapi.amap.com` / `jsapi.amap.com` / `jsapi-data1..5` / `o4.amap.com` / `restapi.amap.com` 的 `jscode` 校验），页面无「地图加载失败」降级提示。**这是「前端地图真实渲染」从推测转为已验证** |
+| **后端「Web 服务」Key 真实联调**（2026-11-19 实跑两次，`amap-real-key-probe.ps1` 结论均 **PASS**） | 独立实例 + 独立 H2：`/v3/place/text` `status=1` 返回 3 条 POI；`/v3/geocode/geo` 3/3 `status=1`（西湖 `120.130396,30.259242`、杭州东站 `120.212600,30.290851`、天安门 `116.397463,39.909187`，均为 GCJ-02），且地理编码点直接算路成功（11353 m）；`route-legs` 两次分别 **6/7** 与 **4/7** 段 `source=amap`（首段 10.7 km / 驾车 31 min，剩余段为 QPS 限流降级，见 §5.2）；GCJ-02 一致性：与高德 `/v3/assistant/coordinate/convert` 偏差 **0.13 m**、偏移量 **554.7 m**、`gcj02ToWgs84` 往返 **0 m**。证据：`.e2e/amap-key-20261119-143839/`、`.e2e/amap-key-20261119-143613/` |
 
-### 5.2 未验证（不要当成已支持）
+### 5.2 未验证 / 已知缺口（不要当成已支持）
 
-- **后端「Web 服务」真实 Key 仍未取得**（2026-11-19 实测撞墙）：把「Web端(JS API)」类型的 Key 填给后端
-  `AMAP_KEY` 时，高德返回 `status=0  info=USERKEY_PLAT_NOMATCH  infocode=10009`（**请求 Key 与绑定平台不匹配**），
-  `PlaceService`/`RouteService` 随后**静默降级**为 `estimated`——所以：POI / 路径 / 天气的**真实返回体结构**、
-  **GCJ-02 坐标**、「MCP 场景下该 Key 是否还有额外限制」仍只到「握手 + 工具清单 + 错误降级」级别。
-  **同一应用下再加一枚「服务平台 = Web服务」的 Key** 即可按 §7 跑通。
-- 12 个工具只验证了「能被注册与调用到」；**各自的业务输出没有逐一核对**（例如 `maps_distance` 的
-  `type` 取值、`maps_direction_transit_integrated` 的换乘结构）。
-- 真实行程里的 POI/路径采纳：见 3.4，MCP 尚未接进规划候选清单。
+- **Key 类型踩坑（已定论，2026-11-19）**：同一枚「Web端(JS API)」Key 当后端 `AMAP_KEY` 用时，
+  `/v3/place/text`、`/v3/geocode/geo`、`/v3/assistant/coordinate/convert` **全部**返回
+  `status=0 info=USERKEY_PLAT_NOMATCH infocode=10009`，`PlaceService`/`RouteService` 随后静默降级为 `estimated`；
+  此时后端日志**没有错误**（`parseRoute` 拿到 `status!=1` 就返回 null）。换成同应用下「服务平台 = Web服务」的
+  另一枚 Key 后即 PASS（见 §5.1）。「安全密钥」只与前端 `VITE_AMAP_SECURITY_CODE` 配对，后端完全用不到。
+- **高德 QPS 限流未产品化处理**：并发算路超过 Key 的并发配额时高德返回
+  `status=0 info=CUQPS_HAS_EXCEEDED_THE_LIMIT infocode=10021`，`AmapDataService.parseRoute` 同样静默降级为
+  `estimated`，且 `RouteService` 会把这次 `estimated` 结果缓存 10 分钟。本机实测 **8 个并发请求有 3 个 10021**，
+  对应到一次两日游规划就是「7 段里 3 段 estimated」。这是**可观测性 + 重试**的缺口（没有 WARN、没有重试），
+  不是 Key 或坐标问题；联调 PASS 的判定口径是「`amap` 段数 ≥1」，不要求全段真实。
+- 12 个 MCP 工具只验证了「能被注册与调用到」；**各自的业务输出没有逐一核对**（例如 `maps_distance` 的
+  `type` 取值、`maps_direction_transit_integrated` 的换乘结构），真实 Key 下的 MCP 链路（`MCP_ENABLED=true` +
+  `AMAP_MAPS_API_KEY`）也还没有跑过。
+- 真实行程里的 POI 采纳：见 3.4，MCP 尚未接进规划候选清单；行程条目坐标仍来自城市目录（WGS-84），
+  高德数据体现在**路段距离/时长**上。
 
 ---
 
@@ -375,8 +383,8 @@ powershell -ExecutionPolicy Bypass -File .e2e\amap-real-key-probe.ps1 -AmapKey "
   PASS  1 系统能力自检：amapConfigured=true, geoProvider=amap, routeProvider=amap ...
 
 == [3] 规划两日游 -> 确认 -> GET /api/trips/{id}/route-legs
-        段数打点：总段数=7  amap=7  estimated=0  其它=0
-  PASS  3 两日游规划与路线段：总段数=7，amap=7，estimated=0（已观察到 source=amap 的真实路径）
+        段数打点：总段数=7  amap=4  estimated=3  其它=0
+  PASS  3 两日游规划与路线段：总段数=7，amap=4，estimated=3（已观察到 source=amap 的真实路径）
 
 == [4] POI / 地理编码验证
   SKIP  4a 后端 POI/地理编码接口：当前没有该接口 —— ...
@@ -400,8 +408,24 @@ powershell -ExecutionPolicy Bypass -File .e2e\amap-real-key-probe.ps1 -AmapKey "
 ```
 
 - 段数取决于规划出的行程：默认消息「帮我规划杭州两日游，预算2000元，2个人」规则引擎会产 2 天、7 段；
-  **判定口径是 `amap` 段数 ≥ 1**，不要求恰好 7。
+  **判定口径是 `amap` 段数 ≥ 1**，不要求恰好 7。剩余 `estimated` 段的常见原因是高德并发限流
+  `CUQPS_HAS_EXCEEDED_THE_LIMIT`（10021）被静默降级（见 §5.2、§7.6），不是 Key 或坐标问题。
 - `taxiCost`（打车费）始终是本地估算，高德路径接口不返回价格（见 `RouteService` 口径说明），这不影响 PASS。
+
+2026-11-19 真实「Web 服务」Key 实跑（两次结论均 **PASS**；主证据 `.e2e\amap-key-20261119-143839\`，
+14:36 那次为 `.e2e\amap-key-20261119-143613\`）：
+
+| 步骤 | 结果 | 实测值 |
+| --- | --- | --- |
+| 0 实例准备 | PASS | 独立 H2 + 端口 18097，`/actuator/health=UP`；结束时 PID 及其子树已停止，端口不再监听 |
+| 1 系统能力自检 | PASS | `amapConfigured=true`、`geoProvider=amap`、`routeProvider=amap` |
+| 2 demo 登录 | PASS | `username=demo` |
+| 3 两日游规划与路线段 | PASS | 总段数=7、amap=**6**、estimated=1（首次实跑为 amap=4、estimated=3）；首段「滨江汉庭酒店 → 西湖风景区」10.7 km / 驾车 31 min。estimated 段数随高德并发配额波动，见 §5.2 |
+| 4a 后端接口 | SKIP | 后端没有 POI/地理编码 REST 接口（如实记录，不伪造） |
+| 4b 直连 POI | PASS | `/v3/place/text` `status=1`，3 条 POI（西湖风景名胜区 / 断桥残雪 / 湖滨公园），坐标境内 |
+| 4c 地理编码 | PASS | 3/3 `status=1`：西湖 `120.130396,30.259242`、杭州东站 `120.212600,30.290851`、天安门 `116.397463,39.909187`；地理编码点→算路 11353 m |
+| 4d GCJ-02 | PASS | 与高德 convert 偏差 **0.13 m**、偏移量 **554.7 m**、往返误差 **0 m** |
+| 进程清理 | PASS | `cleanup.txt`：端口监听=False、进程存活=False |
 
 证据目录（默认 `.e2e\amap-key-<时间戳>\`，约 0.2 MB，含独立 H2 文件与实例日志）：
 
@@ -462,7 +486,8 @@ powershell -ExecutionPolicy Bypass -File .e2e\amap-real-key-probe.ps1 -AmapKey "
 | --- | --- | --- |
 | 第 1 步 `amapConfigured=false` / `routeProvider=estimated` | 进程没读到 `AMAP_KEY`（空 Key，或 `-SkipStart` 复用的旧实例没配） | 检查启动环境变量；用本脚本默认模式（自己起实例）重跑 |
 | 第 3 步全部 `estimated`，第 4b 步 `INVALID_USER_KEY`（infocode 10001） | Key 无效/复制错/被删除/未开通「Web 服务」 | 回控制台核对 Key 与服务平台，重新复制 |
-| 第 4b 步 `USERKEY_PLAT_NOMATCH`（infocode **10009**）——**2026-11-19 真实复现过** | **Key 类型错**：把 JS API（Web端）Key 用在了后端。特征：该 Key 在控制台还配着一枚「安全密钥」，且同一枚 Key 在前端 `VITE_AMAP_KEY` 里能正常渲染地图 | 换「Web 服务」类型 Key（同一应用下再添加一枚即可）；前端 `VITE_AMAP_KEY` 不能复用 |
+| 第 4b/4c/4d 步 `USERKEY_PLAT_NOMATCH`（infocode **10009**）——**2026-11-19 真实复现过两次** | **Key 类型错**：把 JS API（Web端）Key 用在了后端（该 Key 与前端 `VITE_AMAP_KEY` 是同一枚，控制台还配着「安全密钥」） | 换「Web 服务」类型 Key（同一应用下再添加一枚即可）；前端 `VITE_AMAP_KEY` 不能复用，安全密钥后端用不到 |
+| 第 3 步部分 `estimated`，但 4b/4c/4d 全 PASS | **并发限流** `CUQPS_HAS_EXCEEDED_THE_LIMIT`（infocode **10021**）：规划并行算路超过 Key 的并发配额时高德直接拒绝，`AmapDataService.parseRoute` 拿到 `status!=1` **静默**返回 null → 该段降级 `estimated` 并被 `RouteService` 缓存 10 分钟，日志里没有 WARN。**2026-11-19 实测：8 个并发请求 3 个 10021** | 控制台提高并发配额；或给 `AmapDataService.direction` 加「10021 重试 + 退避 + 记 infocode」（当前未做，见 §5.2）。联调判定只看 `amap≥1` |
 | 第 4b/4c/4d 步全部 `HTTP 0`、`curlExit=35`（SSL connect error）——**2026-11-19 在受限沙箱里真实复现过** | 本机到 `restapi.amap.com` 的 TLS 连接被拦/不稳定（代理、公司网关、运行沙箱），不是 Key 问题；此时后端也会把全部路段降级成 `estimated` | 放开网络后先手工 `curl.exe "https://restapi.amap.com/v3/place/text?key=<Key>&keywords=西湖"` 确认能拿到 JSON，再重跑脚本；纯离线环境加 `-SkipRestDiag`（4c/4d 一并 SKIP，不参与 PASS 判定） |
 | 第 4c 步 `status=1` 但「地理编码→路径」失败 | 把 `location` 的经纬度顺序弄反（高德是「经度,纬度」），或两个点落到了不走车的区域 | 本脚本按「经度,纬度」原样透传；若手工复现，检查顺序与城市参数 |
 | 第 4d 步 `找不到 target\classes\...CoordinateTransform.class` | 后端只留了 jar、没有编译产物 | 在 `travel-agent-server` 下 `mvn -DskipTests compile`；或先 `mvn -DskipTests package`（本脚本缺 jar 时也会自动打包） |
@@ -507,6 +532,7 @@ powershell -ExecutionPolicy Bypass -File .e2e\amap-real-key-probe.ps1 -AmapKey "
 
 ### 7.8 与 §5 的关系
 
-§5.2 的「真实返回体结构 / GCJ-02 坐标 / MCP 场景下 Key 的额外限制」仍未验证——它们需要真 Key。
-按本节跑出 PASS 并保留证据目录后，「真实 POI / 路径 / 坐标」即可从未验证转为已验证；
+2026-11-19 已用真实「Web 服务」Key 按本节跑出 **PASS** 并保留证据目录，因此 §5.1 的
+「真实 POI / 地理编码 / 路径距离与时长 / GCJ-02 坐标」已从**未验证转为已验证**；§5.2 只剩
+「QPS 限流未做重试与可观测性」「MCP 12 个工具的业务输出未逐一核对」两类缺口。
 MCP 那条链路仍要额外设 `MCP_ENABLED=true` + `AMAP_MAPS_API_KEY` 单独验（见 §2、§4）。

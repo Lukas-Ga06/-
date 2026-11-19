@@ -602,11 +602,15 @@ Spring Boot 3.5、全栈 Docker 化，以及若干轮逻辑缺陷修复与安全
   见 [docs/guide/mcp-amap.md](docs/guide/mcp-amap.md)；
 - **前端地图链路已验证真实渲染**（`VITE_AMAP_KEY` + `VITE_AMAP_SECURITY_CODE`：`AMap` 加载、canvas 创建、
   33 个高德域请求、页面无降级提示）；
-- **仍差后端「Web 服务」Key** 做真实 POI / 地理编码 / 路径 / GCJ-02 联调（2026-11-19 实测：把 Web端/JS API Key 填给
-  后端会返回 `USERKEY_PLAT_NOMATCH / 10009` 并静默降级为 `estimated`）。探针已覆盖 4 项：POI（`/v3/place/text`）、
-  地理编码（`/v3/geocode/geo`，再把地理编码点直接算路验证同一坐标系）、路径（`route-legs` 的 `source=amap`）、
-  GCJ-02（后端 `CoordinateTransform` 与高德 `/v3/assistant/coordinate/convert` 比对，偏差 ≤5 米）；拿到 Key 后按
-  该文档「真实 Key 联调（一键验证）」跑 `.e2e/amap-real-key-probe.ps1` 即可产出证据；
+- **后端「Web 服务」Key 真实联调已 PASS**（2026-11-19 实跑两次，`.e2e/amap-real-key-probe.ps1` 结论均 PASS）：
+  POI `/v3/place/text` 返回 3 条；地理编码 `/v3/geocode/geo` 3/3 命中（西湖 / 杭州东站 / 天安门，GCJ-02），
+  且地理编码点可直接算路（11353 m）；`route-legs` 两次分别为 **6/7** 与 **4/7** 段 `source=amap`
+  （首段 10.7 km / 驾车 31 min）；GCJ-02 与高德官方 `/v3/assistant/coordinate/convert` 偏差 **0.13 m**
+  （偏移量 554.7 m、往返 0 m）。证据 `.e2e/amap-key-20261119-143839/`、`.e2e/amap-key-20261119-143613/`，
+  Key 类型踩坑与排查表见 [docs/guide/mcp-amap.md](docs/guide/mcp-amap.md) §5.2 / §7；
+- **已知缺口**：高德并发配额下返回 `CUQPS_HAS_EXCEEDED_THE_LIMIT`（10021）时后端静默降级 `estimated`
+  并被缓存 10 分钟（实测 8 并发 3 次 10021 → 7 段里 3 段估算），`AmapDataService` 缺「重试 + WARN 记录」；
+  MCP 链路（`MCP_ENABLED=true` + `AMAP_MAPS_API_KEY`）尚未用真实 Key 跑过；
 - 酒店/餐厅开放平台同理由同一套 MCP 配置扩展（天气已接 Open-Meteo）。
 
 **P1 数据层与部署可信度（第十批已完成主体）**

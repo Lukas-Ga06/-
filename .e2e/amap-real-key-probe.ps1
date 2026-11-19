@@ -753,7 +753,13 @@ function Invoke-StepRouteLegs {
         return
     }
     if ($amap -gt 0) {
-        Add-Check '3' '两日游规划与路线段' 'PASS' ('总段数=' + $total + '，amap=' + $amap + '，estimated=' + $estimated + '（已观察到 source=amap 的真实路径）')
+        $detail3 = '总段数=' + $total + '，amap=' + $amap + '，estimated=' + $estimated + '（已观察到 source=amap 的真实路径）'
+        if ($estimated -gt 0) {
+            # 2026-11-19 实测：高德 Web服务 Key 并发配额有限，规划并行算路会撞 CUQPS_HAS_EXCEEDED_THE_LIMIT（10021），
+            # parseRoute 拿到 status!=1 静默返回 null → 该段 estimated 并被缓存 10 分钟；后端日志没有 WARN。
+            $detail3 = $detail3 + '；' + $estimated + ' 段 estimated 常见原因是高德并发限流（10021 CUQPS_HAS_EXCEEDED_THE_LIMIT）被静默降级，不是 Key 无效'
+        }
+        Add-Check '3' '两日游规划与路线段' 'PASS' $detail3
     } else {
         $hint = '全部 ' + $total + ' 段为 estimated —— 高德 REST 调用未成功，后端已静默降级。排查顺序：' +
                 '① Key 是否「Web 服务」类型（不是 JS API Key）；② Key 是否有效/已开通「Web 服务」；' +
