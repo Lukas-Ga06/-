@@ -1,0 +1,2 @@
+{"code":0,"message":"success","data":{"id":1,"tripId":1,"tripName":null,"category":"餐饮","amount":128.5,"note":"平江路午饭","paymentMethod":"微信支付","spentAt":"2026-12-02","createdAt":"2026-11-19 16:31"}}
+{"code":0,"message":"success","data":{"id":2,"tripId":1,"tripName":null,"category":"门票","amount":90,"note":"拙政园门票","paymentMethod":"支付宝","spentAt":"2026-12-01","createdAt":"2026-11-19 16:31"}}

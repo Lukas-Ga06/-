@@ -49,8 +49,10 @@ travel-agent-web/e2e/.auth/
 # ---- 导出/打包产物（含密钥快照风险，不入库） ----
 /travel-agent-*.zip
 
-# ---- �������յı��ز��ԭʼ��/��־�����ֻ��������֤�ݵ� .e2e/acceptance/evidence��----
+# ---- 本次验收的本地产物（原始库/日志体积大，只保留精编证据到 .e2e/acceptance/evidence）----
 .evidence/
 
 # ---- 本地隔离 worktree（多 Agent 并行构建，不进版本库）----
 .worktrees/
+# ---- 旧库升级验收的临时构建/数据目录（体积大，不入库；证据在 .e2e/acceptance/evidence）----
+.e2e/acceptance/.tmp/

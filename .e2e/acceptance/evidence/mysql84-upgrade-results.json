@@ -1,0 +1,465 @@
+{
+    "meta":  {
+                 "generatedAt":  "2026-11-19 16:32:38",
+                 "host":  "LUKAS",
+                 "os":  "Microsoft Windows NT 10.0.26300.0",
+                 "docker":  "not available (native mysqld, no docker compose)",
+                 "mysqlBase":  "D:\\travel-agent\\.tools\\mysql84\\mysql-8.4.10-winx64",
+                 "mysqlVersion":  "8.4.10",
+                 "dbPort":  3318,
+                 "backendPort":  18094,
+                 "oldCommit":  "9918a4f",
+                 "oldSchemaVersion":  16,
+                 "currentSchemaVersion":  18,
+                 "flywayWarning":  "Flyway upgrade recommended: MySQL 8.4 is newer than this version of Flyway and support has not been tested. The latest supported version of MySQL is 8.1.",
+                 "totalSeconds":  177.6,
+                 "phases":  [
+                                {
+                                    "phase":  "0. 预检（端口隔离 / 残留清理 / 构建）",
+                                    "seconds":  46.7
+                                },
+                                {
+                                    "phase":  "1. 初始化全新 MySQL 8.4 实例（独立 datadir）",
+                                    "seconds":  7.4
+                                },
+                                {
+                                    "phase":  "2a. 旧部署探针：spring.flyway.target=15（验证 V15 能否作为可运行旧基线）",
+                                    "seconds":  9.8
+                                },
+                                {
+                                    "phase":  "2b. 旧部署模拟：旧版发布代码（提交 9918a4f，最高迁移=V16）+ target=16",
+                                    "seconds":  16.8
+                                },
+                                {
+                                    "phase":  "3. 通过真实 HTTP API 灌入业务数据（旧 schema V16）",
+                                    "seconds":  5.4
+                                },
+                                {
+                                    "phase":  "4. 旧库增量升级：停旧后端 → 最新代码（target=latest）启动",
+                                    "seconds":  25
+                                },
+                                {
+                                    "phase":  "5.1 仅重启后端（MySQL 不动）",
+                                    "seconds":  15.1
+                                },
+                                {
+                                    "phase":  "5.2 仅重启 MySQL（后端进程不动，验证连接池恢复）",
+                                    "seconds":  7.5
+                                },
+                                {
+                                    "phase":  "5.3 整栈重启（先停后端，再停 MySQL；反向启动）",
+                                    "seconds":  28.5
+                                },
+                                {
+                                    "phase":  "6. 清理与收尾",
+                                    "seconds":  15.3
+                                }
+                            ],
+                 "pass":  80,
+                 "fail":  0,
+                 "verdict":  "PASS",
+                 "fatal":  null
+             },
+    "assertions":  [
+                       {
+                           "id":  "E1:3306 既有 MySQL 服务在监听",
+                           "ok":  true,
+                           "detail":  "pid=7920"
+                       },
+                       {
+                           "id":  "E2:端口与既有 MySQL 隔离",
+                           "ok":  true,
+                           "detail":  "dbPort=3318"
+                       },
+                       {
+                           "id":  "E3:后端端口非 8080/既有服务",
+                           "ok":  true,
+                           "detail":  "backendPort=18094"
+                       },
+                       {
+                           "id":  "M1:全新 datadir 初始化成功",
+                           "ok":  true,
+                           "detail":  "exit=0 systemTables=True"
+                       },
+                       {
+                           "id":  "M2:MySQL 版本=8.4.10",
+                           "ok":  true,
+                           "detail":  "VERSION()=8.4.10"
+                       },
+                       {
+                           "id":  "M3:实例端口正确",
+                           "ok":  true,
+                           "detail":  "port=3318"
+                       },
+                       {
+                           "id":  "M4:独立 datadir",
+                           "ok":  true,
+                           "detail":  "datadir=D:/travel-agent/.worktrees/mysql-upgrade/.e2e/acceptance/.tmp/mysql-upgrade/data/"
+                       },
+                       {
+                           "id":  "M5:迁移前是空库",
+                           "ok":  true,
+                           "detail":  "tables=0"
+                       },
+                       {
+                           "id":  "O1:target=15 时库停在 V15",
+                           "ok":  true,
+                           "detail":  "history=14|15|0（MySQL 无 V14，V14 仅 H2；V1..V13+V15=14 条）"
+                       },
+                       {
+                           "id":  "O2:V15 不能作为可运行旧基线（校验缺列，预期）",
+                           "ok":  true,
+                           "detail":  "启动失败且报告 Schema-validation 缺列（V16 实体列，如 pending_plan.content_hash）"
+                       },
+                       {
+                           "id":  "F1:旧版后端启动成功",
+                           "ok":  true,
+                           "detail":  "target=16，耗时 12.4s"
+                       },
+                       {
+                           "id":  "F2:迁移停在 V16",
+                           "ok":  true,
+                           "detail":  "history=15|16|0（V1..V13+V15+V16=15 条）"
+                       },
+                       {
+                           "id":  "F3:旧 schema 无重复版本行",
+                           "ok":  true,
+                           "detail":  "duplicates=0"
+                       },
+                       {
+                           "id":  "F4:ddl-auto=validate 通过（无 Schema-validation）",
+                           "ok":  true,
+                           "detail":  "旧实体与 V16 schema 一致"
+                       },
+                       {
+                           "id":  "F5:MySQL 8.4 仅 WARN（Flyway 支持到 8.1）",
+                           "ok":  true,
+                           "detail":  "仅 WARN，迁移与 validate 通过：2026-11-19T16:30:54.362+08:00  WARN [] 4620 --- [travel-agent-server] [           main] o.f.c.internal.database.base.Database    : Flyway upgrade recommended: MySQL 8.4 is newer than this version of Flyway and support has not been tested. The latest supported version of MySQL is 8.1."
+                       },
+                       {
+                           "id":  "F6:旧 schema 确实缺后续迁移的列",
+                           "ok":  true,
+                           "detail":  "trip.party_size=0 agent_task.depends_on=0"
+                       },
+                       {
+                           "id":  "F7:V16 表数量已记录",
+                           "ok":  true,
+                           "detail":  "tables=25"
+                       },
+                       {
+                           "id":  "D1:登录成功（demo/demo123）",
+                           "ok":  true,
+                           "detail":  "tokenLen=150"
+                       },
+                       {
+                           "id":  "D2:HTTP 建行程成功",
+                           "ok":  true,
+                           "detail":  "tripId=1 destination=苏州 budget=8000 status=PLANNING"
+                       },
+                       {
+                           "id":  "D3:HTTP 写行程条目成功",
+                           "ok":  true,
+                           "detail":  "itemIds=1,2,3"
+                       },
+                       {
+                           "id":  "D4:HTTP 记支出成功（预算口径）",
+                           "ok":  true,
+                           "detail":  "amounts=128.50/90.00"
+                       },
+                       {
+                           "id":  "D5:HTTP 写备忘/日程成功",
+                           "ok":  true,
+                           "detail":  "memos=2 schedule=1"
+                       },
+                       {
+                           "id":  "D6:HTTP 触发规划 run 并待确认",
+                           "ok":  true,
+                           "detail":  "status=NEED_CONFIRMATION planId=62e88ba6-bec0-40de-8d73-27909cd33e91 hashLen=64"
+                       },
+                       {
+                           "id":  "D7:确认落库生成行程与执行台账",
+                           "ok":  true,
+                           "detail":  "confirmStatus=COMPLETED tripId=2 executionId=ea5f3937-3cfd-41cd-a68e-5a8c36521b47"
+                       },
+                       {
+                           "id":  "D8:run 已落库且可回查",
+                           "ok":  true,
+                           "detail":  "runs=1 runId=d193ba9b-d4ce-495e-906e-06186e1e74f4"
+                       },
+                       {
+                           "id":  "D9:旧 run 的任务链/工具 trace 已落库",
+                           "ok":  true,
+                           "detail":  "tasks=5 toolCalls=16"
+                       },
+                       {
+                           "id":  "D10:pending_plan 有旧行",
+                           "ok":  true,
+                           "detail":  "pendingPlanRows=1 chat2Status=NEED_CONFIRMATION"
+                       },
+                       {
+                           "id":  "D11:直接 SQL 补写覆盖后续迁移列",
+                           "ok":  true,
+                           "detail":  "tripId=3 agentTask=sql-seed-old-task（挂在旧 run 下，故该 run 任务数 5→6）"
+                       },
+                       {
+                           "id":  "D12:关键表齐全",
+                           "ok":  true,
+                           "detail":  "tables=24 missing="
+                       },
+                       {
+                           "id":  "D13:关键表均有真实数据",
+                           "ok":  true,
+                           "detail":  "trip=3 itinerary_item=14 expense=2 memo=2 schedule_item=3 pending_plan=1 plan_execution=1 agent_run=2 agent_task=10 tool_call_trace=32 users=1"
+                       },
+                       {
+                           "id":  "U0:旧后端已停止",
+                           "ok":  true,
+                           "detail":  "backendPort=18094 closed"
+                       },
+                       {
+                           "id":  "U1:最新代码启动成功且 validate 通过",
+                           "ok":  true,
+                           "detail":  "启动 10.4s"
+                       },
+                       {
+                           "id":  "U2:增量迁移只应用 V17/V18",
+                           "ok":  true,
+                           "detail":  "migrated=\"17 - trip party size\",\"18 - agent task dag\""
+                       },
+                       {
+                           "id":  "U3:迁移到 V18 且全部成功",
+                           "ok":  true,
+                           "detail":  "history=17|18|0"
+                       },
+                       {
+                           "id":  "U4:flyway_schema_history 无重复版本行",
+                           "ok":  true,
+                           "detail":  "duplicates=0"
+                       },
+                       {
+                           "id":  "U5:升级未新增业务表（只加列）",
+                           "ok":  true,
+                           "detail":  "tablesBefore=25 tablesAfter=25"
+                       },
+                       {
+                           "id":  "U6:后续迁移的新列已建成",
+                           "ok":  true,
+                           "detail":  "trip.party_size=1 agent_task(depends_on,attempt,replaces_task_id)=3"
+                       },
+                       {
+                           "id":  "U7:旧迁移未重跑（V1..V16 历史摘要与升级前一致）",
+                           "ok":  true,
+                           "detail":  "pre=15|585ba0fa5eaa933448392ac58fca8ff0 post=15|585ba0fa5eaa933448392ac58fca8ff0 oldRows=15"
+                       },
+                       {
+                           "id":  "U8-users:行数与旧列内容哈希一致",
+                           "ok":  true,
+                           "detail":  "table=users rows=1-\u003e1 hash=f0a993a571c11a9cf5053af57826ce16-\u003ef0a993a571c11a9cf5053af57826ce16"
+                       },
+                       {
+                           "id":  "U8-trip:行数与旧列内容哈希一致",
+                           "ok":  true,
+                           "detail":  "table=trip rows=3-\u003e3 hash=a018d15ae99588e7b3b87029d4997ea0-\u003ea018d15ae99588e7b3b87029d4997ea0"
+                       },
+                       {
+                           "id":  "U8-itinerary_item:行数与旧列内容哈希一致",
+                           "ok":  true,
+                           "detail":  "table=itinerary_item rows=14-\u003e14 hash=d136fac6ac3be0af0a41b069f0f5fb1c-\u003ed136fac6ac3be0af0a41b069f0f5fb1c"
+                       },
+                       {
+                           "id":  "U8-expense:行数与旧列内容哈希一致",
+                           "ok":  true,
+                           "detail":  "table=expense rows=2-\u003e2 hash=0c19deea5345935e36820f8d686bdf81-\u003e0c19deea5345935e36820f8d686bdf81"
+                       },
+                       {
+                           "id":  "U8-memo:行数与旧列内容哈希一致",
+                           "ok":  true,
+                           "detail":  "table=memo rows=2-\u003e2 hash=eb04fc604c0fb709939871fa6aa5b08f-\u003eeb04fc604c0fb709939871fa6aa5b08f"
+                       },
+                       {
+                           "id":  "U8-schedule_item:行数与旧列内容哈希一致",
+                           "ok":  true,
+                           "detail":  "table=schedule_item rows=3-\u003e3 hash=ba7ffc0a2db2881ab4db1aa7dc3e4059-\u003eba7ffc0a2db2881ab4db1aa7dc3e4059"
+                       },
+                       {
+                           "id":  "U8-pending_plan:行数与旧列内容哈希一致",
+                           "ok":  true,
+                           "detail":  "table=pending_plan rows=1-\u003e1 hash=419074e3337aa1042b0873bbe58b97a1-\u003e419074e3337aa1042b0873bbe58b97a1"
+                       },
+                       {
+                           "id":  "U8-plan_execution:行数与旧列内容哈希一致",
+                           "ok":  true,
+                           "detail":  "table=plan_execution rows=1-\u003e1 hash=306741f57d3259d27e3c6e2ee62ff314-\u003e306741f57d3259d27e3c6e2ee62ff314"
+                       },
+                       {
+                           "id":  "U8-agent_run:行数与旧列内容哈希一致",
+                           "ok":  true,
+                           "detail":  "table=agent_run rows=2-\u003e2 hash=2327c41b586cbd73883f266b3bd12761-\u003e2327c41b586cbd73883f266b3bd12761"
+                       },
+                       {
+                           "id":  "U8-agent_task:行数与旧列内容哈希一致",
+                           "ok":  true,
+                           "detail":  "table=agent_task rows=10-\u003e10 hash=3cb24f2c04c5748e424de49d4dcd77b5-\u003e3cb24f2c04c5748e424de49d4dcd77b5"
+                       },
+                       {
+                           "id":  "U8-tool_call_trace:行数与旧列内容哈希一致",
+                           "ok":  true,
+                           "detail":  "table=tool_call_trace rows=32-\u003e32 hash=020d8ba77eee9c57149ee30947d0d94a-\u003e020d8ba77eee9c57149ee30947d0d94a"
+                       },
+                       {
+                           "id":  "U9:全部表逐表行数/内容一致",
+                           "ok":  true,
+                           "detail":  "tables=24 mismatches="
+                       },
+                       {
+                           "id":  "U10:关键字段快照未变（HTTP 数据/旧列原值）",
+                           "ok":  true,
+                           "detail":  "trips=3 items=14 runs=2 tasks=10"
+                       },
+                       {
+                           "id":  "U11:trip.party_size 对旧行回填=1",
+                           "ok":  true,
+                           "detail":  "badRows=0"
+                       },
+                       {
+                           "id":  "U12:agent_task DAG 列默认值正确",
+                           "ok":  true,
+                           "detail":  "attemptBad=0 dagNonNull=0"
+                       },
+                       {
+                           "id":  "U13:升级后 HTTP 行程列表与旧库一致",
+                           "ok":  true,
+                           "detail":  "pre=1,2,3 post=1,2,3"
+                       },
+                       {
+                           "id":  "U14:升级后旧行程条目可读且数量一致",
+                           "ok":  true,
+                           "detail":  "pre=3 post=3"
+                       },
+                       {
+                           "id":  "U15:升级后旧 runId 仍可查",
+                           "ok":  true,
+                           "detail":  "HTTP=200 tasks=6（DB 旧 run 任务数=6，含 D11 SQL 种子 1 条）"
+                       },
+                       {
+                           "id":  "U16:升级后预算接口可读旧数据",
+                           "ok":  true,
+                           "detail":  "budget=8000.00 planned=898.50 actual=218.50"
+                       },
+                       {
+                           "id":  "R1:仅重启后端后健康",
+                           "ok":  true,
+                           "detail":  "耗时 10.4s"
+                       },
+                       {
+                           "id":  "R2:仅重启后端后旧 runId 可查",
+                           "ok":  true,
+                           "detail":  "HTTP=200"
+                       },
+                       {
+                           "id":  "R3:仅重启后端后迁移未重跑",
+                           "ok":  true,
+                           "detail":  "history=17|f4f7a0b64d2a41a132c82f6e615aa83b"
+                       },
+                       {
+                           "id":  "R4:仅重启后端后旧数据一致",
+                           "ok":  true,
+                           "detail":  "counts=trip=3|item=14|expense=2|memo=2|schedule=3|pending=1|exec=1|run=2|task=10|tool=32|user=1"
+                       },
+                       {
+                           "id":  "R5:仅重启后端后可写新数据",
+                           "ok":  true,
+                           "detail":  "HTTP=200 memoId=3"
+                       },
+                       {
+                           "id":  "R6:MySQL 已停止",
+                           "ok":  true,
+                           "detail":  "port=3318 closed"
+                       },
+                       {
+                           "id":  "R7:MySQL 重启后后端连接池自动恢复",
+                           "ok":  true,
+                           "detail":  "耗时 0s"
+                       },
+                       {
+                           "id":  "R8:MySQL 重启后旧 runId 可查",
+                           "ok":  true,
+                           "detail":  "HTTP=200"
+                       },
+                       {
+                           "id":  "R9:MySQL 重启后迁移未重跑",
+                           "ok":  true,
+                           "detail":  "history=17|f4f7a0b64d2a41a132c82f6e615aa83b"
+                       },
+                       {
+                           "id":  "R10:MySQL 重启后数据一致",
+                           "ok":  true,
+                           "detail":  "counts=trip=3|item=14|expense=2|memo=3|schedule=3|pending=1|exec=1|run=2|task=10|tool=32|user=1"
+                       },
+                       {
+                           "id":  "R11:MySQL 重启后可写新数据",
+                           "ok":  true,
+                           "detail":  "HTTP=200 memoId=4"
+                       },
+                       {
+                           "id":  "R12:整栈已完全停止",
+                           "ok":  true,
+                           "detail":  "backend/mysql ports closed"
+                       },
+                       {
+                           "id":  "R13:整栈重启后后端健康",
+                           "ok":  true,
+                           "detail":  "耗时 10.4s"
+                       },
+                       {
+                           "id":  "R14:整栈重启后旧 runId/旧行程可查",
+                           "ok":  true,
+                           "detail":  "runHTTP=200 trips=1,2,3"
+                       },
+                       {
+                           "id":  "R15:整栈重启后迁移未重跑",
+                           "ok":  true,
+                           "detail":  "history=17|f4f7a0b64d2a41a132c82f6e615aa83b"
+                       },
+                       {
+                           "id":  "R16:整栈重启后数据一致",
+                           "ok":  true,
+                           "detail":  "counts=trip=3|item=14|expense=2|memo=4|schedule=3|pending=1|exec=1|run=2|task=10|tool=32|user=1"
+                       },
+                       {
+                           "id":  "R17:整栈重启后可写新数据",
+                           "ok":  true,
+                           "detail":  "HTTP=200 memoId=5"
+                       },
+                       {
+                           "id":  "C1:后端端口已释放",
+                           "ok":  true,
+                           "detail":  "backendPort=18094"
+                       },
+                       {
+                           "id":  "C2:MySQL 端口已释放",
+                           "ok":  true,
+                           "detail":  "dbPort=3318"
+                       },
+                       {
+                           "id":  "C3:临时 datadir 已删除",
+                           "ok":  true,
+                           "detail":  "path=D:\\travel-agent\\.worktrees\\mysql-upgrade\\.e2e\\acceptance\\.tmp\\mysql-upgrade\\data"
+                       },
+                       {
+                           "id":  "C4:无本脚本残留进程",
+                           "ok":  true,
+                           "detail":  "pids= dbPortOwners="
+                       },
+                       {
+                           "id":  "C5:3306 既有 MySQL 未被影响",
+                           "ok":  true,
+                           "detail":  "before=7920 after=7920"
+                       },
+                       {
+                           "id":  "C6:3307/3317 未被本脚本使用/改动",
+                           "ok":  true,
+                           "detail":  "3307=False(was False) 3317=False(was False)"
+                       }
+                   ]
+}
