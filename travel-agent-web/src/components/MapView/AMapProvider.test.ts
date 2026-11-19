@@ -208,6 +208,152 @@ describe('AMapProvider', () => {
     expect(Marker).toHaveBeenCalledTimes(2);
   });
 
+  it('leg 带真实 polyline 时逐点转 GCJ-02 并按几何绘制（amap 实线）', async () => {
+    const map = createMapMock();
+    const { AMap, Polyline } = createAMapMock(map);
+    provider = new AMapProvider('3D', () => Promise.resolve(AMap));
+    // 后端几何是 WGS-84、纬度在前；3 个点才能区分「逐点转换」与「只转首尾」
+    const polyline: [number, number][] = [
+      [31.23, 121.47],
+      [31.235, 121.475],
+      [31.24, 121.48],
+    ];
+
+    provider.init(document.createElement('div'));
+    await flushLoader();
+    provider.render(
+      [item(), item({ id: 2, title: '豫园', latitude: 31.24, longitude: 121.48 })],
+      1,
+      [leg({ source: 'amap', polyline })],
+    );
+
+    // 每段仍是「辉光 + 主线」两条折线
+    expect(Polyline).toHaveBeenCalledTimes(2);
+    const options = Polyline.mock.calls.map(([opts]) => opts as Record<string, unknown>);
+    const expected = polyline.map(([lat, lng]) => toAmapLngLat(lat, lng));
+    // 不再只画端点：3 个点逐点转成 GCJ-02 的 [lng, lat]
+    expect(options[0].path).toEqual(expected);
+    expect(options[0].path).toHaveLength(3);
+    expect((options[0].path as [number, number][])[1]).toEqual(toAmapLngLat(31.235, 121.475));
+    // 辉光层与主线层共用同一条真实几何
+    expect(options[1].path).toEqual(expected);
+    // source=amap 仍是实线，样式语义不变
+    expect(options.every((o) => o.strokeStyle === 'solid')).toBe(true);
+  });
+
+  it('polyline 缺省 / 空数组 / 少于 2 点时回退两端点直连', async () => {
+    const endpoints: [number, number][] = [
+      toAmapLngLat(31.23, 121.47),
+      toAmapLngLat(31.24, 121.48),
+    ];
+    // 旧后端（无字段）/ 后端空数组 / 后端只回 1 个点，都必须回退且不崩
+    for (const polyline of [undefined, [], [[31.235, 121.475]]] as (
+      | [number, number][]
+      | undefined
+    )[]) {
+      const map = createMapMock();
+      const { AMap, Polyline } = createAMapMock(map);
+      provider?.destroy();
+      provider = new AMapProvider('2D', () => Promise.resolve(AMap));
+      provider.init(document.createElement('div'));
+      await flushLoader();
+      provider.render(
+        [item(), item({ id: 2, title: '豫园', latitude: 31.24, longitude: 121.48 })],
+        1,
+        [leg({ source: 'amap', polyline })],
+      );
+
+      const options = Polyline.mock.calls.map(([opts]) => opts as Record<string, unknown>);
+      expect(options).toHaveLength(2);
+      expect(options[0].path).toEqual(endpoints);
+      expect(options[1].path).toEqual(endpoints);
+    }
+  });
+
+  it('estimated 段即使带 polyline 也画虚线（不把估算画成实测）', async () => {
+    const map = createMapMock();
+    const { AMap, Polyline } = createAMapMock(map);
+    provider = new AMapProvider('3D', () => Promise.resolve(AMap));
+    const polyline: [number, number][] = [
+      [31.23, 121.47],
+      [31.235, 121.475],
+      [31.24, 121.48],
+    ];
+
+    provider.init(document.createElement('div'));
+    await flushLoader();
+    provider.render([item(), item({ id: 2, title: '豫园', latitude: 31.24, longitude: 121.48 })], 1, [
+      leg({ source: 'estimated', polyline }),
+    ]);
+
+    const options = Polyline.mock.calls.map(([opts]) => opts as Record<string, unknown>);
+    expect(options).toHaveLength(2);
+    expect(options.every((o) => o.strokeStyle === 'dashed')).toBe(true);
+    expect(options[0].path).toEqual(polyline.map(([lat, lng]) => toAmapLngLat(lat, lng)));
+  });
+
+  it('polyline 几何变化（端点/来源不变）也会触发重绘，几何相同则不重绘', async () => {
+    const map = createMapMock();
+    const { AMap, Polyline } = createAMapMock(map);
+    provider = new AMapProvider('3D', () => Promise.resolve(AMap));
+    const items = [item(), item({ id: 2, title: '豫园', latitude: 31.24, longitude: 121.48 })];
+    const first: [number, number][] = [
+      [31.23, 121.47],
+      [31.235, 121.475],
+      [31.24, 121.48],
+    ];
+    // 端点相同、只有中段几何不同：缓存 key 必须靠几何摘要感知到
+    const second: [number, number][] = [
+      [31.23, 121.47],
+      [31.231, 121.469],
+      [31.245, 121.482],
+      [31.24, 121.48],
+    ];
+
+    provider.init(document.createElement('div'));
+    await flushLoader();
+    provider.render(items, 1, [leg({ source: 'amap', polyline: first })]);
+    expect(Polyline).toHaveBeenCalledTimes(2);
+
+    // 同一几何换个数组实例：摘要相同 → 不重绘（缓存不是按引用比对的）
+    provider.render(items, 1, [leg({ source: 'amap', polyline: [...first] })]);
+    expect(Polyline).toHaveBeenCalledTimes(2);
+
+    // 几何变了 → 重绘，且新路径按新几何逐点转换
+    provider.render(items, 1, [leg({ source: 'amap', polyline: second })]);
+    expect(Polyline).toHaveBeenCalledTimes(4);
+    const lastCall = Polyline.mock.calls[Polyline.mock.calls.length - 1];
+    const latest = lastCall[0] as Record<string, unknown>;
+    expect(latest.path).toEqual(second.map(([lat, lng]) => toAmapLngLat(lat, lng)));
+    expect(map.remove).toHaveBeenCalled();
+  });
+
+  it('端点缺失但有真实几何时仍按几何绘制（geometry-first）', async () => {
+    const map = createMapMock();
+    const { AMap, Polyline } = createAMapMock(map);
+    provider = new AMapProvider('3D', () => Promise.resolve(AMap));
+    const polyline: [number, number][] = [
+      [31.23, 121.47],
+      [31.24, 121.48],
+    ];
+
+    provider.init(document.createElement('div'));
+    await flushLoader();
+    provider.render([], 1, [
+      leg({
+        fromLatitude: null,
+        fromLongitude: null,
+        toLatitude: null,
+        toLongitude: null,
+        polyline,
+      }),
+    ]);
+
+    const options = Polyline.mock.calls.map(([opts]) => opts as Record<string, unknown>);
+    expect(options).toHaveLength(2);
+    expect(options[0].path).toEqual(polyline.map(([lat, lng]) => toAmapLngLat(lat, lng)));
+  });
+
   it('legs 内容变化也会触发重绘（行程不变、只有转场段变了）', async () => {
     const map = createMapMock();
     const { AMap, Polyline } = createAMapMock(map);

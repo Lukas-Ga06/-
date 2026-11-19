@@ -120,12 +120,33 @@ class ItineraryRouteLegsTest extends IntegrationTestSupport {
     }
 
     @Test
+    @DisplayName("route-legs 的 polyline 契约：无几何时为空数组，不给假点（前端据此回退两点直连）")
+    void routeLegPolylineIsEmptyArrayWithoutGeometry() throws Exception {
+        Account account = registerNew();
+        Trip trip = newTrip(account.id());
+        addItem(trip, 1, "外滩", "10:00", "11:30", 31.2397, 121.4998);
+        addItem(trip, 1, "豫园", "14:00", "16:00", 31.2270, 121.4921);
+
+        mockMvc.perform(get("/api/trips/" + trip.getId() + "/route-legs")
+                        .header("Authorization", account.bearer()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].source").value(RouteService.SOURCE_ESTIMATED))
+                // 契约：polyline 始终是数组（WGS-84 [lat,lng] 的点序列）；估算段没有几何 → []
+                .andExpect(jsonPath("$.data[0].polyline").isArray())
+                .andExpect(jsonPath("$.data[0].polyline").isEmpty());
+    }
+
+    @Test
     @DisplayName("系统状态如实上报路线来源")
     void systemStatusReportsRouteProvider() throws Exception {
         Account account = registerNew();
         mockMvc.perform(get("/api/system/status").header("Authorization", account.bearer()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.routeProvider").value(RouteService.SOURCE_ESTIMATED))
+                // P2：配置态 / 验证态 / 失败原因与 provider 口径一致
+                .andExpect(jsonPath("$.data.routeConfigured").value(false))
+                .andExpect(jsonPath("$.data.amapVerified").value(false))
                 .andExpect(jsonPath("$.data.routeHint").isNotEmpty());
     }
 }

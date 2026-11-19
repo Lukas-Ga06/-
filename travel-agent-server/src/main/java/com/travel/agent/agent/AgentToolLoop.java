@@ -82,6 +82,7 @@ public class AgentToolLoop {
             count("llm_unavailable");
             return new LoopResult(false, null, List.of());
         }
+        AgentBudget budget = ctx.getBudget();
         List<ToolStep> steps = new ArrayList<>();
         Set<String> called = new java.util.HashSet<>();
         List<String> observations = new ArrayList<>();
@@ -91,7 +92,15 @@ public class AgentToolLoop {
                 count("cancelled");
                 return new LoopResult(false, "客户端已断开", steps);
             }
-            String decisionText = llmClient.chat(decisionMessages(goal, allowedTools, observations), 0.1);
+            // 预算门禁放在每步开始前：一步一次 LLM 决策 + 至多一次工具调用，
+            // 剩余预算连一次调用都不够时就停手，已收集的观察按 ADR-002 补充条款保留给下游。
+            if (!budget.allowsLlmCall(AgentBudget.MIN_RESEARCH_STEP_MS)) {
+                count("time_budget_exhausted");
+                ctx.recordBudgetDegradation(AgentBudget.STAGE_RESEARCH,
+                        "预算耗尽，研究循环提前结束（已收集的观察仍然保留）");
+                return new LoopResult(false, "时间预算耗尽", steps);
+            }
+            String decisionText = budget.chat(llmClient, decisionMessages(goal, allowedTools, observations), 0.1);
             if (decisionText == null || decisionText.isBlank()) {
                 count("llm_unavailable");
                 return new LoopResult(false, "模型不可用", steps);

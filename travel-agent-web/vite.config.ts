@@ -93,6 +93,15 @@ export default defineConfig({
     minify: 'terser',
     // 把体积大且更新频率低的依赖拆成独立 chunk：
     // 首屏只加载 react 相关与当前路由页面，图表/地图按需加载并长期缓存。
+    //
+    // 注意：antd / @ant-design / rc-* **刻意不再手动合并成一个 chunk**。
+    // 实测（dist/sw.js + 静态 import 图）证明：旧规则把「所有页面用到的 antd/rc」
+    // 全塞进一个 antd chunk，于是首屏即使只用 Button/Result/Spin，也要先下载
+    // 懒加载页面才需要的 Table/Form/DatePicker 等（该 chunk 实测 1047.82 kB，
+    // 且 react/react-dom 也被一起带进去，首屏静态闭包 1168.80 kB）。
+    // 交给 Rollup 按真实引用自动分块后：壳层用到的 antd 留在首屏闭包，
+    // 页面私有组件跟随各自路由 chunk，不再为首屏买单（重建后用
+    // .evidence/web-bundle/chunk-graph.mjs 复核首屏静态闭包）。
     chunkSizeWarningLimit: 800,
     rollupOptions: {
       output: {
@@ -100,16 +109,14 @@ export default defineConfig({
           if (!id.includes('node_modules')) {
             return undefined;
           }
+          // echarts / 地图引擎较大且被多个懒加载页面共享，单独成块便于长期缓存。
           if (id.includes('echarts') || id.includes('zrender')) {
             return 'echarts';
           }
           if (id.includes('maplibre-gl')) {
             return 'maps';
           }
-          if (id.includes('antd') || id.includes('@ant-design') || id.includes('rc-')) {
-            return 'antd';
-          }
-          // 其余依赖交给 Rollup 自动分块：
+          // 其余依赖（含 antd / rc-* / react）交给 Rollup 自动分块：
           // 之前把剩余依赖统一塞进 vendor，会与 react 互相引用形成 vendor -> react -> vendor 循环。
           return undefined;
         },

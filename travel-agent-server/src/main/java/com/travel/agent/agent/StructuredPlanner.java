@@ -93,7 +93,7 @@ public class StructuredPlanner {
      * 返回 null = LLM 路径失败（调用方回落规则路径）。
      */
     public NewTripParse planNewTrip(CityCatalog city, TripDraftView draft, String message) {
-        return planNewTrip(city, draft, message, List.of());
+        return planNewTrip(city, draft, message, List.of(), List.of(), AgentBudget.unlimited());
     }
 
     /**
@@ -101,7 +101,7 @@ public class StructuredPlanner {
      */
     public NewTripParse planNewTrip(CityCatalog city, TripDraftView draft, String message,
                                     List<ConversationMessage> history) {
-        return planNewTrip(city, draft, message, history, List.of());
+        return planNewTrip(city, draft, message, history, List.of(), AgentBudget.unlimited());
     }
 
     /**
@@ -114,12 +114,34 @@ public class StructuredPlanner {
      */
     public NewTripParse planNewTrip(CityCatalog city, TripDraftView draft, String message,
                                     List<ConversationMessage> history, List<String> researchNotes) {
-        NewTripParse first = attemptNewTrip(city, draft, message, history, researchNotes, null);
+        return planNewTrip(city, draft, message, history, researchNotes, AgentBudget.unlimited());
+    }
+
+    /**
+     * 带时间预算的新行程编排（P1）：每次 LLM 调用的读超时由预算封顶，
+     * 且「首轮失败后的重试」也要先看剩余预算——重试同样是一次完整调用，
+     * 预算不够就直接回落到规则规划，而不是把总耗时再翻一倍。
+     */
+    public NewTripParse planNewTrip(CityCatalog city, TripDraftView draft, String message,
+                                    List<ConversationMessage> history, List<String> researchNotes,
+                                    AgentBudget budget) {
+        if (!budget.allowsLlmCall(AgentBudget.MIN_LLM_CALL_MS)) {
+            // 兜底门禁：调用方（PlannerAgent）已按更高阈值判断过，这里防止剩余预算在准备 Prompt 期间耗尽
+            count("new_trip", "fallback");
+            log.info("新行程结构化规划跳过：剩余预算不足（{}ms）", budget.remainingMs());
+            return null;
+        }
+        NewTripParse first = attemptNewTrip(city, draft, message, history, researchNotes, budget, null);
         if (first != null && first.ok()) {
             count("new_trip", "first_try");
             return first;
         }
-        NewTripParse second = attemptNewTrip(city, draft, message, history, researchNotes, feedbackOf(first));
+        if (!budget.allowsLlmCall(AgentBudget.MIN_LLM_CALL_MS)) {
+            count("new_trip", "fallback");
+            log.info("新行程结构化规划不再重试：剩余预算不足（{}ms）", budget.remainingMs());
+            return first;
+        }
+        NewTripParse second = attemptNewTrip(city, draft, message, history, researchNotes, budget, feedbackOf(first));
         if (second != null && second.ok()) {
             count("new_trip", "after_retry");
             log.info("结构化规划重试成功（首轮问题: {}）", feedbackOf(first));
@@ -131,12 +153,12 @@ public class StructuredPlanner {
 
     private NewTripParse attemptNewTrip(CityCatalog city, TripDraftView draft, String message,
                                         List<ConversationMessage> history, List<String> researchNotes,
-                                        String feedback) {
+                                        AgentBudget budget, String feedback) {
         String prompt = newTripPrompt(city, draft, message, history, researchNotes);
         if (feedback != null) {
             prompt = prompt + "\n\n上次输出存在以下问题，必须全部修正后重新输出完整 JSON：\n" + feedback;
         }
-        String raw = llmClient.chat(List.of(
+        String raw = budget.chat(llmClient, List.of(
                 LlmMessage.system("你是旅行规划引擎。只输出 JSON，不要输出任何解释或 Markdown 代码块。"),
                 LlmMessage.user(prompt)), 0.2);
         if (raw == null) {
@@ -337,7 +359,7 @@ public class StructuredPlanner {
      */
     public ModificationParse planModification(CityCatalog city, List<ItineraryDtos.ItineraryItemDTO> items,
                                               LocalDate startDate, String weatherHint, String message) {
-        return planModification(city, items, startDate, weatherHint, message, List.of());
+        return planModification(city, items, startDate, weatherHint, message, List.of(), AgentBudget.unlimited());
     }
 
     /**
@@ -346,13 +368,30 @@ public class StructuredPlanner {
     public ModificationParse planModification(CityCatalog city, List<ItineraryDtos.ItineraryItemDTO> items,
                                               LocalDate startDate, String weatherHint, String message,
                                               List<ConversationMessage> history) {
-        ModificationParse first = attemptModification(city, items, startDate, weatherHint, message, history, null);
+        return planModification(city, items, startDate, weatherHint, message, history, AgentBudget.unlimited());
+    }
+
+    /** 带时间预算的行程修改（P1）：口径与新行程一致——读超时按剩余预算封顶，重试前再查一次预算 */
+    public ModificationParse planModification(CityCatalog city, List<ItineraryDtos.ItineraryItemDTO> items,
+                                              LocalDate startDate, String weatherHint, String message,
+                                              List<ConversationMessage> history, AgentBudget budget) {
+        if (!budget.allowsLlmCall(AgentBudget.MIN_LLM_CALL_MS)) {
+            count("modification", "fallback");
+            log.info("行程修改结构化规划跳过：剩余预算不足（{}ms）", budget.remainingMs());
+            return null;
+        }
+        ModificationParse first = attemptModification(city, items, startDate, weatherHint, message, history, budget, null);
         if (first != null && first.ok()) {
             count("modification", "first_try");
             return first;
         }
+        if (!budget.allowsLlmCall(AgentBudget.MIN_LLM_CALL_MS)) {
+            count("modification", "fallback");
+            log.info("行程修改结构化规划不再重试：剩余预算不足（{}ms）", budget.remainingMs());
+            return first;
+        }
         ModificationParse second = attemptModification(city, items, startDate, weatherHint, message, history,
-                feedbackOf(first));
+                budget, feedbackOf(first));
         if (second != null && second.ok()) {
             count("modification", "after_retry");
             log.info("结构化修改重试成功（首轮问题: {}）", feedbackOf(first));
@@ -368,12 +407,13 @@ public class StructuredPlanner {
 
     private ModificationParse attemptModification(CityCatalog city, List<ItineraryDtos.ItineraryItemDTO> items,
                                                   LocalDate startDate, String weatherHint, String message,
-                                                  List<ConversationMessage> history, String feedback) {
+                                                  List<ConversationMessage> history, AgentBudget budget,
+                                                  String feedback) {
         String prompt = modificationPrompt(city, items, weatherHint, message, history);
         if (feedback != null) {
             prompt = prompt + "\n\n上次输出存在以下问题，必须全部修正后重新输出完整 JSON：\n" + feedback;
         }
-        String raw = llmClient.chat(List.of(
+        String raw = budget.chat(llmClient, List.of(
                 LlmMessage.system("你是行程修改引擎。只输出 JSON，不要输出任何解释或 Markdown 代码块。"),
                 LlmMessage.user(prompt)), 0.2);
         if (raw == null) {

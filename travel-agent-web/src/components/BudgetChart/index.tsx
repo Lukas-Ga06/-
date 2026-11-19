@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import * as echarts from 'echarts';
+import { echarts, type EChartsType } from '../../lib/echarts';
 import { Empty } from 'antd';
 import type { ItineraryItem } from '../../types/trip';
 
@@ -23,7 +23,7 @@ interface Props {
 /** 预算图表：左饼图（按类型）+ 右柱图（按天），深色玻璃主题 */
 export default function BudgetChart({ items, budget }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<echarts.ECharts | null>(null);
+  const chartRef = useRef<EChartsType | null>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;

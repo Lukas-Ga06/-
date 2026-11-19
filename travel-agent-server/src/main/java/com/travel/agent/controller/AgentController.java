@@ -1,12 +1,15 @@
 package com.travel.agent.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.travel.agent.agent.AgentBudget;
 import com.travel.agent.agent.AgentContext;
 import com.travel.agent.agent.AgentEngine;
+import com.travel.agent.config.AgentBudgetProperties;
 import com.travel.agent.dto.ApiResponse;
 import com.travel.agent.dto.AgentDtos;
 import com.travel.agent.dto.ChatDtos;
 import com.travel.agent.entity.User;
+import com.travel.agent.llm.LlmProperties;
 import com.travel.agent.security.AuthAttributes;
 import com.travel.agent.service.AuthService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -47,6 +50,10 @@ public class AgentController {
     private final com.travel.agent.service.AgentTraceService traceService;
     /** V2.2 确认后同步台账（FR-09） */
     private final com.travel.agent.service.PlanExecutionService executionService;
+    /** P1 端到端时间预算配置（默认开启，30s；关闭后行为与升级前一致） */
+    private final AgentBudgetProperties budgetProperties;
+    /** 单次 LLM 读超时：预算开启时作为每次调用的读超时上限来源 */
+    private final LlmProperties llmProperties;
 
     /** 同步对话：POST /api/agent/chat */
     @PostMapping("/chat")
@@ -55,6 +62,7 @@ public class AgentController {
         User user = authService.requireUser(authentication.getName());
         // 同步接口不做票据认证，恒为普通会话
         AgentContext ctx = buildContext(user, request, false);
+        // P1：同步接口必须在预算内返回——预算窗口在请求入口创建，随上下文进入引擎的阶段边界检查
         return ApiResponse.ok(agentEngine.handle(ctx));
     }
 
@@ -111,7 +119,10 @@ public class AgentController {
     private SseEmitter doStream(User user, ChatDtos.ChatRequest request, boolean ticketOnly) {
         AgentContext ctx = buildContext(user, request, ticketOnly);
 
-        SseEmitter emitter = new SseEmitter(180_000L);
+        // P1：SSE 的收尾超时跟着预算走。引擎会在预算内正常收尾并发出 complete 事件；
+        // 这里的超时只兜底「引擎卡死」的极端情况，取 预算+30s 且不低于 60s（不能比预算短，
+        // 否则慢规划还在预算内就被容器掐断连接，反而制造「悬空/半截」体验）。
+        SseEmitter emitter = new SseEmitter(emitterTimeoutMs(ctx.getBudget()));
         // 断连生命周期：onCompletion 在"正常结束"和"客户端半途断开"时都会触发，
         // 用 finished 标记区分两者（见 StreamLifecycle），正常完成绝不误记成断连。
         StreamLifecycle lifecycle = new StreamLifecycle(ctx, meterRegistry);
@@ -317,7 +328,17 @@ public class AgentController {
         ctx.setCurrentDay(request.getCurrentDay());
         ctx.setSelectedElement(request.getSelectedElement());
         ctx.setMapCenter(request.getMapCenter());
+        // P1：同步 /chat 与 SSE 两个入口共用同一套预算语义（从这里开始计时，含排队时间）
+        ctx.setBudget(budgetProperties.newBudget(llmProperties.getReadTimeoutMs()));
         return ctx;
+    }
+
+    /** SSE 收尾超时：预算关闭时保持既有 180s；开启时给「预算 + 30s」的收尾余量，且不低于 60s */
+    private static long emitterTimeoutMs(AgentBudget budget) {
+        if (budget == null || !budget.isEnabled()) {
+            return 180_000L;
+        }
+        return Math.max(60_000L, budget.totalMs() + 30_000L);
     }
 
     /**

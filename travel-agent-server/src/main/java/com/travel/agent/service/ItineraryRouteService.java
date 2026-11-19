@@ -24,8 +24,10 @@ import java.util.Map;
  * <p>为什么单独成派：既有的 {@code GET /api/trips/{id}/itinerary} 响应形状被多处前端与测试依赖，
  * 直接加字段风险大；这里用独立只读端点返回补充数据，前端按需合并，旧调用方零影响。
  *
- * <p>性能：路线计算走 {@link RouteService}（带 10 分钟缓存）；一次三日游约 10~15 段，
- * 命中缓存时几乎零成本。无真实数据源时全部为估算口径，行为与升级前一致。
+ * <p>性能：路线计算走 {@link RouteService}（amap 结果缓存 10 分钟、estimated 结果只缓存 60 秒）；
+ * 一次三日游约 10~15 段，命中缓存时几乎零成本。无真实数据源时全部为估算口径，行为与升级前一致。
+ * 路线段带上 {@code polyline}（真实道路几何，WGS-84 [lat,lng]），前端据此画真实路径；
+ * 估算段没有几何（空数组），仍按两点直连绘制。
  */
 @Service
 @RequiredArgsConstructor
@@ -76,6 +78,8 @@ public class ItineraryRouteService {
                         .driveMinutes(route.driveMinutes())
                         .taxiCost(route.taxiCost())
                         .source(route.source())
+                        // 真实道路几何透传（WGS-84 [lat,lng]）；估算结果为空的 → 前端回退两点直连
+                        .polyline(route.polyline())
                         .build());
             }
         }

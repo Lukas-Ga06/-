@@ -4,6 +4,7 @@ import com.travel.agent.dto.ApiResponse;
 import com.travel.agent.config.AmapProperties;
 import com.travel.agent.config.RateLimitProperties;
 import com.travel.agent.llm.LlmProperties;
+import com.travel.agent.llm.LlmRuntimeStatus;
 import com.travel.agent.service.InvoiceTextExtractor;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -19,6 +20,14 @@ import java.util.Map;
  *
  * 之所以需要它：未配置 LLM_API_KEY 时 Agent 会静默降级为规则引擎、未配置 AMAP_KEY 时
  * 城市定位会退到 OSM，使用者容易误以为"AI 不能联网/不会规划"。这里只返回布尔与说明，不泄露任何密钥。
+ *
+ * <p>自报口径（V2.2 验收 P2/P5）：**「配置了」与「真的能用」分开报**——
+ * <ul>
+ *   <li>{@code llmConfigured}（配置里有 Key）/ {@code llmVerified}（最近一次真实调用成功）；</li>
+ *   <li>{@code routeProvider}（现行口径，仅 amap|estimated）、{@code routeConfigured}（配了 Key 或 MCP）、
+ *       {@code amapVerified}（最近一次真实路径调用成功）、{@code routeLastError}（失败原因，含 infocode，不含 Key）。</li>
+ * </ul>
+ * 只配了 Key 但一次都没成功调用过时，{@code routeProvider} 必须是 estimated——估算不能伪装成实时（ADR-006）。
  */
 @RestController
 @RequestMapping("/api/system")
@@ -32,6 +41,8 @@ public class SystemController {
     private final AmapProperties amapProperties;
     /** V2.2 FR-05：如实上报路线数据来源（真实路径 / 估算），不涉密钥 */
     private final com.travel.agent.service.RouteService routeService;
+    /** P5：最近一次 LLM 调用结果（与「配置了 Key」分离） */
+    private final LlmRuntimeStatus llmRuntimeStatus;
 
     @GetMapping("/status")
     public ApiResponse<Map<String, Object>> status() {
@@ -40,6 +51,8 @@ public class SystemController {
         boolean amap = amapProperties.usable();
 
         status.put("llmConfigured", llm);
+        // P5：配置态与最近调用态分离——Key 在但 100% 失败时 llmVerified=false，前端不再误以为「AI 在线」
+        status.put("llmVerified", llmRuntimeStatus.verified());
         status.put("llmModel", llm ? llmProperties.getModel() : null);
         status.put("llmHint", llm
                 ? "已接入大模型：意图识别、方案生成与文案润色走模型"
@@ -53,13 +66,17 @@ public class SystemController {
 
         status.put("timezone", ZoneId.systemDefault().getId());
 
-        // 路线数据来源（FR-05）：配了高德（Key 或 MCP）即真实路径，否则为本地估算——
-        // 前端据此把「估算距离/耗时」标记清楚，不把估算显示成实时数据
+        // 路线数据来源（FR-05 + P2）：provider 的取值域仍是 amap|estimated（前端 Health 页与既有测试依赖），
+        // 另用 routeConfigured / amapVerified / routeLastError 说明「配置了」「验证过了」「为什么失败」。
         String routeProvider = routeService.provider();
+        boolean routeConfigured = routeService.configured();
+        boolean routeVerified = routeService.verified();
+        String routeLastError = routeService.lastError();
         status.put("routeProvider", routeProvider);
-        status.put("routeHint", "amap".equals(routeProvider)
-                ? "路线使用高德真实路径规划（打车费用仍为本地估算）"
-                : "路线为本地距离估算（未配置 AMAP_KEY / 高德 MCP）：距离与耗时为近似值");
+        status.put("routeConfigured", routeConfigured);
+        status.put("amapVerified", routeVerified);
+        status.put("routeLastError", routeLastError);
+        status.put("routeHint", routeHint(routeProvider, routeConfigured, routeLastError));
         status.put("ocrConfigured", invoiceTextExtractor.ocrConfigured());
         status.put("ocrHint", invoiceTextExtractor.ocrConfigured()
                 ? "已配置 Tesseract：图片发票可直接 OCR"
@@ -76,5 +93,20 @@ public class SystemController {
             status.put("llmQuotaLimit", llmProperties.getQuotaDailyLimit());
         }
         return ApiResponse.ok(status);
+    }
+
+    /** 路线提示文案：必须与 routeProvider 口径一致，不许在降级时仍宣称「使用高德真实路径」 */
+    private static String routeHint(String routeProvider, boolean routeConfigured, String routeLastError) {
+        if ("amap".equals(routeProvider)) {
+            return "路线使用高德真实路径规划（打车费用仍为本地估算）";
+        }
+        if (!routeConfigured) {
+            return "路线为本地距离估算（未配置 AMAP_KEY / 高德 MCP）：距离与耗时为近似值";
+        }
+        if (routeLastError != null && !routeLastError.isBlank()) {
+            return "高德已配置但最近一次真实调用失败（" + routeLastError
+                    + "）：当前路线为本地估算，恢复后会自动重新使用真实路径";
+        }
+        return "高德已配置但尚未验证（启动后还没有一次真实路径调用成功）：当前路线为本地估算";
     }
 }

@@ -22,6 +22,8 @@ public class DelegatingLlmClient implements LlmClient {
     private final LlmQuotaService llmQuotaService;
     /** 所有调用方都注入 LlmClient（拿到的是这个委托类），因此"跳过"计数放在这里 */
     private final MeterRegistry meterRegistry;
+    /** P5：记录最近一次真实调用的成败，供 /api/system/status 的 llmVerified 如实上报 */
+    private final LlmRuntimeStatus runtimeStatus;
 
     @Override
     public String chat(List<LlmMessage> messages, double temperature) {
@@ -29,17 +31,22 @@ public class DelegatingLlmClient implements LlmClient {
             // 未配置 Key / 显式关闭：整条链路走规则引擎，这里记一笔便于在
             // /actuator/metrics/llm.calls 上直接看出"模型没在跑"
             meterRegistry.counter("llm.calls", "result", "skipped").increment();
+            // 没发起真实调用也如实记为"未成功"：对外绝不能宣称模型可用
+            runtimeStatus.recordFailure();
             return null;
         }
         if (!llmQuotaService.tryAcquire(UserContext.get())) {
             // 按用户日配额耗尽：等同"模型不可用"，调用方走既有降级路径
             meterRegistry.counter("llm.calls", "result", "quota").increment();
+            runtimeStatus.recordFailure();
             return null;
         }
         String result = openAiClient.chat(messages, temperature);
         if (result != null && !result.isBlank()) {
+            runtimeStatus.recordSuccess();
             return result;
         }
+        runtimeStatus.recordFailure();
         return null;
     }
 
@@ -48,13 +55,21 @@ public class DelegatingLlmClient implements LlmClient {
     public String chat(List<LlmMessage> messages, double temperature, int readTimeoutMs) {
         if (!openAiClient.available()) {
             meterRegistry.counter("llm.calls", "result", "skipped").increment();
+            runtimeStatus.recordFailure();
             return null;
         }
         if (!llmQuotaService.tryAcquire(UserContext.get())) {
             meterRegistry.counter("llm.calls", "result", "quota").increment();
+            runtimeStatus.recordFailure();
             return null;
         }
-        return openAiClient.chat(messages, temperature, readTimeoutMs);
+        String result = openAiClient.chat(messages, temperature, readTimeoutMs);
+        if (result != null && !result.isBlank()) {
+            runtimeStatus.recordSuccess();
+            return result;
+        }
+        runtimeStatus.recordFailure();
+        return null;
     }
 
     @Override

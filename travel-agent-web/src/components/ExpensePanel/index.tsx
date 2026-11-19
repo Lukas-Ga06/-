@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { App, Button, DatePicker, Empty, Form, Input, InputNumber, List, Popconfirm, Progress, Select } from 'antd';
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
-import * as echarts from 'echarts';
+import { echarts, type EChartsType } from '../../lib/echarts';
 import { addExpense, deleteExpense, getExpensesPage } from '../../api/expense';
 import { getBudgetExecution } from '../../api/trip';
 import { DEFAULT_PAGE_SIZE } from '../../api/client';
@@ -47,7 +47,7 @@ export default function ExpensePanel({ tripId, budget, planned }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
   const chartElRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<echarts.ECharts | null>(null);
+  const chartRef = useRef<EChartsType | null>(null);
 
   const load = async (nextOffset: number, options: { silent?: boolean } = {}) => {
     if (options.silent) setPaging(true);

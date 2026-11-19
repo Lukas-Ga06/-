@@ -71,11 +71,14 @@ public class PlannerAgent {
             city = catalog.matchCity(trip.getDestination());
         }
         // 内置目录未命中：联网查询生成城市目录（新规划从消息提取城市名，行程修改用行程目的地）
+        // P1：联网城市查询本质是一次 LLM 生成（可能几十秒），预算不足时直接跳过并用本地目录兜底，
+        // 不能让「城市不在目录里」把端到端预算重新拖爆。
+        AgentBudget budgetGate = ctx.getBudget();
         if (city == null && IntentResult.PLAN_TRIP.equals(intent.getIntent())) {
-            city = lookupOnlineCity(ctx, slotCity == null || slotCity.isBlank()
+            city = lookupOnlineCity(ctx, budgetGate, slotCity == null || slotCity.isBlank()
                     ? onlineCityName(intent, message) : slotCity);
         } else if (city == null && trip != null) {
-            city = lookupOnlineCity(ctx, trip.getDestination());
+            city = lookupOnlineCity(ctx, budgetGate, trip.getDestination());
         }
         // 仍然找不到：明确告知不支持，而不是静默替换成默认城市
         if (city == null) {
@@ -142,14 +145,27 @@ public class PlannerAgent {
         // LLM 结构化规划先行：模型从候选清单里选择与编排，规则引擎逐条校验，失败回落下方规则路径。
         // 之前先跑研究循环（FR-03）：让 research-agent 在只读工具上自主「决策→调用→观察→继续」，
         // 收集到的天气/路线事实作为参考证据进入结构化 Prompt；无 LLM 或循环未完成时不带任何研究块。
-        List<String> researchNotes = llmProperties.usable()
-                ? researchFacts(ctx, city, draft, budget)
-                : List.of();
+        // P1：两个 LLM 阶段都先看剩余预算——预算不够就跳过并留痕，规划本身仍由规则路径完成（绝不空返回）。
+        AgentBudget timeBudget = ctx.getBudget();
+        List<String> researchNotes = List.of();
         if (llmProperties.usable()) {
-            AgentPlan structured = tryStructuredNewTrip(ctx, intent, city, trip, draft, days, budget, message,
-                    researchNotes);
-            if (structured != null) {
-                return structured;
+            if (timeBudget.allows(AgentBudget.MIN_RESEARCH_STEP_MS)) {
+                researchNotes = researchFacts(ctx, city, draft, budget);
+            } else {
+                ctx.recordBudgetDegradation(AgentBudget.STAGE_RESEARCH,
+                        "预算不足，跳过研究取证（未调用只读工具）");
+            }
+        }
+        if (llmProperties.usable()) {
+            if (timeBudget.allows(AgentBudget.MIN_STRUCTURED_PLAN_MS)) {
+                AgentPlan structured = tryStructuredNewTrip(ctx, intent, city, trip, draft, days, budget, message,
+                        researchNotes, timeBudget);
+                if (structured != null) {
+                    return structured;
+                }
+            } else {
+                ctx.recordBudgetDegradation(AgentBudget.STAGE_PLAN,
+                        "预算不足，跳过 LLM 结构化规划，改用规则规划");
             }
         }
         // 重新规划已有行程：先清空原条目
@@ -365,12 +381,19 @@ public class PlannerAgent {
         WeatherInfo weather = (WeatherInfo) tools.invoke(ctx, "query_weather",
                 draftsSupport.buildArgs(new HashMap<>(), "city", city.name(), "date", targetDate.toString(), "mentionRain", mentionRain));
 
-        // LLM 结构化修改先行：模型在现有行程与候选清单内做替换/增删，失败回落规则路径
+        // LLM 结构化修改先行：模型在现有行程与候选清单内做替换/增删，失败回落规则路径。
+        // P1：剩余预算不足时直接走规则路径（改一项的规则替换是确定性的、毫秒级完成），并留下降级痕迹。
+        AgentBudget modifyBudget = ctx.getBudget();
         if (llmProperties.usable()) {
-            AgentPlan structured = tryStructuredModify(ctx, intent, city, trip, items, weather,
-                    trip.getStartDate(), message, dateNote);
-            if (structured != null) {
-                return structured;
+            if (modifyBudget.allows(AgentBudget.MIN_STRUCTURED_PLAN_MS)) {
+                AgentPlan structured = tryStructuredModify(ctx, intent, city, trip, items, weather,
+                        trip.getStartDate(), message, dateNote, modifyBudget);
+                if (structured != null) {
+                    return structured;
+                }
+            } else {
+                ctx.recordBudgetDegradation(AgentBudget.STAGE_PLAN,
+                        "预算不足，跳过 LLM 结构化修改，改用规则修改");
             }
         }
 
@@ -520,12 +543,12 @@ public class PlannerAgent {
     /** 结构化新行程：LLM 输出的条目序列 → REMOVE（重规划）+ ADD 计划；失败返回 null 走规则路径 */
     private AgentPlan tryStructuredNewTrip(AgentContext ctx, IntentResult intent, CityCatalog city,
                                            Trip trip, TripDraft draft, int days, BigDecimal budget, String message,
-                                           List<String> researchNotes) {
+                                           List<String> researchNotes, AgentBudget timeBudget) {
         StructuredPlanner.TripDraftView view = new StructuredPlanner.TripDraftView(
                 city.name(), days, draft.getStartDate(), budget,
                 BudgetService.effectiveParty(draft.getPartySize()), draft.getPreferences());
         StructuredPlanner.NewTripParse parse = structuredPlanner.planNewTrip(city, view, message, ctx.getHistory(),
-                researchNotes);
+                researchNotes, timeBudget);
         if (parse == null || !parse.ok()) {
             if (parse != null && !parse.warnings().isEmpty()) {
                 log.info("结构化规划回落规则路径: {}", parse.warnings());
@@ -575,13 +598,14 @@ public class PlannerAgent {
     /** 结构化修改：LLM 的 REMOVE/ADD 意图 → 校验后的操作计划；失败返回 null 走规则路径 */
     private AgentPlan tryStructuredModify(AgentContext ctx, IntentResult intent, CityCatalog city, Trip trip,
                                           List<ItineraryDtos.ItineraryItemDTO> items, WeatherInfo weather,
-                                          LocalDate startDate, String message, String dateNote) {
+                                          LocalDate startDate, String message, String dateNote,
+                                          AgentBudget timeBudget) {
         String weatherHint = weather == null ? null
                 : weather.condition() + "，降雨概率 " + weather.rainProbability()
                         + "%（" + (weather.isRainy() ? "雨天优先把户外景点换成室内" : "适合户外安排") + "）";
         StructuredPlanner.ModificationParse parse =
                 structuredPlanner.planModification(city, items, trip.getStartDate(), weatherHint, message,
-                        ctx.getHistory());
+                        ctx.getHistory(), timeBudget);
         if (parse == null || !parse.ok()) {
             return null;
         }
@@ -690,9 +714,14 @@ public class PlannerAgent {
         return MessageParser.guessCityName(message);
     }
 
-    /** 联网查询城市目录（经 ToolInvoker 以便聊天流展示 tool_call 过程） */
-    private CityCatalog lookupOnlineCity(AgentContext ctx, String name) {
+    /** 联网查询城市目录（经 ToolInvoker 以便聊天流展示 tool_call 过程）；预算不足时跳过并留痕 */
+    private CityCatalog lookupOnlineCity(AgentContext ctx, AgentBudget budget, String name) {
         if (name == null || name.isBlank()) {
+            return null;
+        }
+        if (!budget.allowsLlmCall(AgentBudget.MIN_LLM_CALL_MS)) {
+            ctx.recordBudgetDegradation(AgentBudget.STAGE_PLAN,
+                    "预算不足，跳过联网城市查询（联网生成目录需一次 LLM 调用）");
             return null;
         }
         Object result = tools.invoke(ctx, "search_city_online", Map.of("city", name));

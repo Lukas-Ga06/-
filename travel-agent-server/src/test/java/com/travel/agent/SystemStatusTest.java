@@ -21,7 +21,13 @@ class SystemStatusTest extends IntegrationTestSupport {
         MvcResult result = mockMvc.perform(get("/api/system/status").header("Authorization", account.bearer()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.llmConfigured").value(false))
+                // P5：配置态与最近调用态分离（测试 profile 没有 Key，两者都必须是 false）
+                .andExpect(jsonPath("$.data.llmVerified").value(false))
                 .andExpect(jsonPath("$.data.geoProvider").value("osm"))
+                // P2：没配高德时路线来源必须是 estimated，且新增的自报字段口径一致
+                .andExpect(jsonPath("$.data.routeProvider").value("estimated"))
+                .andExpect(jsonPath("$.data.routeConfigured").value(false))
+                .andExpect(jsonPath("$.data.amapVerified").value(false))
                 .andExpect(jsonPath("$.data.timezone").value("Asia/Shanghai"))
                 .andReturn();
 

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { App, Button, DatePicker, Empty, InputNumber, Spin } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
-import * as echarts from 'echarts';
+import { echarts, type EChartsType } from '../../lib/echarts';
 import AppShell from '../../components/AppShell';
 import { useThemeStore } from '../../store/themeStore';
 import {
@@ -21,7 +21,7 @@ export default function Health() {
     date: dayjs(),
   });
   const chartElRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<echarts.ECharts | null>(null);
+  const chartRef = useRef<EChartsType | null>(null);
   const themeMode = useThemeStore((s) => s.mode);
   // echarts 画在 canvas 上，读不到 CSS 变量，这里按主题给一组等价色值
   const dark = themeMode === 'dark';

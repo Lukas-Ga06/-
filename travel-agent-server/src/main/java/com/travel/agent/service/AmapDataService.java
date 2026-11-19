@@ -8,6 +8,8 @@ import com.travel.agent.model.AmapRoute;
 import com.travel.agent.tool.AgentTool;
 import com.travel.agent.tool.ToolRegistry;
 import com.travel.agent.util.CoordinateTransform;
+import com.travel.agent.util.ErrorSummary;
+import com.travel.agent.util.PolylineSimplify;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,6 +25,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * 高德真实数据网关：POI 关键词搜索 + 驾车/步行路径规划。
@@ -34,7 +38,17 @@ import java.util.Map;
  * 所有外呼失败均 fail-soft，绝不阻断规划主链路；MCP 返回非 JSON 文本时自动退回 REST。
  *
  * <p>坐标契约：本类对调用方一律使用 WGS-84（入参与返回值）；高德要求 GCJ-02，
- * 只在拼请求参数、解析 {@code location} 时于本类内部转换。
+ * 只在拼请求参数、解析 {@code location} / {@code polyline} 时于本类内部转换。
+ *
+ * <p>可观测性（V2.2 验收 P2/P6）：
+ * <ul>
+ *   <li>失败不再静默：无数据源、非法 Key（如 10009 USERKEY_PLAT_NOMATCH）、QPS 限流（10021）
+ *       都会留一条带 infocode 的日志；</li>
+ *   <li>本类记录**最近一次真实路径调用的成败**（{@link #routeVerified()} / {@link #routeLastError()}），
+ *       由 {@link RouteService} 与 {@code /api/system/status} 如实自报——配置了不等于可用（ADR-006）；</li>
+ *   <li>QPS 限流做**一次**退避重试（200~400ms 带抖动）：高德的限流多是瞬时窗口，重试一次即可，
+ *       重试仍失败才降级。</li>
+ * </ul>
  *
  * ToolRegistry 用 ObjectProvider 懒解析：避免 ToolRegistry→CalculateRouteTool→RouteService→本类→ToolRegistry 构造环。
  */
@@ -44,10 +58,38 @@ public class AmapDataService {
 
     private static final String REST_BASE = "https://restapi.amap.com";
 
+    /** 高德 QPS 超限：CUQPS_HAS_EXCEEDED_THE_LIMIT（验收报告 P6 实测 8 并发 3 次命中） */
+    static final String INFOCODE_QPS_LIMIT = "10021";
+    /** 限流重试的退避基数（毫秒）：配合 {@link #QPS_RETRY_JITTER_MS} 落在 220~400ms 区间 */
+    static final long QPS_RETRY_BASE_DELAY_MS = 220L;
+    /** 限流重试抖动上限（毫秒）：多实例/多线程同时重试时错开，避免二次撞墙 */
+    static final long QPS_RETRY_JITTER_MS = 180L;
+    /** 折线抽稀容差（米）：10~15 米足够保留城市道路形状，画布上看不出差异 */
+    static final double POLYLINE_TOLERANCE_METERS = 12.0;
+    /** 折线点数上限：与前端渲染成本、缓存条目大小共同决定 */
+    static final int POLYLINE_MAX_POINTS = 200;
+
     private final ObjectMapper objectMapper;
     private final ObjectProvider<ToolRegistry> toolRegistryProvider;
     private final AmapProperties amap;
     private final RestClient restClient;
+
+    /**
+     * 最近一次真实路径调用结果：{@code succeeded=false, error=null} 表示「本次进程还没真实调用过」，
+     * 等价于「配置了但尚未验证」，状态页不得据此宣称 amap（P2）。
+     */
+    private final AtomicReference<RouteCallOutcome> lastRouteCall =
+            new AtomicReference<>(RouteCallOutcome.NOT_CALLED);
+
+    /**
+     * 路径调用结果快照。
+     *
+     * @param succeeded 最近一次真实调用是否拿到可用路线（MCP 或 REST 任一成功即为 true）
+     * @param error     失败原因（含 infocode，已脱敏，不含 Key）；未调用过时为 null
+     */
+    public record RouteCallOutcome(boolean succeeded, String error) {
+        static final RouteCallOutcome NOT_CALLED = new RouteCallOutcome(false, null);
+    }
 
     @Autowired
     public AmapDataService(ObjectProvider<ToolRegistry> toolRegistryProvider, ObjectMapper objectMapper,
@@ -90,6 +132,16 @@ public class AmapDataService {
         return amap.usable();
     }
 
+    /** 最近一次真实路径调用是否成功：状态页据此决定能否自报 routeProvider=amap */
+    public boolean routeVerified() {
+        return lastRouteCall.get().succeeded();
+    }
+
+    /** 最近一次真实路径调用失败原因（含 infocode，不含 Key）；未调用过/成功时为 null */
+    public String routeLastError() {
+        return lastRouteCall.get().error();
+    }
+
     /**
      * POI 关键词搜索。types 为高德 POI 分类码（可空，如「风景名胜」080000 / 住宿服务 100000 / 餐饮服务 050000），
      * city 限定城市提高准确率，limit 上限（1~25）。失败或无数据源返回空列表。
@@ -108,7 +160,8 @@ public class AmapDataService {
                     return pois;
                 }
             } catch (Exception e) {
-                log.info("高德 MCP POI 搜索失败，退回 REST: {}", e.getMessage());
+                // P3：带上根因类型（SocketTimeout / ConnectException），不要只剩包装异常的一句话
+                log.info("高德 MCP POI 搜索失败，退回 REST: {}", ErrorSummary.describe(e));
             }
         }
         if (!amapKeyUsable()) {
@@ -126,17 +179,18 @@ public class AmapDataService {
             JsonNode resp = restClient.get().uri(URI.create(uri.toString())).retrieve().body(JsonNode.class);
             return parsePois(resp, max);
         } catch (Exception e) {
-            log.info("高德 REST POI 搜索失败（已降级）: {} - {}", keywords, e.getMessage());
+            log.info("高德 REST POI 搜索失败（已降级）: {} - {}",
+                    keywords, ErrorSummary.describe(e, amap.getKey()));
             return List.of();
         }
     }
 
-    /** 驾车路径：真实距离/时长；失败或无数据源返回 null（调用方降级估算） */
+    /** 驾车路径：真实距离/时长/几何；失败或无数据源返回 null（调用方降级估算） */
     public AmapRoute driving(double fromLat, double fromLng, double toLat, double toLng) {
         return direction("maps_direction_driving", "/v3/direction/driving", fromLat, fromLng, toLat, toLng);
     }
 
-    /** 步行路径：真实距离/时长；失败或无数据源返回 null */
+    /** 步行路径：真实距离/时长/几何；失败或无数据源返回 null */
     public AmapRoute walking(double fromLat, double fromLng, double toLat, double toLng) {
         return direction("maps_direction_walking", "/v3/direction/walking", fromLat, fromLng, toLat, toLng);
     }
@@ -153,24 +207,72 @@ public class AmapDataService {
                 Object res = mcp.execute(args("origin", origin, "destination", destination));
                 AmapRoute route = parseRoute(asJson(res));
                 if (route != null) {
+                    // MCP 也是真实数据源：成功即视为「已验证」，可对外自报 amap
+                    markRouteCallSucceeded();
                     return route;
                 }
+                log.warn("高德 MCP 路径无可用结果（status/route.paths 缺失），退回 REST");
             } catch (Exception e) {
-                log.info("高德 MCP 路径失败，退回 REST: {}", e.getMessage());
+                log.warn("高德 MCP 路径失败（{}），退回 REST", ErrorSummary.describe(e));
             }
         }
         if (!amapKeyUsable()) {
+            String reason = mcp != null ? "高德 MCP 调用失败且未配置 AMAP_KEY" : "未配置 AMAP_KEY 或高德 MCP";
+            markRouteCallFailed(reason);
             return null;
         }
-        try {
-            String uri = REST_BASE + restPath + "?key=" + enc(amap.getKey())
-                    + "&origin=" + origin + "&destination=" + destination;
-            JsonNode resp = restClient.get().uri(URI.create(uri)).retrieve().body(JsonNode.class);
-            return parseRoute(resp);
-        } catch (Exception e) {
-            log.info("高德 REST 路径失败（已降级）: {}", e.getMessage());
+        return restDirection(restPath, origin, destination);
+    }
+
+    /**
+     * 高德 REST 路径：对 QPS 限流（status=0 & infocode=10021）做一次退避重试。
+     *
+     * <p>为什么只重试 10021：它代表「这一秒/这个窗口超了」，几毫秒后重试通常就成功；
+     * 其它 infocode（10001 INVALID_USER_KEY、10009 USERKEY_PLAT_NOMATCH、20000 服务异常…）
+     * 重试也不会变好，重试只会把一次规划拖得更慢，所以直接告警 + 降级。
+     */
+    private AmapRoute restDirection(String restPath, String origin, String destination) {
+        String uri = REST_BASE + restPath + "?key=" + enc(amap.getKey())
+                + "&origin=" + origin + "&destination=" + destination;
+        for (int attempt = 0; attempt <= 1; attempt++) {
+            JsonNode resp;
+            try {
+                resp = restClient.get().uri(URI.create(uri)).retrieve().body(JsonNode.class);
+            } catch (Exception e) {
+                String reason = ErrorSummary.describe(e, amap.getKey());
+                log.warn("高德 REST 路径不可用（{}），已降级估算", reason);
+                markRouteCallFailed(reason);
+                return null;
+            }
+            if (resp != null && "1".equals(resp.path("status").asText())) {
+                AmapRoute route = parseRoute(resp);
+                if (route != null) {
+                    markRouteCallSucceeded();
+                    return route;
+                }
+                String reason = "status=1 但 route.paths[0] 缺少 distance/duration";
+                log.warn("高德 REST 路径异常（{}），已降级估算", reason);
+                markRouteCallFailed(reason);
+                return null;
+            }
+            String infocode = resp == null ? "" : resp.path("infocode").asText("");
+            String info = resp == null ? "" : resp.path("info").asText("");
+            if (INFOCODE_QPS_LIMIT.equals(infocode) && attempt == 0) {
+                long delay = nextQpsRetryDelayMs();
+                log.warn("高德路径被 QPS 限流（infocode=10021 CUQPS_HAS_EXCEEDED_THE_LIMIT），{}ms 后重试一次", delay);
+                if (!sleepQuietly(delay)) {
+                    String reason = "infocode=10021（重试等待被中断）";
+                    markRouteCallFailed(reason);
+                    return null;
+                }
+                continue;
+            }
+            String reason = "infocode=" + dash(infocode) + ", info=" + dash(info);
+            log.warn("高德路径调用失败（{}），已降级估算", reason);
+            markRouteCallFailed(reason);
             return null;
         }
+        return null; // 理论不可达：循环内每条分支都会 return
     }
 
     /** 扫描已注册的 mcp_*_{suffix} 工具（server 名任意），未接入返回 null */
@@ -224,7 +326,68 @@ public class AmapDataService {
         JsonNode first = paths.get(0);
         double dist = first.path("distance").asDouble(-1);
         double dur = first.path("duration").asDouble(-1);
-        return (dist >= 0 && dur >= 0) ? new AmapRoute(dist, dur) : null;
+        if (dist < 0 || dur < 0) {
+            return null;
+        }
+        // 几何：route.paths[0].steps[].polyline（"lng,lat;lng,lat"，GCJ-02）逐点转 WGS-84 后抽稀。
+        // MCP 通道若返回同构 JSON 也会走到这里；没有 steps/polyline 时给空列表（fail-soft，不造假点）。
+        List<double[]> geometry = PolylineSimplify.simplify(
+                collectPolyline(first), POLYLINE_TOLERANCE_METERS, POLYLINE_MAX_POINTS);
+        return new AmapRoute(dist, dur, geometry);
+    }
+
+    /** 拼接 paths[0] 下所有 step 的 polyline，返回 WGS-84 的 [lat, lng] 序列（已去重相邻重合点） */
+    private List<double[]> collectPolyline(JsonNode path) {
+        JsonNode steps = path.path("steps");
+        if (!steps.isArray() || steps.isEmpty()) {
+            return List.of();
+        }
+        List<double[]> points = new ArrayList<>();
+        for (JsonNode step : steps) {
+            String text = step.path("polyline").asText("");
+            if (text.isBlank()) {
+                continue;
+            }
+            for (String token : text.split(";")) {
+                double[] point = CoordinateTransform.parseGcj02Location(token);
+                if (point == null) {
+                    continue; // 非法点 / "0,0"：跳过而不是用假点占位
+                }
+                if (!points.isEmpty()) {
+                    double[] last = points.get(points.size() - 1);
+                    // 相邻 step 的首尾是同一个路口，去掉重复点（否则抽稀后的首尾判断会变模糊）
+                    if (Math.abs(last[0] - point[0]) < 1e-9 && Math.abs(last[1] - point[1]) < 1e-9) {
+                        continue;
+                    }
+                }
+                points.add(point);
+            }
+        }
+        return points;
+    }
+
+    /** 限流退避：基础值与抖动之和，落在 [{@value #QPS_RETRY_BASE_DELAY_MS}, 400] 毫秒 */
+    private static long nextQpsRetryDelayMs() {
+        return QPS_RETRY_BASE_DELAY_MS + ThreadLocalRandom.current().nextLong(QPS_RETRY_JITTER_MS + 1);
+    }
+
+    /** 不可中断主线程的退避等待：被中断时恢复中断位并让调用方直接降级 */
+    private static boolean sleepQuietly(long millis) {
+        try {
+            Thread.sleep(millis);
+            return true;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+
+    private void markRouteCallSucceeded() {
+        lastRouteCall.set(new RouteCallOutcome(true, null));
+    }
+
+    private void markRouteCallFailed(String reason) {
+        lastRouteCall.set(new RouteCallOutcome(false, reason));
     }
 
     private JsonNode asJson(Object res) {
@@ -247,6 +410,10 @@ public class AmapDataService {
 
     private String coord(double lng, double lat) {
         return String.format(Locale.ROOT, "%.6f,%.6f", lng, lat);
+    }
+
+    private static String dash(String value) {
+        return value == null || value.isBlank() ? "-" : value;
     }
 
     private Map<String, Object> args(String... kv) {

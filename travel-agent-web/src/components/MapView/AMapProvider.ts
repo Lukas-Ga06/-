@@ -18,6 +18,83 @@ const BASE_MAP_TIMEOUT_MS = 12_000;
 
 type BaseMapStatus = 'ok' | 'failed';
 type FocusTarget = { lat: number; lng: number; zoom: number };
+/** 一段 leg 交给高德画线的坐标：GCJ-02 的 `[lng, lat]` 点序列 */
+type LegPath = [number, number][];
+
+/** 几何摘要的坐标量化精度：1e-5° ≈ 1 米，更细的浮点尾差对画线无意义 */
+const DIGEST_SCALE = 1e5;
+
+/**
+ * 真实几何摘要：点数 + 对每个点做整数滚动 hash（FNV-1a 变体）。
+ *
+ * 为什么不把整条 polyline 塞进 `lastRenderKey`：render 会被 focusDay / items 等
+ * 高频变化触发，而真实道路几何是几百个点的坐标数组——每次 render 都
+ * `JSON.stringify` 一遍再和上一串做字符串比较，等于反复分配、比较数 KB 的字符串，
+ * 点越多越慢，缓存反而成了负担。这里只遍历数字做 `Math.imul` 乘异或：
+ * 同样 O(n) 但零字符串分配、常数极小，且任意一个点变化都会以极大概率被感知
+ * （1e-5° 量化把浮点尾差归并，避免同一条路线被判成「变了」而白白重绘）。
+ * 32 位 hash 的碰撞概率 ≈ 1/2^32，对「要不要重绘」这个用途足够。
+ */
+function polylineDigest(polyline: [number, number][]): string {
+  let hash = 0x811c9dc5;
+  for (const point of polyline) {
+    hash = Math.imul(hash ^ (Math.round(point[0] * DIGEST_SCALE) | 0), 0x01000193);
+    hash = Math.imul(hash ^ (Math.round(point[1] * DIGEST_SCALE) | 0), 0x01000193);
+  }
+  return `${polyline.length}:${(hash >>> 0).toString(36)}`;
+}
+
+/**
+ * 后端 polyline 的合法形态：数组、≥2 点、每点都是有限数字对。
+ * 缺省（旧后端）/ 空数组 / 坏数据一律按「没有几何」处理，既不崩也不画假线。
+ */
+function validPolyline(leg: RouteLeg): [number, number][] | null {
+  const polyline = leg.polyline;
+  if (!Array.isArray(polyline) || polyline.length < 2) return null;
+  for (const point of polyline) {
+    if (!Array.isArray(point) || point.length < 2) return null;
+    const [lat, lng] = point;
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  }
+  return polyline;
+}
+
+/** 进 render key 的几何摘要；没有有效几何时为空串，与「无 polyline」的旧行为一致 */
+function polylineKey(leg: RouteLeg): string {
+  const polyline = validPolyline(leg);
+  return polyline ? polylineDigest(polyline) : '';
+}
+
+/**
+ * 计算一段 leg 的地图路径（高德需要的 GCJ-02 `[lng, lat]`）：
+ * 1. 有真实 polyline（≥2 点）→ 逐点 WGS-84 → GCJ-02，按真实道路几何绘制；
+ * 2. 否则回退两端点直连（ADR-009 的旧行为，旧后端与估算段没有几何）。
+ * 返回 null 表示这段既没有几何、端点也不全，跳过。
+ */
+function legPath(leg: RouteLeg): LegPath | null {
+  const polyline = validPolyline(leg);
+  if (polyline) return polyline.map(([lat, lng]) => toAmapLngLat(lat, lng));
+  if (
+    leg.fromLatitude == null ||
+    leg.fromLongitude == null ||
+    leg.toLatitude == null ||
+    leg.toLongitude == null
+  ) {
+    return null;
+  }
+  return [
+    toAmapLngLat(leg.fromLatitude, leg.fromLongitude),
+    toAmapLngLat(leg.toLatitude, leg.toLongitude),
+  ];
+}
+
+interface DrawableLeg {
+  leg: RouteLeg;
+  /** 已转换的绘制路径；null = 这段没有可画坐标 */
+  path: LegPath | null;
+  /** 几何摘要（仅用于 render 缓存 key） */
+  geometry: string;
+}
 
 /**
  * 高德 JS API 2.0 实现：2D/3D、分日路线、脉冲标记、定位与沿路线巡航。
@@ -123,6 +200,13 @@ export class AMapProvider implements MapProvider {
     const map = this.map;
     if (!AMap || !map) return;
 
+    // 每段的绘制路径（GCJ-02）与几何摘要先算一次，key 与下面的绘制共用。
+    const legEntries: DrawableLeg[] = routeLegs.map((leg) => ({
+      leg,
+      path: legPath(leg),
+      geometry: polylineKey(leg),
+    }));
+
     // id 不变但坐标、标题或时间被 Agent 修改时也必须重绘；
     // legs 一并进 key：确认提交后 itinerary 可能原样返回，只有转场段变了。
     const key = JSON.stringify([
@@ -137,7 +221,7 @@ export class AMapProvider implements MapProvider {
         item.longitude,
         item.startTime,
       ]),
-      routeLegs.map((leg) => [
+      legEntries.map(({ leg, geometry }) => [
         leg.dayIndex,
         leg.sequence,
         leg.fromItemId,
@@ -147,6 +231,8 @@ export class AMapProvider implements MapProvider {
         leg.toLatitude,
         leg.toLongitude,
         leg.source,
+        // 真实几何变了也要重绘；只放「点数 + hash」摘要，不把整条坐标数组塞进 key（见 polylineDigest）。
+        geometry,
       ]),
     ]);
     if (key === this.lastRenderKey) return;
@@ -162,24 +248,16 @@ export class AMapProvider implements MapProvider {
 
     const withGeo = items.filter((item) => item.latitude != null && item.longitude != null);
 
-    // 有路线段时按「当天相邻段」逐段绘制：两点直连，不伪造路径几何。
-    const legsWithGeo = routeLegs.filter(
-      (leg) =>
-        leg.fromLatitude != null &&
-        leg.fromLongitude != null &&
-        leg.toLatitude != null &&
-        leg.toLongitude != null,
+    // 有能画的路线段时逐段绘制：有真实 polyline 画真实几何，否则两端点直连（ADR-009）。
+    const drawableLegs = legEntries.filter(
+      (entry): entry is DrawableLeg & { path: LegPath } => entry.path != null,
     );
 
-    if (legsWithGeo.length > 0) {
-      legsWithGeo.forEach((leg) => {
+    if (drawableLegs.length > 0) {
+      drawableLegs.forEach(({ leg, path }) => {
         const color = DAY_COLORS[(leg.dayIndex - 1) % DAY_COLORS.length];
         const focused = focusDay === leg.dayIndex;
-        const path: [number, number][] = [
-          toAmapLngLat(leg.fromLatitude as number, leg.fromLongitude as number),
-          toAmapLngLat(leg.toLatitude as number, leg.toLongitude as number),
-        ];
-        // estimated 段只是两点直连的估算走向，用虚线自报家门；amap 段是实测路径，实线。
+        // estimated 段是本地估算走向，用虚线自报家门；amap 段是实测路径，实线。
         const strokeStyle = leg.source === 'amap' ? 'solid' : 'dashed';
         // 宽而透明的下层路线形成辉光；当前 Day 的上层路线加粗并提高不透明度。
         addOverlay(

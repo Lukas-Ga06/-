@@ -112,6 +112,18 @@ travel:
     # 否则攻击者每次请求换一个伪造 XFF 就能无限绕过登录限流。
     # 只有在后端"仅能经反代访问"时才配置，例如 docker compose 的 172.16.0.0/12。
     trusted-proxies: ${RATE_LIMIT_TRUSTED_PROXIES:}
+  # P1「慢依赖无端到端时间预算」：给 Agent 主链路（同步 /api/agent/chat 与 SSE）加总时间预算。
+  # 只靠单次 LLM 读超时挡不住慢依赖——一次规划串行 5 个阶段，验收实测端到端 128.13s。
+  # 这里在请求入口创建不可变 deadline，阶段开始前检查剩余预算，耗尽即按 ADR-002
+  # 「可以什么都不做」降级（intent→规则、research→跳过、结构化规划→规则规划、审核→跳过），
+  # 并在回复、SSE 事件（budget_degraded）、WARN 日志与运行追踪（DEGRADE 任务）里如实标注。
+  agent:
+    budget:
+      # 总开关：false = 不创建 deadline、所有阶段检查放行，行为与升级前完全一致（排障/压测用）
+      enabled: ${AGENT_BUDGET_ENABLED:true}
+      # 端到端总预算（毫秒，默认 30s）。注意：复杂多日行程的合法长规划也可能接近该值，
+      # 预算不够时不会失败，而是降级并明确告知「未经审核，可稍后重试」。
+      total-ms: ${AGENT_BUDGET_TOTAL_MS:30000}
   conversation:
     # 会话记忆：按「用户 + conversationId」保留最近 N 条**消息**（不是轮数；一轮问答 = 2 条），
     # 喂给 LLM 做指代消解（「那把第二天的酒店也换掉」）。历史只参与意图识别，不进入规划产物。

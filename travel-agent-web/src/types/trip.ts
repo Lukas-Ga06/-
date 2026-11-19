@@ -112,6 +112,13 @@ export interface RouteLeg {
   walkMinutes: number | null;
   driveMinutes: number | null;
   taxiCost: number | null;
+  /**
+   * 真实道路几何，**WGS-84、纬度在前**（`[[lat, lng], ...]`），来自后端 `route-legs` 的扩展字段。
+   *
+   * 旧后端不返回该字段（或缺省/空数组），此时前端按 ADR-009 回退为「两端点直连」；
+   * 渲染给高德前必须逐点转 GCJ-02（见 `AMapProvider`），业务层不感知偏移。
+   */
+  polyline?: [number, number][];
   /** amap = 实测路径；estimated = 本地估算（必须自报家门，不得显示成实时） */
   source: 'amap' | 'estimated' | string;
 }

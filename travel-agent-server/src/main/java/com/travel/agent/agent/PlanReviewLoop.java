@@ -65,6 +65,13 @@ public class PlanReviewLoop {
         ReflectAgent.ReviewVerdict verdict = initialVerdict;
 
         while (!verdict.passed() && attempts < MAX_ATTEMPTS) {
+            // P1：预算耗尽就不再重规划（重规划会再查路线/天气，是审核阶段最慢的部分）。
+            // 保留当前判定（passed=false → 确认门如实要求用户显式接受风险），绝不假装审核通过。
+            if (ctx != null && !ctx.getBudget().allows(AgentBudget.MIN_REVIEW_MS)) {
+                ctx.recordBudgetDegradation(AgentBudget.STAGE_REVIEW,
+                        "预算耗尽，提前结束审核重规划（保留当前审核判定，未再修复）");
+                break;
+            }
             attempts++;
             if (ctx != null) {
                 ctx.setState(AgentState.REPLAN);

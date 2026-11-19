@@ -1,6 +1,7 @@
 package com.travel.agent.llm;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.travel.agent.util.ErrorSummary;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -88,9 +89,11 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
             meterRegistry.counter("llm.calls", "result", "ok").increment();
             return content;
         } catch (Exception e) {
-            // 失败即降级为规则引擎：这里只记指标与日志，不向上抛
+            // 失败即降级为规则引擎：这里只记指标与日志，不向上抛。
+            // P3：记录根因类型（ResourceAccessException -> SocketTimeoutException / ConnectException），
+            // 否则日志里只剩包装异常的一句话，排障时分不清是超时还是连不上
             meterRegistry.counter("llm.calls", "result", "failed").increment();
-            log.warn("LLM 调用失败，降级为规则模板: {}", e.getMessage());
+            log.warn("LLM 调用失败，降级为规则模板: {}", ErrorSummary.describe(e));
             return null;
         } finally {
             meterRegistry.timer("llm.latency").record(java.time.Duration.ofNanos(System.nanoTime() - startedAt));
