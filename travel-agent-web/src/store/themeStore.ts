@@ -27,7 +27,8 @@ export function systemPrefersDark(): boolean {
  */
 export function readStoredTheme(): ThemeMode | 'invalid' | null {
   try {
-    const raw = typeof localStorage === 'undefined' ? null : localStorage.getItem(THEME_STORAGE_KEY);
+    const raw =
+      typeof localStorage === 'undefined' ? null : localStorage.getItem(THEME_STORAGE_KEY);
     if (!raw) return null;
     let parsed: unknown;
     try {

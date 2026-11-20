@@ -32,11 +32,11 @@ const Trip = lazy(() => import('./pages/Trip'));
 const Profile = lazy(() => import('./pages/Profile'));
 const Expenses = lazy(() => import('./pages/Expenses'));
 const Memos = lazy(() => import('./pages/Memos'));
-const Office = lazy(() => import('./pages/Office'));
-const Learning = lazy(() => import('./pages/Learning'));
-const Health = lazy(() => import('./pages/Health'));
 const Assistant = lazy(() => import('./pages/Assistant'));
 const Travel = lazy(() => import('./pages/Travel'));
+const Knowledge = lazy(() => import('./pages/Knowledge'));
+const Reviews = lazy(() => import('./pages/Reviews'));
+const TripReview = lazy(() => import('./pages/TripReview'));
 const Workbench = lazy(() => import('./pages/Workbench'));
 const UIDemo = lazy(() => import('./pages/UIDemo'));
 
@@ -101,24 +101,124 @@ function AnimatedRoutes() {
         <PageTransition variant="slide" duration={280}>
           <Routes location={location}>
             <Route path="/login" element={<Login />} />
-            <Route path="/" element={<Protected><Home /></Protected>} />
-            <Route path="/planner" element={<Protected><Planner /></Protected>} />
-            <Route path="/trip/:id" element={<Protected><Trip /></Protected>} />
-            <Route path="/expenses" element={<Protected><Expenses /></Protected>} />
-            <Route path="/memos" element={<Protected><Memos /></Protected>} />
-            <Route path="/office" element={<Protected><Office /></Protected>} />
-            <Route path="/learning" element={<Protected><Learning /></Protected>} />
-            <Route path="/health" element={<Protected><Health /></Protected>} />
+            <Route
+              path="/"
+              element={
+                <Protected>
+                  <Home />
+                </Protected>
+              }
+            />
+            <Route
+              path="/planner"
+              element={
+                <Protected>
+                  <Planner />
+                </Protected>
+              }
+            />
+            <Route
+              path="/trip/:id"
+              element={
+                <Protected>
+                  <Trip />
+                </Protected>
+              }
+            />
+            <Route
+              path="/trip/:id/review"
+              element={
+                <Protected>
+                  <TripReview />
+                </Protected>
+              }
+            />
+            <Route
+              path="/review"
+              element={
+                <Protected>
+                  <Reviews />
+                </Protected>
+              }
+            />
+            <Route
+              path="/expenses"
+              element={
+                <Protected>
+                  <Expenses />
+                </Protected>
+              }
+            />
+            <Route
+              path="/memos"
+              element={
+                <Protected>
+                  <Memos />
+                </Protected>
+              }
+            />
+            {/* 已退役模块：旧链接回首页，不产生 404 */}
+            <Route path="/office" element={<Navigate to="/" replace />} />
+            <Route path="/learning" element={<Navigate to="/" replace />} />
+            <Route path="/health" element={<Navigate to="/" replace />} />
             {/* 日程已并入旅行规划（?tab=schedule），旧链接继续可用 */}
             <Route path="/schedule" element={<Navigate to="/travel?tab=schedule" replace />} />
-            <Route path="/assistant" element={<Protected><Assistant /></Protected>} />
-            <Route path="/travel" element={<Protected><Travel /></Protected>} />
+            <Route
+              path="/assistant"
+              element={
+                <Protected>
+                  <Assistant />
+                </Protected>
+              }
+            />
+            <Route
+              path="/travel"
+              element={
+                <Protected>
+                  <Travel />
+                </Protected>
+              }
+            />
             {/* 足迹已并入旅行规划（?tab=footprint），旧链接继续可用 */}
             <Route path="/footprint" element={<Navigate to="/travel?tab=footprint" replace />} />
-            <Route path="/workbench" element={<Protected><Workbench /></Protected>} />
-            <Route path="/profile" element={<Protected><Profile /></Protected>} />
+            <Route
+              path="/knowledge"
+              element={
+                <Protected>
+                  <Knowledge />
+                </Protected>
+              }
+            />
+            {/* 运行诊断已迁入「设置 > 诊断」（方案 §6.2）；旧链接继续可用 */}
+            <Route path="/workbench" element={<Navigate to="/settings/diagnostics" replace />} />
+            <Route
+              path="/settings/diagnostics"
+              element={
+                <Protected>
+                  <Workbench />
+                </Protected>
+              }
+            />
+            <Route
+              path="/profile"
+              element={
+                <Protected>
+                  <Profile />
+                </Protected>
+              }
+            />
+            {/* 组件预览只在开发环境注册，生产构建不暴露（P2-05） */}
+            {import.meta.env.DEV && (
+              <Route
+                path="/ui-demo"
+                element={
+                  <Protected>
+                    <UIDemo />
+                  </Protected>
+                }
+              />
+            )}
             <Route path="*" element={<Navigate to="/" replace />} />
-            <Route path="/ui-demo" element={<Protected><UIDemo /></Protected>} />
           </Routes>
         </PageTransition>
       </Suspense>

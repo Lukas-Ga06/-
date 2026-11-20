@@ -35,5 +35,8 @@ if (typeof globalThis.localStorage === 'undefined') {
 }
 
 if (typeof globalThis.sessionStorage === 'undefined') {
-  Object.defineProperty(globalThis, 'sessionStorage', { value: new MemoryStorage(), writable: true });
+  Object.defineProperty(globalThis, 'sessionStorage', {
+    value: new MemoryStorage(),
+    writable: true,
+  });
 }

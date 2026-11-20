@@ -77,19 +77,19 @@ http.interceptors.request.use((config) => {
   return config;
 });
 
-http.interceptors.response.use(
-  unwrapApiResponse,
-  handleResponseError,
-);
+http.interceptors.response.use(unwrapApiResponse, handleResponseError);
 
 /**
  * 统一解包 {code,message,data}：code 非 0 视为业务失败。
  * keepEnvelope 的请求返回 { data, pagination }，供分页列表读取分页元数据。
  */
 export function unwrapApiResponse(resp: { data: unknown; config?: { keepEnvelope?: boolean } }) {
-  const body = resp.data as
-    | { code?: number; message?: string; data?: unknown; pagination?: unknown }
-    | null;
+  const body = resp.data as {
+    code?: number;
+    message?: string;
+    data?: unknown;
+    pagination?: unknown;
+  } | null;
   const keepEnvelope = resp.config?.keepEnvelope === true;
   if (body && typeof body === 'object' && 'code' in body) {
     if (body.code === 0) {
@@ -184,12 +184,14 @@ export function handleResponseError(error: any): Promise<never> {
   const url: string = error?.config?.url ?? '';
   const status: number | undefined = error?.response?.status;
   const body = error?.response?.data;
-  const bodyMessage = typeof body?.message === 'string' ? body.message : typeof body === 'string' ? body : undefined;
+  const bodyMessage =
+    typeof body?.message === 'string' ? body.message : typeof body === 'string' ? body : undefined;
   const message: string = bodyMessage || error?.message || '网络错误';
   const retryAfterSeconds = getRetryAfterSeconds(error?.response?.headers, bodyMessage);
   // 登录/注册/me 接口本身会返回 401（密码错误 / 未登录探活），
   // 此时不能触发登出跳转，否则输错一次密码或在登录页探测就整页刷新。
-  const isAuthRequest = url.includes('/auth/login') || url.includes('/auth/register') || url.includes('/auth/me');
+  const isAuthRequest =
+    url.includes('/auth/login') || url.includes('/auth/register') || url.includes('/auth/me');
   // 已在登录页时也不跳转：避免 401 → 跳 /login → 又一次 401 的循环刷新
   const alreadyOnLogin = typeof window !== 'undefined' && window.location?.pathname === '/login';
   if (isAuthExpired(status) && !isAuthRequest && !alreadyOnLogin) {

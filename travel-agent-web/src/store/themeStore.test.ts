@@ -26,7 +26,11 @@ function stubSystemTheme(prefersDark: boolean) {
     dispatchEvent: vi.fn(),
   }));
   vi.stubGlobal('matchMedia', matchMedia);
-  Object.defineProperty(window, 'matchMedia', { configurable: true, writable: true, value: matchMedia });
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    writable: true,
+    value: matchMedia,
+  });
   return matchMedia;
 }
 

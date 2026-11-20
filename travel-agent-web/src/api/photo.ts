@@ -10,9 +10,11 @@ export interface TripPhoto {
   url: string;
 }
 
-export const listPhotos = (tripId: number) => request<TripPhoto[]>({ url: `/trips/${tripId}/photos` });
+export const listPhotos = (tripId: number) =>
+  request<TripPhoto[]>({ url: `/trips/${tripId}/photos` });
 
-export const deletePhoto = (id: number) => request<void>({ url: `/photos/${id}`, method: 'delete' });
+export const deletePhoto = (id: number) =>
+  request<void>({ url: `/photos/${id}`, method: 'delete' });
 
 export function uploadPhoto(tripId: number, file: File) {
   const form = new FormData();

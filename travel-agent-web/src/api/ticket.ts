@@ -85,7 +85,9 @@ export async function getAccessTicket(
 }
 
 /** 组件用：随登录态/用途自动获取票据；未就绪时返回 null */
-export function useAccessTicket(purpose: AccessTicketPurpose = DEFAULT_TICKET_PURPOSE): string | null {
+export function useAccessTicket(
+  purpose: AccessTicketPurpose = DEFAULT_TICKET_PURPOSE,
+): string | null {
   const user = useAuthStore((s) => s.user);
   const [ticket, setTicket] = useState<string | null>(null);
 

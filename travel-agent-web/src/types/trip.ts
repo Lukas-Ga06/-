@@ -62,6 +62,21 @@ export function tripPhaseClass(trip: Trip): string {
 
 export type ItemType = 'hotel' | 'attraction' | 'restaurant' | 'transport' | string;
 
+/** 行程项执行状态（P1）：计划 → 进行中 → 已完成 / 已跳过，可重置回计划 */
+export type ItineraryStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'SKIPPED';
+
+export const ITINERARY_STATUS_LABELS: Record<ItineraryStatus, string> = {
+  PENDING: '未开始',
+  IN_PROGRESS: '进行中',
+  COMPLETED: '已完成',
+  SKIPPED: '已跳过',
+};
+
+/** 状态文案兜底：旧数据缺字段/未知值一律按「未开始」 */
+export function itineraryStatusLabel(status?: string | null): string {
+  return ITINERARY_STATUS_LABELS[status as ItineraryStatus] ?? ITINERARY_STATUS_LABELS.PENDING;
+}
+
 /**
  * 价格深链：`kind=price` 去 OTA 查价（如携程），`kind=map` 在地图上查看位置。
  * 旧后端不返回 `price`，这里所有字段都按可选/可空处理。
@@ -111,6 +126,12 @@ export interface ItineraryItem {
   description?: string | null;
   /** 价格溯源（可选）：缺失或 null 时保持只展示金额的旧行为 */
   price?: ItineraryPrice | null;
+  /** 执行状态；旧后端缺失时按 PENDING 处理 */
+  status?: ItineraryStatus | null;
+  /** 实际开始/完成/到访时间（ISO）；未发生时为 null，绝不拿计划时间冒充 */
+  startedAt?: string | null;
+  completedAt?: string | null;
+  visitedAt?: string | null;
 }
 
 export interface AddItemPayload {
@@ -159,6 +180,15 @@ export interface RouteLeg {
   source: 'amap' | 'estimated' | string;
 }
 
+/** 足迹实际路线点（WGS-84，纬度在前） */
+export interface TripMapRouteStop {
+  itemId: number | null;
+  title: string | null;
+  visitedAt: string | null;
+  lat: number | null;
+  lng: number | null;
+}
+
 /** 首页/足迹地图点位。目的地未定位、行程未填日期或预算时，后端会返回 null */
 export interface TripMapPoint {
   tripId: number;
@@ -170,6 +200,16 @@ export interface TripMapPoint {
   budget: number | null;
   lat: number | null;
   lng: number | null;
+  /** 业务阶段：UPCOMING / ONGOING / PAST / CANCELLED */
+  phase?: 'UPCOMING' | 'ONGOING' | 'PAST' | 'CANCELLED' | string | null;
+  /** 计划地点数 */
+  plannedPlaces?: number | null;
+  /** 实际到访数（只认 visitedAt） */
+  visitedPlaces?: number | null;
+  /** 是否有真实打卡；未来计划不得当成「去过」 */
+  visited?: boolean | null;
+  /** 实际到访路线（按到访时间排序） */
+  actualRoute?: TripMapRouteStop[] | null;
 }
 
 export function totalCost(items: ItineraryItem[]): number {

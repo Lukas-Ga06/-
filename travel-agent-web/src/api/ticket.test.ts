@@ -32,7 +32,10 @@ describe('getAccessTicket', () => {
     expect(await getAccessTicket()).toBe('t-1');
     expect(requestMock).toHaveBeenCalledTimes(1);
     // 不传用途 = 服务端默认的 SSE 用途
-    expect(requestMock).toHaveBeenCalledWith({ url: '/access-ticket?purpose=agent-stream', method: 'post' });
+    expect(requestMock).toHaveBeenCalledWith({
+      url: '/access-ticket?purpose=agent-stream',
+      method: 'post',
+    });
   });
 
   it('并发请求合并为一次', async () => {
@@ -58,7 +61,10 @@ describe('getAccessTicket', () => {
     expect(media).toBe('media-ticket');
     expect(stream).toBe('stream-ticket');
     expect(requestMock).toHaveBeenCalledTimes(2);
-    expect(requestMock).toHaveBeenCalledWith({ url: '/access-ticket?purpose=media-read', method: 'post' });
+    expect(requestMock).toHaveBeenCalledWith({
+      url: '/access-ticket?purpose=media-read',
+      method: 'post',
+    });
 
     // 再次取用：两种用途都应命中各自缓存，不再发请求
     expect(await getAccessTicket('media-read')).toBe('media-ticket');

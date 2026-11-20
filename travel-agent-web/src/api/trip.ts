@@ -1,6 +1,14 @@
 import { request } from './client';
-import type { AddItemPayload, ItineraryItem, RouteLeg, Trip, TripMapPoint } from '../types/trip';
+import type {
+  AddItemPayload,
+  ItineraryItem,
+  ItineraryStatus,
+  RouteLeg,
+  Trip,
+  TripMapPoint,
+} from '../types/trip';
 import type { BudgetExecution } from '../types/expense';
+import type { TripEventItem, TripReview } from '../types/review';
 
 export function listTrips(): Promise<Trip[]> {
   return request<Trip[]>({ url: '/trips' });
@@ -49,13 +57,39 @@ export function getBudgetExecution(tripId: number): Promise<BudgetExecution> {
 }
 
 export function addItineraryItem(tripId: number, payload: AddItemPayload): Promise<ItineraryItem> {
-  return request<ItineraryItem>({ url: `/trips/${tripId}/itinerary`, method: 'post', data: payload });
+  return request<ItineraryItem>({
+    url: `/trips/${tripId}/itinerary`,
+    method: 'post',
+    data: payload,
+  });
 }
 
-export function updateItineraryItem(itemId: number, payload: Partial<AddItemPayload>): Promise<ItineraryItem> {
+export function updateItineraryItem(
+  itemId: number,
+  payload: Partial<AddItemPayload>,
+): Promise<ItineraryItem> {
   return request<ItineraryItem>({ url: `/itinerary/${itemId}`, method: 'put', data: payload });
 }
 
 export function deleteItineraryItem(itemId: number): Promise<void> {
   return request<void>({ url: `/itinerary/${itemId}`, method: 'delete' });
+}
+
+/** 行程项状态推进（P1）：COMPLETED 会写实际到访时间并进撤销链 */
+export function updateItemStatus(id: number, status: ItineraryStatus): Promise<ItineraryItem> {
+  return request<ItineraryItem>({
+    url: `/itinerary/${id}/status`,
+    method: 'put',
+    data: { status },
+  });
+}
+
+/** 旅行回顾：完成率、计划/实际花费、到访地点、实际路线、照片、事件与修改历史 */
+export function getTripReview(tripId: number): Promise<TripReview> {
+  return request<TripReview>({ url: `/trips/${tripId}/review` });
+}
+
+/** 旅行事件流（按时间倒序） */
+export function getTripEvents(tripId: number, limit = 20): Promise<TripEventItem[]> {
+  return request<TripEventItem[]>({ url: `/trips/${tripId}/events`, params: { limit } });
 }

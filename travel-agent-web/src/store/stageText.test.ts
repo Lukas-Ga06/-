@@ -25,12 +25,22 @@ describe('stageText（Batch 15 任务 DAG 事件）', () => {
   });
 
   it('recover 按 attempt+1 渲染第几次尝试', () => {
-    expect(stageText('recover', { taskId: 't-2', replacesTaskId: 't-1', taskType: 'REVIEW', attempt: 1 })).toBe(
-      '重派 REVIEW（第 2 次尝试）',
-    );
-    expect(stageText('recover', { taskId: 't-2', replacesTaskId: 't-1', taskType: 'REVIEW', attempt: 2 })).toBe(
-      '重派 REVIEW（第 3 次尝试）',
-    );
+    expect(
+      stageText('recover', {
+        taskId: 't-2',
+        replacesTaskId: 't-1',
+        taskType: 'REVIEW',
+        attempt: 1,
+      }),
+    ).toBe('重派 REVIEW（第 2 次尝试）');
+    expect(
+      stageText('recover', {
+        taskId: 't-2',
+        replacesTaskId: 't-1',
+        taskType: 'REVIEW',
+        attempt: 2,
+      }),
+    ).toBe('重派 REVIEW（第 3 次尝试）');
   });
 
   it('recover 的 attempt 缺省按 0（首次）处理', () => {

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentResult } from '../types/agent';
 import type { AgentStreamHandlers, AgentStreamParams } from '../api/agent';
-import { confirmPlan } from '../api/agent';
+import { confirmPlan, cancelPlan } from '../api/agent';
 
 const { handlersRef, paramsRef, closeSpy, clearConversationSpy } = vi.hoisted(() => ({
   handlersRef: { current: null as AgentStreamHandlers | null },
@@ -161,6 +161,160 @@ describe('agentStore', () => {
   });
 });
 
+describe('agentStore · 流隔离、停止生成与警告语义（阶段 A）', () => {
+  const cancelPlanMock = vi.mocked(cancelPlan);
+
+  function pendingResult(planId = 'plan-1'): AgentResult {
+    return completedResult({
+      status: 'NEED_CONFIRMATION',
+      planId,
+      confirmation: { planId, summary: '新增 2 项', riskLevel: 'MEDIUM' },
+    });
+  }
+
+  beforeEach(() => {
+    useAgentStore.getState().reset();
+    useAgentStore.setState({ conversationId: null });
+    handlersRef.current = null;
+    paramsRef.current = null;
+    cancelPlanMock.mockReset();
+  });
+
+  it('旧流的 complete 不能覆盖新会话（P0-02）', () => {
+    useAgentStore.getState().send({ message: '第一轮' });
+    const firstHandlers = handlersRef.current!;
+
+    // 新请求取代旧流
+    useAgentStore.getState().abort();
+    useAgentStore.getState().send({ message: '第二轮' });
+    const messagesBefore = useAgentStore.getState().messages.length;
+
+    // 第一轮的迟到 complete / event 必须被丢弃
+    firstHandlers.onEvent?.('intent', { intent: 'PLAN_TRIP' });
+    firstHandlers.onComplete?.(completedResult({ message: '第一轮的旧结论' }));
+
+    const state = useAgentStore.getState();
+    expect(state.messages).toHaveLength(messagesBefore);
+    expect(state.messages.some((m) => m.content.includes('第一轮的旧结论'))).toBe(false);
+    expect(state.activity.map((e) => e.event)).not.toContain('intent');
+    expect(state.streaming).toBe(true);
+  });
+
+  it('旧流的 error 同样不能解锁当前输入', () => {
+    useAgentStore.getState().send({ message: '第一轮' });
+    const firstHandlers = handlersRef.current!;
+    useAgentStore.getState().abort();
+    useAgentStore.getState().send({ message: '第二轮' });
+
+    firstHandlers.onError?.('旧连接中断');
+
+    expect(useAgentStore.getState().streaming).toBe(true);
+    expect(useAgentStore.getState().messages.some((m) => m.content.includes('旧连接中断'))).toBe(
+      false,
+    );
+  });
+
+  it('过程警告只登记、不结束本轮生成', () => {
+    useAgentStore.getState().send({ message: '安排上海三日游' });
+    handlersRef.current?.onWarning?.({ message: '研究步骤预算耗尽', code: 'BUDGET_EXHAUSTED' });
+
+    const state = useAgentStore.getState();
+    expect(state.streaming).toBe(true);
+    expect(state.warnings).toEqual(['研究步骤预算耗尽']);
+    expect(state.activity.map((e) => e.event)).toContain('warning');
+
+    // 警告之后仍然能正常拿到结论
+    handlersRef.current?.onComplete?.(completedResult({ message: '部分完成' }));
+    expect(useAgentStore.getState().streaming).toBe(false);
+    expect(useAgentStore.getState().warnings).toHaveLength(1);
+  });
+
+  it('重复的同一警告只记一条', () => {
+    useAgentStore.getState().send({ message: '安排' });
+    handlersRef.current?.onWarning?.({ message: '天气服务不可用' });
+    handlersRef.current?.onWarning?.({ message: '天气服务不可用' });
+    expect(useAgentStore.getState().warnings).toEqual(['天气服务不可用']);
+  });
+
+  it('abort 立刻恢复输入、保留已获得的过程记录并写入「已停止」', () => {
+    useAgentStore.getState().send({ message: '安排上海三日游' });
+    handlersRef.current?.onEvent?.('run', { runId: 'run-1' });
+    handlersRef.current?.onEvent?.('tool_result', { tool: 'weather' });
+
+    useAgentStore.getState().abort();
+
+    const state = useAgentStore.getState();
+    expect(state.streaming).toBe(false);
+    expect(state.stage).toBeNull();
+    expect(state.messages[state.messages.length - 1].content).toContain('已停止生成');
+    // 过程记录不能因为停止而消失
+    expect(state.activity.map((e) => e.event)).toContain('tool_result');
+    expect(state.activity.map((e) => e.event)).toContain('cancelled');
+    // 停止后能继续发送
+    useAgentStore.getState().send({ message: '换个方案' });
+    expect(useAgentStore.getState().streaming).toBe(true);
+  });
+
+  it('stop 之后旧流的迟到事件一律丢弃', () => {
+    useAgentStore.getState().send({ message: '安排' });
+    const handlers = handlersRef.current!;
+    useAgentStore.getState().abort();
+    const snapshot = useAgentStore.getState().messages.length;
+
+    handlers.onComplete?.(completedResult({ message: '迟到的结论' }));
+
+    expect(useAgentStore.getState().messages).toHaveLength(snapshot);
+  });
+
+  it('未在生成中时 abort 是空操作', () => {
+    useAgentStore.getState().abort();
+    expect(useAgentStore.getState().messages).toHaveLength(0);
+  });
+
+  it('每条命令都带幂等键 requestId，且不同命令不复用（P0-01）', () => {
+    useAgentStore.getState().send({ message: '记一下明天办签证' });
+    const first = paramsRef.current?.requestId;
+    expect(first).toBeTruthy();
+
+    handlersRef.current?.onComplete?.(completedResult());
+    useAgentStore.getState().send({ message: '再记一下后天订酒店' });
+    const second = paramsRef.current?.requestId;
+
+    expect(second).toBeTruthy();
+    expect(second).not.toBe(first);
+  });
+
+  it('取消方案失败时保留 pendingConfirm，planId 不丢（P1-07）', async () => {
+    useAgentStore.getState().send({ message: '安排' });
+    handlersRef.current?.onComplete?.(pendingResult('plan-keep'));
+    cancelPlanMock.mockRejectedValue(new Error('网络错误'));
+
+    await useAgentStore.getState().cancel();
+
+    const state = useAgentStore.getState();
+    expect(state.pendingConfirm?.planId).toBe('plan-keep');
+    expect(state.streaming).toBe(false);
+    expect(state.messages[state.messages.length - 1].content).toContain('取消失败');
+
+    // 服务端恢复后可以再次取消
+    cancelPlanMock.mockResolvedValue(completedResult({ message: '已取消' }));
+    await useAgentStore.getState().cancel();
+    expect(useAgentStore.getState().pendingConfirm).toBeNull();
+    expect(cancelPlanMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('取消成功后才移除方案', async () => {
+    useAgentStore.getState().send({ message: '安排' });
+    handlersRef.current?.onComplete?.(pendingResult('plan-2'));
+    cancelPlanMock.mockResolvedValue(completedResult({ message: '已取消' }));
+
+    await useAgentStore.getState().cancel();
+
+    expect(useAgentStore.getState().pendingConfirm).toBeNull();
+    expect(cancelPlanMock).toHaveBeenCalledWith('plan-2');
+  });
+});
+
 describe('agentStore · V2.2 运行追踪与执行同步', () => {
   const confirmPlanMock = vi.mocked(confirmPlan);
 
@@ -240,7 +394,12 @@ describe('agentStore · V2.2 运行追踪与执行同步', () => {
       completedResult({
         status: 'NEED_CONFIRMATION',
         planId: 'plan-1',
-        confirmation: { planId: 'plan-1', summary: '将新增 2 项', riskLevel: 'MEDIUM', contentHash: hash },
+        confirmation: {
+          planId: 'plan-1',
+          summary: '将新增 2 项',
+          riskLevel: 'MEDIUM',
+          contentHash: hash,
+        },
       }),
     );
 
@@ -287,7 +446,9 @@ describe('agentStore · V2.2 运行追踪与执行同步', () => {
           passed: false,
           blocked: true,
           attempts: 2,
-          issues: [{ type: 'BUDGET_OVERRUN', severity: 'HIGH', message: '计划合计 ¥3200 超过预算 ¥1' }],
+          issues: [
+            { type: 'BUDGET_OVERRUN', severity: 'HIGH', message: '计划合计 ¥3200 超过预算 ¥1' },
+          ],
           repairs: [],
         },
         confirmation: {

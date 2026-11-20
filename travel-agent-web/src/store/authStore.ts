@@ -98,6 +98,12 @@ export const useAuthStore = create<AuthState>()((set) => ({
   logout: () => {
     clearAccessTicketCache();
     cacheUser(null);
-    set({ token: null, user: null, sessionError: null });
+    // 会话记忆属于上一个用户：登出即抹掉，避免换人登录后串上下文
+    try {
+      sessionStorage.removeItem('travel-agent-conversation');
+    } catch {
+      // 隐私模式下 sessionStorage 可能不可用，忽略
+    }
+    set({ token: null, user: null, sessionError: null, authChecked: true });
   },
 }));

@@ -16,12 +16,62 @@ export interface AgentStreamParams {
   mapCenter?: { lat: number; lng: number } | null;
   /** 会话记忆标识（UUID）：后端据此回放历史做指代消解 */
   conversationId?: string | null;
+  /**
+   * 幂等标识（P0-01）：同一条命令的重放（EventSource 自动重连、代理重试、手动重发）
+   * 必须带同一个值，服务端按 (userId, requestId) 保证写入最多一次。
+   */
+  requestId?: string | null;
+}
+
+/** 过程警告：服务端 `error` 事件只表示「本轮有模块没过」，流还会继续并最终 complete */
+export interface AgentWarning {
+  code?: string;
+  message: string;
 }
 
 export interface AgentStreamHandlers {
   onEvent?: (event: string, data: any) => void;
   onComplete?: (result: AgentResult) => void;
+  /** 过程警告：不终止本次流、不解锁输入（P0-02） */
+  onWarning?: (warning: AgentWarning) => void;
+  /** 用户主动停止，或服务端下发 cancelled：本轮已结束但没有最终结果 */
+  onCancelled?: (payload?: any) => void;
+  /** 终止性错误：连接中断 / HTTP 失败 / 未收到 complete 就断流 */
   onError?: (message: string) => void;
+}
+
+/**
+ * 统一事件分发（GET / POST 两条传输共用，避免协议语义在两处漂移）。
+ *
+ * 语义约定（P0-02）：
+ * - `complete` / `cancelled` 是终止事件，各自只回调一次并关闭连接；
+ * - `error` 是**过程警告**：服务端随后仍会下发 complete，因此绝不在此终止流；
+ * - 其余事件交给 onEvent，由调用方决定是否渲染。
+ */
+function dispatchFrame(
+  name: string,
+  data: any,
+  handlers: AgentStreamHandlers,
+  finish: (callback?: () => void) => void,
+): void {
+  if (name === 'complete') {
+    finish(() => handlers.onComplete?.(data as AgentResult));
+  } else if (name === 'cancelled') {
+    finish(() => handlers.onCancelled?.(data));
+  } else if (name === 'error') {
+    const warning: AgentWarning = {
+      code: typeof data?.code === 'string' ? data.code : undefined,
+      message: data?.message || 'Agent 执行出错',
+    };
+    if (handlers.onWarning) {
+      handlers.onWarning(warning);
+    } else {
+      // 没有 warning 通道的调用方仍能看到这条事件，但不会被当成终止
+      handlers.onEvent?.('error', data);
+    }
+  } else {
+    handlers.onEvent?.(name, data);
+  }
 }
 
 const EVENT_NAMES = [
@@ -29,9 +79,23 @@ const EVENT_NAMES = [
   // replan：审核未通过进入重规划时下发，data 为 { attempt, issues[] }（Batch 13）
   // delegate / recover / conflict：任务图事件（Batch 15），委派 / 回收重派 / 前置未完成被拒
   //   —— EventSource 只能按固定事件名监听，漏登记就等于静默丢弃，过程时间线会缺这三类行
-  'run', 'start', 'intent', 'planning', 'replan', 'tool_call', 'tool_result',
-  'rag_result', 'plan_update', 'focus', 'confirmation', 'complete', 'error',
-  'delegate', 'recover', 'conflict',
+  'run',
+  'start',
+  'intent',
+  'planning',
+  'replan',
+  'tool_call',
+  'tool_result',
+  'rag_result',
+  'plan_update',
+  'focus',
+  'confirmation',
+  'complete',
+  'cancelled',
+  'error',
+  'delegate',
+  'recover',
+  'conflict',
 ];
 
 /**
@@ -50,6 +114,8 @@ export async function streamAgentChat(
   if (params.tripId) qs.set('tripId', String(params.tripId));
   if (params.currentDay) qs.set('currentDay', String(params.currentDay));
   if (params.conversationId) qs.set('conversationId', params.conversationId);
+  // 幂等键必须进 URL：EventSource 断线自动重连会复用同一个 URL，服务端据此只写一次
+  if (params.requestId) qs.set('requestId', params.requestId);
   if (params.selectedElement?.id) {
     qs.set('selType', params.selectedElement.type || 'itinerary_item');
     qs.set('selId', String(params.selectedElement.id));
@@ -76,20 +142,18 @@ export async function streamAgentChat(
 
   EVENT_NAMES.forEach((name) => {
     es.addEventListener(name, (e: MessageEvent) => {
+      // EventSource 的连接层失败同样会派发名为 'error' 的 Event（没有 data）。
+      // 那不是服务端下发的业务错误，交给 onerror 走终止路径，不能当过程警告。
+      if (name === 'error' && !e.data) {
+        return;
+      }
       let data: any = null;
       try {
         data = e.data ? JSON.parse(e.data) : null;
       } catch {
         data = e.data;
       }
-      if (name === 'complete') {
-        finish(() => handlers.onComplete?.(data as AgentResult));
-      } else if (name === 'error') {
-        // 服务端主动报错：Agent 随后还会发一条 complete，这里只提示、不终止
-        handlers.onError?.(data?.message || 'Agent 执行出错');
-      } else {
-        handlers.onEvent?.(name, data);
-      }
+      dispatchFrame(name, data, handlers, finish);
     });
   });
 
@@ -137,6 +201,7 @@ export async function streamAgentChatPost(
           tripId: params.tripId ?? null,
           currentDay: params.currentDay ?? null,
           conversationId: params.conversationId ?? null,
+          requestId: params.requestId ?? null,
           selectedElement: params.selectedElement ?? null,
           mapCenter: params.mapCenter ?? null,
         }),
@@ -179,14 +244,7 @@ export async function streamAgentChatPost(
             data = raw;
           }
         }
-        if (event === 'complete') {
-          finish(() => handlers.onComplete?.(data as AgentResult));
-        } else if (event === 'error') {
-          // 服务端主动报错：Agent 随后还会发一条 complete，这里只提示、不终止
-          handlers.onError?.(data?.message || 'Agent 执行出错');
-        } else {
-          handlers.onEvent?.(event, data);
-        }
+        dispatchFrame(event, data, handlers, finish);
       };
       for (;;) {
         const { done, value } = await reader.read();

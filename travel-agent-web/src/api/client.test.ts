@@ -37,11 +37,15 @@ describe('api client 响应处理', () => {
   });
 
   it('code 为 0 时直接返回 data', () => {
-    expect(unwrapApiResponse({ data: { code: 0, message: 'success', data: { id: 7 } } })).toEqual({ id: 7 });
+    expect(unwrapApiResponse({ data: { code: 0, message: 'success', data: { id: 7 } } })).toEqual({
+      id: 7,
+    });
   });
 
   it('code 非 0 时以 message 作为错误抛出', async () => {
-    await expect(unwrapApiResponse({ data: { code: 400, message: '金额必须大于 0' } })).rejects.toThrow('金额必须大于 0');
+    await expect(
+      unwrapApiResponse({ data: { code: 400, message: '金额必须大于 0' } }),
+    ).rejects.toThrow('金额必须大于 0');
   });
 
   it('登录接口返回 401 时不登出、不跳转（否则输错密码就整页刷新）', async () => {
@@ -114,13 +118,16 @@ describe('api client 响应处理', () => {
 
   it('5xx / 网络错误同样不清登录态', async () => {
     await expect(
-      handleResponseError({ config: { url: '/trips' }, response: { status: 503, data: { message: '服务暂不可用' } } }),
+      handleResponseError({
+        config: { url: '/trips' },
+        response: { status: 503, data: { message: '服务暂不可用' } },
+      }),
     ).rejects.toThrow('服务暂不可用');
     expect(useAuthStore.getState().token).toBe('token-123');
 
-    await expect(handleResponseError({ config: { url: '/trips' }, message: 'Network Error' })).rejects.toThrow(
-      'Network Error',
-    );
+    await expect(
+      handleResponseError({ config: { url: '/trips' }, message: 'Network Error' }),
+    ).rejects.toThrow('Network Error');
     expect(useAuthStore.getState().token).toBe('token-123');
     expect((globalThis as any).window.location.href).toBe('/current');
   });
@@ -216,9 +223,15 @@ describe('分页参数与分页响应兼容（B9）', () => {
   });
 
   it('readPagination：缺 hasMore 时按 offset + 本页条数 < total 推断', () => {
-    expect(readPagination({ total: 25, limit: 20, offset: 0 }, new Array(20).fill(0))?.hasMore).toBe(true);
-    expect(readPagination({ total: 25, limit: 20, offset: 20 }, new Array(5).fill(0))?.hasMore).toBe(false);
-    expect(readPagination({ total: 25, limit: 20, offset: 0 }, new Array(20).fill(0))?.total).toBe(25);
+    expect(
+      readPagination({ total: 25, limit: 20, offset: 0 }, new Array(20).fill(0))?.hasMore,
+    ).toBe(true);
+    expect(
+      readPagination({ total: 25, limit: 20, offset: 20 }, new Array(5).fill(0))?.hasMore,
+    ).toBe(false);
+    expect(readPagination({ total: 25, limit: 20, offset: 0 }, new Array(20).fill(0))?.total).toBe(
+      25,
+    );
   });
 
   it('readPagination：结构非法即返回 null，不抛错', () => {
@@ -231,7 +244,11 @@ describe('分页参数与分页响应兼容（B9）', () => {
 
   it('unwrapApiResponse：keepEnvelope 时保留顶层 pagination', () => {
     const result = unwrapApiResponse({
-      data: { code: 0, data: [{ id: 1 }], pagination: { total: 1, limit: 20, offset: 0, hasMore: false } },
+      data: {
+        code: 0,
+        data: [{ id: 1 }],
+        pagination: { total: 1, limit: 20, offset: 0, hasMore: false },
+      },
       config: { keepEnvelope: true },
     });
 
@@ -243,7 +260,10 @@ describe('分页参数与分页响应兼容（B9）', () => {
 
   it('unwrapApiResponse：keepEnvelope 也不吞业务错误', async () => {
     await expect(
-      unwrapApiResponse({ data: { code: 500, message: '额度不足' }, config: { keepEnvelope: true } }),
+      unwrapApiResponse({
+        data: { code: 500, message: '额度不足' },
+        config: { keepEnvelope: true },
+      }),
     ).rejects.toThrow('额度不足');
   });
 });

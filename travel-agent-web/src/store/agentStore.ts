@@ -1,7 +1,19 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { cancelPlan, clearConversation, confirmPlan, streamAgentChat, streamAgentChatPost } from '../api/agent';
-import type { AgentFocus, AgentResult, ChatMessage, ExecutionSummary, SelectedElement } from '../types/agent';
+import {
+  cancelPlan,
+  clearConversation,
+  confirmPlan,
+  streamAgentChat,
+  streamAgentChatPost,
+} from '../api/agent';
+import type {
+  AgentFocus,
+  AgentResult,
+  ChatMessage,
+  ExecutionSummary,
+  SelectedElement,
+} from '../types/agent';
 import { stageText, type ActivityEvent } from './stageText';
 
 export interface SendPayload {
@@ -41,7 +53,14 @@ interface AgentState {
   lastExecution: ExecutionSummary | null;
   /** Agent 过程事件（追加式时间线，窗口保留最近 40 条；send 开始时清空） */
   activity: ActivityEvent[];
+  /**
+   * 本轮的过程警告（服务端 error 事件）。语义是「有模块没过，但流还在跑」，
+   * 因此既不终止流也不解锁输入；结果出来后与结论并列展示，避免无条件「成功」。
+   */
+  warnings: string[];
   send: (payload: SendPayload) => void;
+  /** 用户主动停止本轮生成：关闭连接、保留已获得的过程记录、立刻恢复输入 */
+  abort: () => void;
   /**
    * 确认待确认方案。acknowledgeIssues=true 表示用户已显式接受未解决的高风险问题
    * （Batch 13）；缺省/false 时请求体与旧契约完全一致。
@@ -87,229 +106,324 @@ function newConversationId(): string {
   return `c-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+/**
+ * 幂等键（P0-01）：一条命令一个，随本次连接生命周期固定。
+ * EventSource 断线自动重连会复用同一个 URL（也就复用同一个 requestId），
+ * 服务端按 (userId, requestId) 去重，保证备忘/日程/账单不会因为重连被写两次。
+ */
+function newRequestId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `r-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export const useAgentStore = create<AgentState>()(
   persist(
     (set, get) => ({
-  messages: [],
-  streaming: false,
-  stage: null,
-  pendingConfirm: null,
-  lastFocus: null,
-  committedTripId: null,
-  conversationId: null,
-  currentRun: null,
-  lastExecution: null,
-  activity: [],
-
-  send: (payload) => {
-    if (get().streaming || !payload.message.trim()) {
-      return;
-    }
-    closeFn?.();
-    closeFn = null;
-    const seq = ++streamSeq;
-    // 会话记忆：首次发送时生成，之后一直复用（跨页面切换保持同一对话）
-    const conversationId = get().conversationId ?? newConversationId();
-    if (conversationId !== get().conversationId) {
-      set({ conversationId });
-    }
-    const userMsg: ChatMessage = {
-      id: nextId(),
-      role: 'user',
-      content: payload.displayText ?? payload.message,
-      time: new Date().toISOString(),
-    };
-    set({
-      messages: pushMessage(get().messages, userMsg),
-      streaming: true,
-      stage: '连接 Agent…',
+      messages: [],
+      streaming: false,
+      stage: null,
       pendingConfirm: null,
+      lastFocus: null,
+      committedTripId: null,
+      conversationId: null,
       currentRun: null,
+      lastExecution: null,
       activity: [],
-    });
+      warnings: [],
 
-    const streamFn = payload.transport === 'post' ? streamAgentChatPost : streamAgentChat;
-    streamFn({ ...payload, conversationId }, {
-        onEvent: (event, data) => {
-          const text = stageText(event, data);
-          if (text) set({ stage: text });
-          if (event === 'focus' && data) {
-            set({ lastFocus: data as AgentFocus });
-          }
-          if (event === 'run' && data?.runId) {
-            // 本轮运行的追踪标识（V2.2 运行记录的锚点）
-            set({ currentRun: { runId: String(data.runId) } });
-          }
-          set((s) => ({ activity: appendActivity(s.activity, event, data) }));
-        },
-        onComplete: (result) => {
-          const assistantMsg: ChatMessage = {
-            id: nextId(),
-            role: 'assistant',
-            content: result.message || '（无返回内容）',
-            time: new Date().toISOString(),
-          };
-          set((s) => ({
-            messages: pushMessage(s.messages, assistantMsg),
-            streaming: false,
-            stage: null,
-            pendingConfirm: result.status === 'NEED_CONFIRMATION' ? result : null,
-            lastFocus: result.focus ?? s.lastFocus,
-            committedTripId:
-              result.status === 'COMPLETED' && result.tripId && !payload.tripId ? result.tripId : s.committedTripId,
-            activity: appendActivity(s.activity, 'complete', { status: result.status }),
-          }));
-        },
-        onError: (errorText) => {
-          if (seq !== streamSeq) return;
-          const errMsg: ChatMessage = {
-            id: nextId(),
-            role: 'assistant',
-            content: `⚠ ${errorText}`,
-            time: new Date().toISOString(),
-          };
-          set((s) => ({
-            messages: pushMessage(s.messages, errMsg),
-            streaming: false,
-            stage: null,
-            activity: appendActivity(s.activity, 'error', { message: errorText }),
-          }));
-        },
-      })
-      .then((close) => {
-        // reset / 新请求已经发生：直接关掉这条迟到的连接
-        if (seq !== streamSeq) {
-          close();
+      send: (payload) => {
+        if (get().streaming || !payload.message.trim()) {
           return;
         }
-        closeFn = close;
-      })
-      .catch((e: any) => {
-        if (seq !== streamSeq) return;
-        const errMsg: ChatMessage = {
+        closeFn?.();
+        closeFn = null;
+        const seq = ++streamSeq;
+        // 会话记忆：首次发送时生成，之后一直复用（跨页面切换保持同一对话）
+        const conversationId = get().conversationId ?? newConversationId();
+        if (conversationId !== get().conversationId) {
+          set({ conversationId });
+        }
+        const userMsg: ChatMessage = {
+          id: nextId(),
+          role: 'user',
+          content: payload.displayText ?? payload.message,
+          time: new Date().toISOString(),
+        };
+        set({
+          messages: pushMessage(get().messages, userMsg),
+          streaming: true,
+          stage: '连接 Agent…',
+          pendingConfirm: null,
+          currentRun: null,
+          activity: [],
+          warnings: [],
+        });
+
+        const streamFn = payload.transport === 'post' ? streamAgentChatPost : streamAgentChat;
+        /** 迟到的旧流回调一律丢弃：不让上一轮的结果串进当前会话（P0-02） */
+        const stale = () => seq !== streamSeq;
+        /** 本次命令的幂等键：整条连接（含自动重连）复用同一个值（P0-01） */
+        const requestId = newRequestId();
+        streamFn(
+          { ...payload, conversationId, requestId },
+          {
+            onEvent: (event, data) => {
+              if (stale()) return;
+              const text = stageText(event, data);
+              if (text) set({ stage: text });
+              if (event === 'focus' && data) {
+                set({ lastFocus: data as AgentFocus });
+              }
+              if (event === 'run' && data?.runId) {
+                // 本轮运行的追踪标识（V2.2 运行记录的锚点）
+                set({ currentRun: { runId: String(data.runId) } });
+              }
+              set((s) => ({ activity: appendActivity(s.activity, event, data) }));
+            },
+            onWarning: (warning) => {
+              if (stale()) return;
+              // 只登记，不结束本轮：真正的结论仍由随后的 complete 给出
+              set((s) => ({
+                warnings: s.warnings.includes(warning.message)
+                  ? s.warnings
+                  : [...s.warnings, warning.message],
+                activity: appendActivity(s.activity, 'warning', warning),
+              }));
+            },
+            onCancelled: (data) => {
+              if (stale()) return;
+              set((s) => ({
+                streaming: false,
+                stage: null,
+                activity: appendActivity(s.activity, 'cancelled', data ?? {}),
+              }));
+            },
+            onComplete: (result) => {
+              if (stale()) return;
+              const assistantMsg: ChatMessage = {
+                id: nextId(),
+                role: 'assistant',
+                content: result.message || '（无返回内容）',
+                time: new Date().toISOString(),
+                // 方案的知识依据（P1）；旧后端/无引用时保持空数组，前端不编造
+                citations: Array.isArray(result.citations) ? result.citations : [],
+              };
+              set((s) => ({
+                messages: pushMessage(s.messages, assistantMsg),
+                streaming: false,
+                stage: null,
+                pendingConfirm: result.status === 'NEED_CONFIRMATION' ? result : null,
+                lastFocus: result.focus ?? s.lastFocus,
+                committedTripId:
+                  result.status === 'COMPLETED' && result.tripId && !payload.tripId
+                    ? result.tripId
+                    : s.committedTripId,
+                activity: appendActivity(s.activity, 'complete', { status: result.status }),
+              }));
+            },
+            onError: (errorText) => {
+              if (stale()) return;
+              const errMsg: ChatMessage = {
+                id: nextId(),
+                role: 'assistant',
+                content: `⚠ ${errorText}`,
+                time: new Date().toISOString(),
+              };
+              set((s) => ({
+                messages: pushMessage(s.messages, errMsg),
+                streaming: false,
+                stage: null,
+                activity: appendActivity(s.activity, 'error', { message: errorText }),
+              }));
+            },
+          },
+        )
+          .then((close) => {
+            // reset / 新请求已经发生：直接关掉这条迟到的连接
+            if (seq !== streamSeq) {
+              close();
+              return;
+            }
+            closeFn = close;
+          })
+          .catch((e: any) => {
+            if (seq !== streamSeq) return;
+            const errMsg: ChatMessage = {
+              id: nextId(),
+              role: 'assistant',
+              content: `⚠ ${e?.message || '无法建立与 Agent 的连接'}`,
+              time: new Date().toISOString(),
+            };
+            set((s) => ({
+              messages: pushMessage(s.messages, errMsg),
+              streaming: false,
+              stage: null,
+              activity: appendActivity(s.activity, 'error', {
+                message: e?.message || '无法建立与 Agent 的连接',
+              }),
+            }));
+          });
+      },
+
+      abort: () => {
+        if (!get().streaming) {
+          return;
+        }
+        // 先自增序号：即使旧连接此刻还有排队中的回调，也一律按「迟到事件」丢弃
+        streamSeq += 1;
+        closeFn?.();
+        closeFn = null;
+        const runId = get().currentRun?.runId ?? null;
+        const stopMsg: ChatMessage = {
           id: nextId(),
           role: 'assistant',
-          content: `⚠ ${e?.message || '无法建立与 Agent 的连接'}`,
+          content: '⏹ 已停止生成。已获得的过程记录保留在运行详情里，你可以补充需求后重新发送。',
           time: new Date().toISOString(),
         };
         set((s) => ({
-          messages: pushMessage(s.messages, errMsg),
+          messages: pushMessage(s.messages, stopMsg),
           streaming: false,
           stage: null,
-          activity: appendActivity(s.activity, 'error', { message: e?.message || '无法建立与 Agent 的连接' }),
+          activity: appendActivity(s.activity, 'cancelled', { runId }),
         }));
-      });
-  },
+      },
 
-  confirm: async (acknowledgeIssues?: boolean) => {
-    const pending = get().pendingConfirm;
-    const planId = pending?.confirmation?.planId || pending?.planId;
-    if (!planId) {
-      return null;
-    }
-    set({ streaming: true, stage: '正在提交修改…' });
-    try {
-      // 内容指纹绑定（V2.2 FR-08）：把待确认方案自带的 contentHash 原样回传，
-      // 后端据此校验"确认的就是你看到的这份内容"；旧方案没有指纹时走旧校验。
-      const contentHash = pending?.confirmation?.contentHash;
-      // 只有用户勾选「接受风险」时才带上 acknowledgeIssues，旧后端请求体零变化。
-      const result = acknowledgeIssues
-        ? await confirmPlan(planId, contentHash, true)
-        : await confirmPlan(planId, contentHash);
-      const assistantMsg: ChatMessage = {
-        id: nextId(),
-        role: 'assistant',
-        content: result.message || '已提交。',
-        time: new Date().toISOString(),
-      };
-      set({
-        messages: pushMessage(get().messages, assistantMsg),
-        pendingConfirm: null,
-        streaming: false,
-        stage: null,
-        lastFocus: result.focus ?? get().lastFocus,
-        committedTripId:
-          result.status === 'COMPLETED' && result.tripId ? result.tripId : get().committedTripId,
-        lastExecution: result.execution ?? null,
-      });
-      return result;
-    } catch (e: any) {
-      const errMsg: ChatMessage = {
-        id: nextId(),
-        role: 'assistant',
-        content: `⚠ 提交失败：${e.message}`,
-        time: new Date().toISOString(),
-      };
-      set({ messages: pushMessage(get().messages, errMsg), streaming: false, stage: null });
-      return null;
-    }
-  },
+      confirm: async (acknowledgeIssues?: boolean) => {
+        const pending = get().pendingConfirm;
+        const planId = pending?.confirmation?.planId || pending?.planId;
+        if (!planId) {
+          return null;
+        }
+        set({ streaming: true, stage: '正在提交修改…' });
+        try {
+          // 内容指纹绑定（V2.2 FR-08）：把待确认方案自带的 contentHash 原样回传，
+          // 后端据此校验"确认的就是你看到的这份内容"；旧方案没有指纹时走旧校验。
+          const contentHash = pending?.confirmation?.contentHash;
+          // 只有用户勾选「接受风险」时才带上 acknowledgeIssues，旧后端请求体零变化。
+          const result = acknowledgeIssues
+            ? await confirmPlan(planId, contentHash, true)
+            : await confirmPlan(planId, contentHash);
+          const assistantMsg: ChatMessage = {
+            id: nextId(),
+            role: 'assistant',
+            content: result.message || '已提交。',
+            time: new Date().toISOString(),
+          };
+          set({
+            messages: pushMessage(get().messages, assistantMsg),
+            pendingConfirm: null,
+            streaming: false,
+            stage: null,
+            lastFocus: result.focus ?? get().lastFocus,
+            committedTripId:
+              result.status === 'COMPLETED' && result.tripId
+                ? result.tripId
+                : get().committedTripId,
+            lastExecution: result.execution ?? null,
+          });
+          return result;
+        } catch (e: any) {
+          const errMsg: ChatMessage = {
+            id: nextId(),
+            role: 'assistant',
+            content: `⚠ 提交失败：${e.message}`,
+            time: new Date().toISOString(),
+          };
+          set({ messages: pushMessage(get().messages, errMsg), streaming: false, stage: null });
+          return null;
+        }
+      },
 
-  cancel: async () => {
-    const pending = get().pendingConfirm;
-    const planId = pending?.confirmation?.planId || pending?.planId;
-    set({ pendingConfirm: null });
-    if (!planId) return;
-    try {
-      const result = await cancelPlan(planId);
-      const assistantMsg: ChatMessage = {
-        id: nextId(),
-        role: 'assistant',
-        content: result.message || '已取消。',
-        time: new Date().toISOString(),
-      };
-      set({ messages: pushMessage(get().messages, assistantMsg) });
-    } catch {
-      // 忽略取消失败
-    }
-  },
+      cancel: async () => {
+        const pending = get().pendingConfirm;
+        const planId = pending?.confirmation?.planId || pending?.planId;
+        if (!planId) {
+          set({ pendingConfirm: null });
+          return;
+        }
+        set({ streaming: true, stage: '正在取消方案…' });
+        try {
+          const result = await cancelPlan(planId);
+          const assistantMsg: ChatMessage = {
+            id: nextId(),
+            role: 'assistant',
+            content: result.message || '已取消。',
+            time: new Date().toISOString(),
+          };
+          // 只有服务端确认取消成功，才把方案从界面上摘掉（P1-07）
+          set({
+            pendingConfirm: null,
+            streaming: false,
+            stage: null,
+            messages: pushMessage(get().messages, assistantMsg),
+          });
+        } catch (e: any) {
+          // 取消失败：方案必须留在原地，planId 不能丢，否则用户再也点不到它
+          const errMsg: ChatMessage = {
+            id: nextId(),
+            role: 'assistant',
+            content: `⚠ 取消失败：${e?.message || '网络错误'}。方案仍在等待确认，可以再试一次。`,
+            time: new Date().toISOString(),
+          };
+          set({
+            pendingConfirm: pending,
+            streaming: false,
+            stage: null,
+            messages: pushMessage(get().messages, errMsg),
+          });
+        }
+      },
 
-  restorePending: (result) => set({ pendingConfirm: result, lastFocus: result.focus ?? null }),
+      restorePending: (result) => set({ pendingConfirm: result, lastFocus: result.focus ?? null }),
 
-  reset: () => {
-    streamSeq += 1;
-    closeFn?.();
-    closeFn = null;
-    set({
-      messages: [],
-      streaming: false,
-      stage: null,
-      pendingConfirm: null,
-      lastFocus: null,
-      committedTripId: null,
-      currentRun: null,
-      activity: [],
-      lastExecution: null,
-    });
-  },
+      reset: () => {
+        streamSeq += 1;
+        closeFn?.();
+        closeFn = null;
+        set({
+          messages: [],
+          streaming: false,
+          stage: null,
+          pendingConfirm: null,
+          lastFocus: null,
+          committedTripId: null,
+          currentRun: null,
+          activity: [],
+          warnings: [],
+          lastExecution: null,
+        });
+      },
 
-  newConversation: () => {
-    const previous = get().conversationId;
-    streamSeq += 1;
-    closeFn?.();
-    closeFn = null;
-    set({
-      messages: [],
-      streaming: false,
-      stage: null,
-      pendingConfirm: null,
-      lastFocus: null,
-      committedTripId: null,
-      currentRun: null,
-      activity: [],
-      lastExecution: null,
-      conversationId: newConversationId(),
-    });
-    if (previous) {
-      // 服务端历史清理失败不影响本地开新会话（历史 7 天后也会被定期清理）
-      Promise.resolve(clearConversation(previous)).catch(() => {});
-    }
-  },
+      newConversation: () => {
+        const previous = get().conversationId;
+        streamSeq += 1;
+        closeFn?.();
+        closeFn = null;
+        set({
+          messages: [],
+          streaming: false,
+          stage: null,
+          pendingConfirm: null,
+          lastFocus: null,
+          committedTripId: null,
+          currentRun: null,
+          activity: [],
+          warnings: [],
+          lastExecution: null,
+          conversationId: newConversationId(),
+        });
+        if (previous) {
+          // 服务端历史清理失败不影响本地开新会话（历史 7 天后也会被定期清理）
+          Promise.resolve(clearConversation(previous)).catch(() => {});
+        }
+      },
 
-  clearCommitted: () => set({ committedTripId: null }),
+      clearCommitted: () => set({ committedTripId: null }),
 
-  setLastExecution: (execution) => set({ lastExecution: execution }),
-}),
+      setLastExecution: (execution) => set({ lastExecution: execution }),
+    }),
     {
       name: 'travel-agent-conversation',
       // sessionStorage：跨页面切换（规划页 → 行程页）保持同一对话，关标签页即结束
