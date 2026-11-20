@@ -56,7 +56,8 @@ test('浏览器可 import 地图引擎模块并拿到核心导出', async ({ pag
 
   // 在页面上下文里真的 import 一次：覆盖「文件存在但无法作为模块执行」的所有情况。
   const summary = await page.evaluate(async (ver) => {
-    const moduleUrl = new URL(`/vendor/maplibre/${ver}/maplibre-gl.mjs`, window.location.origin).href;
+    const moduleUrl = new URL(`/vendor/maplibre/${ver}/maplibre-gl.mjs`, window.location.origin)
+      .href;
     const mod = (await import(/* @vite-ignore */ moduleUrl)) as Record<string, unknown>;
     const required = ['Map', 'Marker', 'Popup', 'LngLatBounds', 'AttributionControl'];
     const missing = required.filter((name) => typeof mod[name] !== 'function');
@@ -75,9 +76,7 @@ test('浏览器可 import 地图引擎模块并拿到核心导出', async ({ pag
   expect(summary.exports).toBeGreaterThan(10);
 });
 
-test('worker 与样式同目录可解析（maplibre 用 import.meta.url 推导相对路径）', async ({
-  page,
-}) => {
+test('worker 与样式同目录可解析（maplibre 用 import.meta.url 推导相对路径）', async ({ page }) => {
   const version = discoverVendorVersion();
   await page.goto('/login');
 

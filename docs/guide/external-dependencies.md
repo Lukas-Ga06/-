@@ -120,7 +120,7 @@ mvn -B -Dtest=AmapResilienceTest test
 - 全部用例不依赖外网：高德/LLM/Embedding/S3 指向本地 WireMock 动态端口，Redis 指向 127.0.0.1:1（不可达端口）。
 - 超时用例统一用「服务端固定延迟 1500ms / 客户端 300ms 预算」制造真实读超时，单用例在秒级。
 - 指标断言用 `SimpleMeterRegistry`（`DegradedMetrics` 工具类），不需要启动 Spring 上下文。
-- 改完客户端后建议同时跑 `mvn -B test` 确认不破坏既有 461 个用例基线。
+- 改完客户端后建议同时跑 `mvn -B test` 确认不破坏既有 540 个用例基线。
 
 ## 5. 已知边界与遗留风险
 

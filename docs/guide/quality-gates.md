@@ -1,6 +1,6 @@
 # 质量门禁（后端发布前必须通过）
 
-> 状态：当前事实 | 适用版本：0.1.0 / Spring Boot 3.5.7（Java 17） | 最后验证：2026-11-19 | 事实来源：`travel-agent-server/pom.xml`、`travel-agent-server/config/`（`checkstyle/checkstyle.xml`、`checkstyle/suppressions.xml`、`spotbugs-exclude.xml`）、`travel-agent-server/.mvn/jvm.config`、`travel-agent-server/src/main/resources/application.yml`
+> 状态：当前事实 | 适用版本：0.1.0 / Spring Boot 3.5.7（Java 17） | 最后验证：2026-11-20 | 事实来源：`travel-agent-server/pom.xml`、`travel-agent-server/config/`（`checkstyle/checkstyle.xml`、`checkstyle/suppressions.xml`、`spotbugs-exclude.xml`）、`travel-agent-server/.mvn/jvm.config`、`travel-agent-server/src/main/resources/application.yml`
 
 一句话导读：`mvn -B verify` 是后端唯一的发布门禁——单元/集成测试 + JaCoCo 覆盖率门槛 + Checkstyle + SpotBugs，任一不过即 BUILD FAILURE；真实 MySQL 迁移与前端门禁见 [mysql-migration.md](mysql-migration.md)、[frontend-quality.md](frontend-quality.md)，CI 编排见 [ci.md](ci.md)。
 
@@ -8,12 +8,12 @@
 
 | 门禁 | 绑定阶段 | 本地命令 | 当前数字 / 阈值 |
 | --- | --- | --- | --- |
-| 单元/集成测试（H2） | test | `mvn -B test` | **525 tests，0 failures，0 errors，1 skipped** |
-| JaCoCo INSTRUCTION | verify（check） | `mvn -B verify` | 实测 **79.72%**（37662/47243），阈值 **≥ 0.76** |
-| JaCoCo BRANCH | verify（check） | `mvn -B verify` | 实测 **60.66%**（3056/5038），阈值 **≥ 0.57** |
-| JaCoCo LINE | verify（check） | `mvn -B verify` | 实测 **79.20%**（7163/9044），阈值 **≥ 0.76** |
-| Checkstyle | verify（check） | `mvn -B checkstyle:check` | **0 violations**（只查 `src/main/java`，225 个文件；存量豁免见第 3 节） |
-| SpotBugs | verify（check） | `mvn -B spotbugs:check` | effort=**Max** / threshold=**High**，415 个类，**0 findings，0 errors** |
+| 单元/集成测试（H2） | test | `mvn -B test` | **540 tests，0 failures，0 errors，1 skipped** |
+| JaCoCo INSTRUCTION | verify（check） | `mvn -B verify` | 实测 **79.73%**（38038/47707），阈值 **≥ 0.76** |
+| JaCoCo BRANCH | verify（check） | `mvn -B verify` | 实测 **60.81%**（3105/5106），阈值 **≥ 0.57** |
+| JaCoCo LINE | verify（check） | `mvn -B verify` | 实测 **79.15%**（7252/9162），阈值 **≥ 0.76** |
+| Checkstyle | verify（check） | `mvn -B checkstyle:check` | **0 violations**（只查 `src/main/java`，228 个文件；存量豁免见第 3 节） |
+| SpotBugs | verify（check） | `mvn -B spotbugs:check` | effort=**Max** / threshold=**High**，421 个类，**0 findings，0 errors** |
 | UTF-8（JVM + 日志） | 全程 | `mvn -B test`（见第 5 节证据） | 测试 JVM、控制台日志、surefire 输出统一 UTF-8 |
 
 - 唯一 1 条 skip 是 `migration.MySqlFlywayMigrationTest`（无 Docker/MySQL 时按设计跳过），真实迁移验证走 `scripts/mysql-it.ps1`。
@@ -23,7 +23,7 @@
 ## 2. JaCoCo 覆盖率门槛与 ratchet 规则
 
 - 阈值写在 `pom.xml` 的 `jacoco-maven-plugin` `check` execution（`BUNDLE` 级三个 `limit`），绑定 `verify`。
-- **阈值 = 基线向下取整 3 个百分点**：INSTRUCTION 79.72% → 0.76；BRANCH 60.66% → 0.57；LINE 79.20% → 0.76。
+- **阈值 = 基线向下取整 3 个百分点**：INSTRUCTION 79.73% → 0.76；BRANCH 60.81% → 0.57；LINE 79.15% → 0.76。
   留 3 个点的余量是为了不把门禁变成「每次小改都要救覆盖率」的噪声源。基线每次全量测试会有 ±0.05 个点的正常抖动（并行测试计时不同），门槛按整数百分比定，不受抖动影响。
 - **只允许 ratchet 上调，不得下调**。要下调阈值必须在评审里写清原因、涉及哪些包/类，并同步改本表；不允许「为了过构建」调低。
 - 上调时机：基线稳定高于阈值 3 个点以上时，把 `minimum` 提到「当前基线 − 2 个点」。

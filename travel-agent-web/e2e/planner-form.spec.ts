@@ -65,7 +65,11 @@ test('攻略整合模式：空继续校验 → 三步填表 → POST 流式 → 
   // 确认 → 新建行程并跳转行程页
   await page.getByTestId('plan-diff-confirm').click();
   await page.waitForURL(/\/trip\/\d+/, { timeout: 25_000 });
-  await expect(page.getByRole('button', { name: /路书/ })).toBeVisible({ timeout: 15_000 });
+  // 路书导出按设计 P1-05 收进「更多行程操作」二级菜单（2026-11-20 按新布局修正断言）
+  await page.getByRole('button', { name: '更多行程操作' }).click();
+  await expect(page.getByRole('menuitem', { name: /导出路书 PDF/ })).toBeVisible({
+    timeout: 15_000,
+  });
 });
 
 test('从零规划模式：三步填目的地与天数 → 生成 → 确认 → 新行程', async ({ page }) => {

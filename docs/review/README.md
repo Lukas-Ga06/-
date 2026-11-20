@@ -32,5 +32,6 @@
 | [2026-11-19-resilience.md](2026-11-19-resilience.md) | 2026-11-19 | 并发、慢接口、第三方失败、约 12 分钟长跑 | 总判定可接受（无 5xx / 挂死 / 串号）；两项 P1 需整改 |
 | [2026-11-19-provider-rag-decision.md](2026-11-19-provider-rag-decision.md) | 2026-11-19 | FR-11 个性化 RAG、FR-12 实时酒店/餐饮 Provider | 两者均延后（P1）；本轮只做「参考价 + 来源 + 深链」防守项 |
 | [2026-11-19-project-improvement-audit.md](2026-11-19-project-improvement-audit.md) | 2026-11-19 | 当前工作区源码、CI 配置、本地构建结果 | 优先发布可信 / 性能 / 契约 / 可观测，而非继续横向加功能 |
+| [2026-11-20-e2e-and-gates.md](2026-11-20-e2e-and-gates.md) | 2026-11-20 | 后端 verify 门禁、前端四道门禁、Playwright e2e、回顾口径 | 本地全绿（540 tests，e2e 8/8）；远端 CI、真机与真实模型仍待验 |
 
 新增快照后请同步本表，并运行 `node scripts/docs-check.mjs` 校验链接。完整文档规则见 [文档生命周期](../guide/documentation.md)。

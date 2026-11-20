@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Button, Empty, Spin } from 'antd';
+import { Button, Empty, Spin, Tag } from 'antd';
 import { ArrowRightOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import AppShell from '../../components/AppShell';
@@ -18,7 +18,13 @@ function phasePriority(phase?: string | null): number {
   return PHASE_ORDER[phase ?? ''] ?? 2;
 }
 
-/** 旅行回顾列表：按阶段排序，每条行程给出回顾入口 */
+/**
+ * 旅行回顾列表：按阶段排序，每条行程给出回顾入口。
+ *
+ * 设计口径（docs/design/2026-11-20 §18 第 9 条）：**未来行程不作为可回顾内容**。
+ * 待出发的行程仍在列表里可见（用户要能找到自己订好的行程），但只给「行程」入口、
+ * 不给「查看回顾」——它还没有可回顾的实际到访、花费与照片，给了会误导成「已经发生过」。
+ */
 export default function Reviews() {
   const navigate = useNavigate();
   const [trips, setTrips] = useState<Trip[] | null>(null);
@@ -46,6 +52,9 @@ export default function Reviews() {
         phasePriority(a.phase) - phasePriority(b.phase) ||
         (b.startDate ?? '').localeCompare(a.startDate ?? ''),
     );
+  const reviewable = ordered.filter((trip) => trip.phase !== 'UPCOMING');
+  const upcoming = ordered.filter((trip) => trip.phase === 'UPCOMING');
+  const isEmpty = !loading && !error && ordered.length === 0;
 
   return (
     <AppShell active="review">
@@ -80,7 +89,7 @@ export default function Reviews() {
           </div>
         )}
 
-        {!loading && !error && ordered.length === 0 && (
+        {isEmpty && (
           <div className="dash-card review-state">
             <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有可回顾的行程" />
             <Button type="primary" onClick={() => navigate('/travel')}>
@@ -89,14 +98,14 @@ export default function Reviews() {
           </div>
         )}
 
-        {!loading && !error && ordered.length > 0 && (
+        {!loading && !error && reviewable.length > 0 && (
           <section className="dash-card" data-testid="reviews-list">
             <div className="dc-head">
-              <b>全部行程</b>
-              <span className="dg-date">{ordered.length} 个 · 进行中/已结束优先</span>
+              <b>可回顾行程</b>
+              <span className="dg-date">{reviewable.length} 个 · 进行中/已结束优先</span>
             </div>
             <div className="review-trip-list">
-              {ordered.map((trip) => (
+              {reviewable.map((trip) => (
                 <div
                   className="review-trip-row"
                   key={trip.id}
@@ -127,6 +136,41 @@ export default function Reviews() {
                     >
                       查看回顾
                     </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {!loading && !error && upcoming.length > 0 && (
+          <section className="dash-card" data-testid="reviews-upcoming" style={{ marginTop: 16 }}>
+            <div className="dc-head">
+              <b>待出发（尚不可回顾）</b>
+              <span className="dg-date">{upcoming.length} 个 · 出发并产生实际到访后再来回顾</span>
+            </div>
+            <div className="review-trip-list">
+              {upcoming.map((trip) => (
+                <div
+                  className="review-trip-row"
+                  key={trip.id}
+                  data-testid={`review-trip-${trip.id}`}
+                  style={{ opacity: 0.72 }}
+                >
+                  <div className="review-trip-main">
+                    <div className="review-trip-title">
+                      <b>{trip.destination || trip.name || '未命名行程'}</b>
+                      <Tag bordered={false}>{tripPhaseLabel(trip)}</Tag>
+                    </div>
+                    <div className="review-trip-meta">
+                      {trip.name}
+                      {trip.startDate ? ` · ${trip.startDate} → ${trip.endDate}` : ''}
+                      {' · '}
+                      {daysOf(trip)} 天
+                    </div>
+                  </div>
+                  <div className="review-trip-actions">
+                    <Button onClick={() => navigate(`/trip/${trip.id}`)}>行程</Button>
                   </div>
                 </div>
               ))}

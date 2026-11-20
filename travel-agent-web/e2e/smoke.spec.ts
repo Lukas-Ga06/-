@@ -41,12 +41,15 @@ test('登录 → 建行程 → 行程页与路书可达', async ({ page }) => {
   await expectOk(created, '创建行程 POST /api/trips');
   const tripId = (await created.json()).data.id;
 
-  // 2. 行程页：AppShell 外壳（testid 定位）+ 标题 + 路书按钮
+  // 2. 行程页：AppShell 外壳（testid 定位）+ 标题 + 页头「更多行程操作」菜单
   //    只做一次页面加载：每次整页加载都会触发一次 /api/auth/me，auth 限流窗口内要尽量省
+  //    路书导出按设计 P1-05 收进二级菜单，不再是一级按钮（2026-11-20 按新布局修正断言）
   await page.goto(`/trip/${tripId}`);
   await expect(page.getByTestId('app-shell-brand')).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole('heading', { name: tripName })).toBeVisible();
-  await expect(page.getByRole('button', { name: /路书/ })).toBeVisible();
+  await page.getByRole('button', { name: '更多行程操作' }).click();
+  await expect(page.getByRole('menuitem', { name: /导出路书 PDF/ })).toBeVisible();
+  await page.keyboard.press('Escape');
 
   // 3. 路书 PDF 真实导出（走 Cookie 同源 GET）
   const pdf = await page.request.get(`/api/trips/${tripId}/guidebook.pdf`);
