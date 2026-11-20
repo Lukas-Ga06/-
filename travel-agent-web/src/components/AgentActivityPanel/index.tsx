@@ -115,7 +115,8 @@ function relativeTime(time: number): string {
  * activity 为空时整块不渲染，ChatPanel 退化为既有单行 stage 动画。
  */
 export default function AgentActivityPanel({ activity }: Props) {
-  const [open, setOpen] = useState(true);
+  // 默认折叠（§8.6）：过程默认只给「用户语言进度」，DAG / 工具调用放进「查看运行详情」
+  const [open, setOpen] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
 
   const rows = activity
@@ -138,13 +139,33 @@ export default function AgentActivityPanel({ activity }: Props) {
       <div className="aa-head">
         <span className="aa-title">Agent 过程</span>
         <span className="aa-count">{rows.length} 条</span>
+        {/* 折叠时展示最新一条用户语言进度，避免「收起来就什么都看不见」 */}
+        {!open && (
+          <span
+            className="aa-latest"
+            data-testid="agent-activity-latest"
+            style={{
+              fontSize: 11,
+              color: 'var(--ink-3)',
+              minWidth: 0,
+              flex: 1,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {rows[rows.length - 1].text}
+          </span>
+        )}
         <Button
           type="text"
           size="small"
-          aria-label={open ? '收起过程时间线' : '展开过程时间线'}
+          aria-label={open ? '收起运行详情' : '查看运行详情'}
           icon={open ? <UpOutlined /> : <DownOutlined />}
           onClick={() => setOpen((v) => !v)}
-        />
+        >
+          {open ? '收起' : '查看运行详情'}
+        </Button>
       </div>
       {open && (
         <div className="aa-list" ref={listRef}>

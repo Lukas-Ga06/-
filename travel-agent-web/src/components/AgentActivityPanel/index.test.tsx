@@ -1,10 +1,15 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import AgentActivityPanel from './index';
 import type { ActivityEvent } from '../../store/stageText';
 
 afterEach(cleanup);
+
+/** 默认折叠（§8.6）：展开后才渲染时间线行 */
+function expand() {
+  fireEvent.click(screen.getByRole('button', { name: '查看运行详情' }));
+}
 
 function ev(event: string, data: any, time = Date.now() - 1000): ActivityEvent {
   return { event, data, time };
@@ -31,6 +36,7 @@ describe('AgentActivityPanel', () => {
       />,
     );
 
+    expand();
     expect(screen.getByText('已连接 Agent…')).toBeTruthy();
     expect(screen.getByText('本轮运行 01234567…')).toBeTruthy();
     expect(screen.getByText('意图识别：PLAN_TRIP')).toBeTruthy();
@@ -51,6 +57,7 @@ describe('AgentActivityPanel', () => {
       />,
     );
 
+    expand();
     expect(container.textContent).toContain('search_city_online');
     expect(container.textContent).toContain('city、days、apiKey');
     expect(container.textContent).not.toContain('SECRET_CITY_VALUE');
@@ -68,6 +75,7 @@ describe('AgentActivityPanel', () => {
       />,
     );
 
+    expand();
     expect(screen.getByText('工具 search_city_online 执行完成')).toBeTruthy();
     expect(screen.getByText('工具 geocode 执行失败')).toBeTruthy();
     expect(screen.getByText('规划失败：天气服务不可用')).toBeTruthy();
@@ -100,6 +108,7 @@ describe('AgentActivityPanel', () => {
       />,
     );
 
+    expand();
     expect(screen.getByText('委派 planner-agent：PLAN')).toBeTruthy();
     expect(screen.getByText('重派 REPLAN（第 2 次尝试）')).toBeTruthy();
     expect(screen.getByText('任务冲突：reflect-agent/REVIEW 前置未完成，已回收')).toBeTruthy();
@@ -115,6 +124,7 @@ describe('AgentActivityPanel', () => {
       <AgentActivityPanel activity={[ev('delegate', {}), ev('recover', {}), ev('conflict', {})]} />,
     );
 
+    expand();
     expect(screen.getByText('委派 …：…')).toBeTruthy();
     expect(screen.getByText('重派 …（第 1 次尝试）')).toBeTruthy();
     expect(screen.getByText('任务冲突：…/… 前置未完成，已回收')).toBeTruthy();
@@ -143,6 +153,7 @@ describe('AgentActivityPanel', () => {
       />,
     );
 
+    expand();
     expect(screen.getByTestId('activity-citation-list')).toBeTruthy();
     expect(screen.getByText('杭州亲子攻略')).toBeTruthy();
     expect(screen.getByText('v2')).toBeTruthy();

@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { App } from 'antd';
+import { MemoryRouter } from 'react-router-dom';
 import ChatPanel from './index';
 import { useAgentStore } from '../../store/agentStore';
 import type { ActivityEvent } from '../../store/stageText';
@@ -72,12 +73,14 @@ function execution(patch: Partial<ExecutionSummary> = {}): ExecutionSummary {
   };
 }
 
-/** antd App 提供 App.useApp() 的 message 上下文（与真实页面一致） */
+/** antd App 提供 App.useApp() 的 message 上下文（与真实页面一致）；Router 提供结果卡「打开行程」导航 */
 function renderPanel() {
   return render(
-    <App>
-      <ChatPanel />
-    </App>,
+    <MemoryRouter>
+      <App>
+        <ChatPanel />
+      </App>
+    </MemoryRouter>,
   );
 }
 
@@ -91,6 +94,7 @@ describe('ChatPanel · V2.2 过程时间线与同步结果面板', () => {
     expect(
       container.querySelector('.chat-messages [data-testid="agent-activity-panel"]'),
     ).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '查看运行详情' }));
     expect(screen.getByText('已连接 Agent…')).toBeTruthy();
     expect(screen.getByText('正在规划行程…')).toBeTruthy();
   });
@@ -235,5 +239,104 @@ describe('ChatPanel · 空对话示例可点击（§8.6）', () => {
 
     const buttons = screen.getByTestId('chat-suggestions').querySelectorAll('button');
     expect(Array.from(buttons).every((b) => (b as HTMLButtonElement).disabled)).toBe(true);
+  });
+});
+
+describe('ChatPanel · 结构化结果卡与下一步建议（阶段 C）', () => {
+  it('助手消息带 result 时渲染结果卡，而不是纯文本气泡', () => {
+    useAgentStore.setState({
+      messages: [
+        { id: 'm1', role: 'user', content: '帮我规划上海三日游', time: '2026-11-20T10:00:00Z' },
+        {
+          id: 'm2',
+          role: 'assistant',
+          content: '方案已生成，请确认',
+          time: '2026-11-20T10:00:01Z',
+          result: {
+            status: 'NEED_CONFIRMATION',
+            message: '方案已生成，请确认',
+            confirmation: { planId: 'p-1', summary: '上海三日游' },
+          },
+        },
+      ],
+    });
+
+    renderPanel();
+
+    expect(screen.getByTestId('result-card')).toBeTruthy();
+    expect(screen.getByTestId('result-status').textContent).toBe('待确认');
+    // 结果正文只在卡片里出现一次，气泡不再重复
+    expect(screen.getAllByText('方案已生成，请确认')).toHaveLength(1);
+  });
+
+  it('待确认结果后给出上下文建议，点击按当前上下文发送', () => {
+    const sendSpy = vi.fn();
+    useAgentStore.setState({
+      send: sendSpy,
+      messages: [
+        { id: 'm1', role: 'user', content: '帮我规划上海三日游', time: '2026-11-20T10:00:00Z' },
+        {
+          id: 'm2',
+          role: 'assistant',
+          content: '方案已生成',
+          time: '2026-11-20T10:00:01Z',
+          result: { status: 'NEED_CONFIRMATION', message: '方案已生成' },
+        },
+      ],
+    });
+
+    renderPanel();
+
+    const followups = screen.getByTestId('chat-followups');
+    expect(followups.textContent).toContain('预算再低一点');
+    fireEvent.click(screen.getByRole('button', { name: '预算再低一点' }));
+    expect(sendSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ message: '预算再低一点', tripId: null }),
+    );
+  });
+
+  it('失败结果提供「重试上一次」，重发上一条用户消息', () => {
+    const sendSpy = vi.fn();
+    useAgentStore.setState({
+      send: sendSpy,
+      messages: [
+        { id: 'm1', role: 'user', content: '把第二天的景点换掉', time: '2026-11-20T10:00:00Z' },
+        {
+          id: 'm2',
+          role: 'assistant',
+          content: '模型超时',
+          time: '2026-11-20T10:00:01Z',
+          result: { status: 'FAILED', message: '模型超时' },
+        },
+      ],
+    });
+
+    renderPanel();
+
+    expect(screen.getByTestId('result-status').textContent).toBe('失败');
+    fireEvent.click(screen.getByRole('button', { name: '重试上一次' }));
+    expect(sendSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ message: '把第二天的景点换掉' }),
+    );
+  });
+
+  it('生成中不显示下一步建议，避免并发发请求', () => {
+    useAgentStore.setState({
+      streaming: true,
+      messages: [
+        { id: 'm1', role: 'user', content: '帮我规划', time: '2026-11-20T10:00:00Z' },
+        {
+          id: 'm2',
+          role: 'assistant',
+          content: '方案已生成',
+          time: '2026-11-20T10:00:01Z',
+          result: { status: 'NEED_CONFIRMATION', message: '方案已生成' },
+        },
+      ],
+    });
+
+    renderPanel();
+
+    expect(screen.queryByTestId('chat-followups')).toBeNull();
   });
 });

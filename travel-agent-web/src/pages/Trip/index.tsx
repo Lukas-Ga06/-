@@ -17,6 +17,7 @@ import { useAgentStore } from '../../store/agentStore';
 import { useUIStore } from '../../store/uiStore';
 import { useStatusQueueStore } from '../../store/statusQueueStore';
 import { useIsMobile } from '../../hooks/useMediaQuery';
+import { useAgentScope } from '../../hooks/useAgentScope';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { undoTrip } from '../../api/agent';
 import { getBudgetExecution, updateItemStatus } from '../../api/trip';
@@ -72,6 +73,8 @@ interface UndoState {
 export default function TripPage() {
   const { id } = useParams();
   const tripId = Number(id);
+  // 会话隔离（阶段 C）：每个行程详情绑定独立会话作用域
+  useAgentScope(`trip:${tripId}`);
   const navigate = useNavigate();
   const { message } = App.useApp();
 
@@ -103,7 +106,6 @@ export default function TripPage() {
   const confirm = useAgentStore((s) => s.confirm);
   const cancel = useAgentStore((s) => s.cancel);
   const streaming = useAgentStore((s) => s.streaming);
-  const reset = useAgentStore((s) => s.reset);
 
   const selectedDay = useUIStore((s) => s.selectedDay);
   const setSelectedDay = useUIStore((s) => s.setSelectedDay);
@@ -124,7 +126,6 @@ export default function TripPage() {
   const [sideView, setSideView] = useState<'map' | 'ai'>('map');
 
   useEffect(() => {
-    reset();
     clearCurrent();
     setSelectedDay(1);
     if (tripId) {

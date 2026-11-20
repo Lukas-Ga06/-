@@ -5,19 +5,19 @@ import ChatPanel from '../../components/ChatPanel';
 import PlanDiff from '../../components/PlanDiff';
 import { getPendingPlan } from '../../api/agent';
 import { useAgentStore } from '../../store/agentStore';
+import { useAgentScope } from '../../hooks/useAgentScope';
 
 /** AI 助手：旅行场景统一对话入口（行程规划 / 记账 / 备忘 / 日程 / 旅行知识库） */
 export default function Assistant() {
+  useAgentScope('assistant');
   const [params, setParams] = useSearchParams();
   const send = useAgentStore((s) => s.send);
-  const reset = useAgentStore((s) => s.reset);
   const pendingConfirm = useAgentStore((s) => s.pendingConfirm);
   const confirm = useAgentStore((s) => s.confirm);
   const cancel = useAgentStore((s) => s.cancel);
   const streaming = useAgentStore((s) => s.streaming);
   const restorePending = useAgentStore((s) => s.restorePending);
   const startedRef = useRef(false);
-  const autoSendRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 离页即取消待发送的定时器：组件卸载后不能再发出请求（P0-01）
@@ -30,14 +30,8 @@ export default function Assistant() {
     };
   }, []);
 
-  useEffect(() => {
-    return () => {
-      // 离开页面时清空会话，避免污染其他页面的聊天面板；
-      // 本页自己发起的对话（q 参数或已有消息）保留，跨页继续同一会话。
-      if (!autoSendRef.current) reset();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // 会话隔离（阶段 C）：不再在离页时 reset 整个 store —— 助手面板有自己的作用域，
+  // 行程页各自的作用域互不影响；回到助手仍能看到刚才的对话（§8.6）。
 
   // 刷新后凭 URL 上的 planId 找回待确认方案（此前刷新即丢，只能重新发起）
   useEffect(() => {
@@ -83,7 +77,6 @@ export default function Assistant() {
     const q = params.get('q');
     if (!q || startedRef.current) return;
     startedRef.current = true;
-    autoSendRef.current = true;
     const rawTripId = Number(params.get('tripId'));
     const tripId = Number.isFinite(rawTripId) && rawTripId > 0 ? rawTripId : null;
     setParams(

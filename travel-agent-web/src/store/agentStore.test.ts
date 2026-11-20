@@ -482,3 +482,113 @@ describe('agentStore · V2.2 运行追踪与执行同步', () => {
     expect(useAgentStore.getState().lastExecution?.status).toBe('SUCCEEDED');
   });
 });
+
+describe('agentStore · 会话作用域隔离（阶段 C）', () => {
+  beforeEach(() => {
+    useAgentStore.getState().reset();
+    useAgentStore.setState({ scope: 'assistant', conversations: {}, conversationId: null });
+    handlersRef.current = null;
+  });
+
+  it('不同作用域的消息互不可见，切回来能恢复原对话', () => {
+    const store = useAgentStore.getState();
+    store.setScope('assistant');
+    store.send({ message: '助手里的问题' });
+    handlersRef.current?.onComplete?.(completedResult({ message: '助手回答' }));
+    const assistantCount = useAgentStore.getState().messages.length;
+    expect(assistantCount).toBe(2);
+
+    useAgentStore.getState().setScope('trip:1');
+    expect(useAgentStore.getState().messages).toHaveLength(0);
+
+    useAgentStore.getState().send({ message: '行程一的问题' });
+    handlersRef.current?.onComplete?.(completedResult({ message: '行程一回答' }));
+
+    useAgentStore.getState().setScope('assistant');
+    const messages = useAgentStore.getState().messages;
+    expect(messages).toHaveLength(assistantCount);
+    expect(messages.some((m) => m.content === '助手回答')).toBe(true);
+    expect(messages.some((m) => m.content === '行程一回答')).toBe(false);
+  });
+
+  it('每个作用域使用独立的会话标识（服务端历史不串）', () => {
+    useAgentStore.getState().setScope('assistant');
+    useAgentStore.getState().send({ message: 'a' });
+    const assistantConversation = paramsRef.current?.conversationId;
+    expect(assistantConversation).toBeTruthy();
+    handlersRef.current?.onComplete?.(completedResult());
+
+    useAgentStore.getState().setScope('trip:2');
+    useAgentStore.getState().send({ message: 'b' });
+    const tripConversation = paramsRef.current?.conversationId;
+    expect(tripConversation).toBeTruthy();
+    expect(tripConversation).not.toBe(assistantConversation);
+
+    // 切回助手作用域后复用原来的会话标识
+    handlersRef.current?.onComplete?.(completedResult());
+    useAgentStore.getState().setScope('assistant');
+    useAgentStore.getState().send({ message: 'c' });
+    expect(paramsRef.current?.conversationId).toBe(assistantConversation);
+  });
+
+  it('切换作用域会丢弃在途流的迟到回调', () => {
+    useAgentStore.getState().setScope('assistant');
+    useAgentStore.getState().send({ message: '旧作用域的请求' });
+    const staleHandlers = handlersRef.current;
+
+    useAgentStore.getState().setScope('trip:3');
+    staleHandlers?.onComplete?.(completedResult({ message: '迟到的回答' }));
+
+    expect(useAgentStore.getState().messages).toHaveLength(0);
+    expect(useAgentStore.getState().streaming).toBe(false);
+  });
+});
+
+describe('agentStore · 结构化结果消息（阶段 C）', () => {
+  beforeEach(() => {
+    useAgentStore.getState().reset();
+    useAgentStore.setState({ scope: 'assistant', conversations: {}, conversationId: null });
+    handlersRef.current = null;
+  });
+
+  it('complete 把 AgentResult 写进助手消息，供结果卡渲染', () => {
+    useAgentStore.getState().setScope('assistant');
+    useAgentStore.getState().send({ message: '帮我规划' });
+    handlersRef.current?.onComplete?.(
+      completedResult({
+        status: 'NEED_CONFIRMATION',
+        message: '方案已生成',
+        diff: { changes: [{ type: 'ADD', title: '外滩' }], budgetBefore: 0, budgetAfter: 1200 },
+      }),
+    );
+
+    const assistant = useAgentStore.getState().messages.find((m) => m.role === 'assistant');
+    expect(assistant?.result?.status).toBe('NEED_CONFIRMATION');
+    expect(assistant?.result?.diff?.changes).toHaveLength(1);
+  });
+
+  it('abort 写入 CANCELLED 结果消息，输入立即恢复', () => {
+    useAgentStore.getState().setScope('assistant');
+    useAgentStore.getState().send({ message: '长任务' });
+    expect(useAgentStore.getState().streaming).toBe(true);
+
+    useAgentStore.getState().abort();
+
+    const state = useAgentStore.getState();
+    expect(state.streaming).toBe(false);
+    const last = state.messages[state.messages.length - 1];
+    expect(last.role).toBe('assistant');
+    expect(last.result?.status).toBe('CANCELLED');
+  });
+
+  it('error 写入 FAILED 结果消息', () => {
+    useAgentStore.getState().setScope('assistant');
+    useAgentStore.getState().send({ message: '会失败的任务' });
+    handlersRef.current?.onError?.('模型超时');
+
+    const state = useAgentStore.getState();
+    const last = state.messages[state.messages.length - 1];
+    expect(last.result?.status).toBe('FAILED');
+    expect(last.content).toContain('模型超时');
+  });
+});

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { App, Button, Input, Popconfirm, Tooltip } from 'antd';
 import { HistoryOutlined, PlusOutlined, SendOutlined, StopOutlined } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import { useAgentStore } from '../../store/agentStore';
 import { useAuthStore } from '../../store/authStore';
 import { useUIStore } from '../../store/uiStore';
@@ -10,6 +11,7 @@ import AgentActivityPanel from '../AgentActivityPanel';
 import ExecutionResultPanel from '../ExecutionResultPanel';
 import AgentRunsDrawer from '../AgentRunsDrawer';
 import CitationList from '../CitationList';
+import ResultCard from '../ResultCard';
 
 interface Props {
   tripId?: number | null;
@@ -26,6 +28,7 @@ const QUICK_PROMPTS = [
 
 /** AI 助手聊天面板：文字 + 语音输入，SSE 流式接收 Agent 过程与结果 */
 export default function ChatPanel({ tripId, placeholder }: Props) {
+  const navigate = useNavigate();
   const messages = useAgentStore((s) => s.messages);
   const streaming = useAgentStore((s) => s.streaming);
   const stage = useAgentStore((s) => s.stage);
@@ -35,6 +38,7 @@ export default function ChatPanel({ tripId, placeholder }: Props) {
   const setLastExecution = useAgentStore((s) => s.setLastExecution);
   const send = useAgentStore((s) => s.send);
   const abort = useAgentStore((s) => s.abort);
+  const cancel = useAgentStore((s) => s.cancel);
   const newConversation = useAgentStore((s) => s.newConversation);
   const user = useAuthStore((s) => s.user);
   const selectedDay = useUIStore((s) => s.selectedDay);
@@ -94,6 +98,33 @@ export default function ChatPanel({ tripId, placeholder }: Props) {
     }
   };
 
+  /** 最后一条结构化结果：只给它挂本轮过程警告，避免旧结果被新警告污染 */
+  const lastResultMessage = [...messages].reverse().find((m) => m.role === 'assistant' && m.result);
+  const lastResult = lastResultMessage?.result ?? null;
+  const lastUserText = [...messages].reverse().find((m) => m.role === 'user')?.content ?? '';
+  const retryLast = () => {
+    if (lastUserText) sendText(lastUserText);
+  };
+  const openTrip = (id: number) => navigate(`/trip/${id}`);
+
+  /**
+   * 结果后的可点击建议（§8.6）：空态示例之外，结果出来时也要给「下一步能做什么」，
+   * 否则用户只能自己想问题。按下轮最可能的动作给 2–3 个。
+   */
+  const followups: string[] =
+    streaming || !lastResult
+      ? []
+      : lastResult.status === 'NEED_CONFIRMATION'
+        ? ['预算再低一点', '节奏放慢一些']
+        : lastResult.status === 'COMPLETED'
+          ? ['记一笔消费', '帮我看看还有什么没安排']
+          : [];
+  const retryable =
+    !streaming &&
+    (lastResult?.status === 'FAILED' || lastResult?.status === 'CANCELLED') &&
+    lastUserText.length > 0;
+  const showFollowups = followups.length > 0 || retryable;
+
   return (
     <>
       <div className="chat-messages" ref={listRef}>
@@ -129,11 +160,22 @@ export default function ChatPanel({ tripId, placeholder }: Props) {
             <div className={`chat-avatar ${m.role === 'user' ? 'user' : 'ai'}`}>
               {m.role === 'user' ? (user?.nickname || user?.username || '我')[0] : '🤖'}
             </div>
-            <div className={`chat-bubble ${m.role}`}>
-              {m.content}
-              {/* assistant 方案的知识依据；空数组时组件返回 null */}
-              {m.role === 'assistant' && <CitationList citations={m.citations} compact />}
-            </div>
+            {/* 结构化结果卡只渲染一次：来源/影响范围/待核实都在卡片内，气泡不再重复正文 */}
+            {m.role === 'assistant' && m.result ? (
+              <ResultCard
+                result={m.result}
+                warnings={m.id === lastResultMessage?.id ? warnings : []}
+                onRetry={retryLast}
+                onCancelPlan={() => cancel()}
+                onOpenTrip={openTrip}
+              />
+            ) : (
+              <div className={`chat-bubble ${m.role}`}>
+                {m.content}
+                {/* assistant 方案的知识依据；空数组时组件返回 null */}
+                {m.role === 'assistant' && <CitationList citations={m.citations} compact />}
+              </div>
+            )}
           </div>
         ))}
         {streaming && stage && (
@@ -146,8 +188,29 @@ export default function ChatPanel({ tripId, placeholder }: Props) {
             {stage}
           </div>
         )}
-        {/* 过程警告：结论旁边必须能看见「哪些模块没过」，不能只显示成功（P0-07） */}
-        {!streaming && warnings.length > 0 && (
+        {/* 结果后的下一步建议：结果卡里已经有待核实项，这里只给「还能做什么」 */}
+        {showFollowups && (
+          <div className="chat-suggest" data-testid="chat-followups">
+            {followups.map((p) => (
+              <button
+                key={p}
+                type="button"
+                className="suggest-chip"
+                onClick={() => sendText(p)}
+                disabled={streaming}
+              >
+                {p}
+              </button>
+            ))}
+            {retryable && (
+              <button type="button" className="suggest-chip" onClick={retryLast}>
+                重试上一次
+              </button>
+            )}
+          </div>
+        )}
+        {/* 过程警告：没有结构化结果卡时（例如旧后端 / 纯文本回答）仍需在结论旁显示 */}
+        {!streaming && warnings.length > 0 && !lastResult && (
           <div className="chat-warnings" role="status">
             <div className="cw-head">⚠ 部分内容待核实</div>
             <ul>

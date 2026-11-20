@@ -641,7 +641,7 @@ return undefined;
 
 **node / DOM 环境差异**：默认 node 覆盖 store、API 客户端等纯逻辑，快且无需 DOM。需要 DOM 时在文件顶部加 `// @vitest-environment happy-dom`（见 `MapView/markerElement.test.ts` 第一行）—— 仓库用 `happy-dom` 而非 jsdom（jsdom 依赖 `require(ESM)`，对 Node 版本更敏感）。另外 `src/test/setup.ts` 在 node 环境补了一个**内存版 `Storage`**：zustand 的 `persist` 中间件依赖 `localStorage`/`sessionStorage`，node 环境下不存在，不补就会在导入 store 时抛错。
 
-当前 **44 个测试文件、447 个用例**（`npm test` 实测，以实际汇总为准）：`api/client.test.ts`、`footprintData.test.ts`、
+当前 **45 个测试文件、465 个用例**（`npm test` 实测，以实际汇总为准）：`api/client.test.ts`、`footprintData.test.ts`、
 `agentStore.test.ts`、`statusQueueStore.test.ts`（离线待同步队列：入队合并/持久化/逐项重放/网络错误中止）、
 `lib/statusQueue.test.ts`、`lib/tripFocus.test.ts`（下一项判定与完成后的滚动目标）、`UndoBar/index.test.tsx`、
 `pages/Planner/planDraft.test.ts`（草稿读写容错与步骤门禁）、`pages/Planner/index.test.tsx`（三步流程）、

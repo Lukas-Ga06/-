@@ -218,6 +218,12 @@ export interface ChatMessage {
   time: string;
   /** assistant 消息附带的知识依据；用户消息 / 无引用时不设置 */
   citations?: AgentCitation[] | null;
+  /**
+   * assistant 消息的结构化结果（阶段 C）：ChatPanel 据此渲染 ResultCard。
+   * 失败与主动停止也会写入一个合成结果（status=FAILED / CANCELLED），让「停止/失败」
+   * 与普通文本消息在界面上可区分。
+   */
+  result?: AgentResult | null;
 }
 
 export interface SelectedElement {

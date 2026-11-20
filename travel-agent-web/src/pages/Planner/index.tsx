@@ -12,6 +12,7 @@ import ChatPanel from '../../components/ChatPanel';
 import PlanDiff from '../../components/PlanDiff';
 import { useAgentStore } from '../../store/agentStore';
 import { useIsMobile } from '../../hooks/useMediaQuery';
+import { useAgentScope } from '../../hooks/useAgentScope';
 import {
   clampPlanMessage,
   compilePlanPrompt,
@@ -92,6 +93,8 @@ export default function Planner() {
   const [params] = useSearchParams();
   const { message } = App.useApp();
   const isMobile = useIsMobile();
+  // 会话隔离（阶段 C）：规划器有自己的对话作用域；进入/离开不再 reset 整个 store
+  useAgentScope('planner');
   const streaming = useAgentStore((s) => s.streaming);
   const messages = useAgentStore((s) => s.messages);
   const pendingConfirm = useAgentStore((s) => s.pendingConfirm);
@@ -99,7 +102,6 @@ export default function Planner() {
   const cancel = useAgentStore((s) => s.cancel);
   const committedTripId = useAgentStore((s) => s.committedTripId);
   const clearCommitted = useAgentStore((s) => s.clearCommitted);
-  const reset = useAgentStore((s) => s.reset);
   const newConversation = useAgentStore((s) => s.newConversation);
   const send = useAgentStore((s) => s.send);
 
@@ -130,11 +132,6 @@ export default function Planner() {
   /** 已提交进入「规划工作区」（表单让位给对话） */
   const [started, setStarted] = useState(false);
   const submittedRef = useRef(false);
-
-  useEffect(() => {
-    reset();
-    return () => reset();
-  }, []);
 
   useEffect(() => {
     if (committedTripId) {
