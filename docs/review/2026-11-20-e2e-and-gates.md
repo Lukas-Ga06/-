@@ -19,8 +19,8 @@
 | 命令 | 结果 |
 | --- | --- |
 | `npm run typecheck` | 0 error |
-| `npm test` | **44 文件 / 445 用例全过** |
-| `npm run test:coverage` + `check-core-coverage` | 全局 56.88/55.61/51.6/57.65；核心目录 79.24/76.76/68.97/78.23，阈值达标 |
+| `npm test` | **44 文件 / 447 用例全过** |
+| `npm run test:coverage` + `check-core-coverage` | 全局 56.95/55.7/51.74/57.7；核心目录 79.24/76.76/68.97/78.23，阈值达标 |
 | `npm run lint` | 0 error（48 条历史 warning） |
 | `npm run format:check` | 通过 |
 | `npm run build:check` | 构建成功；最大 JS 572,028 B、首屏 572,162 B、地图引擎不进 precache、precache 2.08 MiB，预算全过 |
