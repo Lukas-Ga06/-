@@ -1,10 +1,12 @@
 # 前端结构与页面说明（travel-agent-web）
 
+> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.7 / Node 20） | 最后验证：2026-11-19 | 事实来源：travel-agent-web/src/、travel-agent-web/vite.config.ts、travel-agent-web/package.json
+
 > 面向**要改界面的前端开发者**（路由、组件、两大链路）与**参与评审的产品/设计同学**（页面清单、交互约定）。
 > 内容基于 `travel-agent-web/` 当前 HEAD 的真实源码，路径均可直接打开。
 
-前端是整个「AI 个人助理」的唯一交互入口。后端（`travel-agent-server`）提供 Agent 引擎与 REST/SSE 接口；
-前端把 Agent 的**过程**（意图、工具调用、方案对比）可视化，并守住一条底线 ——
+前端是整个「AI 智能旅行助手」的唯一交互入口。后端（`travel-agent-server`）提供 Agent 引擎与 REST/SSE 接口；
+前端把 Agent 的**过程**（意图、RAG 引用、工具调用、方案对比）可视化，并守住一条底线 ——
 **任何 AI 修改都不直接落库，必须经 Diff → 确认 → 提交三步**。
 
 ---
@@ -22,7 +24,7 @@
 | vite-plugin-pwa | ^1.3.0 | app shell 预缓存，`autoUpdate` |
 | antd / @ant-design/icons | ^5.21.4 / ^5.5.1 | 组件库（`ConfigProvider` + `zh_CN`）与图标 |
 | axios | ^1.7.7 | REST 请求，`baseURL: '/api'` |
-| echarts | ^6.1.0 | 预算图、记账分类图、健康 7 天趋势 |
+| echarts | ^6.1.0 | 预算图、记账分类图、回顾统计 |
 | 高德 JS API / maplibre-gl | 2.0 / **6.15.0**（精确锁定，无 `^`） | 行程页 2D/3D 地图（高德）/ 足迹球体投影（MapLibre + 高德栅格底图） |
 | zustand | ^4.5.5 | 全局状态（5 个 store，见第 5 节） |
 | dayjs | ^1.11.13 | 日期格式化与 Day 映射 |
@@ -53,52 +55,54 @@ travel-agent-web/
     ├── main.tsx               # ConfigProvider（色板/暗色算法）+ AntApp + 挂载 Root
     ├── App.tsx                # 路由表、Protected、登录态恢复、ErrorBoundary、Suspense
     ├── global.d.ts            # Web Speech API 等缺失类型补声明
-    ├── api/                   # 14 个文件（10 个模块 + 4 个测试）
+    ├── api/                   # 15 个文件（含 knowledge / review 契约与测试）
     │   ├── client.ts          # axios 实例、{code,message,data} 解包、401 分流
     │   ├── agent.ts           # SSE（GET EventSource / POST fetch）与方案确认接口
     │   ├── auth.ts            # 登录/注册/me/登出；signOut() 是唯一登出入口
     │   ├── ticket.ts          # 短期只读票据：缓存 + 并发合并 + useAccessTicket()
-    │   ├── trip.ts / expense.ts / memo.ts      # 行程与条目、记账、备忘
-    │   ├── assistant.ts       # 日程/邮件/纪要/日报/发票/学习/健康/系统状态
+    │   ├── trip.ts / expense.ts / memo.ts      # 行程与条目（含状态推进）、回顾/事件、记账、备忘
+    │   ├── knowledge.ts       # 旅行知识库：录入 / 检索 / 版本 / 回滚
+    │   ├── assistant.ts       # 日程 + 系统状态（办公类接口已删除）
     │   ├── reminder.ts / photo.ts              # 提醒看板、行程照片（原图带票据）
-    ├── components/            # 35 个文件（23 个组件 + 12 个接口/工具/测试），见第 7 节
+    ├── components/            # 48 个文件（27 个目录，含组件测试），见第 7 节
     ├── hooks/                 # useIntersection（CountUp 入视口才动画）、useOnlineStatus（离线提示条）
-    ├── lib/                   # reminderNotify.ts + 其测试
-    ├── pages/                 # 16 个页面目录，见第 4 节
-    ├── store/                 # 7 个文件（5 个 store + themeStore/agentStore 测试）
-    ├── styles/global.css      # 4382 行设计系统：:root 令牌 + 暗色覆盖 + 页面样式
+    ├── lib/                   # reminderNotify.ts、coords.ts、echarts.ts、chartTheme.ts 及其测试
+    ├── pages/                 # 16 个页面目录（21 个文件），见第 4 节
+    ├── store/                 # 11 个文件（5 个 store + 测试）
+    ├── styles/global.css      # 5585 行设计系统：:root 令牌 + 暗色覆盖 + 页面样式
     ├── test/setup.ts          # node 环境补内存 Storage，供 zustand persist 使用
-    └── types/                 # 5 个类型文件：trip / agent / expense / memo / assistant
+    └── types/                 # 7 个类型文件：trip / agent / expense / memo / assistant / knowledge / review
 ```
 
 ---
 
 ## 3. 路由表
 
-唯一来源是 `src/App.tsx` 的 `<Routes>`，共 **17 条 `<Route>`**（顺序与源码一致）。
+唯一来源是 `src/App.tsx` 的 `<Routes>`，共 **20 条 `<Route>`**（顺序与源码一致）；下表只列**有效入口**，退役模块的兼容重定向见下方说明。
 
 | # | path | 组件 | 受保护 | 备注 |
 | --- | --- | --- | --- | --- |
 | 1 | `/login` | `pages/Login` | 否 | 登录/注册 Tab 同页 |
 | 2 | `/` | `pages/Home` | ✅ | 总览首页 |
 | 3 | `/planner` | `pages/Planner` | ✅ | 结构化规划表单，走 POST 版 SSE |
-| 4 | `/trip/:id` | `pages/Trip` | ✅ | 行程详情：地图 + 时间轴 + 聊天 + 预算抽屉 |
-| 5 | `/expenses` | `pages/Expenses` | ✅ | 跨行程支出总览 |
-| 6 | `/memos` | `pages/Memos` | ✅ | 备忘，支持左滑操作 |
-| 7 | `/office` | `pages/Office` | ✅ | 邮件/纪要/日报/发票 |
-| 8 | `/learning` | `pages/Learning` | ✅ | 学习辅助 + 知识库 |
-| 9 | `/health` | `pages/Health` | ✅ | 健康记录 + 7 天 ECharts 趋势 |
-| 10 | `/schedule` | `<Navigate to="/travel?tab=schedule" replace />` | — | 旧链接兼容重定向，无独立页面 |
-| 11 | `/assistant` | `pages/Assistant` | ✅ | 统一对话入口 |
-| 12 | `/travel` | `pages/Travel` | ✅ | 旅行规划主页（Tab：行程/日程/足迹） |
-| 13 | `/footprint` | `<Navigate to="/travel?tab=footprint" replace />` | — | 旧链接兼容重定向，无独立页面 |
-| 14 | `/workbench` | `pages/Workbench` | ✅ | AI 工作台（Tab 复用 Office / Learning） |
+| 4 | `/trip/:id` | `pages/Trip` | ✅ | 行程详情：地图 + 时间轴 + 聊天 + 预算抽屉 + 状态操作 |
+| 5 | `/trip/:id/review` | `pages/TripReview` | ✅ | 单次旅行回顾：完成率/计划与实际/到访/路线/照片/事件 |
+| 6 | `/review` | `pages/Reviews` | ✅ | 旅行回顾列表（按阶段排序） |
+| 7 | `/expenses` | `pages/Expenses` | ✅ | 跨行程支出总览 |
+| 8 | `/memos` | `pages/Memos` | ✅ | 备忘，支持左滑操作 |
+| 9 | `/schedule` | `<Navigate to="/travel?tab=schedule" replace />` | — | 旧链接兼容重定向，无独立页面 |
+| 10 | `/assistant` | `pages/Assistant` | ✅ | 统一对话入口 |
+| 11 | `/travel` | `pages/Travel` | ✅ | 旅行规划主页（Tab：行程/日程/足迹） |
+| 12 | `/footprint` | `<Navigate to="/travel?tab=footprint" replace />` | — | 旧链接兼容重定向，无独立页面 |
+| 13 | `/knowledge` | `pages/Knowledge` | ✅ | 旅行知识库：录入 / 检索 / 版本 / 回滚 |
+| 14 | `/workbench` | `pages/Workbench` | ✅ | Agent 运行观察：run / 任务 DAG / 工具调用 |
 | 15 | `/profile` | `pages/Profile` | ✅ | 个人中心、系统状态、退出登录 |
 | 16 | `*` | `<Navigate to="/" replace />` | — | 通配兜底，未知路径回首页 |
 | 17 | `/ui-demo` | `pages/UIDemo` | ✅ | 组件厨房（SwipeRow/DraggableList/Collapse/CountUp…） |
 
-> `*`（第 16 条）在源码里排在 `/ui-demo` 之前。react-router v7 按“评分最优”而非书写顺序匹配：
-> `/ui-demo` 是静态完整路径、评分高于 `*`，因此仍能正常命中。新增路由建议统一放到 `*` 之前，避免误解。
+> **退役模块重定向（保留但不入上表）**：`/office`、`/learning`、`/health` 均指向 `/`，避免旧书签 404。
+> 它们不是功能入口；对应页面目录、API client、类型与首页请求已删除。`*` 在源码里排在 `/ui-demo` 之前，
+> react-router v7 按“评分最优”匹配，`/ui-demo` 仍能命中；新增路由建议统一放到 `*` 之前。
 
 **重定向的意义**：日程与足迹曾是两个独立侧栏入口，现分别并入 `/travel?tab=schedule` 与
 `/travel?tab=footprint`（`pages/Travel/index.tsx` 用 `useSearchParams` 读 `tab`，非法值回落 `trips`）。
@@ -123,6 +127,11 @@ travel-agent-web/
 
 ## 4. 页面清单
 
+`src/pages/` 共 **16 个页面目录**；`App.tsx` 有 **20 条 `<Route>`**，其中 **14 条渲染页面组件**
+（`/login` + 13 个受保护页：Home、Planner、Trip、TripReview、Reviews、Expenses、Memos、Assistant、Travel、Knowledge、Workbench、Profile、UIDemo）、
+2 条有效重定向（`/schedule`、`/footprint`）、3 条退役重定向（`/office`、`/learning`、`/health`）与 1 条通配兜底。
+`Schedule` / `Footprint` 仍有目录与组件，但只作为 `Travel` 的 Tab 内容渲染，不再有独立路由。
+
 ### 4.1 Login（`/login`）
 
 登录/注册两个 Tab，左侧三条产品卖点；成功后 `setAuth` 再跳首页。
@@ -130,27 +139,51 @@ API：`loginApi`、`registerApi`。组件：antd `Tabs/Form/Input/Button/Typogra
 
 ### 4.2 Home（`/`，`AppShell active="home"`）
 
-一屏总览 —— 问候语与日期、今日日程、未完成备忘（可勾选）、支出概览、足迹卡片；
+一屏总览 —— 问候语与日期、今日日程、未完成备忘（可勾选）、支出概览、足迹卡片、最近 Agent 运行。
 顶部输入框把一句话带到 `/assistant?q=…` 自动发送。
-API：`getTripsMap`、`getExpenseOverview`、`getMemos`/`toggleMemo`、`listSchedule`、`listArtifacts`、
-`listMinutes`、`listReports`、`healthSummary`、`getReminders`。
+API：`getTripsMap`、`getExpenseOverview`、`getMemos`/`toggleMemo`、`listSchedule`、`getRuns`、`getReminders`。
+**P0 起不再请求**健康摘要、日报、会议纪要、学习产物。
 组件：`AppShell`、`CityDrawer`、`VoiceButton`、`CountUp`、`Skeleton`；足迹地图用
 `lazy(() => import('../../components/FootprintMap'))` 二次懒加载，统计纯函数来自 `FootprintMap/footprintData.ts`。
+**足迹口径（P1）**：`visitedPoints()` 只保留后端 `visited === true`（依据是 `visitedAt` 实际打卡）的行程；
+未来/计划行程不算「去过」，缺失 `visited` 字段一律按未到访处理。
 
 ### 4.3 Planner（`/planner`）
 
-结构化规划表单（目的地、时间两形态、同行人、预算、节奏、偏好、锁定项），
-两种模式：`guides`（粘贴参考攻略正文整合）与 `scratch`（从零规划）。
+**三步流程**（§8.3）：① 基本信息（目的地、日期或天数、同行人数，必填）→ ② 偏好与约束（预算、节奏、兴趣、
+攻略正文、不可修改项、特别要求，可空）→ ③ 确认需求（只读结构化摘要 + 冲突 + 待核实字段）。
+两种模式：`guides`（粘贴参考攻略正文整合）与 `scratch`（从零规划）；攻略模式在第 2→3 步之间要求至少一篇正文。
 API：不直接调 REST，全部经 `useAgentStore.send({ transport: 'post' })`。
+布局：桌面右侧吸顶需求摘要，移动端（`useIsMobile`）底部固定「上一步 / 步骤 x/3 / 继续·生成计划」；
+`?prompt=` 进入时仍先跑 `parsePrompt` 回填，第 3 步会列出低置信字段与「方案会替用户做的假设」。
+
+**草稿**：`planDraft.ts`（纯逻辑，可单测）负责 localStorage 读写与校验，
+key `travel:planner-draft:v1` 带版本号；空白表单不产生草稿；进入页面**只提示不自动恢复**
+（`恢复上次未完成规划 / 忽略`），`?prompt=` 场景以解析结果为准；提交成功后清草稿。
+保存失败（隐私模式/配额满）会明确提示，不静默丢弃。
+
 组件：`ChatPanel`、`PlanDiff`；纯逻辑在同目录 `planForm.ts` —— `compilePlanPrompt`（表单 → 中文需求文本）、
-`compilePlanSummary`（聊天气泡短摘要）、`clampPlanMessage`（兜底截断）。
+`compilePlanSummary`（聊天气泡短摘要）、`describeRequirementRows`（第 3 步摘要与右侧摘要同一口径）、
+`clampPlanMessage`（兜底截断）。样式在 `Planner/planner.css`（`plan3-` 前缀，**不进 global.css**）。
 
 ### 4.4 Trip（`/trip/:id`）
 
-行程详情主战场 —— 左侧地图（3D/2D 可切、沿路线巡航）、右侧时间轴（按 Day 分组）、
-底部聊天面板可对当前行程发起修改；顶部可撤销、导出路书、打开预算抽屉。
-API：`getTrip`/`getItinerary`/`getBudgetExecution`、`undoTrip`。
+行程详情主战场 —— 桌面：时间轴主栏 + 地图/AI 侧栏；移动：`行程 / 地图 / AI` 分段视图（默认行程）。
+顶部按阶段收敛一级动作（行中=记账，行前=预算分析），其余进「更多」菜单。
+
+**行中执行流程（§7.3）**：
+- 完成一项后 `lib/tripFocus.ts` 的 `nextFocusAfter` 算出下一项，页面切到它所在 Day 并 `scrollToItem` 滚过去；
+  同时弹 `UndoBar`（8s 倒计时）提供短时撤销 —— 已同步的变更把状态写回上一个值（`PUT /itinerary/{id}/status` 是绝对值语义，天然幂等），
+  仍在队列里的变更直接出队。撤销同时走服务端，不是只改本地。
+- **离线待同步**：离线（或请求发不出去）时不报错，变更进 `store/statusQueueStore`，
+  时间轴卡片显示「待同步」，页头显示「N 项待同步」；恢复在线后由 `OfflineBanner` 的 `usePendingSync` 逐条重放，
+  并显示逐项结果（成功/失败+原因+重试）。服务端明确拒绝（带状态码）不入队，直接提示原因。
+- **侧栏 keep-alive**：地图与 AI 面板一次挂载、只切可见性（`data-active`），切走再切回不会重新初始化地图、不丢缩放；
+  切回可见时调用 `MapProvider.resize?.()` 校正画布（隐藏期间窗口可能变过尺寸）。
+API：`getTrip`/`getItinerary`/`getBudgetExecution`、`undoTrip`、`updateItemStatus`、`getTripReview`/`getTripEvents`（见 `api/trip.ts`）。
 组件：`MapView`、`Timeline`、`ChatPanel`、`PlanDiff`、`BudgetChart`、`BudgetExecution`、`ExpensePanel`。
+P1 交互：`ItineraryCard` 提供「开始 / 完成 / 跳过 / 重置」状态按钮（`statusBusy` 防连点，`status/startedAt/completedAt/visitedAt` 展示实际时间）；
+顶部「旅行回顾」按钮进入 `/trip/{id}/review`。
 `BudgetExecution` 展示预算 / 计划 / 实际 / 偏差，并新增**预算使用率**（`executionRate = actual / budget`，后端保留 4 位小数，
 无预算时为 `null`，前端 ×100 显示百分比）；`daily` 在 `types/expense.ts` 里是**必填**字段（旧后端缺失时组件按空数组兜底，不会崩）。
 
@@ -167,55 +200,58 @@ API：`getTrip`/`getItinerary`/`getBudgetExecution`、`undoTrip`。
 新增、勾选完成、删除备忘，左滑露出操作按钮。勾选做并发保护 —— `pending` Set 挡住连点，
 因为 toggle 是取反语义，连点两次会互相抵消。API：`getMemosPage`/`addMemo`/`toggleMemo`/`deleteMemo`。
 列表分页：默认 20 条，底部「共 N 条 · 第 k 页」+ 上一页 / 下一页（`PaginationBar`，见 6.5）；后端没返回 `pagination` 时降级为「单页、无更多」，两个按钮禁用。
-组件：`SwipeRow`、`Skeleton`、`AppShell`。
+组件：`SwipeRow`、`Skeleton`、`AppShell`。P1 起备忘可带可空 `tripId`/`itineraryItemId`/`travelDay` 归属旅行（当前 UI 尚未提供关联入口）。
 
-### 4.7 Office（`/office`）
-
-邮件分类、会议纪要生成、日报生成、发票识别与「一键转记账」，四块用 `Tabs` 分栏。
-API：`classifyMail`、`generateMinutes`/`listMinutes`、`generateReport`/`listReports`、
-`extractInvoice`/`uploadInvoice`/`listInvoices`/`invoiceToExpense`。
-组件：antd `Upload/Modal/Select/Tabs`；本地 `MdView` 以 `pre-wrap` 渲染纯文本产出。
-
-### 4.8 Learning（`/learning`）
-
-知识框架、学习路线、重点归纳的生成与归档，以及知识库录入与检索。
-API：`generateLearning`、`listArtifacts`/`deleteArtifact`、`addKnowledge`、`searchKnowledge`。
-组件：`Tabs`；结果类型在 `types/assistant.ts`（`KnowledgeHit`）。
-
-### 4.9 Health（`/health`）
-
-手环数据录入/导入、7 天趋势图、健康建议、演示数据一键填充。
-API：`upsertHealth`、`listHealth`、`healthSummary`、`seedHealthDemo`。
-组件：直接 `import * as echarts` 手写 chart；**canvas 读不到 CSS 变量**，按 `themeStore.mode` 传两套色值。
-
-### 4.10 Schedule（`/travel?tab=schedule`）
+### 4.7 Schedule（`/travel?tab=schedule`）
 
 日程增删改查、按时辰与重复规则（`NONE`/…）设置；行内 toggle 同样做并发保护。
 API：`listSchedule`/`addSchedule`/`toggleSchedule`/`deleteSchedule`。组件：`DatePicker`/`TimePicker`/`Select`；
-被 `Travel` 与 `Workbench` 复用，`AppShell` 检测到已在外壳内会直接返回 children。
+被 `Travel` 复用，`AppShell` 检测到已在外壳内会直接返回 children。
+P1 起日程可带可空 `tripId`/`itineraryItemId`/`travelDay`，确认后的 Agent 同步会按 `sourceKey` 幂等写入。
 
-### 4.11 Footprint（`/travel?tab=footprint`）
+### 4.8 Footprint（`/travel?tab=footprint`）
 
 全屏足迹地图 + 行程列表 + 按时间回放；统计由 `footprintData.ts` 在本地算。API：`getTripsMap`。
+**只统计 `visited === true` 的行程**：计划地点、计划日期与「当前行程」都不计入「去过」。
 组件：`FootprintMap`（maplibre 球体投影 + 高德栅格底图，运行时探测 `setProjection`，旧版本退回平面 3D；
 底图由 `VITE_FOOTPRINT_BASEMAP` 控制，默认 `amap`，设 `osm` 可退回原 OSM/OpenFreeMap）。
 
-### 4.12 Assistant（`/assistant`）
+### 4.9 Assistant（`/assistant`）
 
 统一对话入口，**URL 参数即状态**：`?q=…` 从首页/城市抽屉带问题跳转（`startedRef` 保证只自动发一次）；
 `?planId=…` 刷新后用 `getPendingPlan` 找回待确认方案；`pendingConfirm` 出现时把 `planId` 写回 URL（`replace: true`）。
 API：`getPendingPlan`，发送走 `useAgentStore.send`。组件：`ChatPanel`、`PlanDiff`。
 
-### 4.13 Travel（`/travel`）
+### 4.10 Travel（`/travel`）
 
 三个 Tab —— `trips` 行程列表、`schedule` 日程、`footprint` 足迹；行程卡片支持状态流转
 （进行中/已完成/取消）与删除（`Popconfirm`）。API：`listTrips`/`deleteTrip`/`updateTripStatus`。
 组件：`VoiceButton`、`AppShell`，内嵌 `Schedule`、`Footprint`。
 
+### 4.11 Knowledge（`/knowledge`）
+
+旅行知识库管理：录入自定义攻略文档、检索命中片段、查看版本列表与版本详情、回滚到指定版本。
+API：`addKnowledge`、`searchKnowledge`、`listKnowledgeVersions`、`getKnowledgeVersion`、`rollbackKnowledge`；
+类型在 `types/knowledge.ts`。组件：antd `Input/InputNumber/Modal/Popconfirm/Tag` + `AppShell`。
+该页只做旅行域 RAG 文档管理，**不提供学习产物生成**。
+
+### 4.12 Reviews（`/review`）
+
+旅行回顾列表：按阶段（进行中 / 已结束 / 待出发 / 已取消）排序，每行展示行程名、目的地、日期与阶段，
+「查看回顾」进入 `/trip/{id}/review`。API：`listTrips`（复用行程列表，回顾数据按需加载）。组件：`AppShell`、antd `Empty/Spin/Button`。
+
+### 4.13 TripReview（`/trip/:id/review`）
+
+单次旅行回顾页：完成率进度、计划/实际花费与偏差、计划地点 vs 实际到访、`actualRoute`、照片墙（票据鉴权）、
+事件流（天气/拥堵/闭馆/打卡/Agent 调整/手动修改）、修改历史与 `aiSummary`。
+API：`getTripReview`，照片原图 `photoSrc` + `useAccessTicket('media-read')`；类型在 `types/review.ts`。
+组件：`AppShell`、antd `Progress/Tag/Alert/Empty/Spin`；页面强调 **visited 只认 `visitedAt`**，计划地点不冒充到访。
+
 ### 4.14 Workbench（`/workbench`）
 
-把 Office 与 Learning 合成一页用 Tab 切换（`?tab=learning`），无自己的请求。
-组件：`Tabs` + `Office`/`Learning`，是 `InsideShell` 上下文的主要消费者。
+**Agent 运行观察页**（P0 改造，不再是办公/学习工作台）：左侧最近运行列表，右侧选中 run 的任务 DAG
+（依赖边、尝试次数、`CONFLICT` 行）与工具调用摘要（脱敏 digest，不渲染原始参数）。
+API：`getRuns`、`getRunDetail`；组件：`AppShell` + 列表/详情布局，含运行状态徽标与错误重试。
 
 ### 4.15 Profile（`/profile`）
 
@@ -241,6 +277,7 @@ zustand v4，每个 store 一个文件一个职责，组件按 `useXStore((s) =>
 | trip | `store/tripStore.ts` | ❌ | 行程列表与当前行程/条目 |
 | ui | `store/uiStore.ts` | ❌ | 当前 Day、选中元素、提醒抽屉开关 |
 | theme | `store/themeStore.ts` | ✅ localStorage `travel-agent-theme` | 亮/暗主题 |
+| statusQueue | `store/statusQueueStore.ts` | ✅ localStorage `travel:status-queue:v1` | 行程项状态的离线待同步队列与逐项同步结果 |
 
 ### 5.1 authStore
 
@@ -280,6 +317,19 @@ action：`setAuth(token, user)`（登录成功后写入）、`setUser(user)`（`
 
 `selectedElement`（`{type, id, title}`）是「多模态上下文」：`Timeline` 里点一个条目，`ChatPanel` 发送时带上它，
 后端即可理解“把**这个**换成别的”这类指代。
+
+### 5.4 statusQueue（离线待同步队列，§7.3 第 4 条 / §10.3）
+
+| 层 | 文件 | 职责 |
+| --- | --- | --- |
+| 纯逻辑 | `lib/statusQueue.ts` | `PendingStatusChange` 类型、`requestId` 生成、按 `itemId` 合并（last write wins）、`overlayStatuses` 把待同步状态叠加到服务端数据上、localStorage 容错读写（坏 JSON/字段非法逐条丢弃，绝不抛错） |
+| store | `store/statusQueueStore.ts` | `entries`/`syncing`/`lastResults`/`hydrated`；`hydrate`/`enqueue`/`drop`/`dropByItem`/`clear`/`flush`/`clearResults`；`flush` 顺序发送、成功即出队、失败保留并写 `lastError` |
+| hook | `usePendingSync()` | 在 `OfflineBanner` 挂载：`hydrate` + 在线时 `flush`，并监听 `window online` 自动重放 |
+
+`flush` 的错误分类决定「继续还是中止」：命中 `ERR_NETWORK/ECONNABORTED/ETIMEDOUT/ERR_CANCELED` 或拿不到
+1–599 的 HTTP 状态码 = 网络仍不可用 → **中止后续**（剩余条目原样保留）；服务端明确回应（400/404/409/5xx）= 业务拒绝
+→ 该条保留待重试、继续处理下一条。`flush` 不 reject，结果只体现在 `lastResults` 与条目的 `lastError` 上；
+并发调用由 `syncing` 挡住。`lastResults` 不持久化（刷新即空），条目的 `lastError` 持久化。
 
 ---
 
@@ -446,12 +496,12 @@ export function clearAccessTicketCache(): void;                                 
 | 组件 | 路径 | props | 职责 |
 | --- | --- | --- | --- |
 | `AppShell` | `AppShell.tsx` | `active: NavModule`, `children` | 应用外壳：分组侧栏（备忘角标、提醒铃铛、用户区、主题切换）、内容区、窄屏底部标签栏；已在壳内（`InsideShell` context）时**只渲染 children** |
-| `OfflineBanner` | `OfflineBanner/index.tsx` | 无 | 断网时置顶显示「离线：显示缓存数据」，恢复在线自动消失（`useOnlineStatus` + 原生 `online`/`offline` 事件）；可手动关闭，恢复在线后重置关闭状态（见 11.3） |
+| `OfflineBanner` | `OfflineBanner/index.tsx` | 无 | 断网时置顶显示「离线：显示缓存数据」+「N 项待同步」，恢复在线自动消失（`useOnlineStatus` + 原生 `online`/`offline` 事件）；**同时是待同步队列的全局出口**：`usePendingSync()` 自动重放，显示「正在同步 / N 项同步失败（重试）/ N 项待同步（立即同步）/ N 项离线记录已同步」；可手动关闭，恢复在线后重置关闭状态（见 11.3、5.4） |
 | `ChatPanel` | `ChatPanel/index.tsx` | `tripId?`, `placeholder?` | 聊天面板：消息列表 + 语音输入 + 发送；自动滚到底；带 `tripId`/`currentDay`/`selectedElement` 上下文 |
-| `MapView` | `MapView/index.tsx` | `items`, `focus`, `focusDay` | 地图容器与引擎切换（见第 8 节），含底图失败降级提示与 3D 巡航按钮 |
-| `Timeline` | `Timeline/index.tsx` | `trip`, `items`, `focus` | 时间轴：按 Day 分组，点击选中元素写入 `uiStore`；收到 `focus` 自动切 Day 并 `scrollIntoView` |
-| `ItineraryCard` | `ItineraryCard/index.tsx` | `item`, `selected?`, `onClick?` | 行程条目卡片：类型徽标（酒店/景点/餐饮/交通）+ 标题 + 花费 + 标签 + 简介 |
-| `PlanDiff` | `PlanDiff/index.tsx` | `open`, `result`, `onConfirm`, `onCancel`, `loading?` | 方案确认弹窗：ADD/REMOVE/MODIFY diff 行、预算前后、HIGH 风险提示 |
+| `MapView` | `MapView/index.tsx` | `items`, `focus`, `focusDay`, `routeLegs?`, `active?=true` | 地图容器与引擎切换（见第 8 节），含底图失败降级提示与 3D 巡航按钮；`active=false` 不卸载地图，重新可见时 `resize()`（侧栏 keep-alive） |
+| `Timeline` | `Timeline/index.tsx` | `trip`, `items`, `focus`, `routeLegs?`, `onItemStatusChange?`, `statusBusyId?`, `pendingSyncIds?` | 时间轴：按 Day 分组，点击选中元素写入 `uiStore`；收到 `focus` 自动切 Day 并滚动；顶部「下一项」卡片给主动作；`pendingSyncIds` 命中的条目显示「待同步」 |
+| `ItineraryCard` | `ItineraryCard/index.tsx` | `item`, `selected?`, `onClick?`, `onStatusChange?`, `statusBusy?`, `pendingSync?` | 行程条目卡片：类型徽标 + 标题 + 花费 + 标签 + 简介；P1 状态徽标与「开始/完成/跳过/重置」按钮，展示实际开始/完成时间；`pendingSync` 时状态旁标「待同步」并给卡片 `data-pending` |
+| `PlanDiff` | `PlanDiff/index.tsx` | `open`, `result`, `onConfirm`, `onCancel`, `loading?` | 方案确认弹窗：ADD/REMOVE/MODIFY diff 行、预算前后、HIGH 风险提示；P1 起展示 `result.citations`（知识依据），空数组不渲染 |
 | `BudgetChart` | `BudgetChart/index.tsx` | `items`, `budget?` | ECharts 双图：按类型饼图 + 按天柱图 |
 | `BudgetExecution` | `BudgetExecution/index.tsx` | `data: BudgetExecution \| null` | 预算执行摘要：预算/计划/实际/偏差四宫格 + 分类对账（`data` 为空不渲染） |
 | `ExpensePanel` | `ExpensePanel/index.tsx` | `tripId`, `budget`, `planned` | 行程记账面板：增删支出、分类统计图、预算对比进度 |
@@ -462,6 +512,7 @@ export function clearAccessTicketCache(): void;                                 
 | `SwipeRow` | `SwipeRow/index.tsx` | `children`, `rightActions?`, `leftActions?`, `threshold?=80`, `maxSlide?=160`, `resistance?=0.5`, `onActionClose?`, `className?` | 左右滑动露出操作按钮，带阻尼回弹与吸附 |
 | `CityDrawer` | `CityDrawer/index.tsx` | `city`, `points`, `spendByTrip`, `onClose`, `onOpenTrip`, `onAskAi` | 城市足迹详情抽屉：到访记录、预算 vs 实际、本地拼装的总结、照片墙（带票据）、一键问 AI |
 | `Toast` | `Toast/index.tsx` | `ToastContainer` 无 props | 全局轻提示单例：`toast.success/warning/error/info/ai(content, title?)` |
+| `UndoBar` | `UndoBar/index.tsx` | `token`, `message`, `detail?`, `actionLabel?='撤销'`, `durationMs?=8000`, `onAction`, `onExpire` | 短时撤销条（§7.3 第 3 条）：底部浮动、带倒计时进度条与剩余秒数，`key={token}` 重挂即重新计时；点撤销/关闭会先停表，避免超时回调重复触发 |
 | `Skeleton` | `Skeleton/index.tsx` | `{ loading, children, className? }` | 骨架屏：`Skeleton.Text/Paragraph/Circle/Card/ListItem/StatRow/ChatMessage` + `Bone` |
 | `Collapse` | `Collapse/index.tsx` | `open`, `children`, `duration?=280`, `unmountOnClose?=false`, `className?` | 高度 0→auto 的平滑折叠（先测真实高度再转 px 动画） |
 | `CountUp` | `CountUp/index.tsx` | `value`, `duration?=900`, `easing?`, `decimals?`, `prefix?`, `suffix?`, `thousandSeparator?`, `playOnVisible?=true`, `className?`, `style?` | 数字滚动动画，默认 `easeOutExpo`，进入视口才开始 |
@@ -477,7 +528,8 @@ export function clearAccessTicketCache(): void;                                 
 `FootprintMap/basemap.ts`（高德/OSM 底图样式与回退开关）、`FootprintMap/footprintData.ts`（足迹统计纯函数）、
 `FootprintMap/footprintData.test.ts`、`lib/coords.ts`（WGS-84 ↔ GCJ-02）、`lib/coords.test.ts`、
 `BudgetExecution/index.test.tsx`（预算使用率百分比、行程外与正负号断言）、
-`OfflineBanner/index.test.tsx`（离线提示条的显示/关闭/恢复在线后重置，4 用例）。
+`OfflineBanner/index.test.tsx`（离线提示条的显示/关闭/恢复在线后重置 + 待同步队列四种状态，9 用例）、
+`UndoBar/index.test.tsx`（倒计时/撤销/关闭，6 用例）、`lib/tripFocus.ts`（下一项判定、完成后的滚动目标、滚动容错，14 用例）。
 
 ### 7.3 FootprintMap 的 props
 
@@ -589,17 +641,14 @@ return undefined;
 
 **node / DOM 环境差异**：默认 node 覆盖 store、API 客户端等纯逻辑，快且无需 DOM。需要 DOM 时在文件顶部加 `// @vitest-environment happy-dom`（见 `MapView/markerElement.test.ts` 第一行）—— 仓库用 `happy-dom` 而非 jsdom（jsdom 依赖 `require(ESM)`，对 Node 版本更敏感）。另外 `src/test/setup.ts` 在 node 环境补了一个**内存版 `Storage`**：zustand 的 `persist` 中间件依赖 `localStorage`/`sessionStorage`，node 环境下不存在，不补就会在导入 store 时抛错。
 
-当前 **13 个测试文件、105 个用例**（`npm test` 实测，全部通过）：`api/client.test.ts` 20
-（`{code}` 解包、401 分流、`pagination` 透传等）、`footprintData.test.ts` 14（足迹统计、年月筛选、城市聚合）、
-`agentStore.test.ts` 12（发送/流式回调/确认/取消/reset/新会话/序号竞态）、`BudgetExecution/index.test.tsx` 9
-（预算使用率百分比、行程外与正负号）、`planForm.test.ts` 9（表单编译、摘要、截断）、
-`themeStore.test.ts` 8（新增：持久化读写、非法值回落 light、跟随系统偏好、`applyTheme` 写 `data-theme`）、
-`api/ticket.test.ts` 6（票据缓存、并发合并、登录态失效）、`AMapProvider.test.ts` 6
-（高德 3D/2D、内容更新、定位巡航、失败恢复、异步销毁、Key 校验）、`api/pagination.test.ts` 5、
-`reminderNotify.test.ts` 5（通知筛选：权限/后台/去重）、`api/agent.test.ts` 4（SSE 事件分发，complete/error/onerror 只回调一次）、
-`OfflineBanner/index.test.tsx` 4（新增：断网显示、手动关闭、恢复在线后重置、在线时不渲染）、`markerElement.test.ts` 3（标记 DOM 结构）。
-
-> 测试数量以 `npm test` 的实际汇总为准（本次实测 `Test Files 13 passed (13)` / `Tests 105 passed (105)`）。
+当前 **44 个测试文件、445 个用例**（`npm test` 实测，以实际汇总为准）：`api/client.test.ts`、`footprintData.test.ts`、
+`agentStore.test.ts`、`statusQueueStore.test.ts`（离线待同步队列：入队合并/持久化/逐项重放/网络错误中止）、
+`lib/statusQueue.test.ts`、`lib/tripFocus.test.ts`（下一项判定与完成后的滚动目标）、`UndoBar/index.test.tsx`、
+`pages/Planner/planDraft.test.ts`（草稿读写容错与步骤门禁）、`pages/Planner/index.test.tsx`（三步流程）、
+`pages/Trip/index.test.tsx`（自动滚动 + 短时撤销 + 离线入队 + 侧栏 keep-alive）、`BudgetExecution/index.test.tsx`、
+`planForm.test.ts`、`themeStore.test.ts`、`api/ticket.test.ts`、`AMapProvider.test.ts`、`api/pagination.test.ts`、
+`reminderNotify.test.ts`、`api/agent.test.ts`、`OfflineBanner/index.test.tsx`、`Timeline/index.test.tsx`、
+`markerElement.test.ts`、`basemap.test.ts`、`Workbench/index.test.tsx`、回顾/知识库契约相关测试等。
 > 测试写法上的一个坑：`api/agent.test.ts` 的 mock 用**普通函数**而非 `vi.fn()`，
 > 因为全局开了 `restoreMocks: true`，`vi.fn()` 的实现会在每个用例前被重置。
 
@@ -613,7 +662,7 @@ return undefined;
 - `e2e/smoke.spec.ts` **3 例**：① **未登录访问首页 → 跳登录页**（`browser.newContext()` 显式空 `storageState`，才是真正的匿名访客）；
   ② **登录 → 建行程 → 行程页与路书可达** —— 登录态来自 `globalSetup` 写入的 `storageState`，用 `page.request.post` 建行程（数据准备不走 UI 表单），
   `/trip/:id` 断言标题与「路书」按钮，再 `GET /api/trips/:id/guidebook.pdf` 断言首字节 `0x25`（`%PDF`）；
-  ③ **PWA 资源可达** —— `/manifest.webmanifest` 的 `name` 为「AI 个人助理」，`/sw.js` 含 `precache`。
+  ③ **PWA 资源可达** —— `/manifest.webmanifest` 的 `name` 为「AI 智能旅行助手」，`/sw.js` 含 `precache`。
 - `e2e/planner-form.spec.ts` **2 例**：**攻略整合模式**（空提交校验 → 填表 → POST 流式 → 确认 → 新行程）与
   **从零规划模式**（填目的地与天数 → 生成 → 确认 → 新行程），都走规则路径、不依赖 LLM 与外部服务。
 
@@ -633,7 +682,7 @@ return undefined;
 | **样式令牌** | `styles/global.css` 顶部 `:root` 是唯一来源。主用名 `--bg/--surface/--border/--text/--text-2/--text-3/--accent/--ok/--warn/--danger/--r-*/--sp-*`，旧名（`--ink/--line/--blue/--lg-*`）是别名 |
 | **色板与暗色** | `main.tsx` 的 `PALETTE` 与 `global.css` 是同一套值（主色 `#1f6feb`、圆角 8、边框 `#e4e6eb`），**改色板两处一起改**；`[data-theme='dark']` 只覆盖令牌层，`index.html` 首帧前预设属性避免闪白；canvas 图表（echarts）读不到 CSS 变量，**必须按主题给两套色值**。完整机制（含 `localStorage` 键、三处入口）见 **11.1** |
 | **响应式** | ≥1080px 侧栏 232px；720–1080px 收成 76px 图标栏；<720px 换底部标签栏 `.app-tabbar`。**新增窄屏规则写在 `global.css` 末尾**，否则会被旧的 `@media (max-width: 900px)` 抢先覆盖；390px 实测场景与溢出修复清单见 **11.2** |
-| **外壳复用** | 子页面（`Schedule`/`Footprint`/`Office`/`Learning`）自带 `AppShell`，被嵌套复用时靠 `InsideShell` context 退化为纯内容，不必删壳 |
+| **外壳复用** | 子页面（`Schedule`/`Footprint`）自带 `AppShell`，被嵌套复用时靠 `InsideShell` context 退化为纯内容，不必删壳 |
 | **纯逻辑抽离** | 复杂计算抽成同目录 `.ts`（`planForm.ts`、`footprintData.ts`、`reminderNotify.ts`、`markerElement.ts`），组件只做渲染 —— 这些也是单测的主要目标 |
 
 **设计预览**：`docs/design/preview/index.html` + `preview.css` 是「方向 B：内容优先」改版的**静态视觉稿**
@@ -661,8 +710,8 @@ return undefined;
 对外 API（`themeStore.ts`）：`mode` / `setMode` / `toggle`、`THEME_STORAGE_KEY`、`isThemeMode`、`readStoredTheme`、
 `resolveInitialMode`、`applyTheme(mode)`。`main.tsx` 在 `useEffect` 里把 `mode` 同步到 `<html data-theme>`。
 
-> **canvas 图表读不到 CSS 变量**：echarts（预算图、健康趋势）必须按主题给两套色值，不能指望 `var(--...)`。
-> 目前仍有个别图表是页内手写配色，新增图表请照 `BudgetChart`/`Health` 的做法从 `themeStore.mode` 取色。
+> **canvas 图表读不到 CSS 变量**：echarts（预算图、支出分类图、回顾统计）必须按主题给两套色值，不能指望 `var(--...)`。
+> 目前仍有个别图表是页内手写配色，新增图表请照 `BudgetChart` 的做法从 `themeStore.mode` 取色。
 
 ### 11.2 窄屏（390px）防横向滚动
 
@@ -724,7 +773,7 @@ const ITINERARY_API_PATTERN =
 | --- | --- |
 | 主题持久化与首帧规则 | `store/themeStore.test.ts` **8** 用例（读写、非法值回落 light、跟随系统、`applyTheme`） |
 | 离线提示条 | `components/OfflineBanner/index.test.tsx` **4** 用例（显示/关闭/恢复在线后重置/在线不渲染） |
-| 全量 | **13 个文件 / 105 用例**（见 9.3），`npm test` 全绿；e2e 5 例未随本批改动 |
+| 全量 | **30 个文件 / 216 用例**（见 9.3），`npm test` 以实际汇总为准；e2e 5 例 |
 
 ---
 
@@ -740,13 +789,8 @@ const ITINERARY_API_PATTERN =
 | 改登录态逻辑 | `App.tsx` 的 `Protected` + `api/auth.ts` + `api/client.ts` 的 401 分流 |
 | 改配色 | `styles/global.css` 的 `:root` + `main.tsx` 的 `PALETTE`（两处一起） |
 
-**组件统计**：`src/components/` 共 **35 个文件** = **23 个组件**（`AppShell`、`BudgetChart`、
-`BudgetExecution`、`ChatPanel`、`CityDrawer`、`Collapse`、`CountUp`、`DraggableList`、`ErrorBoundary`、`ExpensePanel`、
-`FootprintMap`、`ItineraryCard`、`MapView`、`OfflineBanner`、`PageTransition`、`PaginationBar`、`PlanDiff`、`ReminderBell`、
-`Skeleton`、`SwipeRow`、`Timeline`、`Toast`、`VoiceButton`）+ **12 个非组件文件**（`MapProvider.ts`、`AMapProvider.ts`、
-`amapLoader.ts`、`markerElement.ts`、`footprintData.ts`、`basemap.ts` + 6 个测试文件，含 `BudgetExecution/index.test.tsx`、
-`OfflineBanner/index.test.tsx`、`FootprintMap/basemap.test.ts`、`FootprintMap/footprintData.test.ts`、
-`MapView/AMapProvider.test.ts` 与 `MapView/markerElement.test.ts`）。
+**组件统计**：`src/components/` 共 **48 个文件 / 27 个目录**，含地图、足迹、预算、聊天与基础组件及其测试；
+核心组件见 7.1，辅助文件见 7.2。
 
-**页面统计**：`src/pages/` 共 **16 个目录**；`App.tsx` 共 **17 条 `<Route>`** —— 15 条渲染页面组件
-（14 个受保护页 + `/login`）、2 条重定向（`/schedule`、`/footprint`）、1 条通配兜底 `*`。
+**页面统计**：`src/pages/` 共 **16 个目录**；`App.tsx` 共 **20 条 `<Route>`** —— 14 条渲染页面组件
+（13 个受保护页 + `/login`）、5 条重定向（`/office`、`/learning`、`/health`、`/schedule`、`/footprint`）、1 条通配兜底 `*`。

@@ -57,10 +57,10 @@ cd travel-agent-web && npm test             # 前端单元测试
 cd travel-agent-web && npm run typecheck    # 仅类型检查
 ```
 
-当前规模：后端 335 个用例（认证/越权、Agent 计划与撤销、工具层契约、RAG 过滤、日期映射、意图路由、
-冲突检查、记账对账、时区、微信渠道、POST 流式端点、迁移基线、并发确认），前端 114 个用例（agent store、SSE 客户端、
-axios 401 分流、足迹数据、规划表单、浏览器通知、高德地图 Provider、地图标记、票据），e2e 4 个（Playwright：登录建行程路书、
-PWA 资源、结构化表单攻略/从零闭环）。
+当前规模（源码静态计数，实际以 CI 输出为准）：后端 465 个 `@Test`（110 个测试文件；认证/越权、Agent 计划与撤销、
+工具层契约、RAG 过滤与引用、日期映射、意图路由、冲突检查、记账对账、时区、微信渠道、POST 流式端点、迁移基线、并发确认、
+P1 旅行闭环），前端 216 个用例（agent store、SSE 客户端、axios 401 分流、足迹数据、规划表单、浏览器通知、高德地图 Provider、
+地图标记、票据、知识库/回顾契约），e2e 5 个（Playwright：登录建行程路书、PWA 资源、结构化表单攻略/从零闭环）。
 
 > 在 Linux/macOS 或 CI 上 `mvn test` 可全绿；**Windows 本地若出现 `Could not self-attach to current VM`**，
 > 是 Mockito/ByteBuddy 自附加被本机策略拦截（与代码无关），在 CI 或容器里跑测试即可。
@@ -184,19 +184,13 @@ classpath:fonts/cjk.* → Windows → Linux/macOS，找不到一律抛业务错�
 "下一次发生"统一用 `Recurrence.nextOccurrence(...)`（会跳过今天已过的时刻），不要在别处自己加天数。
 勾选完成对重复日程表示"结束整个系列"。
 
-**发票记账**：`POST /api/office/invoice/{id}/expense` 把发票写成行程支出，并把 `expense_id` 写回发票；
-同一张发票重复记账返回 409。办公类发票归入「其他」分类。
-
 **浏览器通知**：只在「已授权 + 页面 hidden + 本会话未通知过」时发（`lib/reminderNotify.ts`），
 权限必须由用户点击按钮触发 `Notification.requestPermission()`。
 
-**发票文件**：`InvoiceTextExtractor` 负责文件 → 文本：PDF 用 PDFBox 抽文字（扫描件会 422），
-图片调用 `TESSERACT_CMD` 指向的 Tesseract（`-l chi_sim+eng --psm 6`）；配置了
-`TESSDATA_PREFIX` 时追加 `--tessdata-dir`，用于语言包装在用户目录（Program Files 无写权限）的场景。
-未配置 Tesseract 时 422 并提示；
-原始文件存 `travel.invoices.dir`，库里记录 `source_file/source_type`。
-OCR 文本直接进入 `extractInvoice`，优先由模型结构化，失败再走规则兜底；
-兜底日期同时支持 `2026-10-10`、`2026/10/10`、`2026年10月10日`。
+**旅行闭环（P1）**：行程项状态只能经 `ItineraryService.updateStatus` 推进（`PENDING/IN_PROGRESS/COMPLETED/SKIPPED`）；
+完成写 `startedAt/completedAt/visitedAt` 并追加 `CHECK_IN` 事件，状态变更必须与操作历史同事务。自动重规划只允许调整
+`PENDING` 条目。回顾口径见 `TripReviewService`：完成率不含 `SKIPPED`，`visitedPlaces/actualRoute` 只认 `visitedAt`。
+RAG 引用在 `plan.extras.citations`、`AgentResult.citations`、SSE `rag_result` 三处同构，禁止模型编造 documentId/version/score。
 
 **越权保护**：所有行程相关接口先做 `tripService.getOwned(tripId, userId)`；
 批量操作（`applyOperations`）还会校验每个条目确实属于该行程。
@@ -306,7 +300,7 @@ claim（PENDING→CONFIRMING）语义与 TTL 30 分钟都不许动。
 **暗色主题**：`[data-theme='dark']` 只覆盖新令牌这一层，`html` 上的属性由 `store/themeStore.ts` 切换
 （默认跟随系统，用户手动切换后写 localStorage），`index.html` 在首帧前预置属性避免闪白。
 antd 侧同步切 `darkAlgorithm`（`main.tsx` 的 `PALETTE`）。
-**新增硬编码颜色前先想一下暗色**：`echarts` 这类画在 canvas 上的图表读不到 CSS 变量，需要按主题给两套色值（见健康页）。
+**新增硬编码颜色前先想一下暗色**：`echarts` 这类画在 canvas 上的图表读不到 CSS 变量，需要按主题给两套色值（见 `BudgetChart` 与 `chartTheme`）。
 
 **可观测性**：
 - `TraceIdFilter` 给每个请求打 `X-Trace-Id`（上游传了就用上游的），写进日志 MDC，日志格式里已带 `[%X{traceId:-}]`；
@@ -343,8 +337,9 @@ antd 侧同步切 `darkAlgorithm`（`main.tsx` 的 `PALETTE`）。
 1. **P0 真实数据源联调**：高德 MCP 通道已接通（见 [guide/mcp-amap.md](guide/mcp-amap.md)），
    还差后端「Web 服务」Key（`AMAP_MAPS_API_KEY`）做真实 POI/路径/天气与 GCJ-02 坐标联调；
    酒店/餐厅开放平台同理由 `travel.mcp.servers` 扩展；
-2. **P1 MySQL 8.4 实机回归（已完成 2026-11-19）**：便携版 8.4.10 实例（独立 datadir / `:3307`）上，
+2. **P1 MySQL 8.4 实机回归（已完成 2026-11-19，验收基线 V1..V18）**：便携版 8.4.10 实例（独立 datadir / `:3307`）上，
    全新库 17 个迁移 + `validate` + 核心链路 + 「仅重启后端 / 仅重启 MySQL / 整栈重启」三类恢复全部通过；
+   V19 旅行闭环迁移为后续增量，未纳入该次证据；
    证据 `.evidence/mysql84-3307-20261119-144026/`、脚本 `.e2e/acceptance/mysql-native-3307-acceptance.ps1`。
    遗留：Flyway 对 8.4 仅 WARN（建议升级）；现网库 V13 大表 DDL 影响仍建议低峰窗口验收；
 3. **P1 极端旧库列类型收敛**：若某库自 `init.sql` 之后从未跑过 `ddl-auto=update`，
@@ -369,7 +364,7 @@ schema 单一权威（`V1__baseline.sql` + V13 双方言 + V14(H2 配额唯一�
 `pagination` 契约 + V9 索引、知识库版本化 + 回滚 API + V10、城市名匹配统一、会话记忆配置化 + 每日清理。
 更早：结构化规划线上指标；`@MockBean` → `@MockitoBean`；e2e 挂 CI；结构化规划表单 + `POST /api/agent/stream`；
 PWA app shell 预缓存；会话记忆、方案润色、真实天气、httpOnly Cookie、Flyway、路书 PDF、多渠道入口、
-MCP 生态、LLM 结构化规划与配额、真实 Embedding、限流 Redis 计数、照片/发票 S3、按天预算偏差、
+MCP 生态、LLM 结构化规划与配额、真实 Embedding、限流 Redis 计数、照片 S3、按天预算偏差、
 Spring Boot 3.5.7、全栈 Docker 化。）
 
 ## 迁移脚本约定（第十批更新）
@@ -418,7 +413,7 @@ Spring Boot 3.5.7、全栈 Docker 化。）
 4. **照片运维**：张数与容量配额、先写库后落盘（消除孤儿文件）、HEIC 前端可读提示；
 5. **列表边界**：`Paging` 统一 limit/offset（默认 500、上限 1000），覆盖全部列表接口；
    第九批把 5 个高频列表改成 DB 层 `Pageable`（默认 20、上限 200）并新增 `pagination` 元数据；
-6. **数据库索引**：trip / trip_photo / itinerary_item / expense / operation_history / health_record 等高频查询字段；
+6. **数据库索引**：trip / trip_photo / itinerary_item / expense / operation_history / schedule_item 等高频查询字段；
    第九批新增 `V9` 的 7 条复合索引（等值列在前、排序列在后）；
 7. **线程池**：Agent、联网城市生成、足迹定位统一走 `agentTaskExecutor`，不再占用 ForkJoin commonPool；
 8. **单机状态**：`PendingPlanStore` 从进程内 Map 改为 `pending_plan` 表，确认流程可跨实例、可重启。

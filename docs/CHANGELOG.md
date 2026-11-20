@@ -2,6 +2,115 @@
 
 按主题记录行为变化。**第四节是最需要注意的**：其中几项改变了原有的使用习惯。
 
+## 体验优化方案收尾：规划器三步 + 行中执行闭环（阶段 C 收口 / 阶段 D 收尾，2026-11-20 晚）
+
+> 对应设计文档 [2026-11-20-website-ux-functional-design-optimization.md](design/2026-11-20-website-ux-functional-design-optimization.md)
+> 的 §8.3（规划器三步结构）、§7.3 第 3/4 条（行中执行：自动滚动 + 短时撤销、离线待同步）、§8.5（桌面时间轴 + 侧栏）。
+> 只动前端，不改后端契约（`PUT /api/itinerary/{id}/status` 沿用），不改 `src/styles/global.css` 的结构。
+
+### 一、行为变化（用户能感知的）
+
+1. **新建行程改成三步**：① 基本信息（目的地 / 日期或天数 / 同行人数，必填）→ ② 偏好与约束（预算、节奏、兴趣、
+   攻略正文、不可修改项，可空）→ ③ 确认需求（只读摘要 + 冲突 + 待核实字段）。第 1 步缺必填项时「继续」原地提示、
+   不前进也不发请求；攻略模式在第 2→3 步之间要求至少一篇攻略正文。
+2. **规划草稿**：编辑自动保存（400ms 防抖，`localStorage` key `travel:planner-draft:v1`，带版本号）。
+   重新进入时**只提示不静默覆盖**：「恢复上次未完成规划 / 忽略」；`?prompt=` 一句话进入时以解析结果为准；
+   提交成功后清草稿；隐私模式保存失败会明确提示。
+3. **行中完成一项后自动滚到下一项**：状态提交成功后页面切到下一项所在 Day 并滚动定位，
+   同时弹出 8 秒倒计时的撤销条（`UndoBar`）。撤销不只是改本地界面 —— 已同步的变更会把状态写回上一个值
+   （走同一个幂等 PUT），仍在待同步队列里的变更则直接出队。
+4. **离线也能记录状态**（§7.3 第 4 条）：断网（或请求根本发不出去）时不再报错，变更进本机待同步队列，
+   时间轴卡片显示「待同步」、页头显示「N 项待同步」；恢复在线后自动逐条重放，并在顶部显示
+   逐项结果（成功数 / 失败项 + 原因 + 重试）。服务端明确拒绝（带 HTTP 状态码）时**不入队**，直接提示原因。
+5. **桌面侧栏切换不再重建地图**：地图与 AI 面板一次挂载、只切可见性，缩放/平移/3D 视角全部保留；
+   切回可见时补一次 `resize()`，避免隐藏期间窗口变化导致的画布错位。
+
+### 二、实现要点（给维护者）
+
+- **新增纯逻辑 + store**：`src/lib/tripFocus.ts`（下一项判定 / 完成后的滚动目标 / 滚动容错）、
+  `src/lib/statusQueue.ts`（待同步队列：按 itemId last-write-wins、`overlayStatuses`、localStorage 容错）、
+  `src/store/statusQueueStore.ts`（`flush` 顺序发送、成功出队、失败保留 `lastError`、网络类错误中止后续、
+  `lastResults` 逐项结果）、`src/pages/Planner/planDraft.ts`（草稿与步骤门禁）。
+- **新增组件**：`src/components/UndoBar`（倒计时撤销条）；`OfflineBanner` 扩为队列的全局出口
+  （`usePendingSync` 挂载/恢复在线自动重放）。
+- **样式拆分**：规划器用 `src/pages/Planner/planner.css`（`plan3-` 前缀），行程页新增
+  `src/pages/Trip/trip-flow.css`（侧栏 keep-alive / 待同步标记），撤销条与离线增量样式跟随各自组件，
+  **不再往 `global.css` 追加页面级规则**。
+- **离线可重放的前提**：状态接口是「声明式绝对值」而不是「推进一格」，重复重放同一值结果一致；
+  每条变更仍带稳定 `requestId`（入队生成、重试复用），等后端幂等台账接管时可原样使用。
+- **覆盖率的 ratchet 上调**：全局 39.55/39.81/34.11/38.31 → **57.63/55.58/51.60/56.86**，
+  核心目录（store/api/lib）66.73/66.42/54.21/64.57 → **79.21/76.72/68.97/78.18**；
+  阈值同步上调（见 `vitest.config.ts`、`scripts/check-core-coverage.mjs`、`docs/guide/frontend-quality.md`）。
+
+### 三、验证结果
+
+- 前端 `npm run typecheck`：通过（0 error）。
+- 前端 `npm test` / `npm run test:coverage`：**44 个测试文件 / 445 用例全部通过**；
+  覆盖率达标（全局与核心目录阈值均已按上表上调后仍通过）。
+- `npm run lint`：**0 error**；48 warning，均为既有页面的历史写法，本轮新增文件单独 lint 为 0 warning。
+- `npm run format:check`：通过。
+- `npm run build`：生产构建成功（含 PWA 预缓存生成）。
+- **真实浏览器手工回归**（本地后端 + `vite` dev server，1280×800）：
+  1. 规划器：第 1 步空「继续」→ 原地提示「先填写目的地」且不前进；填目的地/天数 → 第 2 步；攻略模式缺正文「继续」→
+     提示且停在原步；补正文 → 第 3 步只读摘要 + 待核实字段；刷新后出现「恢复上次未完成规划」，点「恢复」回到第 3 步且表单完整。
+  2. 行程页（进行中的行程）：点「完成」→ 切到下一项所在 Day 并滚动定位、撤销条显示「已完成…／已滚到下一项：…」；
+     点「撤销」→ 服务端状态写回上一个值（卡片回到「进行中」、`completedAt` 清空），提示「已撤销」。
+  3. 桌面侧栏切到「AI 助手」再切回：地图仍是同一个实例（DOM 中两块的 `data-active` 切换，未重新初始化）。
+  验证时对演示行程做过状态变更，已用接口恢复到 `PENDING` 并清空实际时间（旅行事件流保留审计记录）。
+- **未验收**：Playwright e2e（`e2e/planner-form.spec.ts` 已按三步改写、`smoke.spec.ts` 未跑）需要后端 + 浏览器环境，
+  本轮只做了选择器与实现的静态对齐，未实跑；离线分支（断网记录 → 恢复后逐项重放）由单测覆盖，**未做真机断网手工回归**。
+  离线队列的跨标签页并发（两个标签页同时重放）仍是已知限制，等后端幂等台账。
+
+## 产品收缩 + 旅行闭环（P0 + P1，2026-11-19）
+
+> 本次把产品收敛为「以旅行为唯一核心场景的 AI 智能旅行助手」，并打通行前规划 → 行中调整/打卡 → 行后回顾。
+> 产品口径与完成度见 [PRODUCT_DEVELOPMENT.md](PRODUCT_DEVELOPMENT.md)，接口契约见 [api-reference.md](guide/api-reference.md)，表结构见 [data-model.md](guide/data-model.md)。
+
+### 一、破坏性变更（升级前必须知道）
+
+1. **退役 API**：`/api/office/**`（邮件/纪要/发票）、`/api/report/**`（日报）、`/api/health/**`（健康）、
+   `/api/learning/**`（学习产物）全部删除，调用返回 404。原 `/api/learning/knowledge/{add,search}` 改为
+   `POST /api/knowledge/add`、`POST /api/knowledge/search`；版本/回滚三个端点路径不变（`/api/knowledge/documents/**`）。
+2. **退役意图**：`GEN_DAILY_REPORT`、`QUERY_HEALTH` 从意图枚举与规则/LLM prompt 删除，模型即使输出也不会被分派。
+   票据只读会话的写意图拦截从「记账/备忘/日程/日报」收窄为「记账/备忘/日程」。
+3. **退役环境变量/配置**：`TESSERACT_CMD`、`TESSDATA_PREFIX`、`INVOICE_DIR`、`INVOICE_STORE` 与
+   `travel.invoices.*`、`travel.ocr.*` 不再读取；`GET /api/system/status` 不再返回 `ocrConfigured` / `ocrHint`。
+4. **退役页面**：`/office`、`/learning`、`/health` 页面与 API client/类型删除；路由保留为指向 `/` 的兼容重定向。
+   首页不再请求健康/日报/纪要/学习产物；Workbench 改为「Agent 运行观察」；品牌改「AI 智能旅行助手」。
+5. **旧表不随之删除**：`daily_report`、`mail_item`、`meeting_minutes`、`invoice`、`learning_artifact`、`health_record`
+   已代码下线但数据保留，退役由后续 forward-only 迁移按环境决定（V19 不删旧表）。
+
+### 二、新增能力（P1 旅行闭环）
+
+- **RAG 进规划**：Planner 规划期直接检索旅行知识库，`AgentResult.citations`、方案 extras 与 SSE `rag_result`
+  均含 `documentId/version/chunkId/score/source/title/snippet`；research-agent 只读白名单新增 `query_travel_knowledge`。
+- **行程项状态机（V19）**：`itinerary_item.status/started_at/completed_at/visited_at`；
+  `PUT /api/itinerary/{id}/status`（`PENDING/IN_PROGRESS/COMPLETED/SKIPPED`），完成写实际到访时间并追加 `CHECK_IN` 事件。
+- **旅行事件（V19）**：`trip_event` + `GET /api/trips/{id}/events`，记录天气/拥堵/闭馆/打卡/Agent 调整/手工修改。
+- **旅行关联（V19）**：`schedule_item` / `memo` 增加 `trip_id` / `itinerary_item_id` / `source` / `travel_day`。
+- **行中锁定**：自动重规划只调整 `PENDING`；已开始/完成/跳过条目不会被天气替换覆盖，结构化规划命中锁定条目回退规则路径。
+- **旅行回顾**：`GET /api/trips/{id}/review` 聚合完成率、计划/实际花费、计划地点/实际到访、`actualRoute`、照片、
+  事件、修改历史、`memoCount`/`scheduleCount` 与 `aiSummary`；`SKIPPED` 不计入完成。
+- **足迹口径**：`GET /api/trips/map` 增加 `phase/plannedPlaces/visitedPlaces/visited/actualRoute`；
+  只把 `visitedAt` 非空算「去过」，未来计划不再被渲染成已到访。
+- **撤销修复**：`before` 快照在变更前生成（含状态与实际时间），撤销打卡/完成能还原。
+
+### 三、前端与文档
+
+- 新增旅行知识库页面（录入/检索/版本/回滚）；旅行回顾页面 `/trip/:id/review` 与回顾列表 `/review` 已落地；
+  行程页 `ItineraryCard` 提供「开始/完成/跳过/重置」状态操作；方案确认弹窗展示 `citations` 知识依据。
+- 文档同步：README、快速上手、API 参考、数据模型、前端、架构、代码结构、部署、MCP 指南、产品开发文档、开发手册
+  均已按 P0/P1 实际源码更新。
+
+### 四、验证结果
+
+- 后端 `mvn test`：**461 用例全部通过**（含新增 `TripClosedLoopTest`、`RagEvaluationTest`、`RagServiceThresholdTest`）。
+- 前端 `npm run typecheck && npm test && npm run build`：30 个测试文件 / **216 用例通过**，生产构建成功。
+- 迁移：全新 H2 文件库 `V1 → V19` 实际执行成功，`ddl-auto=validate` 启动通过。
+- 真实 HTTP：生产 jar + 全新 H2 库跑 `.e2e/verify-modules.mjs`，覆盖建行程/加条目/打卡/回顾/事件/足迹/知识库引用/Agent 问答。
+- RAG 评估（本地哈希 Embedding 基线）：7 条旅行问答，Recall@5 = 0.857、MRR = 0.714；这是降级实现的保守基线。
+- 未验收：MySQL 8 / Docker / CI / 关键浏览器流程 / 真实模型 / OTA 实时库存（P2 范围）。
+
 ## 数据可信度与真实道路几何收口（2026-11-19 晚）
 
 > 完整复核：[docs/review/2026-11-19-fix-verification.md](review/2026-11-19-fix-verification.md)。

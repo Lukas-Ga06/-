@@ -1,0 +1,31 @@
+# gitleaks 配置：密钥扫描门禁（CI 里由 gitleaks 使用）。
+#
+# 原则：**默认全仓扫描，只放行「明确不是真实凭据」的具体值与路径**。
+# 不按目录大范围排除（那等于放弃该目录的保护），也不放行通用高熵串——
+# 高熵检测是抓未命名密钥的兜底，放行它等于关掉一半能力。
+
+[extend]
+# 继承官方默认规则集（aws / github / stripe / 私钥 / JWT 等）
+useDefault = true
+
+[allowlist]
+description = '测试专用固定密钥、文档占位符与本地文件：均不含真实凭据'
+
+# 1) 测试专用固定 JWT 密钥。application-test.yml 与 README 都明示「仅测试用」，
+#    生产密钥一律通过环境变量注入；这里按完整字符串精确放行，不按规则 id 整体关闭。
+# 2) 明显的占位值（文档/示例/测试桩），不参与高熵判定。
+regexes = [
+  '''zH5p\+FxWgj8rMvkAbh49f7lG7jON\+493C\+/qTaxuJ4I92t\+NNB0QA\+fdyB4VQYf9''',
+  '''(?i)(your[-_]?api[-_]?key|placeholder|dummy|changeme|example[-_]?key)''',
+]
+
+# 本地密钥文件与验收证据目录：真实 Key 依赖 .gitignore 不入库；
+# 若开发者本地存在这些文件，扫描也不应因此阻断（它们不会被提交）。
+paths = [
+  '''\.env\.local''',
+  '''(^|/)data/.*''',
+  '''\.evidence/.*''',
+  '''\.e2e/amap-key-.*''',
+  '''(^|/)target/.*''',
+  '''(^|/)node_modules/.*''',
+]

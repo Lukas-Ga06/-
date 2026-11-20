@@ -1,3 +1,9 @@
+/**
+ * 旅行闭环模块验证（P1）：登录 → 建行程 → 加条目 → 打卡 → 回顾 → 事件 → 知识库。
+ *
+ * 用法：先启动后端（8080），再执行 `node .e2e/verify-modules.mjs`。
+ * 产品收缩后本脚本不再验证办公/学习/健康模块（已退役）。
+ */
 const B = 'http://localhost:8080/api';
 const r = await fetch(B + '/auth/login', {
   method: 'POST',
@@ -6,117 +12,120 @@ const r = await fetch(B + '/auth/login', {
 });
 const t = (await r.json()).data.token;
 const h = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + t };
+const today = new Date();
+const iso = (d) => d.toISOString().slice(0, 10);
+const start = iso(today);
+const end = iso(new Date(today.getTime() + 2 * 86400000));
 
-// ① 日程：Agent 添加
-const s1 = await (
-  await fetch(B + '/agent/chat', {
-    method: 'POST',
-    headers: h,
-    body: JSON.stringify({ message: '明天下午3点开评审会' }),
-  })
-).json();
-console.log('① Agent日程添加:', s1.data.intent, '|', s1.data.message?.slice(0, 80));
-
-// ② 日程：Agent 查询
-const s2 = await (
-  await fetch(B + '/agent/chat', {
-    method: 'POST',
-    headers: h,
-    body: JSON.stringify({ message: '我的日程安排' }),
-  })
-).json();
-console.log('② Agent日程查询:', s2.data.intent, '|', s2.data.message?.replace(/\n/g, ' | ').slice(0, 110));
-
-// ③ 邮件分类
-const m = await (
-  await fetch(B + '/office/mail/classify', {
+// ① 建行程
+const trip = await (
+  await fetch(B + '/trips', {
     method: 'POST',
     headers: h,
     body: JSON.stringify({
-      sender: 'hr@company.com',
-      subject: '关于年度调薪截止日期的通知',
-      text: '各位同事：本年度调薪申请将于本周五截止，请尽快在 HR 系统提交材料，逾期视为放弃。涉及内容：调薪、截止日期、HR 系统提交。',
+      name: '闭环验证行程',
+      destination: '上海',
+      startDate: start,
+      endDate: end,
+      budget: 3000,
+      partySize: 2,
     }),
   })
 ).json();
-console.log('③ 邮件分类:', m.data.category, '|', m.data.summary?.slice(0, 60), '| 回复:', m.data.suggestedReply?.slice(0, 40));
+const tripId = trip.data.id;
+console.log('① 建行程:', tripId, trip.data.name);
 
-// ④ 会议纪要
-const mm = await (
-  await fetch(B + '/office/minutes/generate', {
+// ② 加行程项
+const item = await (
+  await fetch(B + `/trips/${tripId}/itinerary`, {
     method: 'POST',
     headers: h,
     body: JSON.stringify({
-      title: 'Q4 产品规划会',
-      rawText: '今天讨论 Q4 规划。张三认为应优先做移动端性能优化；李四建议先上线新计费模块；最终决定：性能优化本周启动，计费模块下月初进入开发。王五负责整理性能基线数据。',
+      dayIndex: 1,
+      itemType: 'attraction',
+      title: '上海博物馆',
+      startTime: '10:00',
+      endTime: '12:00',
+      cost: 50,
+      latitude: 31.2304,
+      longitude: 121.4737,
+      tags: ['室内', '文化'],
     }),
   })
 ).json();
-console.log('④ 会议纪要生成: 长度', mm.data.content?.length, '字符');
-console.log('   ', mm.data.content?.slice(0, 150).replace(/\n/g, ' '));
+const itemId = item.data.id;
+console.log('② 加条目:', itemId, item.data.title, '状态=', item.data.status);
 
-// ⑤ 日报生成
-const rp = await (
-  await fetch(B + '/office/report/generate', { method: 'POST', headers: h })
-).json();
-console.log('⑤ 日报生成: 日期', rp.data.date, '长度', rp.data.content?.length);
-console.log('   ', rp.data.content?.slice(0, 130).replace(/\n/g, ' '));
-
-// ⑥ 发票提取
-const inv = await (
-  await fetch(B + '/office/invoice/extract', {
-    method: 'POST',
+// ③ 打卡完成（写 visitedAt + CHECK_IN 事件 + 撤销链）
+const done = await (
+  await fetch(B + `/itinerary/${itemId}/status`, {
+    method: 'PUT',
     headers: h,
-    body: JSON.stringify({
-      text: '数电发票\n购买方：个人\n销售方：上海携程商务有限公司\n项目：旅客运输服务*机票\n金额：¥860.00\n合计：¥860.00\n开票日期：2026-09-10',
-    }),
+    body: JSON.stringify({ status: 'COMPLETED' }),
   })
 ).json();
-console.log('⑥ 发票提取:', inv.data.category, inv.data.vendor?.slice(0, 20), '¥' + inv.data.amount, inv.data.invoiceDate);
+console.log('③ 打卡:', done.data.status, '| visitedAt=', done.data.visitedAt);
 
-// ⑦ 学习：知识框架
-const lf = await (
-  await fetch(B + '/learning/generate', {
-    method: 'POST',
-    headers: h,
-    body: JSON.stringify({ kind: 'FRAMEWORK', topic: '机器学习' }),
-  })
-).json();
-console.log('⑦ 知识框架: 长度', lf.data.content?.length, '|', lf.data.content?.slice(0, 80).replace(/\n/g, ' '));
+// ④ 回顾聚合
+const review = await (await fetch(B + `/trips/${tripId}/review`, { headers: h })).json();
+console.log(
+  '④ 回顾: 完成率',
+  (review.data.completionRate * 100).toFixed(0) + '%',
+  '| 计划 ¥' + review.data.plannedCost,
+  '| 实际 ¥' + review.data.actualCost,
+  '| 到访',
+  review.data.visitedPlaces.length,
+  '| 照片',
+  review.data.photoCount,
+  '| 总结:',
+  review.data.aiSummary?.slice(0, 60)
+);
 
-// ⑧ 学习：知识库入库 + 检索
+// ⑤ 事件流
+const events = await (await fetch(B + `/trips/${tripId}/events`, { headers: h })).json();
+console.log('⑤ 事件:', events.data.map((e) => `${e.type}/${e.source}`).join(', '));
+
+// ⑥ 足迹口径：visited 只认打卡
+const map = await (await fetch(B + '/trips/map', { headers: h })).json();
+const point = map.data.find((p) => p.tripId === tripId);
+console.log('⑥ 足迹: visited=', point?.visited, '| planned=', point?.plannedPlaces, '| 实际到访=', point?.visitedPlaces);
+
+// ⑦ 知识库入库 + 检索（带引用字段）
 const ka = await (
-  await fetch(B + '/learning/knowledge/add', {
+  await fetch(B + '/knowledge/add', {
     method: 'POST',
     headers: h,
     body: JSON.stringify({
-      title: '考研政治重点',
-      content: '马克思主义基本原理是考研政治第一部分，重点掌握唯物辩证法三大规律。\n\n毛泽东思想与中国特色社会主义理论体系概论占比约 30%，重点是新民主主义革命理论。\n\n时政部分每年 12 月冲刺复习效果最好。',
+      title: '闭环验证-上海亲子出行提示',
+      content: '上海亲子出行建议：优先选择室内场馆，避开正午高温。\n\n地铁 + 步行组合通常比打车更稳定，周末需预留排队时间。',
     }),
   })
 ).json();
-console.log('⑧ 知识入库:', ka.data.chunks, '个知识块');
+console.log('⑦ 知识入库:', ka.data.chunks, '个知识块，文档', ka.data.documentId, '版本', ka.data.versionNo);
 const ks = await (
-  await fetch(B + '/learning/knowledge/search', {
+  await fetch(B + '/knowledge/search', {
     method: 'POST',
     headers: h,
-    body: JSON.stringify({ query: '考研政治哪部分最重要' }),
+    body: JSON.stringify({ query: '上海亲子出行要注意什么' }),
   })
 ).json();
-console.log('   检索:', ks.data?.slice(0, 2).map((x) => `${x.title}(${(x.score * 100).toFixed(0)}%)`).join(', '));
+const hit = ks.data?.[0];
+console.log(
+  '   检索:',
+  ks.data?.slice(0, 2).map((x) => `${x.title}(v${x.version ?? '-'}, ${(x.score * 100).toFixed(0)}%)`).join(', ')
+);
+console.log('   引用字段完整:', Boolean(hit?.documentId && hit?.chunkId && hit?.source && hit?.snippet));
 
-// ⑨ 健康：种子数据 + 查询
-const sd = await (await fetch(B + '/health/seed-demo', { method: 'POST', headers: h })).json();
-console.log('⑨ 健康演示数据:', sd.data.created, '天');
-const hs = await (await fetch(B + '/health/summary', { headers: h })).json();
-console.log('   最新步数:', hs.data.latest?.steps, '| 均值:', hs.data.avgSteps, '步 /', hs.data.avgSleep, '小时');
-const qh = await (
+// ⑧ Agent 知识问答（SSE 之外的最短路径）
+const ask = await (
   await fetch(B + '/agent/chat', {
     method: 'POST',
     headers: h,
-    body: JSON.stringify({ message: '我的健康数据怎么样' }),
+    body: JSON.stringify({ message: '上海有什么适合亲子游的地方？' }),
   })
 ).json();
-console.log('   Agent健康查询:', qh.data.intent, '|', qh.data.message?.slice(0, 100).replace(/\n/g, ' '));
+console.log('⑧ Agent知识问答:', ask.data.intent, '|', ask.data.message?.replace(/\n/g, ' ').slice(0, 100));
 
-console.log('=== 办公/学习/健康 全模块 E2E 验证通过 ===');
+// 清理
+await fetch(B + `/trips/${tripId}`, { method: 'DELETE', headers: h });
+console.log('=== 旅行闭环（行程/状态/回顾/事件/足迹/知识库）验证通过 ===');

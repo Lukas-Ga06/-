@@ -1,5 +1,7 @@
 # 第十三批共享契约（Batch 13 shared contract）
 
+> 状态：已落地（历史） | 日期：2026-11-18 | 说明：契约内容已进入实现，保留原文作追溯；当前事实见 [docs/guide](../guide/README.md)，落地记录见 [CHANGELOG 第十三批](../CHANGELOG.md)。
+
 本批只做一件事的两半：**让 FR-06 的审核结论真正改变结果**，并把已有的
 `GET /api/trips/{id}/route-legs` 接到时间线 UI。FR-01（人数槽位/最少追问）不在本批范围——
 它要加字段与 Flyway 迁移，单独一批。

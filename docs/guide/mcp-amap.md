@@ -1,5 +1,7 @@
 # 高德 MCP 接入（真实地图数据源）
 
+> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.7 / Node 20） | 最后验证：2026-11-19 | 事实来源：travel-agent-server/src/main/java/com/travel/agent/mcp/、travel-agent-server/src/main/resources/application.yml、.tools/amap-mcp-probe/
+
 > 面向**要给 Agent 接真实地图数据**的后端开发者，以及**要排「为什么模型没查地图」**的运维。
 > 事实来源两类，缺一不可：① 真实包 `@amap/amap-maps-mcp-server@0.0.8` 的静态源码与本机实测
 > （`npx` 真起子进程、真握手、真 `tools/list`）；② 本仓库的生产代码（`mcp/` 包与 `IntentAgent`）。
@@ -384,7 +386,7 @@ powershell -ExecutionPolicy Bypass -File .e2e\amap-real-key-probe.ps1 -AmapKey "
 `AMAP_KEY`、`AMAP_MAPS_API_KEY`（同一 Key；因 `MCP_ENABLED=false` 本次不生效，只保持变量口径一致）、
 `JWT_SECRET`（每次随机生成，不读 `.env.local`）、`RATE_LIMIT_ENABLED=false`、`LLM_ENABLED=false`、
 `WEATHER_REAL=false`、`MCP_ENABLED=false`、`DEMO_ACCOUNT=true`、`SERVER_PORT`、`SPRING_DATASOURCE_URL`（指向证据目录下的独立 H2）、
-`INVOICE_DIR`、`PHOTOS_DIR`。
+`PHOTOS_DIR`；另有已退役模块的历史变量 `INVOICE_DIR`（代码已不再读取，脚本保留只为复用旧证据目录）。
 关掉 LLM 是为了让规划走规则引擎（不需要 LLM Key）；`/api/system/status` 不在 `SecurityConfig` 的 publicPaths 里，
 所以脚本**先登录再自检**（第 2 步先于第 1 步执行，汇总表仍按 0/1/2/3/4a/4b 排列）。
 

@@ -1,6 +1,8 @@
 # 部署与运维
 
-> 面向负责上线与运维的同学：从一台干净的服务器把「AI 个人助理」跑起来，并知道它坏了怎么查、数据怎么备。
+> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.7 / Node 20） | 最后验证：2026-11-19 | 事实来源：docker-compose.yml、docker-compose.infra.yml、travel-agent-server/Dockerfile、travel-agent-web/Dockerfile、travel-agent-web/nginx.conf、travel-agent-server/src/main/resources/application*.yml
+
+> 面向负责上线与运维的同学：从一台干净的服务器把「AI 智能旅行助手」跑起来，并知道它坏了怎么查、数据怎么备。
 > 全部命令、服务名、端口、变量名均取自仓库当前 HEAD 的 **源码**（`docker-compose.yml`、两个 Dockerfile、
 > `nginx.conf`、`application*.yml` 与 Java 类），可以直接复制执行。
 
@@ -32,7 +34,7 @@ graph LR
     U["浏览器 / PWA<br/>https://your-domain"] -->|"443 → 8081"| N["web（nginx:1.27-alpine）<br/>SPA 静态资源 + /api 反代<br/>SSE 关缓冲"]
     N -->|"proxy_pass http://backend:8080"| B["backend（Spring Boot 3.5.7 / JRE 17）<br/>/api/** + /actuator/health<br/>SPRING_PROFILES_ACTIVE=mysql"]
     B -->|"jdbc:mysql://mysql:3306/travel_agent"| M[("mysql:8.4<br/>utf8mb4")]
-    B -->|"/app/data"| V[("卷 backend-data<br/>照片 / 发票 / H2 兜底文件")]
+    B -->|"/app/data"| V[("卷 backend-data<br/>照片 / 在线城市缓存 / H2 兜底文件")]
     M --- MV[("卷 mysql-data")]
     B -.->|"出站 HTTPS（可选）"| X["LLM / Embedding / 高德 / Open-Meteo<br/>Telegram / 微信公众号"]
 ```
@@ -52,7 +54,7 @@ graph LR
 graph LR
     A["浏览器 http://localhost:5173"] -->|"vite dev proxy /api"| B["后端 8080<br/>默认 profile（无 profile = H2）"]
     B -->|"jdbc:h2:file:./data/travel-agent<br/>MODE=MySQL;AUTO_SERVER=TRUE"| H[("travel-agent-server/data/travel-agent.mv.db")]
-    B -->|"./data/photos、./data/invoices"| F[("磁盘文件")]
+    B -->|"./data/photos、./data/online-cities"| F[("磁盘文件")]
 ```
 
 | 维度 | H2 兜底模式（默认 profile） | MySQL 模式（`mysql` profile） |
@@ -79,7 +81,7 @@ docker compose version     # 需输出 v2.x（Compose V2，命令形态为 docke
 | --- | --- | --- |
 | Docker Engine + Compose V2 | 20.10+ | 三个服务都由 compose 编排 |
 | 宿主内存 | ≥ 4 GB（推荐 8 GB） | 见第 11 节容量建议 |
-| 磁盘 | ≥ 20 GB 空闲 | MySQL 卷 + 镜像层 + 照片/发票 |
+| 磁盘 | ≥ 20 GB 空闲 | MySQL 卷 + 镜像层 + 照片 |
 | 出站网络 | 构建期拉取镜像与 Maven/npm 依赖；运行时可选 | 运行时出站用于 LLM、高德、Open-Meteo、Telegram |
 | JDK / Node | **不需要**装在宿主机 | 两段式 Dockerfile 自包含构建环境 |
 
@@ -229,7 +231,7 @@ curl -sS -c cookies.txt -X POST http://localhost:8081/api/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"username":"admin","password":"<强密码>"}'
 
-# 运行能力自检（看 llmConfigured / amapConfigured / timezone / ocrConfigured / rateLimitEnabled）
+# 运行能力自检（看 llmConfigured / llmVerified / amapConfigured / routeProvider / priceProvider / timezone / rateLimitEnabled）
 curl -sS -b cookies.txt http://localhost:8081/api/system/status
 ```
 
@@ -263,7 +265,7 @@ docker compose down -v                # ⚠️ 连卷一起删：MySQL 数据与
       `http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173`
       （compose 覆盖为 `http://localhost:8081`）；都带 `allowCredentials=true`（`SecurityConfig`），
       **绝不能填 `*`**。经 nginx 同源部署时填网站自己的源即可。
-- [ ] **5. `APP_TIMEZONE` 明确固定**。容器默认 UTC，而代码里 `LocalDate.now()`（今天/明天、日报、记账、日程）
+- [ ] **5. `APP_TIMEZONE` 明确固定**。容器默认 UTC，而代码里 `LocalDate.now()`（今天/明天、记账、日程、旅行事件时间）
       全部依赖 JVM 默认时区；`TimeZoneConfig` 启动时钉死它并打印 `应用时区已固定为 {zone}`。
       Dockerfile 已内置 `ENV APP_TIMEZONE=Asia/Shanghai`，请显式确认，不要依赖镜像默认。
 - [ ] **6. 数据库密码改为强口令**。`MYSQL_ROOT_PASSWORD` / `MYSQL_PASSWORD` 的 compose 默认值是
@@ -292,7 +294,7 @@ docker compose down -v                # ⚠️ 连卷一起删：MySQL 数据与
 - **来源二**：`docs/DEVELOPMENT.md` 开头「环境变量」表（是否必需 / 未配置时的行为）。
 - **来源三（权威，已修复补齐）**：`application.yml` / `application-mysql.yml` 的 `${VAR:default}` 占位，
   以及 Java 的 `@Value("${...}")`；全仓库主代码**没有** `System.getenv`。
-- 合并去重后共 **61 个**变量（含 4 个仅 Docker 面变量；另有 2 个前端构建期变量单独列出，明细见 §5.8）；三源差异见 §5.9。
+- 合并去重后共 **61 个**变量（应用侧 54 + 3 个前端构建期变量 + 4 个仅 Docker 面变量，明细见 §5.8）；三源差异见 §5.9。
 
 > **默认值优先级**：环境变量 > `travel-agent-server/.env.local`（`spring.config.import` 加载，`[.properties]` 解析）
 > > `application.yml` 默认值。容器内不带 `.env.local`（已列入 `.dockerignore`），所以 compose 环境就是最终来源。
@@ -306,10 +308,9 @@ docker compose down -v                # ⚠️ 连卷一起删：MySQL 数据与
 | `COOKIE_SECURE` | `false` | 可选 | 登录 Cookie 是否带 `Secure`；HTTPS 部署设 `true` | Cookie 可在 HTTP 明文链路传输 |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173` | 可选（**生产应改**） | 允许的前端来源，逗号分隔，带 `allowCredentials` | 本地 dev 5173 与 preview/e2e 4173 源可跨域；同源反代部署不受影响 |
 | `DEMO_ACCOUNT` | `true`（yml）/ `false`（compose） | 可选（**生产必须 false**） | 启动是否创建 `demo/demo123` | `true` → 创建弱密码账号；`false` → 日志 `演示账号已禁用` |
-| `APP_TIMEZONE` | `Asia/Shanghai` | 可选（**建议显式**） | 应用时区，钉死 JVM 默认时区，影响「今天/明天」、日报与记账日期 | 用 `Asia/Shanghai`；容器为 UTC 且未设置会导致日期整体偏移 |
+| `APP_TIMEZONE` | `Asia/Shanghai` | 可选（**建议显式**） | 应用时区，钉死 JVM 默认时区，影响「今天/明天」、记账、日程与旅行事件时间 | 用 `Asia/Shanghai`；容器为 UTC 且未设置会导致日期整体偏移 |
 | `MYSQL_ROOT_PASSWORD` | `travel_root_pw` | compose 必需（**生产必改**） | MySQL root 密码，同时用于 `mysqladmin ping` 健康检查 | 用弱默认值；数据卷初始化后再改变量会导致健康检查失败 |
-| `TESSERACT_CMD` | 空 | 可选 | Tesseract 可执行文件路径，用于**图片**发票 OCR | 无 OCR：PDF 电子发票与粘贴文本仍可用，图片上传返回 422 |
-| `TESSDATA_PREFIX` | 空 | 可选 | Tesseract 语言包目录（需含 `chi_sim`、`eng`） | 用 Tesseract 默认目录 |
+| `TICKET_TTL_SECONDS` | `300` | 可选 | 短期只读票据有效期（秒）；`agent-stream` 与 `media-read` 按用途隔离 | 300 秒 |
 
 ### 5.3 LLM 与 Embedding
 
@@ -326,7 +327,8 @@ docker compose down -v                # ⚠️ 连卷一起删：MySQL 数据与
 | `EMBEDDING_ENABLED` | `false` | 可选 | `true` 时 RAG 走真实 Embedding（OpenAI 兼容 `/embeddings`） | 本地字符 bigram 哈希向量（离线可用，语义精度较低） |
 | `EMBEDDING_BASE_URL` | `https://api.siliconflow.cn/v1` | 可选 | Embedding 端点 | SiliconFlow 默认端点 |
 | `EMBEDDING_API_KEY` | 空 | 可选（开启 Embedding 时必需） | Embedding Key | 仍走本地哈希 |
-| `EMBEDDING_MODEL` | `BAAI/bge-m3` | 可选 | Embedding 模型名 | `BAAI/bge-m3`；**换模型需清空 `rag_document`/`rag_chunk` 重建** |
+| `EMBEDDING_MODEL` | `BAAI/bge-m3` | 可选 | Embedding 模型名 | `BAAI/bge-m3`；**换模型需清空 `rag_document`/`rag_chunk`/`rag_document_version` 重建** |
+| `RAG_MIN_SCORE` | `0.05` | 可选 | RAG 检索最低相似度阈值；低于该值的命中不进入回答/引用 | 0.05 |
 
 ### 5.3.1 Agent 主链路时间预算（V2.2 收口）
 
@@ -367,21 +369,19 @@ docker compose down -v                # ⚠️ 连卷一起删：MySQL 数据与
 
 | 变量 | 默认值 | 是否必需 | 作用 | 未配置时的降级行为 |
 | --- | --- | --- | --- | --- |
-| `INVOICE_DIR` | `data/invoices`（Dockerfile 内固定为 `/app/data/invoices`） | 可选 | 发票原始文件目录 | 写到工作目录下 `data/invoices` |
-| `INVOICE_STORE` | `local` | 可选 | `local` / `s3`；`s3` 时对象键前缀 `invoices/`，复用照片 S3 连接配置 | 本地磁盘 |
 | `PHOTO_MAX_PER_TRIP` | `200` | 可选 | 单行程照片张数上限 | 200 张 |
 | `PHOTO_MAX_BYTES_PER_USER` | `524288000`（500 MB） | 可选 | 单用户照片总容量上限（字节） | 500 MB |
 | `RATE_LIMIT_ENABLED` | `true` | 可选 | 限流总开关 | — |
 | `RATE_LIMIT_AUTH` | `10` | 可选 | 登录/注册：同 IP 在窗口内的上限 | 10 次 |
 | `RATE_LIMIT_AGENT` | `30` | 可选 | `/api/agent/**`：同用户上限（直接影响模型花费） | 30 次 |
-| `RATE_LIMIT_UPLOAD` | `60` | 可选 | 照片与发票上传：同用户上限 | 60 次 |
+| `RATE_LIMIT_UPLOAD` | `60` | 可选 | 照片上传：同用户上限 | 60 次 |
 | `RATE_LIMIT_DEFAULT` | `600` | 可选 | 其它 `/api/**`：同用户上限 | 600 次 |
 | `RATE_LIMIT_SESSION` | `60` | 可选 | `GET /api/auth/me`（会话恢复）独立桶：同用户上限，避免刷新页面被登录桶（`RATE_LIMIT_AUTH`）踢成 429 | 60 次 |
 | `RATE_LIMIT_WINDOW_SECONDS` | `300` | 可选 | 限流窗口长度（秒） | 300 秒 |
 | `RATE_LIMIT_STORE` | `memory` | 可选 | 计数存储：`memory`（进程内）/ `redis`（多实例共享配额，Redis 故障 fail-open） | 进程内计数：重启清零，多实例各算各的 |
 | `PHOTOS_STORE` | `local` | 可选 | 照片存储：`local`（本地磁盘）/ `s3`（S3 兼容对象存储，需同时配 `travel.photos.s3.*`） | 本地磁盘 |
 
-> **限流的 `redis` 模式与照片/发票的 `s3` 模式还需要额外的连接配置**：前者需 `spring.data.redis.*`，
+> **限流的 `redis` 模式与照片的 `s3` 模式还需要额外的连接配置**：前者需 `spring.data.redis.*`，
 > 后者需 `travel.photos.s3.*`（endpoint / region / bucket / access-key / secret-key）。
 > 这些连接项没有独立环境变量，用 §5.9 的 `SPRING_APPLICATION_JSON` 方式注入。
 > Redis 不可用时 `RedisRateCounter` 会记 WARN、计 `ratelimit.failopen` 指标并放行（fail-open），不会让整站不可用。
@@ -391,6 +391,7 @@ docker compose down -v                # ⚠️ 连卷一起删：MySQL 数据与
 | 变量 | 默认值 | 是否必需 | 作用 | 未配置时的降级行为 |
 | --- | --- | --- | --- | --- |
 | `SPRING_PROFILES_ACTIVE` | 空（= H2） | compose 固定为 `mysql` | 选择 datasource profile | H2 兜底模式 |
+| `H2_CONSOLE_ENABLED` | `false` | 可选 | 是否启用 `/h2-console`；默认关闭（控制台以 `sa` 空密码直连，暴露即等于匿名读写全库） | 关闭 |
 | `MYSQL_HOST` | `localhost` | `mysql` profile 必需 | 数据库主机（compose 注入 `mysql`） | 连 localhost，容器内必然失败 |
 | `MYSQL_PORT` | `3306` | 可选 | 数据库端口 | 3306 |
 | `MYSQL_DATABASE` | `travel_agent` | 可选 | 库名 | `travel_agent` |
@@ -411,36 +412,36 @@ docker compose down -v                # ⚠️ 连卷一起删：MySQL 数据与
 
 | 分组 | 数量 | 变量 |
 | --- | --- | --- |
-| 认证与安全 | 9 | `JWT_SECRET` `JWT_EXPIRE_HOURS` `COOKIE_SECURE` `CORS_ALLOWED_ORIGINS` `DEMO_ACCOUNT` `APP_TIMEZONE` `MYSQL_ROOT_PASSWORD` `TESSERACT_CMD` `TESSDATA_PREFIX` |
-| LLM 与 Embedding | 12 | `LLM_ENABLED` `LLM_API_KEY` `LLM_BASE_URL` `LLM_MODEL` `LLM_TEMPERATURE` `LLM_CONNECT_TIMEOUT_MS` `LLM_READ_TIMEOUT_MS` `LLM_DAILY_QUOTA` `EMBEDDING_ENABLED` `EMBEDDING_BASE_URL` `EMBEDDING_API_KEY` `EMBEDDING_MODEL` |
-| 地图与天气 | 5 | `AMAP_KEY` `AMAP_MAPS_API_KEY` `VITE_AMAP_KEY` `VITE_AMAP_SECURITY_CODE` `WEATHER_REAL` |
+| 认证与安全 | 8 | `JWT_SECRET` `JWT_EXPIRE_HOURS` `COOKIE_SECURE` `CORS_ALLOWED_ORIGINS` `DEMO_ACCOUNT` `APP_TIMEZONE` `MYSQL_ROOT_PASSWORD` `TICKET_TTL_SECONDS` |
+| LLM 与 Embedding | 13 | `LLM_ENABLED` `LLM_API_KEY` `LLM_BASE_URL` `LLM_MODEL` `LLM_TEMPERATURE` `LLM_CONNECT_TIMEOUT_MS` `LLM_READ_TIMEOUT_MS` `LLM_DAILY_QUOTA` `EMBEDDING_ENABLED` `EMBEDDING_BASE_URL` `EMBEDDING_API_KEY` `EMBEDDING_MODEL` `RAG_MIN_SCORE` |
+| 地图与天气 | 6 | `AMAP_KEY` `AMAP_MAPS_API_KEY` `VITE_AMAP_KEY` `VITE_AMAP_SECURITY_CODE` `VITE_FOOTPRINT_BASEMAP` `WEATHER_REAL` |
 | 渠道入口 | 7 | `TELEGRAM_BOT_TOKEN` `TELEGRAM_POLL_TIMEOUT` `CHANNEL_WEBHOOK_ENABLED` `CHANNEL_WEBHOOK_SECRET` `WECHAT_OA_TOKEN` `WECHAT_OA_APPID` `WECHAT_OA_SECRET` |
-| 存储与限流 | 13 | `INVOICE_DIR` `INVOICE_STORE` `PHOTO_MAX_PER_TRIP` `PHOTO_MAX_BYTES_PER_USER` `RATE_LIMIT_ENABLED` `RATE_LIMIT_AUTH` `RATE_LIMIT_AGENT` `RATE_LIMIT_UPLOAD` `RATE_LIMIT_DEFAULT` `RATE_LIMIT_SESSION` `RATE_LIMIT_WINDOW_SECONDS` `RATE_LIMIT_STORE` `PHOTOS_STORE` |
-| 数据库与其他 | 9 | `SPRING_PROFILES_ACTIVE` `MYSQL_HOST` `MYSQL_PORT` `MYSQL_DATABASE` `MYSQL_USERNAME` `MYSQL_PASSWORD` `MCP_ENABLED` `RAG_CHUNK_VERSION_RETENTION` `JAVA_OPTS` |
+| 存储与限流 | 12 | `PHOTO_MAX_PER_TRIP` `PHOTO_MAX_BYTES_PER_USER` `RATE_LIMIT_ENABLED` `RATE_LIMIT_AUTH` `RATE_LIMIT_AGENT` `RATE_LIMIT_UPLOAD` `RATE_LIMIT_DEFAULT` `RATE_LIMIT_SESSION` `RATE_LIMIT_WINDOW_SECONDS` `RATE_LIMIT_STORE` `RATE_LIMIT_TRUSTED_PROXIES` `PHOTOS_STORE` |
+| 数据库与其他 | 11 | `SPRING_PROFILES_ACTIVE` `MYSQL_HOST` `MYSQL_PORT` `MYSQL_DATABASE` `MYSQL_USERNAME` `MYSQL_PASSWORD` `MCP_ENABLED` `RAG_CHUNK_VERSION_RETENTION` `JAVA_OPTS` `TZ` `H2_CONSOLE_ENABLED` |
 | 会话记忆 | 2 | `CONVERSATION_HISTORY_LIMIT` `CONVERSATION_RETENTION_DAYS` |
 | Agent 时间预算 | 2 | `AGENT_BUDGET_ENABLED` `AGENT_BUDGET_TOTAL_MS` |
-| 容器时区（仅 mysql 服务） | 1 | `TZ` |
-| **合计** | **61** | 应用侧 57（= 两份 yml 占位去重数，`node .docgen/list-env.mjs` 输出 `57`；其中 `H2_CONSOLE_ENABLED`、`TICKET_TTL_SECONDS`、`RATE_LIMIT_TRUSTED_PROXIES` 未在 §5.2–§5.7 单列）+ `SPRING_PROFILES_ACTIVE` + `JAVA_OPTS` + `TZ` + `MYSQL_ROOT_PASSWORD` |
+| **合计** | **61** | 应用侧 54（两份 yml + Java `@Value` 占位去重）+ 3 个前端构建期变量 + 4 个仅 Docker 面变量（`MYSQL_ROOT_PASSWORD`、`SPRING_PROFILES_ACTIVE`、`JAVA_OPTS`、`TZ`） |
 
-> 口径提示：上表分组明细合计 **60** = 已展开的 54 个 yml 占位 + 2 个**前端构建期**变量（`VITE_AMAP_KEY`、`VITE_AMAP_SECURITY_CODE`，不是后端运行期变量）+ 4 个仅 Docker 面变量；`合计` 的 **61** = 57 个 yml 占位（含未单列的 `H2_CONSOLE_ENABLED` / `TICKET_TTL_SECONDS` / `RATE_LIMIT_TRUSTED_PROXIES`）+ 同样 4 个仅 Docker 面变量。
+> 口径提示：`TESSERACT_CMD`、`TESSDATA_PREFIX`、`INVOICE_DIR`、`INVOICE_STORE` 已随发票/OCR 退役删除，不再是有效配置项。
 
 来源分布（按定义位置；一个变量可能出现于多份配置文件）：
 
 | 来源 | 数量 | 说明 |
 | --- | --- | --- |
-| `application.yml` 的 `${VAR:default}` 占位 | 50 | 50 处、50 个不同变量（全部一次性引用；`AMAP_KEY` 只在 `travel.amap.key`，`AMAP_MAPS_API_KEY` 只在 `travel.mcp.servers[].env`） |
+| `application.yml` 的 `${VAR:default}` 占位 | 49 | 49 处、49 个不同变量（`AMAP_KEY` 只在 `travel.amap.key`，`AMAP_MAPS_API_KEY` 只在 `travel.mcp.servers[].env`） |
 | `application-mysql.yml` 的占位 | 5 | `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_DATABASE` / `MYSQL_USERNAME` / `MYSQL_PASSWORD` |
-| 两份 yml 合计（去重） | **57** | 等价于 `node .docgen/list-env.mjs` 输出的「Distinct env vars in yml: 57」 |
-| Java 代码内独立占位 | 2 | `TESSERACT_CMD`、`TESSDATA_PREFIX`（`InvoiceTextExtractor` 的 `@Value("${travel.ocr.tesseract:${TESSERACT_CMD:}}")` 嵌套写法；yml 里也有同名占位，故已含在上面 57 个中） |
+| 两份 yml 合计（去重） | **54** | P0 删除发票/OCR 配置后重新核对 |
+| Java 代码内独立 env 占位 | **0** | P0 删除 `TESSERACT_CMD` / `TESSDATA_PREFIX` 后，主代码不再有独立 env 占位（`@Value` 只读配置项默认值） |
 | 仅由 `docker-compose.yml` / Dockerfile 提供 | 4 | `MYSQL_ROOT_PASSWORD`、`TZ`（mysql 服务）、`SPRING_PROFILES_ACTIVE`、`JAVA_OPTS`（后端 `ENTRYPOINT` 消费） |
+| 前端构建期变量 | 3 | `VITE_AMAP_KEY`、`VITE_AMAP_SECURITY_CODE`、`VITE_FOOTPRINT_BASEMAP` |
 | `System.getenv` 直接读取 | **0** | 全仓库主代码没有 `System.getenv`（测试代码只用 `System.getProperty`） |
 
-对账：57（yml 去重）+ 4（仅 Docker 面）= **61**。复核命令：
+对账：54（yml 去重）+ 3（前端构建期）+ 4（仅 Docker 面）= **61**。复核命令：
 
 ```bash
-node .docgen/list-env.mjs                                     # 期望：Distinct env vars in yml: 57
 grep -rhoE '\$\{[A-Z_]+' travel-agent-server/src/main/resources/application*.yml | sort -u | wc -l
-grep -rhoE '\$\{[A-Z_]+' travel-agent-server/src/main/java | sort -u | wc -l
+grep -rhoE '\$\{[A-Z_]+' travel-agent-server/src/main/resources/application-mysql.yml | sort -u | wc -l
+grep -rhoE '@Value\("\$\{[A-Z_]+' travel-agent-server/src/main/java | sort -u | wc -l
 ```
 
 ### 5.9 README / DEVELOPMENT.md 的差异（重要）
@@ -456,7 +457,7 @@ grep -rhoE '\$\{[A-Z_]+' travel-agent-server/src/main/java | sort -u | wc -l
 
 | 文档 | 情况 | 本表处理 |
 | --- | --- | --- |
-| README §6.1 | 未列 `INVOICE_STORE`、`TELEGRAM_POLL_TIMEOUT`、`LLM_*` 超时/温度、`RATE_LIMIT_*` 细项等 | 已补齐（§5.3、§5.6） |
+| README §6.1 | 未列 `TELEGRAM_POLL_TIMEOUT`、`LLM_*` 超时/温度、`RATE_LIMIT_*` 细项等 | 已补齐（§5.3、§5.6） |
 | README §6.1 | `DEMO_ACCOUNT` 写默认 `true` | 与 `application.yml` 一致；compose 覆盖为 `false`——两个默认值都已标注 |
 | README §6.1 | `CORS_ALLOWED_ORIGINS` 写 `...:5173` | 与 yml 一致；compose 覆盖为 `http://localhost:8081`，已标注 |
 | DEVELOPMENT.md | 只有 5 行（`JWT_SECRET`、`LLM_API_KEY`、`AMAP_KEY`、`APP_TIMEZONE`、`travel.photos.dir`） | 覆盖不足；且 `travel.photos.dir` 是配置项不是环境变量，已从本表排除并在 §5.7 说明 |
@@ -591,13 +592,13 @@ MySQL = `migration` + `migration-mysql`），否则工具会算出不同的 reso
 
 | 环境 | 已验证 |
 | --- | --- |
-| **真实 MySQL `8.4.10`**（便携版本地实例，独立 datadir / `:3307`，与 `:3306` 的 8.0 服务互不影响） | ① 全新库 `V1..V18`：17 个迁移全部成功、`validate` 通过（25 表，启动 16.6s）；② 核心链路：登录 → 规划（`NEED_CONFIRMATION` + 64 位 contentHash）→ 确认（calendar/budget/footprint 三模块 `SUCCEEDED`）→ 追踪（`INTENT→PLAN→PREVIEW→REVIEW→COMMIT`、23 次工具调用）→ `route-legs` 10 段（无 Key → `estimated`）；③ 重启恢复三态：仅重启后端（14.4s，行程指纹与库内 MD5 一致、迁移不重跑）、仅重启 MySQL（后端 3.1s 连接池恢复、写入可用）、整栈重启（12.6s，数据一致）。证据 `.evidence/mysql84-3307-20261119-144026/`，脚本 `.e2e/acceptance/mysql-native-3307-acceptance.ps1` |
+| **真实 MySQL `8.4.10`**（便携版本地实例，独立 datadir / `:3307`，与 `:3306` 的 8.0 服务互不影响） | ① 全新库 `V1..V18`：验收当时 17 个迁移全部成功、`validate` 通过（25 表，启动 16.6s；V19 为后续增量，未纳入该次证据）；② 核心链路：登录 → 规划（`NEED_CONFIRMATION` + 64 位 contentHash）→ 确认（calendar/budget/footprint 三模块 `SUCCEEDED`）→ 追踪（`INTENT→PLAN→PREVIEW→REVIEW→COMMIT`、23 次工具调用）→ `route-legs` 10 段（无 Key → `estimated`）；③ 重启恢复三态：仅重启后端（14.4s，行程指纹与库内 MD5 一致、迁移不重跑）、仅重启 MySQL（后端 3.1s 连接池恢复、写入可用）、整栈重启（12.6s，数据一致）。证据 `.evidence/mysql84-3307-20261119-144026/`，脚本 `.e2e/acceptance/mysql-native-3307-acceptance.ps1` |
 | **真实 MySQL `8.0.46`**（本机，**不是 8.4**） | ① 全新库 `V1..V13` 13 个迁移 + `validate` 通过（21 表，启动 14.6s）；② 存量库（`flyway.target=10` 模拟现网）→ 只增量 V11/V12/V13 + `validate` 通过；③ `V8` 幂等：先手工建唯一键再跑，走「已存在 → 跳过」分支，无 `Duplicate key name` |
 | H2（2.3.232，`MODE=MySQL`） | 全新库 `V1..V13(h2)` + `validate` 通过；**现有 dev 库副本**升级只增量 V13(h2)（全部 `IF NOT EXISTS` 空转）+ `validate` 通过 |
 
 遗留风险两条：① **Flyway 对 8.4 的官方支持滞后**：Spring Boot 3.5.7 带的 Flyway 在连 8.4.10 时打印
-`MySQL 8.4 is newer than this version of Flyway ... latest supported version of MySQL is 8.1`（仅 WARN）；本轮 17 个迁移
-与 `validate` 全部通过，说明 DDL 未踩到差异，但升级 8.4 前建议顺手升级 Flyway（或显式接受该告警）；② 极端旧库若
+`MySQL 8.4 is newer than this version of Flyway ... latest supported version of MySQL is 8.1`（仅 WARN）；验收当时 17 个迁移
+与 `validate` 全部通过（V19 为后续增量），说明 DDL 未踩到差异，但升级 8.4 前建议顺手升级 Flyway（或显式接受该告警）；② 极端旧库若
 `health_record.weight` 还是 `DECIMAL(5,1)`、`operation_history.before_state`/`after_state` 还是 `JSON`，`validate` 会报
 类型不符，需手工收紧列类型（两处都只是「列更宽松」，不影响读写，可以择机处理）。
 
@@ -691,15 +692,19 @@ server {
 | 字段 | 类型 | 含义 / 运维用途 |
 | --- | --- | --- |
 | `llmConfigured` | boolean | `LLM_ENABLED=true` **且** `LLM_API_KEY` 非空 → `true`。`false` 说明整站走规则引擎 |
+| `llmVerified` | boolean | 最近一次真实 LLM 调用是否成功（未调用过 = `false`） |
 | `llmModel` | string/null | 生效的模型名（未接入时为 `null`） |
-| `llmHint` / `geoHint` / `ocrHint` | string | 中文说明，可直接转给用户 |
+| `llmHint` / `geoHint` / `routeHint` / `priceHint` | string | 中文说明，可直接转给用户 |
 | `amapConfigured` | boolean | `AMAP_KEY` 是否配置 |
 | `geoProvider` | string | `amap` 或 `osm`（兜底路径） |
 | `timezone` | string | 实际生效时区（应等于 `APP_TIMEZONE`）；**排查「日期差一天」先看它** |
-| `ocrConfigured` | boolean | `TESSERACT_CMD` 是否配置（决定图片发票能否 OCR） |
+| `routeProvider` / `routeConfigured` / `amapVerified` / `routeLastError` | string/boolean | 路线来源与「配置 vs 验证」分离；`routeProvider` 取值域 `amap`\|`estimated` |
+| `priceProvider` | string | 恒为 `reference-estimate`：价格只有本地参考估算，未接实时房态/库存 |
 | `pendingPlanStore` | string | 恒为 `database`（待确认方案落库，多实例可用） |
 | `rateLimitEnabled` | boolean | 限流是否开启 |
 | `llmQuotaUsed` / `llmQuotaLimit` | int（仅配额开启且已登录时出现） | 当前用户今日已用/上限 |
+
+> P0 起**不再返回 `ocrConfigured` / `ocrHint`**；发票/OCR 能力已退役。
 
 > **MCP 的接入状态不在这个接口里**：`amapConfigured` 只反映 REST 用的 `AMAP_KEY`，与 MCP 子进程的 `AMAP_MAPS_API_KEY` 无关。
 > MCP 是否真的接上、注册了几个工具，看启动日志（[高德 MCP 接入](mcp-amap.md) §4.3）。
@@ -734,7 +739,7 @@ docker compose logs backend | grep '<traceId>'
 | `高德定位失败` / `快速路径数据不足` / `Nominatim 定位不可达` | 定位走兜底或全不通 | 检查 `AMAP_KEY` 与高德配额；国内网络需配高德 |
 | `MCP 未启用` / `MCP 服务器 [x] 接入失败，已跳过` | MCP 未开/单个 server 故障 | **不影响启动**，只为该 server 缺少 `mcp_*` 工具 |
 | `Telegram Bot 未配置 token` | Telegram 渠道关闭 | 正常（按需开启） |
-| `模型把「…」判成日报` / `模型给出了不可用的 MCP 工具` | 模型分类越界，交回规则引擎 | 自愈行为，无需处理 |
+| `模型给出了不可用的 MCP 工具` | 模型分类越界，交回规则引擎 | 自愈行为，无需处理 |
 | `Redis 限流计数失败，本次放行` | 限流 fail-open | 检查 Redis；期间限流不生效 |
 | `SSE 事件发送失败` | 客户端提前断开（刷新/关页） | 偶发正常，频繁需查网络与代理超时 |
 
@@ -780,8 +785,7 @@ docker compose exec mysql mysql -uroot -p"${MYSQL_ROOT_PASSWORD}" travel_agent -
 | `Schema-validation: missing table/column` 或 `wrong column type` | `ddl-auto=validate` 发现实体与库不一致：迁移脚本漏了对象，或极端旧库的列类型更宽松 | 补一个 `V{n}__` 脚本（不要指望 Hibernate 自动补）；类型不符按 §6.3.2 手工 `MODIFY` |
 | 页面登录成功但立刻 401 | `COOKIE_SECURE=true` 但实际走 HTTP；或反代丢 `X-Forwarded-Proto` | 纯 HTTP 部署设 `COOKIE_SECURE=false`；HTTPS 部署检查反代是否透传该头 |
 | 聊天不吐字、一次性刷完 | 某一层代理开了缓冲 | 按 §7.2 逐一关掉内层/外层/CDN 的 `proxy_buffering` |
-| 上传照片/发票报 413 | 体积超过限制 | 上限 10MB/文件、12MB/请求；后端 yml、nginx、外层反代三处都要对齐 |
-| 图片发票上传 422 | 未配 OCR | 设 `TESSERACT_CMD` + `TESSDATA_PREFIX`（需 `chi_sim`、`eng`）；PDF 电子发票无需 OCR |
+| 上传照片报 413 | 体积超过限制 | 上限 10MB/文件、12MB/请求；后端 yml、nginx、外层反代三处都要对齐 |
 | 路书 PDF 中文变方块 | 容器缺 CJK 字体 | 镜像已装 `fonts-noto-cjk`；自建镜像补装，或把字体放到 `src/main/resources/fonts/cjk.ttf` |
 | 日期整体差一天 | 容器 UTC 且 `APP_TIMEZONE` 未生效 | 查 `/api/system/status` 的 `timezone`；显式设 `APP_TIMEZONE` 后重启 |
 | MCP 功能缺失但服务正常 | `MCP_ENABLED=false` 或单个 server 接入失败 | 属**设计内降级**，不影响启动；看日志 `MCP 服务器 [x] 接入失败` 的原因 |
@@ -838,7 +842,7 @@ docker compose ps
 | 卷 | 容器内路径 | 内容 | 重要性 |
 | --- | --- | --- | --- |
 | `mysql-data` | `/var/lib/mysql` | 全部业务数据（用户、行程、记账、待确认方案、LLM 配额计数、RAG 向量…） | **最高** |
-| `backend-data` | `/app/data` | 照片（`photos/`）、发票原件（`invoices/`，`INVOICE_DIR=/app/data/invoices`）、在线城市缓存（`online-cities/`）、H2 库（`travel-agent.mv.db`，仅 H2 模式有） | 高（照片/发票不可再生） |
+| `backend-data` | `/app/data` | 照片（`photos/`）、在线城市缓存（`online-cities/`）、H2 库（`travel-agent.mv.db`，仅 H2 模式有） | 高（照片不可再生） |
 
 确认实际卷名（前缀取决于 compose 项目名，默认是目录名 `travel-agent`）：
 
@@ -872,7 +876,7 @@ gunzip -c backups/travel_agent-20260101-030000.sql.gz | \
   | gzip > backups/db-$(date +\%F).sql.gz
 ```
 
-### 10.3 `backend-data`（照片 / 发票）备份恢复
+### 10.3 `backend-data`（照片 / 在线城市缓存）备份恢复
 
 ```bash
 # ---- 备份：直接打包卷内容 ----
@@ -912,7 +916,7 @@ docker compose start backend
 | 场景 | CPU | 内存 | 磁盘 | 说明 |
 | --- | --- | --- | --- | --- |
 | 个人/家庭（≤10 用户） | 2 核 | **4 GB** | 20 GB | MySQL 1 GB + Spring Boot 1-1.5 GB + nginx 与宿主开销 |
-| 小团队（≤50 用户） | 4 核 | 8 GB | 50 GB | 照片/发票为主要增长项 |
+| 小团队（≤50 用户） | 4 核 | 8 GB | 50 GB | 照片为主要增长项 |
 | 更高并发 | 多实例 | 每实例 ≥ 2 GB | 对象存储 | 需 `travel.rate-limit.store=redis`（`RATE_LIMIT_STORE=redis`）、`PHOTOS_STORE=s3`、MySQL 独立实例 |
 
 | 组件 | 常驻内存 | 说明 |
@@ -926,7 +930,6 @@ docker compose start backend
 | 来源 | 量级依据 | 治理 |
 | --- | --- | --- |
 | 照片 | 单用户上限 `PHOTO_MAX_BYTES_PER_USER` 默认 500 MB；单行程张数 `PHOTO_MAX_PER_TRIP` 默认 200 | 按用户数 × 上限估算；逼近时下调配额或迁 S3 |
-| 发票原件 | 单文件受 10MB multipart 限制 | 定期归档；可切 `INVOICE_STORE=s3` |
 | `pending_plan` | 每次规划一条，TTL **30 分钟**，仅在写入新方案时清理过期行 | 量很小；量大时定期 `DELETE FROM pending_plan WHERE created_at < NOW() - INTERVAL 1 DAY` |
 | `conversation_message` | 按「用户 + 会话」保留最近 10 条消息（约 5 轮）喂给模型；超过 `CONVERSATION_RETENTION_DAYS`（默认 7 天）的消息自动清理（写入侧快路径每小时最多一次 + 每日 04:30 定时任务） | 清理已自动化；需要时再定期归档 |
 | `rag_chunk` | 10 篇内置知识 × 段落数；版本化之后旧块不随指纹变化删除，但**只保留最近 `RAG_CHUNK_VERSION_RETENTION`（默认 2）个历史版本**，更老的块由每日 04:30 的 `RagChunkRetentionJob` 清理（版本行与正文保留）；**切换 Embedding 模型需重建** | 变更前清空 `rag_chunk`、`rag_document_version` 与 `rag_document`，重启自动重建（见 [数据模型](data-model.md) §7.3） |
@@ -941,12 +944,12 @@ docker compose start backend
 
 本文以仓库当前 HEAD 的源码为准做了逐项核对：
 
-- **环境变量总数：61**——应用侧 57（= 两份 yml 占位去重数，`node .docgen/list-env.mjs` 输出 `57`）
-  \+ 仅 Docker 面 4（`MYSQL_ROOT_PASSWORD`、`SPRING_PROFILES_ACTIVE`、`JAVA_OPTS`、`TZ`）。分组明细见 §5.8，
-  其中 `H2_CONSOLE_ENABLED`、`TICKET_TTL_SECONDS`、`RATE_LIMIT_TRUSTED_PROXIES` 三个占位未在 §5.2–§5.7 单列；
-- **来源分布**：`application.yml` 52 个不同占位（52 处）、`application-mysql.yml` 5 个、
-  Java 代码内独立占位 2 个（`TESSERACT_CMD`、`TESSDATA_PREFIX`，与 yml 同名重叠）、
-  `docker-compose.yml`/Dockerfile 4 个、`System.getenv` 直接读取 **0** 个；
+- **环境变量总数：61**——应用侧 54（= 两份 yml + Java `@Value` 占位去重数）
+  \+ 3 个前端构建期变量（`VITE_AMAP_KEY`、`VITE_AMAP_SECURITY_CODE`、`VITE_FOOTPRINT_BASEMAP`）
+  \+ 仅 Docker 面 4（`MYSQL_ROOT_PASSWORD`、`SPRING_PROFILES_ACTIVE`、`JAVA_OPTS`、`TZ`）。分组明细见 §5.8；
+- **来源分布**：`application.yml` 49 个不同占位、`application-mysql.yml` 5 个、
+  `docker-compose.yml`/Dockerfile 4 个、`System.getenv` 直接读取 **0** 个；**Java 代码内不再有独立 env 占位**
+  （P0 删除的 `TESSERACT_CMD` / `TESSDATA_PREFIX` 是最后一处）；
 - **刻意不进表的配置项**（无环境变量占位，只能走配置文件项或 `SPRING_APPLICATION_JSON`）：
   `travel.photos.dir`、`travel.photos.s3.*`、`travel.mcp.servers`、
   MCP server 的 `command`/`url`/`env`——见 §5.7 末与 §5.9 的注入示例（`travel.jwt.ticket-ttl-seconds` 已改为环境变量 `TICKET_TTL_SECONDS`，默认 300）；
@@ -954,7 +957,8 @@ docker compose start backend
   与 `docker-compose.yml` 逐字一致；镜像 `mysql:8.4`、`nginx:1.27-alpine`、`eclipse-temurin:17-jre`；
 - **README / DEVELOPMENT.md 差异**：`RATE_LIMIT_STORE`、`PHOTOS_STORE`、`WECHAT_OA_APPID`/`WECHAT_OA_SECRET`
   已通过补充 `application.yml` 占位符变为**真实可用**的环境变量（§5.9），DEVELOPMENT.md 的 5 行表属
-  有意精简的「最小集」，完整清单元数据以本文 §5 为准。
+  有意精简的「最小集」，完整清单元数据以本文 §5 为准；P0 退役的 `TESSERACT_CMD` / `TESSDATA_PREFIX` /
+  `INVOICE_DIR` / `INVOICE_STORE` 不再计入。
 
 相关文档：[快速上手](getting-started.md)（本地开发）· [架构](architecture.md)（SSE 与 Agent 引擎）·
 [数据模型](data-model.md)（表结构与 Flyway 细节）· [高德 MCP 接入](mcp-amap.md)（真实地图数据源）·

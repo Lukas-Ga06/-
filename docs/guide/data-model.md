@@ -1,6 +1,8 @@
 # 数据模型与表结构
 
-本文面向**要改表结构、写查询或做数据迁移**的开发者，说明 AI 个人助理（`travel-agent-server`）的持久化设计：20 个 JPA 实体对应 20 张表，以及字段、索引、跨表约定与 Flyway 迁移策略。
+> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.7 / Node 20） | 最后验证：2026-11-19 | 事实来源：travel-agent-server/src/main/java/com/travel/agent/entity/、travel-agent-server/src/main/resources/db/migration/、sql/init.sql
+
+本文面向**要改表结构、写查询或做数据迁移**的开发者，说明 AI 智能旅行助手（`travel-agent-server`）的持久化设计：**19 个 JPA 实体对应 19 张映射表**，另有 **6 张已代码下线的旧模块表**（数据保留、不再映射），库内共 **25 张表**，以及字段、索引、跨表约定与 Flyway 迁移策略。
 
 > 约定：文中**表名、列名、索引名**逐字摘自 `entity/` 注解（`@Table` / `@Column` / `@Index` / `@UniqueConstraint`）或 `db/migration/` 脚本，可直接在源码中检索验证。唯一例外是仓库根目录的 `sql/init.sql`——独立 MySQL 初始化脚本，与实体有已知偏差，见第 8 节。
 
@@ -10,7 +12,7 @@
 
 | 约定 | 做法 | 涉及范围 |
 | --- | --- | --- |
-| 无 JPA 关联 | 全部实体只用 `Long xxxId` 扁平外键，没有 `@ManyToOne` / `@OneToMany` / `@JoinColumn` | 全部 20 张表 |
+| 无 JPA 关联 | 全部实体只用 `Long xxxId` 扁平外键，没有 `@ManyToOne` / `@OneToMany` / `@JoinColumn` | 全部 19 张映射表（旧表不再有实体） |
 | 无数据库外键 | 引用完整性由 Service 层保证，DDL 里没有 `FOREIGN KEY` | 全部 |
 | 无 CHECK 约束 | 状态/分类用实体常量 `public static final String`，库侧不校验 | `trip`、`expense`、`operation_history` 等 |
 | 级联删除靠仓库方法 | `deleteByTripId` / `deleteByDocumentId` 在 `@Transactional` 内显式调用 | `trip` 系、RAG |
@@ -31,20 +33,18 @@ erDiagram
     users ||--o{ memo : "拥有"
     users ||--o{ schedule_item : "拥有"
     users ||--o{ conversation_message : "会话归属"
-    users ||--o{ daily_report : "每日生成"
-    users ||--o{ mail_item : "分类结果"
-    users ||--o{ meeting_minutes : "纪要归属"
-    users ||--o{ invoice : "发票归属"
-    users ||--o{ learning_artifact : "学习产物"
-    users ||--o{ health_record : "健康记录"
     users ||--o{ pending_plan : "待确认方案"
     trip ||--o{ itinerary_item : "行程条目"
     trip ||--o{ expense : "记账分项"
     trip ||--o{ trip_photo : "旅行照片"
     trip ||--o{ operation_history : "变更快照"
     trip ||--o{ pending_plan : "可关联可空"
-    invoice }o--o| expense : "已记账可空"
-    invoice }o--o| trip : "记账时选择可空"
+    trip ||--o{ trip_event : "旅行事件"
+    trip ||--o{ memo : "可空旅行关联"
+    trip ||--o{ schedule_item : "可空旅行关联"
+    itinerary_item ||--o{ trip_event : "可空事件目标"
+    itinerary_item ||--o{ memo : "可空关联"
+    itinerary_item ||--o{ schedule_item : "可空关联"
     rag_document ||--o{ rag_chunk : "切块"
     rag_document ||--o{ rag_document_version : "版本快照"
     rag_document_version ||--o{ rag_chunk : "版本化知识块（可空）"
@@ -58,6 +58,9 @@ erDiagram
     }
 ```
 
+> 旧模块表 `daily_report` / `mail_item` / `meeting_minutes` / `invoice` / `learning_artifact` / `health_record`
+> **不在上图**：实体与 Service 已删除，表与历史数据保留，等待后续 forward-only 迁移按环境决定是否退役。
+
 > 其余表的主字段见第 2–4 节字段表；`llm_quota_usage` 是唯一**不挂 `user_id`** 的表，按用户名文本 `user_name` 计数。
 
 ### 1.3 表清单与主键策略
@@ -67,19 +70,14 @@ erDiagram
 | `users`（`User`） | 账号 | `id` |
 | `trip`（`Trip`） | 旅行 | `id` |
 | `itinerary_item`（`ItineraryItem`） | 旅行 | `id` |
+| `trip_event`（`TripEvent`） | 旅行事件 | `id` |
 | `expense`（`Expense`） | 记账 | `id` |
 | `trip_photo`（`TripPhoto`） | 旅行 | `id` |
 | `operation_history`（`OperationHistory`） | 撤销 | `id` |
 | `pending_plan`（`PendingPlanRecord`） | Agent | `plan_id` |
-| `memo`（`Memo`） | 备忘 | `id` |
-| `schedule_item`（`ScheduleItem`） | 日程 | `id` |
+| `memo`（`Memo`） | 备忘（可关联旅行） | `id` |
+| `schedule_item`（`ScheduleItem`） | 日程（可关联旅行） | `id` |
 | `conversation_message`（`ConversationMessage`） | 会话记忆 | `id` |
-| `daily_report`（`DailyReport`） | 日报 | `id` |
-| `mail_item`（`MailItem`） | 办公 | `id` |
-| `meeting_minutes`（`MeetingMinutes`） | 办公 | `id` |
-| `invoice`（`Invoice`） | 办公 | `id` |
-| `learning_artifact`（`LearningArtifact`） | 学习 | `id` |
-| `health_record`（`HealthRecord`） | 健康 | `id` |
 | `rag_document`（`RagDocument`） | RAG | `id` |
 | `rag_chunk`（`RagChunk`） | RAG | `id` |
 | `rag_document_version`（`RagDocumentVersion`） | RAG | `id` |
@@ -88,8 +86,17 @@ erDiagram
 | `agent_task`（`AgentTask`） | Agent 任务图 | `id` |
 | `tool_call_trace`（`ToolCallTrace`） | Agent 追踪 | `id` |
 | `plan_execution`（`PlanExecution`） | Agent 同步台账 | `id` |
+| `daily_report` | **已退役：日报** | `id` |
+| `mail_item` | **已退役：办公邮件** | `id` |
+| `meeting_minutes` | **已退役：办公纪要** | `id` |
+| `invoice` | **已退役：发票** | `id` |
+| `learning_artifact` | **已退役：学习产物** | `id` |
+| `health_record` | **已退役：健康** | `id` |
 
-23 张表用 `@GeneratedValue(strategy = GenerationType.IDENTITY)` 自增。唯一例外是 `pending_plan`：`@Id @Column(name = "plan_id", length = 64) private String planId`，由 `PlannerAgent` 生成后直接作主键，**没有 `id` 列**，仓库为 `JpaRepository<PendingPlanRecord, String>`。
+> 上表前 19 张由 JPA 实体映射；后 6 张**已代码下线，数据保留，退役由后续 forward-only 迁移按环境决定**。
+> 24 张表用 `@GeneratedValue(strategy = GenerationType.IDENTITY)` 自增；唯一例外是 `pending_plan`：
+> `@Id @Column(name = "plan_id", length = 64) private String planId`，由 `PlannerAgent` 生成后直接作主键，
+> **没有 `id` 列**，仓库为 `JpaRepository<PendingPlanRecord, String>`。
 
 ## 2. 核心业务表
 
@@ -144,6 +151,18 @@ erDiagram
 | `cost` | `DECIMAL(10,2)` | 是 | 计划成本，参与预算 `planned` 口径 |
 | `tags` | `VARCHAR(200)` | 是 | 逗号分隔，如 `室内,文化,亲子` |
 | `description` | `TEXT` | 是 | 详情 |
+| `status` | `VARCHAR(20)` | 否 | P1：`PENDING`（默认）/ `IN_PROGRESS` / `COMPLETED` / `SKIPPED`；`V19` 补列并回填 `PENDING` |
+| `started_at` | `TIMESTAMP` | 是 | P1：实际开始时间；未开始为 `null` |
+| `completed_at` | `TIMESTAMP` | 是 | P1：完成/跳过时间 |
+| `visited_at` | `TIMESTAMP` | 是 | P1：实际到访时间；**只有 `COMPLETED` 写它**，足迹与回顾只认该字段 |
+
+状态口径（`ItineraryItem` / `ItineraryService.updateStatus`）：
+
+- `PENDING`：可被自动重规划调整；重置时清空三个实际时间。
+- `IN_PROGRESS`：写 `started_at`，清空 `completed_at` / `visited_at`；不再被自动替换。
+- `COMPLETED`：写 `started_at` / `completed_at` / `visited_at`（实际到访 = 完成时间），追加 `CHECK_IN` 事件。
+- `SKIPPED`：写 `completed_at`，`visited_at` 保持空；不计入完成率，也不算「去过」。
+- 状态变化走 `OperationHistoryService.withHistory`，`before` 快照在变更前生成，撤销可还原。
 
 `tags` 口径（天气驱动调整依赖它）：`hasTag(t)` 用 `List.of(tags.split(","))` 判断且**不做 trim**，写入不能带空格；`isOutdoor()` 判 `室外`、`isIndoor()` 判 `室内`。
 
@@ -222,7 +241,7 @@ select coalesce(sum(p.sizeBytes), 0) from TripPhoto p where p.userId = :userId
 
 生命周期：`PendingPlanStore.TTL_MINUTES = 30`。`peek` 发现过期就删并返回 `null`；`put` 后顺带 `purgeExpired()`（`deleteByCreatedAtBefore(now - 30min)`）；`take` 取成功即删除。
 
-## 3. 个人助理模块表
+## 3. 旅行关联、事件与历史表
 
 ### 3.1 `memo` — 备忘 / 待办（索引 `idx_memo_user (user_id)`）
 
@@ -234,6 +253,10 @@ select coalesce(sum(p.sizeBytes), 0) from TripPhoto p where p.userId = :userId
 | `user_id` | `BIGINT` | 否 | 归属用户 |
 | `content` | `TEXT` | 否 | 备忘正文 |
 | `done` | `BOOLEAN` | 否 | 是否完成（JPA 原生 `boolean`） |
+| `trip_id` | `BIGINT` | 是 | P1：关联行程；可空，旧数据保持 `null` |
+| `itinerary_item_id` | `BIGINT` | 是 | P1：关联具体行程项 |
+| `source` | `VARCHAR(30)` | 是 | P1：来源（如 `user`） |
+| `travel_day` | `INT` | 是 | P1：行程第几天（1-based），仅 `trip_id` 非空时有意义 |
 | `created_at` | `TIMESTAMP` | 是 | 创建时间 |
 
 ### 3.2 `schedule_item` — 日程条目（索引 `idx_schedule_user (user_id)`）
@@ -250,6 +273,11 @@ select coalesce(sum(p.sizeBytes), 0) from TripPhoto p where p.userId = :userId
 | `recurrence` | `VARCHAR(10)` | 是 | `NONE` / `DAILY` / `WEEKLY` / `MONTHLY` |
 | `repeat_until` | `DATE` | 是 | 重复结束日（含）；为空表示长期重复 |
 | `reminder_dismissed_at` | `TIMESTAMP` | 是 | 用户忽略该日程提醒的时间 |
+| `source_key` | `VARCHAR(100)` | 是 | V16：确认后同步的幂等键（`plan:<planId>:module:calendar`） |
+| `trip_id` | `BIGINT` | 是 | P1：关联行程；可空 |
+| `itinerary_item_id` | `BIGINT` | 是 | P1：关联具体行程项 |
+| `source` | `VARCHAR(30)` | 是 | P1：来源（如 `agent` / `user`） |
+| `travel_day` | `INT` | 是 | P1：行程第几天（1-based），仅 `trip_id` 非空时有意义 |
 | `created_at` | `TIMESTAMP` | 是 | 创建时间 |
 
 `nextOccurrence` 带 `@Transient`，**不落库**——下次发生日期按当前时间实时计算，提醒板由前端轮询拉取。
@@ -279,86 +307,41 @@ select coalesce(sum(p.sizeBytes), 0) from TripPhoto p where p.userId = :userId
 - `conversationId` 为空（单轮模式）不落库。
 - 历史**只用于意图识别 / 指代消解**（「那把第二天的酒店也换掉」），**不进入规划产物**（不参与行程生成与方案内容）。
 
-### 3.4 `daily_report` — 每日日报（索引 `idx_daily_report_user (user_id)`）
+### 3.4 `trip_event` — 旅行事件流（索引 `idx_trip_event_trip (trip_id)`、`idx_trip_event_item (itinerary_item_id)`、`idx_trip_event_occurred (trip_id, occurred_at)`）
+
+P1 新增（`V19__travel_closed_loop.sql`）：只追加、不参与规划器的事实视图。事件类型包含天气突变、拥堵、闭馆、用户打卡、Agent 调整与手工修改；**当前写入点**只有天气/Agent 调整（`ExecutorAgent`）、打卡与手工状态（`ItineraryService`），`CONGESTION` / `CLOSURE` 是预留类型、尚无自动写入方。
 
 | 字段 | DB 类型 | 可空 | 说明 |
 | --- | --- | --- | --- |
 | `id` | `BIGINT` | 否 | 主键，自增 |
-| `user_id` | `BIGINT` | 否 | 归属用户 |
-| `report_date` | `DATE` | 否 | Java 属性 `date`，对应日期 |
-| `content` | `TEXT` | 否 | 日报正文 |
-| `created_at` | `TIMESTAMP` | 是 | 生成时间 |
+| `trip_id` | `BIGINT` | 否 | 所属行程 |
+| `itinerary_item_id` | `BIGINT` | 是 | 关联行程项；天气类事件可能只作用于某一天，允许为空 |
+| `event_type` | `VARCHAR(40)` | 否 | `WEATHER` / `CONGESTION` / `CLOSURE` / `CHECK_IN` / `AGENT_ADJUST` / `MANUAL_EDIT` |
+| `source` | `VARCHAR(30)` | 是 | `weather` / `amap` / `user` / `agent` / `system` |
+| `summary` | `VARCHAR(500)` | 是 | 单行摘要（回顾页直接展示），写入时截断到 500 |
+| `detail` | `TEXT` | 是 | 结构化细节（JSON 字符串，仅供审计） |
+| `occurred_at` | `TIMESTAMP` | 否 | 事件发生时间，`@PrePersist` 兜底当前时间 |
+| `created_at` | `TIMESTAMP` | 是 | 入库时间 |
 
-同一用户同一天**逻辑上只应有一条**（`findByUserIdAndDate` 定位），但库里没有唯一约束，是应用层约定。
+写入点：行程项状态推进（`IN_PROGRESS`/`COMPLETED`/`SKIPPED` 记 `MANUAL_EDIT` 或 `CHECK_IN`）、Agent 局部调整与确认提交（`ExecutorAgent`）。重置回 `PENDING` 不记事件，避免把「撤销打卡」记成一次打卡。
 
-### 3.5 `mail_item` — 邮件分类结果（索引 `idx_mail_user (user_id)`）
+### 3.5 已代码下线但数据保留的旧模块表
 
-| 字段 | DB 类型 | 可空 | 说明 |
+以下 6 张表由 `V1__baseline.sql` 建出，**实体、Repository、Service 与 Controller 已在 P0 删除，表与历史数据保留**。
+退役不写进 V19：先完成代码下线，数据退役由后续 forward-only 迁移按环境决定（生产数据是否需要归档/删除需单独评审）。
+
+| 表 | 原模块 | 关键列（现状） | 说明 |
 | --- | --- | --- | --- |
-| `id` | `BIGINT` | 否 | 主键，自增 |
-| `user_id` | `BIGINT` | 否 | 归属用户 |
-| `sender` | `VARCHAR(200)` | 是 | 发件人 |
-| `subject` | `VARCHAR(300)` | 是 | 主题 |
-| `body` | `TEXT` | 是 | 正文 |
-| `category` | `VARCHAR(20)` | 是 | `重要` / `会议` / `账单` / `通知` / `垃圾` / `其他` |
-| `summary` | `TEXT` | 是 | LLM 摘要 |
-| `suggested_reply` | `TEXT` | 是 | LLM 建议回复 |
-| `created_at` | `TIMESTAMP` | 是 | 创建时间 |
+| `daily_report` | 日报 | `user_id`、`report_date`、`content` | 无实体映射；不再写入 |
+| `mail_item` | 办公邮件 | `user_id`、`sender`、`subject`、`body`、`category`、`summary`、`suggested_reply` | 无实体映射；不再写入 |
+| `meeting_minutes` | 会议纪要 | `user_id`、`title`、`raw_text`、`content` | 无实体映射；不再写入 |
+| `invoice` | 发票 | `user_id`、`title`、`vendor`、`category`、`amount`、`invoice_date`、`raw_text`、`source_file`、`source_type`、`expense_id`、`trip_id` | 无实体映射；`expense_id`/`trip_id` 为历史软外键，不再维护 |
+| `learning_artifact` | 学习产物 | `user_id`、`kind`、`topic`、`content` | 无实体映射；不再写入 |
+| `health_record` | 健康 | `user_id`、`record_date`、`steps`、`sleep_hours`、`resting_heart_rate`、`weight` | 无实体映射；不再写入 |
 
-### 3.6 `meeting_minutes` — 会议纪要（索引 `idx_minutes_user (user_id)`）
+> 查询旧表只用于数据审计/迁移；新代码不得再依赖这些表，也不得为它们新增实体。
 
-| 字段 | DB 类型 | 可空 | 说明 |
-| --- | --- | --- | --- |
-| `id` | `BIGINT` | 否 | 主键，自增 |
-| `user_id` | `BIGINT` | 否 | 归属用户 |
-| `title` | `VARCHAR(200)` | 否 | 标题 |
-| `raw_text` | `TEXT` | 是 | 原始记录 |
-| `content` | `TEXT` | 是 | 结构化纪要 |
-| `created_at` | `TIMESTAMP` | 是 | 创建时间 |
-
-### 3.7 `invoice` — 发票整理（索引 `idx_invoice_user (user_id)`）
-
-本表是模型中唯一两处「跨模块软外键」的载体：`expense_id` → `expense.id`、`trip_id` → `trip.id`，均可空且无数据库约束。
-
-| 字段 | DB 类型 | 可空 | 说明 |
-| --- | --- | --- | --- |
-| `id` | `BIGINT` | 否 | 主键，自增 |
-| `user_id` | `BIGINT` | 否 | 归属用户 |
-| `title` | `VARCHAR(200)` | 是 | 发票抬头 |
-| `vendor` | `VARCHAR(200)` | 是 | 销售方/开票方 |
-| `category` | `VARCHAR(20)` | 是 | `交通` / `餐饮` / `办公` / `住宿` / `其他` |
-| `amount` | `DECIMAL(10,2)` | 是 | 金额 |
-| `invoice_date` | `DATE` | 是 | 开票日期 |
-| `raw_text` | `TEXT` | 是 | 粘贴或 OCR 出的原始文本 |
-| `source_file` | `VARCHAR(120)` | 是 | 原始文件名（存于 `travel.invoices.dir`）；为空表示手工粘贴 |
-| `source_type` | `VARCHAR(20)` | 是 | `PDF` / `IMAGE` / `TEXT` |
-| `expense_id` | `BIGINT` | 是 | 已生成的记账记录；**非空表示已记账，防重复入账** |
-| `trip_id` | `BIGINT` | 是 | 记账时选择的行程 |
-| `created_at` | `TIMESTAMP` | 是 | 创建时间 |
-
-### 3.8 `learning_artifact` — 学习产物（索引 `idx_artifact_user_kind (user_id, kind)`）
-
-| 字段 | DB 类型 | 可空 | 说明 |
-| --- | --- | --- | --- |
-| `id` | `BIGINT` | 否 | 主键，自增 |
-| `user_id` | `BIGINT` | 否 | 归属用户 |
-| `kind` | `VARCHAR(20)` | 否 | `FRAMEWORK` / `PATH` / `SUMMARY` |
-| `topic` | `VARCHAR(200)` | 否 | 主题 |
-| `content` | `TEXT` | 否 | 正文 |
-| `created_at` | `TIMESTAMP` | 是 | 创建时间 |
-
-### 3.9 `health_record` — 健康日报（索引 `idx_health_user_date (user_id, record_date)`）
-
-| 字段 | DB 类型 | 可空 | 说明 |
-| --- | --- | --- | --- |
-| `id` | `BIGINT` | 否 | 主键，自增 |
-| `user_id` | `BIGINT` | 否 | 归属用户 |
-| `record_date` | `DATE` | 否 | Java 属性 `date`，记录日期 |
-| `steps` | `INT` | 是 | 步数 |
-| `sleep_hours` | `DOUBLE` | 是 | 睡眠小时数 |
-| `resting_heart_rate` | `INT` | 是 | 静息心率 |
-| `weight` | `DOUBLE` | 是 | 体重（`sql/init.sql` 写的是 `DECIMAL(5,1)`，见第 8 节） |
-| `created_at` | `TIMESTAMP` | 是 | 创建时间 |
+---
 
 ## 4. RAG 与运行时状态表
 
@@ -389,7 +372,7 @@ LEFT(CONCAT(
 
 - Java 侧唯一实现是 `rag/RagDocumentKeys#of`（与上面表达式逐字对应）；`RagDocument.prePersist` 在 `docKey == null` 时兜底计算，实体用 `updatable = false` —— 标题/城市/归属在文档生命周期里不变，键也就不该被 `UPDATE` 改写。
 - 为什么必须存在这个键：`knowledge/add` 与启动同步都是「先查再插」，并发请求会同时查不到、同时插入，产生两条同标题同城市的文档（知识块也重复进向量库）。唯一索引让后插入的一方撞键，`RagDocumentUpsertService` 把 `DataIntegrityViolationException` 当**正常并发路径**回读，不冒 500。
-- **对外行为变化**：同一用户再次 `POST /api/learning/knowledge/add` 提交**同标题同城市**（该接口城市固定为 `个人`）→ **复用同一 `documentId` 并追加一个版本**，响应形态不变（`documentId` / `chunks` / `versionNo`）；旧行为是每次新建一条文档。内容未变时指纹相同，走 `SKIPPED` 分支、`versionNo` 返回当前 ACTIVE 版本号。
+- **对外行为变化**：同一用户再次 `POST /api/knowledge/add` 提交**同标题同城市**（该接口城市固定为 `个人`）→ **复用同一 `documentId` 并追加一个版本**，响应形态不变（`documentId` / `chunks` / `versionNo`）；旧行为是每次新建一条文档。内容未变时指纹相同，走 `SKIPPED` 分支、`versionNo` 返回当前 ACTIVE 版本号。
 - 历史脏数据去重（`V11` 内置）：同一 `(user_id, title, city)` 多行时**保留 `id` 最小的一行**，其余把 `title` 改成 `CONCAT(LEFT(title,170),'#dup-',id)` 使其键唯一——**不删任何文档、正文或知识块**（170 的来历：`VARCHAR(200)` 减去 `#dup-` 与最长 19 位 id 后仍不溢出）。
 - 极端情况下（标题跨 190 字符边界且含 4 字节 emoji）Java 按 code point 截断、MySQL 的 `LEFT()` 按字符截断，结果可能不同；`RagDocumentUpsertService` 还有按「标题 + 城市」回找的兜底，不会因此重复建文档。
 
@@ -544,19 +527,24 @@ V2.2 的三张追踪表 + 一张同步台账，**全部由 `AgentTraceService` �
 `TripService.delete(tripId, userId)` 在一个 `@Transactional` 里按序执行：
 
 ```java
-// 1. 先删磁盘文件（元数据删了文件就找不回来了）
-tripPhotoRepository.findByTripIdOrderByCreatedAtDesc(trip.getId())
-        .forEach(photo -> photoStorage.deleteQuietly(photo.getStoredName()));
-// 2. 再删四张子表
+// 1. 先查磁盘文件（元数据删了文件就找不回来了；实际删除在 afterCommit）
+List<String> photoFiles = tripPhotoRepository.findByTripIdOrderByCreatedAtDesc(trip.getId())...
+// 2. 再删子表：照片 / 账单 / 历史 / 行程项 / 旅行事件 / 日程 / 备忘
 tripPhotoRepository.deleteByTripId(trip.getId());
 expenseRepository.deleteByTripId(trip.getId());
 operationHistoryRepository.deleteByTripId(trip.getId());
 itineraryItemRepository.deleteByTripId(trip.getId());
+tripEventRepository.deleteByTripId(trip.getId());
+scheduleItemRepository.deleteByTripId(trip.getId());
+memoRepository.deleteByTripId(trip.getId());
+planExecutionService.cleanupForTrip(trip.getId());
 // 3. 最后删主表
 tripRepository.delete(trip);
 ```
 
-顺序不能反：子表与照片元数据先于行程删除，反过来会留下悬空 `trip_id`；磁盘文件必须用删除前的查询结果拿 `stored_name`。`pending_plan` 不在此列（按 TTL 过期），`invoice` 也不在此列（`trip_id` 可空，已记账的 `expense_id` 会指向被删账单）。`deleteByTripId` 均为单条 DELETE，但**不做归属校验**：调用方必须先 `getOwned(tripId, userId)`。
+顺序不能反：子表与照片元数据先于行程删除，反过来会留下悬空 `trip_id`；磁盘文件必须用删除前的查询结果拿 `stored_name`。
+`pending_plan` 不在此列（按 TTL 过期）。`deleteByTripId` 均为单条 DELETE，但**不做归属校验**：调用方必须先 `getOwned(tripId, userId)`。
+旧 `invoice` 表不参与级联：`trip_id` 可空、无实体，历史 `expense_id` 可能指向已删账单，只作历史数据保留。
 
 ### 5.2 记账分项之和 == `totalSpent`
 
@@ -576,16 +564,19 @@ byTrip.merge(tripKey, amount, BigDecimal::add);
 
 写入统一走 `OperationHistoryService.save(...)`：条目列表转 DTO 后序列化成 JSON 存入 `before_state` / `after_state`。快照序列化失败会抛 `IllegalStateException` 回滚业务变更（不吞异常）；手工改动经 `withHistory(...)` 在同一事务内取 before → 变更 → 取 after 并写 `MANUAL_EDIT`；撤销用 `findFirstByTripIdAndStatusOrderByIdDesc(tripId, "ACTIVE")` 定位，还原前校验 `userId` 归属，还原后置 `UNDONE`。
 
+**P1 快照时机修复**：`before` 必须在变更**之前**生成（`snapshot(items)`，见 `OperationHistoryService` 注释）。JPA 持久化上下文里 before/after 是同一批受管对象，字段被就地修改后再序列化，「before」会跟着变成新值——旧实现因此无法还原打卡状态。现在 `withHistory` 先快照再执行，`status` / `started_at` / `completed_at` / `visited_at` 都在快照内，撤销能还原成「未开始」。
+
 ### 5.4 行程指纹 `planRevision`
 
 `ItineraryService.planRevision(trip, items)` 把行程可变状态拍成 SHA-256：
 
 ```
 b=<budget>|s=<startDate>|e=<endDate>
-|id:day_index:title:start_time:end_time:cost:item_type   （按 id 升序，每条行程项一段）
+|id:day_index:title:start_time:end_time:cost:item_type:status   （按 id 升序，每条行程项一段）
 ```
 
 生成方案时写入 `pending_plan.plan_revision`；确认时 `AgentEngine` 用当前数据重算比对，不一致就拒绝提交，防止按过期 Diff 覆盖新数据。`plan_revision` 可空（老方案跳过校验），`VARCHAR(64)` 刚好容纳 SHA-256 hex，不要改短。
+指纹**覆盖日期、预算、条目计划字段与执行状态**（`status` 在 P1 纳入指纹）；因此旅行中打卡/推进状态后，旧的待确认方案会因指纹不一致而失效，需要重新生成。实际时间（`started_at` 等）不参与指纹。
 
 ### 5.5 RAG 指纹增量同步
 
@@ -604,10 +595,10 @@ b=<budget>|s=<startDate>|e=<endDate>
 
 ## 6. Flyway 迁移策略与 `ddl-auto`
 
-### 6.1 迁移链：V1 基线 → V2–V11（便携）→ V12/V13/V14（按方言分目录）→ V15–V18（便携）
+### 6.1 迁移链：V1 基线 → V2–V11（便携）→ V12/V13/V14（按方言分目录）→ V15–V19（便携）
 
 **schema 的唯一权威是 Flyway**，两个 profile 的 `ddl-auto` 都是 `validate`（见 6.2）：Hibernate 只校验、不改结构。
-共 **18 个版本 / 19 个脚本**（V13 三份、V8/V12 在 MySQL 目录、V14 在 H2 目录）：
+共 **19 个版本 / 20 个脚本**（V13 两份、V8/V12 在 MySQL 目录、V14 在 H2 目录）：
 
 | 版本 | 脚本 | 目录 | 内容 | 策略 |
 | --- | --- | --- | --- | --- |
@@ -630,13 +621,14 @@ b=<budget>|s=<startDate>|e=<endDate>
 | 16 | `V16__plan_execution.sql` | `db/migration` | `pending_plan.content_hash`、建 `plan_execution`、`schedule_item.source_key` | 中性 `ALTER ... ADD COLUMN`（Flyway 每库只跑一次） |
 | 17 | `V17__trip_party_size.sql` | `db/migration` | `trip.party_size`（同行人数，FR-01） | `INT NOT NULL DEFAULT 1`：存量行回填 1，与升级前单人成本口径一致 |
 | 18 | `V18__agent_task_dag.sql` | `db/migration` | `agent_task` 补 `depends_on` / `attempt` / `replaces_task_id`（任务图，FR-02/FR-04） | 中性 `ALTER ... ADD COLUMN`；`attempt INT NOT NULL DEFAULT 0` 回填存量行（视为首次尝试） |
+| 19 | `V19__travel_closed_loop.sql` | `db/migration` | `itinerary_item` 补 `status` / `started_at` / `completed_at` / `visited_at`；建 `trip_event`；`schedule_item` / `memo` 补 `trip_id` / `itinerary_item_id` / `source` / `travel_day` | 双方言中性 SQL；`status VARCHAR(20) NOT NULL DEFAULT 'PENDING'` 回填存量行；旧办公/学习/健康表**不删除** |
 
 **目录与加载**（`application.yml` / `application-mysql.yml` 的 `spring.flyway.locations`）：
 
 | profile | `locations` | 实际看到的版本 |
 | --- | --- | --- |
-| 默认（H2） | `classpath:db/migration,classpath:db/migration-h2` | V1–V11 + V13（H2 版）+ V14 + V15–V18；**没有 V12**，且缺口 V8 是预期 |
-| `mysql` | `classpath:db/migration,classpath:db/migration-mysql` | V1–V13 全链（V8 / V12 / V13 是 MySQL 版）+ V15–V18；没有 V14（H2 专属） |
+| 默认（H2） | `classpath:db/migration,classpath:db/migration-h2` | V1–V11 + V13（H2 版）+ V14 + V15–V19；**没有 V12**，且缺口 V8 是预期 |
+| `mysql` | `classpath:db/migration,classpath:db/migration-mysql` | V1–V13 全链（V8 / V12 / V13 是 MySQL 版）+ V15–V19；没有 V14（H2 专属） |
 
 两个 profile 各自只看到**一个** V13，不会出现「同一 locations 内重复版本号」（`MigrationBaselineTest` 守住这条）。
 `db/migration-mysql/` 与 `db/migration-h2/` 里的脚本含 `information_schema` 探测、会话变量、`PREPARE` 动态语句或方言化
@@ -645,7 +637,7 @@ b=<budget>|s=<startDate>|e=<endDate>
 **V13 到底补了什么**（9 列 + 1 表 + 6 索引）：
 
 - 9 列：`trip.version`、`trip.departure_reminder_dismissed_at`、`schedule_item.recurrence` / `repeat_until` /
-  `reminder_dismissed_at`、`invoice.source_file` / `source_type` / `expense_id` / `trip_id`；
+  `reminder_dismissed_at`、`invoice.source_file` / `source_type` / `expense_id` / `trip_id`（后 4 列属于已退役的 `invoice` 表，只为存量库结构一致保留）；
 - 1 表：`trip_photo`（整张表，V1 与 V2–V12 都没有），含它自带的 2 个索引 `idx_trip_photo_trip` / `idx_trip_photo_user`；
 - 6 个索引（现存表上缺的）：`rag_document(user_id)`、`pending_plan(user_id)`、`pending_plan(created_at)`、
   `llm_quota_usage(usage_date)`、`conversation_message(created_at)`、`operation_history(trip_id, status)`。
@@ -698,8 +690,8 @@ spring:
 
 | 库的状态 | Flyway 做什么 | 还需要手工做什么 |
 | --- | --- | --- |
-| 全新库（空库） | `V1` 建全 15 张基础表 + 14 个索引 → `V2`–`V11` 增量 → 当前 profile 的 `V13` 补齐缺口（`mysql` 另有 `V8`/`V12`）→ Hibernate `validate` 校验 | **什么都不用**：不再需要手工执行 `sql/init.sql`（该文件已标注弃用，见第 8 节） |
-| 存量库（有表、无历史或历史停在旧版本） | `baseline-on-migrate` 在 V1 打基线标记，**V1 不重跑**，只执行未应用的增量；`V13` 在存量库上逐条命中「已存在」→ 空转 | 升级前**先跑一次 repair**（V4 checksum 变过，见 6.1.1） |
+| 全新库（空库） | `V1` 建全 15 张基础表 + 14 个索引 → `V2`–`V11` 增量 → 当前 profile 的 `V13` 补齐缺口（`mysql` 另有 `V8`/`V12`）→ `V14`–`V19` → Hibernate `validate` 校验 | **什么都不用**：不再需要手工执行 `sql/init.sql`（该文件已标注弃用，见第 8 节） |
+| 存量库（有表、无历史或历史停在旧版本） | `baseline-on-migrate` 在 V1 打基线标记，**V1 不重跑**，只执行未应用的增量（含 V19）；`V13` 在存量库上逐条命中「已存在」→ 空转 | 升级前**先跑一次 repair**（V4 checksum 变过，见 6.1.1） |
 
 **V1 不是 `sql/init.sql` 的逐字复刻**，三处为了「同一份脚本在 H2(MODE=MySQL) 与 MySQL 8.0 都能执行、且与实体/`validate` 对齐」而刻意改列型：
 `memo.done` / `schedule_item.done` 用 `BOOLEAN`（H2 不支持带精度的 `TINYINT(1)`；MySQL 的 `BOOLEAN` 就是 `TINYINT(1)`，无损）；
@@ -800,7 +792,7 @@ V13 负责补齐，脚本都写成幂等，存量库上逐条空转。
 # 2) 备份再删除：data/ 目录下是 travel-agent.mv.db
 Remove-Item -Recurse -Force travel-agent-server/data -ErrorAction SilentlyContinue
 # 3) 重启后端：全新库由 Flyway 建 schema —— V1（基线）→ V2–V11 → 当前 profile 的 V13
-#    （mysql profile 另含 V8 / V12），随后 Hibernate ddl-auto=validate 校验；
+#    （mysql profile 另含 V8 / V12）→ V14–V19，随后 Hibernate ddl-auto=validate 校验；
 #    DataInitializer 重建 demo 账号。不需要手工执行 sql/init.sql。
 ```
 
@@ -816,9 +808,11 @@ SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'PUBLIC';
 DELETE FROM rag_chunk;         DELETE FROM rag_document;
 DELETE FROM rag_document_version;
 DELETE FROM operation_history; DELETE FROM expense;
-DELETE FROM trip_photo;        DELETE FROM itinerary_item;
-DELETE FROM pending_plan;      DELETE FROM conversation_message;
-DELETE FROM llm_quota_usage;   DELETE FROM trip;
+DELETE FROM trip_event;        DELETE FROM trip_photo;
+DELETE FROM itinerary_item;    DELETE FROM pending_plan;
+DELETE FROM conversation_message;
+DELETE FROM llm_quota_usage;   DELETE FROM schedule_item;
+DELETE FROM memo;              DELETE FROM trip;
 ```
 
 注意 `DELETE FROM trip;` 只删主表会留下孤儿账单——它们会继续出现在「已删除的行程」分组里（见 5.2），不会消失。
@@ -853,11 +847,44 @@ GROUP BY COALESCE(t.id, 0), COALESCE(t.name, '已删除的行程')
 ORDER BY total DESC;
 ```
 
+### 7.5 旅行闭环查询（P1）
+
+```sql
+-- 完成率：SKIPPED 单列，不冒充完成
+SELECT COUNT(*) AS total,
+       SUM(status = 'COMPLETED') AS completed,
+       SUM(status = 'SKIPPED')   AS skipped,
+       SUM(status = 'IN_PROGRESS') AS in_progress,
+       SUM(status = 'PENDING')   AS pending
+FROM itinerary_item WHERE trip_id = 1;
+
+-- 实际到访地点（足迹/回顾只认 visited_at，不拿计划时间冒充）
+SELECT id, day_index, title, visited_at
+FROM itinerary_item
+WHERE trip_id = 1 AND visited_at IS NOT NULL
+ORDER BY visited_at ASC, id ASC;
+
+-- 最近事件流（回顾页 / 行程页）
+SELECT event_type, source, summary, occurred_at
+FROM trip_event WHERE trip_id = 1
+ORDER BY occurred_at DESC, id DESC LIMIT 20;
+
+-- 按行程关联的备忘 / 日程数量（回顾聚合）
+SELECT COUNT(*) FROM memo WHERE trip_id = 1;
+SELECT COUNT(*) FROM schedule_item WHERE trip_id = 1;
+
+-- 行中锁定复核：已被自动重规划覆盖的条目应为 0（非 PENDING 条目不应被 REMOVE）
+SELECT id, title, status FROM itinerary_item
+WHERE trip_id = 1 AND status <> 'PENDING';
+```
+
 ## 8. 源码与脚本的已知不一致
 
 `sql/init.sql` 是面向 MySQL 的历史初始化脚本，**文件头已标注「已弃用 / DEPRECATED」**：schema 的唯一权威是 Flyway
 （全新库只需 `V1` 基线 + 增量，存量库只跑未应用的增量）。它没有跟随实体演进，下表是逐列核对结果——
-右列「V* 脚本 + 实体」才是当前事实，`sql/init.sql` 只作历史参照：
+右列「V* 脚本 + 实体」才是当前事实，`sql/init.sql` 只作历史参照。
+P0 之后下表涉及的 6 张旧模块表（`daily_report` / `mail_item` / `meeting_minutes` / `invoice` / `learning_artifact` /
+`health_record`）已无实体映射，表结构仍由 V1/V13 维护，仅作数据保留与迁移参考。
 
 | 表 / 对象 | `sql/init.sql`（已弃用） | V* 脚本 / 实体注解（以此为准） |
 | --- | --- | --- |
@@ -894,17 +921,19 @@ ORDER BY total DESC;
 
 | 统计项 | 数量 | 核对方式 |
 | --- | --- | --- |
-| `entity/` 下实体文件 | **20** | `glob entity/*.java` |
-| 本文收录的 `@Entity` 表 | **20** | 与实体文件一一对应 |
-| `repository/` 下 Repository 接口 | **20** | 与实体一一对应 |
-| 显式 `@Index` 声明 | **24** 条，分布在 19 个实体上 | 源码 `@Index(` 计数（各表索引已在 2–4 节标题中逐条列出） |
+| `entity/` 下实体文件 | **19** | `glob entity/*.java` |
+| 本文收录的 `@Entity` 表 | **19** | 与实体文件一一对应 |
+| 库内实际表（含 6 张退役旧表） | **25** | `V1`–`V19` 的 `CREATE TABLE` 去重 |
+| `repository/` 下 Repository 接口 | **19** | 与实体一一对应 |
+| 显式 `@Index` 声明 | **29** 条，分布在 18 个实体上 | 源码 `@Index(` 计数（各表索引已在 2–4 节标题中逐条列出） |
 | `@UniqueConstraint` | **4** 条 | `users.username`（未命名）、`uk_llm_quota_user_date`、`uk_rag_document_key`、`uk_rag_version` |
-| Flyway 版本 / 脚本文件 | **13 个版本 / 14 个文件**（V1–V13；V13 双方言两份） | `db/migration` 10 个（无 V8）+ `db/migration-mysql` 3 个（V8/V12/V13）+ `db/migration-h2` 1 个（V13） |
+| Flyway 版本 / 脚本文件 | **19 个版本 / 20 个文件**（V1–V19；V13 双方言两份，V8/V12 仅 MySQL，V14 仅 H2） | `db/migration` 15 个 + `db/migration-mysql` 3 个 + `db/migration-h2` 2 个 |
 | V1 基线内容 | **15 张表 + 14 个索引** | `V1__baseline.sql` 的 `CREATE TABLE` / `CREATE INDEX` 计数 |
-| V13 补齐内容 | **9 列 + 1 张表（含 2 索引）+ 6 个索引** | `db/migration-{mysql,h2}/V13__*.sql` |
-| 后端测试 | **330** 个用例 | `cd travel-agent-server && mvn -B test`（含 `MigrationBaselineTest`、`RagVersioningTest`、`RagChunkRetentionTest`、`RagDocumentKeyConcurrencyTest`、`AgentStageMetricsTest`、`SseDisconnectTest`） |
+| V19 增量内容 | **4 列 + 1 张表（3 索引）+ 8 列（schedule/memo 各 4）** | `V19__travel_closed_loop.sql` |
+| 后端测试 | **465** 个 `@Test`（110 个测试文件） | 源码静态计数；实际以 `mvn test` 输出为准 |
 
-**验收结论**：实体文件 20 个 ↔ 本文表格 20 张，一一对应，无多余、无遗漏；每个表名、列名、索引名都能在 `entity/` 或 `db/migration*/` 中检索命中。
+**验收结论**：实体文件 19 个 ↔ 本文映射表 19 张，一一对应；另有 6 张已退役旧表明确标注、不再映射。
+每个表名、列名、索引名都能在 `entity/` 或 `db/migration*/` 中检索命中。
 
 改结构时的检查清单：
 

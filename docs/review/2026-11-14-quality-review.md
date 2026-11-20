@@ -1,5 +1,7 @@
 # travel-agent 测试报告与改进建议
 
+> 快照日期：2026-11-14 ｜ 验证范围：全栈质量门禁、后端 / 安全、前端三门禁、运行时实测 ｜ 结论：核心闭环可跑、三门禁全绿；上线前仍缺并发锁、凭证边界与可重复质量门禁（详见 §0.1）
+
 - 日期：2026-11-14 · Asia/Shanghai
 - 被测基线：`79489ab`（2026-11-08）**+ 工作区未提交改动**（`AmapDataService`/`AmapPoi`/`AmapRoute` 与 `web-course/`、`deploy-package/`、`docs/proposals/` 均为 untracked）
 - 被测范围：`travel-agent-server`（Spring Boot 3.5.7 / Java 17 / 187 个 Java 源文件 / 约 14.9k 行）+ `travel-agent-web`（React 18 / TS / Vite 6 / 70 个 ts+tsx / 约 9.3k 行）

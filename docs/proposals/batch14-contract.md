@@ -1,5 +1,7 @@
 # 第十四批共享契约（Batch 14 shared contract）：FR-01 需求槽位与最少追问
 
+> 状态：已落地（历史） | 日期：2026-11-18 | 说明：契约内容已进入实现，保留原文作追溯；当前事实见 [docs/guide](../guide/README.md)，落地记录见 [CHANGELOG 第十四批](../CHANGELOG.md)。
+
 本批只做一件事：**把「一句话输入」的缺信息体验补上——人数槽位 + 最少追问**，
 并把同行人数贯通到行程、预算与路书。承接 [v2.2-iteration.md](../guide/v2.2-iteration.md) §7。
 

@@ -1,5 +1,7 @@
 # 对标 TREK 的改进提案
 
+> 状态：未落地 | 日期：2026-11-16 | 说明：提案未排期，内容仅作对标分析与结构性缺口讨论；不代表当前版本承诺，当前事实见 [docs/guide](../guide/README.md)。
+
 > 对象仓库：`liketrek/TREK`（AGPLv3，NestJS 11 + React 19 + SQLite 自托管旅行规划 PWA，v5.1.0）
 > 本文仓库：`travel-agent`（Spring Boot 3 + React 18，AI 个人助理）
 > 定位：**不是功能对标清单，而是因果链分析** —— 找出本仓最底层的一个结构性缺口，以及由它派生的三层依赖。

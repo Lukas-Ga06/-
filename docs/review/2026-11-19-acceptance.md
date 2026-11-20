@@ -1,5 +1,7 @@
 # V2.2 正式验收报告（2026-11-19）
 
+> 快照日期：2026-11-19 ｜ 验证范围：V2.2 FR-01 ~ FR-10、PWA、稳定性、外部 Provider ｜ 结论：FR-01 ~ FR-10 全部验收；MCP 真实 Key 链路与高德 QPS 重试仍待办（详见 §0）
+
 > 验收对象：本仓库 V2.2 迭代（FR-01 ~ FR-10、PWA、稳定性、外部 Provider）
 > 执行环境：Windows 11 / JDK 17.0.1 / Maven 3.9.16 / Node 20.17.0 / 本机 MySQL 8.0.46 服务 + **全新便携 MySQL 8.4.10**
 > 证据：`.e2e/acceptance/evidence/`（精编、随仓库提交）；原始产物在 `.evidence/`（本地，约 780MB，已 gitignore）

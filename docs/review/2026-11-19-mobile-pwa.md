@@ -1,5 +1,7 @@
 # 移动端 PWA 验收报告：iPhone Safari / Android Chrome 仿真 + 安装性与离线恢复
 
+> 快照日期：2026-11-19 ｜ 验证范围：iPhone 13 WebKit / Pixel 7 Chromium 仿真、PWA 安装硬指标、离线恢复 ｜ 结论：自动化 32 项 0 FAIL；真机系统级安装仍待人工（详见 §0）
+
 > 验收日期：2026-11-19 ｜ 执行：`mobile-pwa` 子代理起草，root 用 WebKit/Chromium 真引擎复跑并回填数字
 > 范围：只验收「移动端 Safari / Chrome 仿真 + PWA 安装硬指标 + 离线恢复」，不评价业务功能正确性。
 > 证据：`.evidence/reports/mobile-pwa-playwright.json`、`.evidence/screenshots/mobile-iphone-*.png` / `mobile-pixel-*.png`

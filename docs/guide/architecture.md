@@ -1,5 +1,7 @@
 # 架构与核心设计（Agent 引擎 / RAG / 工具层 / SSE）
 
+> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.7 / Node 20） | 最后验证：2026-11-19 | 事实来源：travel-agent-server/src/main/java/com/travel/agent/、travel-agent-web/src/
+
 一句话导读：本文从源码出发，讲清一条用户消息如何穿过 Controller → AgentEngine 状态机 → 四 Agent → ToolInvoker / RagService / LlmClient，并以「preview → Diff → 确认 → commit」的方式落到数据库。
 
 > 本文适用版本：以仓库当前 HEAD 为准。文中所有类名、方法名、事件名、枚举值均可在 `travel-agent-server/src/main/java/com/travel/agent/` 或 `travel-agent-web/src/` 中检索到；标注的 `文件:行号` 对应当前 HEAD。
@@ -139,7 +141,6 @@ stateDiagram-v2
 | `QUERY_BUDGET` / `RECORD_EXPENSE` | `answerBudget` / `answerRecordExpense` | 否 |
 | `ADD_MEMO` / `QUERY_MEMO` | `answerAddMemo` / `answerQueryMemo` | 否 |
 | `ADD_SCHEDULE` / `QUERY_SCHEDULE` | `answerAddSchedule` / `answerQuerySchedule` | 否 |
-| `GEN_DAILY_REPORT` / `QUERY_HEALTH` | `answerDailyReport` / `answerQueryHealth` | 否 |
 | `INVOKE_TOOL` | `answerInvokeTool`（走 ToolInvoker） | 否 |
 | `PLAN_TRIP` / `MODIFY_ITINERARY` | `planAndPresent` | **是** |
 
@@ -207,7 +208,7 @@ public IntentResult detect(AgentContext ctx, Trip trip) {
 | 可信度复核 | `IntentAgent.plausible` | LLM 已给出结果 | 判为不可信 → 回落规则 |
 | 规则 | `IntentAgent.ruleDetect` | 总是可用 | 兜底返回 `CHITCHAT` |
 
-`plausible`（`:69-84`）只拦两类越界：`GEN_DAILY_REPORT` 但消息无「日报/今天/今日」；`INVOKE_TOOL` 但 `toolName` 不以 `mcp_` 开头或 `toolRegistry.get()` 为 null（防模型编造工具名）。规则路径优先级（`IntentAgent.java:227-348`）：**改写（1）> 记账（2）> 备忘（4）> 办公（5）> 强规划（6）> 疑问句（7）> 兜底闲聊**。其中「添加日程」判定格外严格（`:288-297`）：必须同时有 `scheduleNoun`（日程/会议/开会/排期…）**且**（`EXPLICIT_TIME` 明确时间点或排期动词），这样「今天开会好累」不会写成真实日程。`ctx.history` 只喂给 LLM 路径（`renderHistory`），规则路径不看历史，保证无模型时行为可预期。
+`plausible`（`:69-84`）只拦一类越界：`INVOKE_TOOL` 但 `toolName` 不以 `mcp_` 开头或 `toolRegistry.get()` 为 null（防模型编造工具名）。规则路径优先级（`IntentAgent.java:227-348`）：**改写（1）> 记账（2）> 备忘（4）> 日程（5）> 强规划（6）> 疑问句（7）> 兜底闲聊**；办公/日报/健康分支已删除。其中「添加日程」判定格外严格：必须同时有 `scheduleNoun`（日程/会议/开会/排期…）**且**（`EXPLICIT_TIME` 明确时间点或排期动词），这样「今天开会好累」不会写成真实日程。`ctx.history` 只喂给 LLM 路径（`renderHistory`），规则路径不看历史，保证无模型时行为可预期。
 
 ### 3.2 PlannerAgent：规则路径 vs StructuredPlanner
 
@@ -250,6 +251,41 @@ public IntentResult detect(AgentContext ctx, Trip trip) {
 ### 3.4 ReflectAgent：冲突与预算校验
 
 `reviewVerdict(plan, trip)` 返回结构化判定：**预算**、**转场时间**、**天气**（HIGH 硬约束）与**时间冲突**（MEDIUM 软提醒）；`review` 是返回警告文案列表的旧契约，内部委托给 `reviewVerdict`。`PlanInspector.effectiveItemsByDay`（`:63-110`）是关键设计：原条目去掉被 `REMOVE` 的、被 `MODIFY` 的用 `merge` 换新时间、再叠加 `ADD` 条目；`merge` 以原条目为底只用非空字段覆盖，`endOf` 对缺失结束时间按 **1 小时**估算，否则「只有开始时间」的条目永不参与判断。警告与结构化结论由 `AgentEngine.applyReview` 拼到用户文案与 `AgentResult.review`（`AgentEngine.java:588-605`）。
+
+---
+
+### 3.5 行中锁定与旅行事件（P1）
+
+行中自动重规划必须尊重「已经发生的事实」：
+
+| 规则 | 实现 | 行为 |
+| --- | --- | --- |
+| 只动未开始条目 | `PlannerAgent.isAdjustable`：`status == null` 或 `PENDING` | 天气替换、选中替换、结构化修改都只收集 `PENDING` 条目 |
+| 锁定复核 | `tryStructuredModify` 收集目标行程项的 `lockedIds`，`REMOVE` 命中即回退规则路径 | 模型不能替换已开始/已完成/已跳过的条目；回退后由确定性替换逻辑处理 |
+| 选中条目锁定 | `planModification` 对 `selectedElement` 先查状态 | 非 `PENDING` 时返回「已开始或已完成，不能再被自动替换」，不产出操作 |
+| 状态变更落事件 | `ItineraryService.updateStatus` → `TripEventService.record` | `COMPLETED` 写 `CHECK_IN`，`IN_PROGRESS`/`SKIPPED` 写 `MANUAL_EDIT`，`source=user` |
+| 撤销可还原 | `OperationHistoryService.withHistory` 先快照再变更 | `before` 含 `status/startedAt/completedAt/visitedAt`，撤销后回到未开始 |
+
+`trip_event` 是**只追加**的事件流（类型枚举 `WEATHER` / `CONGESTION` / `CLOSURE` / `CHECK_IN` / `AGENT_ADJUST` / `MANUAL_EDIT`），
+不参与 Planner 的事实视图；它服务行程页过程展示与行后回顾的可审计性（`GET /api/trips/{id}/events`）。
+当前实际写入点：`ExecutorAgent`（`WEATHER` / `AGENT_ADJUST`）、`ItineraryService.updateStatus`（`CHECK_IN` / `MANUAL_EDIT`）；
+`CONGESTION` / `CLOSURE` 没有自动写入方，属预留类型。
+
+### 3.6 旅行回顾聚合（P1）
+
+`TripReviewService.forTrip(trip)` 只读聚合，口径分三层、绝不混用：
+
+| 维度 | 来源 | 规则 |
+| --- | --- | --- |
+| 完成率 | `itinerary_item.status` | `completedItems / totalItems`（0..1）；`SKIPPED` 单列，不计入完成 |
+| 计划 vs 实际花费 | `itinerary_item.cost` / `expense` | `plannedCost` 与 `actualCost` 分开，`variance = actual - planned` |
+| 计划地点 vs 实际到访 | `plannedPlaces` 全部有坐标条目 / `visitedPlaces` 只认 `visitedAt` | 计划时间再早也不算「去过」 |
+| 实际路线 | `visitedAt` 排序的到访点 | 无坐标条目跳过，不补假点 |
+| 事件 / 修改历史 | `trip_event` / `operation_history` | 最近 20 条事件、最多 20 条修改 |
+| 旅行关联计数 | `memo.tripId` / `schedule_item.tripId` | P1 的 `trip_id` 关联 |
+| AI 总结 | LLM 可用时按真实数据生成 | 不可用为确定性规则文案，**不编造事实** |
+
+数据入口是 `GET /api/trips/{id}/review`；详情字段见 [API 参考](api-reference.md) §3.13。
 
 ---
 
@@ -319,7 +355,7 @@ AgentDtos.PlanDiff diff = AgentDtos.PlanDiff.builder()
 
 调用点在 `ExecutorAgent.preview`（`:91`），`risk.name()` 写进 `confirmation.riskLevel`（`:106-107`），前端据此决定确认框样式。**「只有一个出口」的设计**：`SafetyInterceptor` 类注释（`:6-14`）说明工具层只允许只读（由 `ToolRegistry` 强制），所以 `check()` **不做阻断**，只做审计日志 + 对「只读工具被标成 HIGH」打 warn；真正的风险拦截发生在方案层。
 
-> **与 README 的差异**：README §4.2 把 MEDIUM 描述为「会改变行程 → 生成 Diff，确认后提交」，隐含「工具可以以 MEDIUM 执行后确认」。源码里没有任何工具是 MEDIUM/HIGH——8 个内置工具全部 `RiskLevel.LOW`，且写操作根本不能做成工具（见 §6.2）。所谓「执行后确认」实际是 `preview` 无副作用 + `commit` 需用户显式调用 confirm 接口。
+> **与 README 的差异**：README §4.2 把 MEDIUM 描述为「会改变行程 → 生成 Diff，确认后提交」，隐含「工具可以以 MEDIUM 执行后确认」。源码里没有任何工具是 MEDIUM/HIGH——9 个内置工具全部 `RiskLevel.LOW`，且写操作根本不能做成工具（见 §6.2）。所谓「执行后确认」实际是 `preview` 无副作用 + `commit` 需用户显式调用 confirm 接口。
 
 ---
 
@@ -340,7 +376,7 @@ public interface AgentTool {
 
 `ToolRegistry.register`（`:28-41`）是两个注册路径共用的唯一入口，两道闸门：同名跳过、`!readOnly()` 直接拒绝并 `log.error`。`all()` 返回内部 `LinkedHashMap`（非副本），注册顺序稳定。
 
-### 6.2 8 个内置工具
+### 6.2 9 个内置工具
 
 全部 `@Component`、全部 `RiskLevel.LOW`：
 
@@ -350,10 +386,11 @@ public interface AgentTool {
 | `search_hotel` | `SearchHotelTool` | `city`、`preferSubway`、`maxPrice` | `List<Hotel>`（上限 5） | 同上；**静态数据** |
 | `search_restaurant` | `SearchRestaurantTool` | `city`、`nearLat`、`nearLng` | `List<Restaurant>`（上限 5） | 同上；**静态数据** |
 | `query_weather` | `QueryWeatherTool` | `city`、`date`(默认明天)、`mentionRain` | `WeatherInfo` | `WeatherService.forecast`：`travel.weather.real=true` 走 Open-Meteo，失败/超范围降级**确定性模拟** |
-| `calculate_route` | `CalculateRouteTool` | `fromLat`/`fromLng`/`toLat`/`toLng` | `RouteInfo` | `RouteService.route`，**按坐标估算** |
+| `calculate_route` | `CalculateRouteTool` | `fromLat`/`fromLng`/`toLat`/`toLng` | `RouteInfo` | `RouteService.route`，**按坐标估算或真实路径** |
 | `calculate_budget` | `CalculateBudgetTool` | `tripId` | `BudgetSummary` | `BudgetService.summarize` 实时计算，**非模拟** |
-| `get_itinerary` | `GetItineraryTool` | `tripId` | `List<ItineraryItemDTO>` | `ItineraryService.listByTrip`，**真实落库数据** |
+| `get_itinerary` | `GetItineraryTool` | `tripId` | `List<ItineraryItemDTO>` | `ItineraryService.listByTrip`，**真实落库数据（含状态）** |
 | `search_city_online` | `OnlineCitySearchTool` | `city` | `CityCatalog` 或 `Map.of("found", false, "city", …)` | `OnlineCityService.getOrLoad`：LLM + 高德/OSM 定位，两级缓存（内存 24h + 文件 7 天） |
+| `query_travel_knowledge` | `QueryTravelKnowledgeTool` | `query`、`city`(可空) | `RagCitation[]`（含 `documentId/version/chunkId/score/source/title/snippet`） | `RagService.searchWithCitations`；**P1 新增，只读，规划期研究链路可用** |
 
 契约细节：`calculate_budget`/`calculate_route`/`search_attraction` 对必填参数直接拆箱，缺失参数抛 NPE → 被归为内部异常；三个 search 工具内部走 `catalogService.requireCity`，城市不在目录抛 `BusinessException`「暂不支持该目的地」。
 
@@ -391,8 +428,9 @@ public interface AgentTool {
 | 语义层（可选） | `mcp/AmapMcpAdapter` | 把真名映射为 `city_geocode` / `route_transit` / `poi_text_search` 等 12 个语义名并产出 `promptSummary()`；**当前没有生产调用方**，未接线时返回空串、零副作用 |
 
 **边界（重要）**：MCP 工具只服务「查外部数据」类问题（`INVOKE_TOOL`），**不参与规划产物**——`StructuredPlanner` 的候选清单
-仍只来自 `CityCatalog`（内置/联网目录），坐标与价格一律取目录值。所以「行程里出现真实 POI 与真实票价」不在当前范围内，
-这也是为什么 6.2 的 8 个内置工具仍标注「静态数据 / 模拟」。另有一个**已写好但没接线**的消费方
+仍只来自 `CityCatalog`（内置/联网目录），坐标与价格一律取目录值。P1 的 `query_travel_knowledge` 是**内置只读工具**：
+它把 RAG 命中作为规划证据（`citations`），但不改变候选实体与价格校验。所以「行程里出现真实 POI 与真实票价」不在当前范围内，
+这也是为什么 6.2 的目录类工具仍标注「静态数据 / 模拟」。另有一个**已写好但没接线**的消费方
 `service/AmapDataService`（POI/路径按「MCP 工具 → REST → 降级」三级取数，当前只有单测引用），接线前要先核对 MCP 返回体，
 细节见 [高德 MCP 接入](mcp-amap.md) §3.4。
 
@@ -445,16 +483,31 @@ return results.stream()
 | --- | --- |
 | 标题+城市不存在 | 新建 `RagDocument`（记录 fingerprint）+ 切块写 `RagChunk` |
 | 指纹相同 | 跳过 |
-| 指纹不同（内容变了或存量库无指纹） | 先 `chunkRepository.deleteByDocumentId`，更新文档，再重建该篇所有 chunk |
+| 指纹不同（内容变了或存量库无指纹） | 旧 `ACTIVE` 版本置 `INACTIVE` + **追加**新版本与新块（旧正文、旧块保留，可回滚） |
 | 已从 knowledge.json 移除 | **保留不删**（可能含用户手工添加的知识），仅日志提示 |
 
-指纹是 `sha256(title + "\n" + city + "\n" + content)` 的 64 字符 hex（`fingerprint:115-126`）。切块规则：`content.split("\n\n")` 按空行分段，一段一个 chunk，写 embedding + `dim`。
+指纹是 `sha256(title + "\n" + city + "\n" + content)` 的 64 字符 hex（`fingerprint:115-126`）。切块规则：`content.split("\n\n")` 按空行分段，一段一个 chunk，写 embedding + `dim`。旧版本块由每日任务按 `travel.rag.chunk-version-retention` 清理（见 [数据模型](data-model.md) §4.5）。
+
+### 7.5 规划期知识引用（P1）
+
+RAG 不再只是独立的「知识问答」：Planner 在规划/修改时**直接检索**旅行知识库，把命中作为方案证据。
+
+| 环节 | 实现 | 行为 |
+| --- | --- | --- |
+| 检索 | `PlannerAgent.knowledgeCitations(ctx, city, message)` → `RagService.searchWithCitations(query, city, userId, 3)` | 城市名 + 用户消息拼查询；相似度 < 0.05 的噪声丢弃，最多 3 条 |
+| 事件 | `ctx.emit("rag_result", {sources, citations})` | 只有命中才发；失败只 WARN，绝不阻断规划 |
+| 方案 | `attachKnowledge(plan, citations)` 写 `plan.extras.citations` + reasoning「知识依据」 | 结构化新行程、结构化修改、规则修改三条路径都会挂 |
+| 返回 | `ExecutorAgent` 从 `plan.extras` 取引用 → `AgentResult.citations` | 前端确认弹窗/方案下方展示 documentId/version/chunkId/score/source |
+| 自主研究 | `RESEARCH_TOOLS` 白名单含 `query_travel_knowledge` | research-agent 可在只读范围内主动检索，观察进入下一轮决策 |
+| 空结果 | `citations=[]` | 表示没有可靠引用，前端不得编造 |
+
+> 红线：引用只来自真实检索命中；模型输出不参与引用结构，`source`/`score` 不可由模型生成。
 
 ### 7.4 切换 Embedding 必须重建
 
 指纹只覆盖 `title + city + content`，**感知不到模型变化**（内容没变）。所以：
 
-> 切换 `travel.embedding.model`（或从本地哈希切到真实 Embedding）后必须手工清空 `rag_document` / `rag_chunk` 让 `RagBootstrap` 重新入库；否则旧向量与新查询向量不在同一空间，检索静默失效。源码注释见 `RagBootstrap.java:40-41` 与 `OpenAiCompatibleEmbeddingService.java:22-23`。
+> 切换 `travel.embedding.model`（或从本地哈希切到真实 Embedding）后必须手工清空 `rag_document` / `rag_chunk` / `rag_document_version` 让 `RagBootstrap` 重新入库；否则旧向量与新查询向量不在同一空间，检索静默失效。源码注释见 `RagBootstrap.java:40-41` 与 `OpenAiCompatibleEmbeddingService.java:22-23`。
 
 ---
 
@@ -485,7 +538,7 @@ return results.stream()
 | `conflict` | `Coordinator.dispatchInternal:163` / `dispatchAll:224` | `receiver`、`taskType`、`missingDeps[]`、`reason` |
 | `tool_call` | `ToolInvoker.invoke:34` | `tool`、`args` |
 | `tool_result` | `ToolInvoker.invoke:39` | `tool`、`result`（null 时序列化为字符串 `"null"`） |
-| `rag_result` | `TravelQueryHandler.answerKnowledge:51` | `sources`（去重标题列表） |
+| `rag_result` | `TravelQueryHandler.answerKnowledge` / `PlannerAgent.knowledgeCitations` | `sources`（去重标题列表）+ `citations`（P1：`documentId/version/chunkId/score/source/title/snippet`） |
 | `plan_update` | `planAndPresent:461` | `diff`（`PlanDiff`）、`budget`（`BudgetSummary`） |
 | `focus` | `planAndPresent:464` | `AgentFocus` |
 | `confirmation` | `planAndPresent:467` | `ConfirmationRequest`：`planId`、`summary`、`riskLevel` |
@@ -528,7 +581,7 @@ sequenceDiagram
 | --- | --- |
 | 签发入口 | `POST /api/access-ticket`（`AccessTicketController.java:29`） |
 | 内容 / 签名 | `media-read\|<expiresAt>\|<username>`；HMAC-SHA256，密钥由 `JwtService.deriveKey("media-read")` 派生 |
-| 有效期 | `travel.jwt.ticket-ttl-seconds`，默认 **600 秒**；不落库 |
+| 有效期 | `travel.jwt.ticket-ttl-seconds`（`TICKET_TTL_SECONDS`），默认 **300 秒**；不落库 |
 | 用途隔离 | scope 写进票据并参与校验，防挪用到其它场景 |
 
 `JwtAuthenticationFilter.resolveIdentity`（`:59-72`）按 **Authorization 头 → httpOnly Cookie → 查询参数 `ticket`** 取凭证，第三种**只接受票据**。前端 `api/ticket.ts` 缓存票据并提前 30 秒续期，合并并发请求。
@@ -622,14 +675,14 @@ SSE 的「客户端已经走了」在服务端只是一次 Servlet 回调。本�
 
 ### 9.3 行程指纹校验与撤销
 
-`ItineraryService.planRevision(trip, items)`（`:243-259`）产出 32 字符 hex（SHA-256 前 16 字节），输入是 `b=<budget>|s=<startDate>|e=<endDate>|<id>:<dayIndex>:<title>:<startTime>:<endTime>:<cost>:<itemType>|...`，条目按 `id` 排序（null 排最后）。生成时机在 `AgentEngine.planAndPresent`（`:453-454`）：算一次存进 `PendingPlanStore.PendingPlan.planRevision`；确认时再算一次比对。指纹覆盖「日期 + 预算 + 全部条目」——另一个标签页改了安排、预算或日期，这份 Diff 就失效。
+`ItineraryService.planRevision(trip, items)`（`:243-259`）产出 32 字符 hex（SHA-256 前 16 字节），输入是 `b=<budget>|s=<startDate>|e=<endDate>|<id>:<dayIndex>:<title>:<startTime>:<endTime>:<cost>:<itemType>:<status>|...`，条目按 `id` 排序（null 排最后）。生成时机在 `AgentEngine.planAndPresent`（`:453-454`）：算一次存进 `PendingPlanStore.PendingPlan.planRevision`；确认时再算一次比对。指纹覆盖「日期 + 预算 + 全部条目的计划字段与执行状态」——另一个标签页改了安排、预算或日期，或旅行中推进了状态，这份 Diff 就失效（需重新生成）；实际时间不参与指纹。
 
 | 操作 | 方法 | 结果 |
 | --- | --- | --- |
 | 取消方案 | `PlanConfirmationService.cancel:231-248`（`AgentEngine.cancel` 委托） | `peek` 到就 `remove`，返回「已取消该方案，行程未做任何修改。」 |
 | 撤销上一步 | `PlanConfirmationService.undo:263-271`（`AgentEngine.undo` 委托）→ `OperationHistoryService.undoLatest` | 取最新 `STATUS_ACTIVE` 历史；`OP_TRIP_CREATE` 走删除整个行程，其余用 `before` 快照 `replaceAll` 还原 |
 
-历史三类来源：`OP_AGENT_COMMIT`（Agent 确认提交）、`OP_MANUAL_EDIT`（界面手工改动，经 `withHistory` 包裹）、`OP_TRIP_CREATE`（Agent 新建行程）。
+历史三类来源：`OP_AGENT_COMMIT`（Agent 确认提交）、`OP_MANUAL_EDIT`（界面手工改动，经 `withHistory` 包裹）、`OP_TRIP_CREATE`（Agent 新建行程）。P1 行程项状态推进也走 `OP_MANUAL_EDIT`：`withHistory` 在变更**之前**做 `snapshot(items)`，因此 `before` 快照包含 `status/startedAt/completedAt/visitedAt`，撤销「完成/跳过」能还原成未开始（修复了此前 before 与 after 共用受管实体、快照被就地改写的问题）。
 
 ---
 

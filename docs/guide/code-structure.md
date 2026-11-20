@@ -1,5 +1,7 @@
 # 代码结构手册（Code Structure）
 
+> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.7 / Node 20） | 最后验证：2026-11-19 | 事实来源：travel-agent-server/src/main/java/com/travel/agent/、travel-agent-web/src/
+
 > 目的：让「新功能该放哪个包、哪个类」有唯一答案，让新接手的同学 10 分钟建立代码地图。
 > 本手册随「代码框架整理」引入，与源码同步维护；与代码不一致时**以代码为准**，并在同一次改动里修文档。
 
@@ -10,9 +12,9 @@
 ```
 travel-agent/
 ├── travel-agent-server/          # 后端：Spring Boot 3 / Java 17
-│   ├── src/main/java/com/travel/agent/   # 业务代码（231 个文件，16 个包）
+│   ├── src/main/java/com/travel/agent/   # 业务代码（222 个文件，16 个包）
 │   ├── src/main/resources/                # application*.yml、RAG 知识库、Flyway 迁移
-│   ├── src/test/java/com/travel/agent/    # JUnit + MockMvc（98 个文件，内存 H2）
+│   ├── src/test/java/com/travel/agent/    # JUnit + MockMvc（110 个文件，内存 H2）
 │   ├── data/                              # 本地 H2 库 + 联网城市缓存（gitignore）
 │   └── run-dev.ps1 / run-dev.cmd          # 本地启动脚本（注入 .env.local）
 ├── travel-agent-web/             # 前端：React 18 + TypeScript + Vite
@@ -62,25 +64,25 @@ agent（状态机 + 任务图 + Intent/Planner/Executor/Reflect + 确认编排�
 
 ---
 
-## 3. 包职责（后端 231 个主代码文件）
+## 3. 包职责（后端 222 个主代码文件）
 
 | 包 | 文件数 | 职责 | 关键类 |
 | --- | --- | --- | --- |
-| `agent` | 28 | Agent 引擎：状态机、四个 Agent、任务图调度、上下文、计划、会话记忆、待确认方案 | `AgentEngine`、`Coordinator`、`PlanReviewLoop`、`PlannerAgent`、`StructuredPlanner`、`PlanConfirmationService` |
-| `controller` | 15 | REST API + SSE 流式接口 | `AgentController`、`TripController`、`SystemController` |
-| `service` | 40 | 行程 / 预算 / 操作历史 / 目录 / 天气 / 路线 / 办公 / 学习 / 健康 / 提醒 / 路书 / 存储 | `TripService`、`ItineraryService`、`OnlineCityService`、`AmapDataService` |
-| `tool` | 13 | `AgentTool` 契约、只读注册表、风险分级、调用入口、8 个内置只读工具 | `ToolRegistry`、`ToolInvoker`、`SafetyInterceptor` |
-| `rag` | 14 | Embedding（本地哈希 / OpenAI 兼容）、向量库、检索、知识库引导与版本化 | `RagService`、`InMemoryVectorStore`、`RagBootstrap` |
-| `repository` | 24 | Spring Data JPA 仓储 | — |
-| `entity` | 24 | JPA 实体（表结构以 Flyway 迁移为准） | `Trip`、`ItineraryItem`、`AgentTask` |
+| `agent` | 29 | Agent 引擎：状态机、四个 Agent、任务图调度、上下文、计划、会话记忆、待确认方案 | `AgentEngine`、`Coordinator`、`PlanReviewLoop`、`PlannerAgent`、`StructuredPlanner`、`PlanConfirmationService` |
+| `controller` | 12 | REST API + SSE 流式接口 | `AgentController`、`TripController`、`TravelKnowledgeController`、`SystemController` |
+| `service` | 36 | 行程 / 预算 / 操作历史 / 目录 / 天气 / 路线 / 回顾 / 事件 / 提醒 / 路书 / 存储 | `TripService`、`ItineraryService`、`TripReviewService`、`TripEventService`、`OnlineCityService` |
+| `tool` | 14 | `AgentTool` 契约、只读注册表、风险分级、调用入口、9 个内置只读工具 | `ToolRegistry`、`ToolInvoker`、`SafetyInterceptor`、`QueryTravelKnowledgeTool` |
+| `rag` | 15 | Embedding（本地哈希 / OpenAI 兼容）、向量库、检索、引用、知识库引导与版本化 | `RagService`、`RagCitation`、`InMemoryVectorStore`、`RagBootstrap` |
+| `repository` | 19 | Spring Data JPA 仓储 | — |
+| `entity` | 19 | JPA 实体（表结构以 Flyway 迁移为准） | `Trip`、`ItineraryItem`、`TripEvent`、`AgentTask` |
 | `mcp` | 7 | MCP 外部工具桥接（streamable HTTP / 本机 stdio） | `McpToolBridge`、`StdioMcpTransport` |
-| `config` | 13 | 配置属性、安全/异步/时区/追踪、引导数据 | `AmapProperties`、`SecurityConfig`、`DataInitializer` |
+| `config` | 14 | 配置属性、安全/异步/时区/追踪、引导数据 | `AmapProperties`、`SecurityConfig`、`DataInitializer` |
 | `security` | 11 | JWT、Cookie、访问票据、限流、用户上下文 | `JwtService`、`RateLimitFilter`、`AccessTicketService` |
-| `dto` | 11 | 传输对象（请求/响应），按业务模块聚合 | `AgentDtos`、`AgentTraceDtos`、`TripDtos`、`ApiResponse` |
+| `dto` | 12 | 传输对象（请求/响应），按业务模块聚合 | `AgentDtos`、`AgentTraceDtos`、`TripDtos`、`TravelReviewDtos`、`ApiResponse` |
 | `model` | 8 | 领域模型（不落库的只读数据） | `CityCatalog`、`Attraction`、`WeatherInfo` |
 | `channel` | 7 | 多渠道入口：Telegram / 微信公众号 / 通用 Webhook | `TelegramBotService`、`WebhookChannelController` |
-| `llm` | 6 | 统一 LLM 接口（OpenAI-compatible）+ 规则实现 + 委派降级 | `LlmClient`、`DelegatingLlmClient` |
-| `util` | 6 | 通用工具（城市名、坐标、日期、分页、重复规则） | `CityNames`、`CoordinateTransform`、`Paging` |
+| `llm` | 7 | 统一 LLM 接口（OpenAI-compatible）+ 规则实现 + 委派降级 | `LlmClient`、`DelegatingLlmClient` |
+| `util` | 8 | 通用工具（城市名、坐标、日期、分页、重复规则） | `CityNames`、`CoordinateTransform`、`Paging` |
 | `exception` | 3 | 业务异常 + 任务依赖异常 + 全局异常处理 | `BusinessException`、`TaskDependencyException`、`GlobalExceptionHandler` |
 
 ---
@@ -89,17 +91,17 @@ agent（状态机 + 任务图 + Intent/Planner/Executor/Reflect + 确认编排�
 
 ### 4.1 Agent 引擎
 
-`AgentEngine` 只保留**状态机与编排**（732 行）：取消边界、会话记忆、规划 → 并行预览/审核 → 待确认链路、任务图节点派发（经 `Coordinator`）、外部工具调用、确认接口的委托入口。具体职责拆到：
+`AgentEngine` 只保留**状态机与编排**（856 行）：取消边界、会话记忆、规划 → 并行预览/审核 → 待确认链路、任务图节点派发（经 `Coordinator`）、外部工具调用、确认接口的委托入口。具体职责拆到：
 
 | 类 | 行数 | 职责 |
 | --- | --- | --- |
-| `AssistantIntentHandler` | 200 | 备忘 / 日程 / 日报 / 健康的答复与直写 |
-| `TravelQueryHandler` | 138 | 知识问答（RAG）/ 预算 / 记账 |
+| `AssistantIntentHandler` | 139 | 备忘 / 日程的答复与直写（日报/健康入口已删除） |
+| `TravelQueryHandler` | 142 | 知识问答（RAG）/ 预算 / 记账 |
 | `PlanConfirmationService` | 271 | 确认 / 取消 / 取回 / 撤销（Human-in-the-loop 并发语义） |
 | `AgentStageTimer` | 53 | `agent.stage{stage=intent\|plan\|tool\|reflect\|commit}` 计时 |
 | `Coordinator` | 382 | 任务图执行：依赖校验、并行组、回收重派、CONFLICT |
-| `PlanReviewLoop` | 141 | 审核 → 有限重规划 → 再审闭环（派发 REPLAN / 复审） |
-| `PlannerAgent` | 725 | 规划规则与结构化规划入口（新行程 / 行程修改） |
+| `PlanReviewLoop` | 148 | 审核 → 有限重规划 → 再审闭环（派发 REPLAN / 复审） |
+| `PlannerAgent` | 851 | 规划规则与结构化规划入口（新行程 / 行程修改 / 行中锁定 / RAG 引用） |
 | `PlannerDraftSupport` | 128 | 候选选择（景点/餐厅/替换） + 条目草稿 + 打车成本（两条路径共用口径） |
 
 > 拆分原则：**新增协作类、不改公开签名**。`AgentEngine.confirm/cancel/pendingPreview/undo` 保留为委托入口，
@@ -148,7 +150,7 @@ agent（状态机 + 任务图 + Intent/Planner/Executor/Reflect + 确认编排�
 | `Handler` | 从编排类抽出的「一类意图/请求」处理器 | `AssistantIntentHandler` |
 | `Service` | 领域能力（可被 controller / agent / tool 复用） | `TripService`、`ExpenseService` |
 | `Tool` | 只读能力，注册进 `ToolRegistry` | `SearchHotelTool` |
-| `Store` | 持久化抽象（本地/S3 双实现） | `PhotoStore`、`InvoiceFileStore` |
+| `Store` | 持久化抽象（本地/S3 双实现） | `PhotoStore`、`S3PhotoStore` |
 | `Client` / `Transport` | 外部协议/HTTP 细节 | `AmapGeocodeClient`、`StdioMcpTransport` |
 | `Reader` / `Cache` | 解析、缓存等单一职责协作类 | `OnlineCityCatalogReader`、`CityCatalogDiskCache` |
 | `Properties` | `@ConfigurationProperties` 配置对象 | `AmapProperties` |
@@ -181,7 +183,8 @@ agent（状态机 + 任务图 + Intent/Planner/Executor/Reflect + 确认编排�
 
 ## 9. 本次整理变更清单（第十一批）
 
-> 下表行数是第十一批整理当时的快照；当前行数见 §4（第十五批后 `AgentEngine` 732 行、`PlannerAgent` 725 行、`OnlineCityService` 243 行）。
+> 下表行数是第十一批整理当时的快照；当前行数见 §4（P1 后 `AgentEngine` 856 行、`PlannerAgent` 851 行、`OnlineCityService` 243 行）。
+> P0 产品收缩后，`AssistantIntentHandler` 只保留备忘/日程，日报/健康分支已删除；学习/办公/健康 Controller 与服务不再存在。
 
 | 项 | 之前 | 之后 |
 | --- | --- | --- |

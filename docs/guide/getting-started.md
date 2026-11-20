@@ -1,5 +1,7 @@
 # 快速上手（新人 onboarding）
 
+> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.7 / Node 20） | 最后验证：2026-11-19 | 事实来源：travel-agent-server/pom.xml、travel-agent-server/run-dev.ps1、travel-agent-web/package.json、docker-compose.infra.yml
+
 > 从零把项目跑起来：装环境 → 启动后端 → 启动前端 → 走通一条完整演示链路 → 知道遇到问题去哪里查。
 > 全流程基于仓库当前 HEAD 的真实脚本与配置，命令可直接复制执行。
 
@@ -9,19 +11,19 @@
 
 ## 0. 这个项目是什么
 
-「AI 个人助理」以一个 **Agent 引擎**为核心，把自然语言变成**可确认、可撤销**的结构化操作：
+「AI 智能旅行助手」以一个 **Agent 引擎**为核心，把自然语言变成**可确认、可撤销**的结构化操作：
 
 ```
 用户说一句话
   → 意图识别（IntentAgent）
-  → 生成计划（PlannerAgent，操作列表，不落库）
+  → 生成计划（PlannerAgent，操作列表，不落库；规划期检索旅行知识库并带引用）
   → 预览 Diff + 风险分级（ExecutorAgent.preview / SafetyInterceptor）
   → 用户确认（前端确认弹窗）
   → 单事务落地 + 写操作历史（ExecutorAgent.commit）
   → 可撤销（OperationHistory）
 ```
 
-旅行规划是主线场景（行前规划 + 行中动态调整），记账、备忘、日程、办公、学习、健康等模块复用**同一套引擎、同一套账号体系、同一套确认/撤销机制**。
+旅行规划是唯一主线场景（行前规划 + 行中动态调整 + 行后回顾），记账、备忘、日程、照片与知识库都归属旅行域，复用**同一套引擎、同一套账号体系、同一套确认/撤销机制**；办公、学习、健康模块已下线。
 
 核心闭环在 [README.md](../../README.md) 第 3.3 节与本文件第 5 节都有 walkthrough。
 
@@ -42,8 +44,7 @@
 | 工具 | 用途 | 不装的后果 |
 | --- | --- | --- |
 | Docker | 全栈一键部署 / 本地 MySQL + Redis | 只能走 H2 本地模式（这也是默认模式） |
-| Tesseract OCR | 图片发票识别 | 图片发票上传报 422；PDF 电子发票与粘贴文本仍可用 |
-| 大模型 API Key | 意图识别增强、结构化规划、文案润色 | 全部走规则引擎，功能完整但表达与泛化较弱 |
+| 大模型 API Key | 意图识别增强、结构化规划、文案润色、回顾总结 | 全部走规则引擎，功能完整但表达与泛化较弱 |
 | 高德 Web 服务 Key | 目录外城市 POI 真实定位 | 退回「大模型生成坐标 + OSM Nominatim」兜底，较慢 |
 
 > 仓库**不保存任何密钥**。`JWT_SECRET`、`LLM_API_KEY` 等一律通过环境变量注入，
@@ -76,8 +77,6 @@ LLM_API_KEY=sk-你的key
 LLM_BASE_URL=https://api.deepseek.com/v1
 LLM_MODEL=deepseek-chat
 JWT_SECRET=        # 留空即可，脚本首次运行会自动生成并写回
-TESSERACT_CMD=C:/Program Files/Tesseract-OCR/tesseract.exe
-TESSDATA_PREFIX=C:/Users/<你>/tools/tessdata
 ```
 
 > ⚠️ **Windows 路径必须用正斜杠 `/`**：`.env.local` 按 properties 解析，反斜杠 `\` 会被当作转义符。
@@ -112,8 +111,8 @@ spring:
 
 | 动作 | 实现位置 | 说明 |
 | --- | --- | --- |
-| 建表 | `application.yml` → `spring.jpa.hibernate.ddl-auto: update` | H2 文件库 `travel-agent-server/data/travel-agent.mv.db`，首次启动自动创建 |
-| Flyway 增量迁移 | `spring.flyway` + `resources/db/migration/V*__*.sql` | `baseline-on-migrate: true`、`baseline-version: 1`：全新库建表后顺序执行增量脚本 |
+| 建表 / 增量迁移 | `spring.flyway` + `resources/db/migration*/V*__*.sql` | Flyway 是 schema 唯一权威：全新库由 `V1` 基线 + 增量建到当前 `V19`；`baseline-on-migrate: true`、`baseline-version: 1` 兼容存量库 |
+| 结构校验 | `application.yml` → `spring.jpa.hibernate.ddl-auto: validate` | Hibernate 只校验实体与库结构一致，**不会自动补表/补列**；不一致直接启动失败 |
 | 创建演示账号 | `config/DataInitializer#run` | `demo / demo123`（昵称「演示用户」）；`DEMO_ACCOUNT=false` 时跳过 |
 | 加载旅行目录 | `service/TravelCatalogService`（读取 `resources/data/travel-catalog.json`） | 上海 / 北京 / 杭州 / 石家庄，共 4 城市 28 个景点、13 家酒店、16 家餐厅 |
 | 引导 RAG 知识库 | `rag/RagBootstrap#run` | 读取 `resources/rag/knowledge.json`（10 篇文档）→ 切块 → Embedding → 写入向量库；按内容指纹增量同步 |
@@ -133,7 +132,7 @@ curl -s http://localhost:8080/actuator/health
 # {"status":"UP"}
 ```
 
-H2 控制台（仅默认 profile 开启）：<http://localhost:8080/h2-console>
+H2 控制台（默认关闭，调试时设 `H2_CONSOLE_ENABLED=true` 后重启）：<http://localhost:8080/h2-console>
 （JDBC URL `jdbc:h2:file:./data/travel-agent;MODE=MySQL;AUTO_SERVER=TRUE`，用户 `sa`，密码空）
 
 ---
@@ -203,16 +202,18 @@ mvn test
 
 | # | 操作 | 预期结果 |
 | --- | --- | --- |
-| 1 | 首页输入：「帮我安排一个上海三日游，预算3000元，酒店离地铁近一点」 | 跳转规划页，聊天面板依次展示 `intent → planning → tool_call → tool_result → rag_result → plan_update → confirmation` |
-| 2 | 等待方案生成 | 弹出 **Plan Diff 确认弹窗**：原方案 → 新方案、预算对比、风险等级 |
+| 1 | 首页输入：「帮我安排一个上海三日游，预算3000元，酒店离地铁近一点」 | 跳转规划页，聊天面板依次展示 `intent → planning → tool_call → tool_result → rag_result → plan_update → confirmation`；`rag_result` 带 `citations` |
+| 2 | 等待方案生成 | 弹出 **Plan Diff 确认弹窗**：原方案 → 新方案、预算对比、风险等级；方案文案含「知识依据」citations |
 | 3 | 点「确认修改」 | 行程落库，自动跳转行程主界面（左地图 / 右 AI 助手 / 下时间轴） |
-| 4 | 行程页说：「明天下雨，把户外景点换掉」 | Agent 调用 `query_weather` → 把室外景点替换为就近室内场馆 → Diff 确认后地图与时间轴更新 |
+| 4 | 行程页说：「明天下雨，把户外景点换掉」 | Agent 调用 `query_weather` → **只替换仍为 `PENDING` 的室外景点**，已开始/完成/跳过的条目保持不动 → Diff 确认后地图与时间轴更新 |
 | 5 | 点选时间轴上某个安排（如博物馆），再说：「这个换成类似的」 | Agent 通过 `selectedElement` 上下文准确定位目标，而不是猜 |
-| 6 | 点右上角撤销按钮 | 基于 `operation_history` 的 before/after 快照还原上一步 |
-| 7 | 问：「现在花了多少钱？」 | 走预算服务回答（与「预算分析」抽屉同一份数据） |
-| 8 | 问：「上海有什么适合亲子游的地方？」 | 走 RAG 检索回答 |
-| 9 | 说：「记一笔午餐 45 元」/「记一下明天办签证」/「明天下午3点开评审会」 | 分别产生记账 / 备忘 / 日程 |
-| 10 | 行程页点「路书」 | 下载 PDF（行程概况 + 每日安排表 + 预算小结） |
+| 6 | 对某个行程项推进状态「开始 / 完成 / 跳过 / 重置」 | 调 `PUT /api/itinerary/{id}/status`：完成写 `startedAt/completedAt/visitedAt`，追加 `CHECK_IN` 事件，并进入撤销链；卡片显示实际开始/完成时间 |
+| 7 | 点行程页「旅行回顾」（或侧栏「旅行回顾」列表） | `GET /api/trips/{id}/review`：完成率、计划/实际花费、计划地点与实际到访、`actualRoute`、照片、事件、修改历史与 `aiSummary`；足迹只把 `visitedAt` 非空的条目算作「去过」 |
+| 8 | 点右上角撤销按钮 | 基于 `operation_history` 的 before/after 快照还原上一步，**打卡状态与实际时间也能还原** |
+| 9 | 问：「现在花了多少钱？」 | 走预算服务回答（与「预算分析」抽屉同一份数据） |
+| 10 | 问：「上海有什么适合亲子游的地方？」 | 走 RAG 检索回答；旅行知识库页可录入文档、检索、查看版本与回滚 |
+| 11 | 说：「记一笔午餐 45 元」/「记一下明天办签证」/「明天下午3点开评审会」 | 分别产生记账 / 备忘 / 日程 |
+| 12 | 行程页点「路书」 | 下载 PDF（行程概况 + 每日安排表 + 预算小结） |
 
 > 未配置 `LLM_API_KEY` 时以上全部可跑通（规则引擎），仅「目录外城市」（如海口）需要模型联网生成城市数据。
 
@@ -246,7 +247,6 @@ Playwright 用例 `travel-agent-web/e2e/smoke.spec.ts` 覆盖：未登录重定�
 | 重启后端后所有人被登出 | 未配置固定的 `JWT_SECRET`，每次启动生成一次性随机密钥 | 写入 `.env.local`（或环境变量）。`run-dev.ps1` 首次运行会自动生成并写回 |
 | 想重置本地数据 | H2 文件库里残留了旧数据 | 停后端 → 删除 `travel-agent-server/data/travel-agent.mv.db` → 重启（重新建表 + 演示账号 + 目录 + RAG 引导） |
 | 启动报端口占用 8080 / 5173 | 上一个进程没退干净 | `netstat -ano \| findstr :8080` 找到 PID 后结束进程；前端端口可在 `vite.config.ts` 改 |
-| `.env.local` 里配了 Tesseract 路径但 OCR 仍不可用 | Windows 路径写了反斜杠，被当作转义符 | 改成正斜杠 `C:/Program Files/...`；校验：`GET /api/system/status` 的 `ocrConfigured` 应为 `true` |
 | Agent 回答比较「模板化」、目录外城市不支持 | 没配 `LLM_API_KEY`，整条链路走规则引擎 | 配 Key 后重启；`/actuator/metrics/llm.calls` 的 `result=skipped` 表示仍在走规则引擎 |
 | 路书 PDF 导出报错（不是乱码） | 系统里找不到中文字体 | 放入 `travel-agent-server/src/main/resources/fonts/cjk.*`，或在容器/Linux 装 `fonts-noto-cjk`；服务端探测顺序 classpath → Windows → Linux/macOS |
 | 地图整块空白，DOM 里有 canvas 但尺寸为 0 | 父容器高度未确定，maplibre 容器塌成 0 高 | 给地图容器**显式写 height**（不要用 `flex:1` / `absolute + inset` 让高度解析成 auto），详见 DEVELOPMENT.md「地图容器必须给确定高度」 |
@@ -266,6 +266,8 @@ Playwright 用例 `travel-agent-web/e2e/smoke.spec.ts` 覆盖：未登录重定�
 | 改数据结构、写查询、做迁移 | [data-model.md](data-model.md) |
 | 改前端页面、加组件、理解 SSE 消费链路 | [frontend.md](frontend.md) |
 | 上线部署、配环境变量、运维排障 | [deployment.md](deployment.md) |
+| 了解产品范围、P0/P1 完成度与验收 | [../PRODUCT_DEVELOPMENT.md](../PRODUCT_DEVELOPMENT.md) |
+| 开发规范、Agent/工具/RAG/数据库契约 | [../DEVELOPER_HANDBOOK.md](../DEVELOPER_HANDBOOK.md) |
 | 开发约定、关键不变量、设计系统 | [../DEVELOPMENT.md](../DEVELOPMENT.md) |
 | 某个行为为什么变了 / 何时改的 | [../CHANGELOG.md](../CHANGELOG.md) |
 | 项目定位、功能全貌、API 速查 | [../../README.md](../../README.md) |

@@ -1,0 +1,23 @@
+# lychee 链接检查配置（CI 里由 lychee-action 使用；本地可用 lychee 直接跑）。
+#
+# 分工：
+# - CI 的 docs job 跑 --offline，只查仓库内相对链接（目标文件/锚点是否存在）；
+# - 外链（官网、GitHub）容易受网络、对方页面改版影响，不在每个 PR 上阻断，
+#   由本文件的 schedule 任务（或本地 `lychee --config lychee.toml`）周期性检查。
+
+timeout = 20
+max-retries = 2
+max-concurrency = 16
+accept = [200, 429]
+
+# 需要登录态/反爬的站点：直接跳过，避免长期红灯
+exclude = [
+  'https://github.com/.*/settings/.*',
+  'https://console\\.amap\\.com/.*',
+  'https://platform\\.openai\\.com/.*',
+  'https://api\\.deepseek\\.com/.*',
+  'http://localhost:.*',
+  'http://127\\.0\\.0\\.1:.*',
+]
+
+cache = true

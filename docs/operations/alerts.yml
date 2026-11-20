@@ -1,0 +1,412 @@
+##############################################################################
+# travel-agent-server 告警规则（PrometheusRule / Prometheus 2.x rule_files）
+#
+# 指标契约与 SLO 定义见：docs/guide/observability.md
+# 处置手册见：docs/operations/runbook.md（每条规则通过 runbook_url 定位到小节）
+#
+# 部署：
+#   - Prometheus Operator：kubectl apply -f docs/operations/alerts.yml
+#   - 裸 Prometheus：把 spec.groups 的内容放进 rule_files 指向的文件
+#
+# 部署前唯一需要替换的是 runbook_url 里的仓库地址占位符 OWNER：
+#   sed -i 's|github.com/OWNER/travel-agent|github.com/<你的组织>/travel-agent|g' alerts.yml
+#
+# 设计原则：
+#   1) 每条规则必须有 for（防抖），窗口短于抓取间隔的告警没有意义；
+#   2) 比率类规则必须带分母守卫（and ... > 0），否则"没有流量"会被算成"100% 失败"；
+#   3) 每条规则都有 severity / summary / description / runbook_url；
+#   4) 依赖外部任务交付的指标（external.degraded）在指标缺失时静默为空 —— 不误报，但也不覆盖。
+##############################################################################
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: travel-agent-alerts
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: travel-agent-server
+    app.kubernetes.io/part-of: travel-agent
+    prometheus: kube-prometheus
+spec:
+  groups:
+    # ======================================================================
+    # 0. 可用性与采集健康
+    # ======================================================================
+    - name: travel-agent.availability
+      interval: 30s
+      rules:
+        - alert: TravelAgentServerDown
+          expr: up{job="travel-agent-server"} == 0
+          for: 3m
+          labels:
+            severity: critical
+            team: travel-agent
+          annotations:
+            summary: "travel-agent-server 抓取目标已掉线（{{ $labels.instance }}）"
+            description: >-
+              Prometheus 连续 3 分钟抓不到 {{ $labels.instance }} 的 /actuator/prometheus。
+              可能是进程崩溃、端口不可达、认证凭证过期（JWT）或抓取路径变更。
+              先区分"进程真的挂了"与"只是抓不到"：看容器/服务状态与 /actuator/health。
+            runbook_url: "https://github.com/OWNER/travel-agent/blob/main/docs/operations/runbook.md#0-travelagentserverdown-p0"
+
+        - alert: TravelLowHistogramMissing
+          expr: absent(http_server_requests_seconds_bucket)
+          for: 15m
+          labels:
+            severity: warning
+            team: travel-agent
+          annotations:
+            summary: "HTTP 耗时直方图缺失：P95 面板与延迟告警会静默失效"
+            description: >-
+              registry 里没有 http_server_requests_seconds_bucket。通常是
+              management.metrics.distribution.percentiles-histogram.http.server.requests 未开启，
+              或 /actuator/prometheus 未暴露。histogram_quantile 在缺少 _bucket 时返回空值——
+              告警不会误报，但永远不会触发（比误报更危险）。同时确认 agent.stage / llm.latency 也开了 histogram。
+            runbook_url: "https://github.com/OWNER/travel-agent/blob/main/docs/operations/runbook.md#14-travellowhistogrammissing-p1"
+
+    # ======================================================================
+    # 1. 规划（Agent 核心链路）
+    # ======================================================================
+    - name: travel-agent.planning
+      interval: 30s
+      rules:
+        - alert: TravelPlanOutcomeFailed
+          expr: sum(rate(travel_plan_outcome_total{result="failed"}[10m])) > 0.05
+          for: 10m
+          labels:
+            severity: critical
+            team: travel-agent
+          annotations:
+            summary: "规划失败率异常（> 3 次/分钟，持续 10 分钟）"
+            description: >-
+              规划段在抛异常（travel_plan_outcome{result="failed"}）。常见原因：规则/结构化规划代码缺陷、
+              LLM 适配层抛未捕获异常、数据库/外部依赖在规划期间失败。用户侧表现是"发消息后报错/无方案"。
+            runbook_url: "https://github.com/OWNER/travel-agent/blob/main/docs/operations/runbook.md#1-travelplanavailabilitylow-p0"
+
+        - alert: TravelPlanAvailabilityLow
+          expr: >-
+            (
+              sum(rate(travel_plan_outcome_total{result=~"success|degraded"}[30m]))
+              /
+              clamp_min(sum(rate(travel_plan_outcome_total[30m])), 1e-9)
+            ) < 0.995
+            and
+            sum(rate(travel_plan_outcome_total[30m])) > 0
+          for: 15m
+          labels:
+            severity: critical
+            team: travel-agent
+            slo: plan-availability
+          annotations:
+            summary: "规划可用率低于 99.5%（用户拿不到方案）"
+            description: >-
+              30 分钟滚动窗口内，规划成功（success+degraded）占比
+              {{ $value | humanizePercentage }}，低于 SLO 99.5%。degraded 也算可用，
+              因此这条只说明"用户真的拿不到方案"，优先看 failed 的日志堆栈与 5xx。
+            runbook_url: "https://github.com/OWNER/travel-agent/blob/main/docs/operations/runbook.md#1-travelplanavailabilitylow-p0"
+
+        - alert: TravelPlanDegradedHigh
+          expr: >-
+            (
+              sum(rate(travel_plan_outcome_total{result="success"}[30m]))
+              /
+              clamp_min(sum(rate(travel_plan_outcome_total[30m])), 1e-9)
+            ) < 0.95
+            and
+            sum(rate(travel_plan_outcome_total[30m])) > 0
+          for: 30m
+          labels:
+            severity: warning
+            team: travel-agent
+            slo: plan-health
+          annotations:
+            summary: "超过 5% 的规划发生降级（跳过了研究/结构化规划）"
+            description: >-
+              规划仍在产出方案，但超过 5% 的轮次跳过了研究取证或 LLM 结构化规划
+              （agent budget 降级）。用户拿到的是"未经审核/较模板化"的方案。
+              常见原因：端到端预算过紧、LLM 变慢、外部查证变慢。
+            runbook_url: "https://github.com/OWNER/travel-agent/blob/main/docs/operations/runbook.md#2-travelplandegradedhigh-p1"
+
+    # ======================================================================
+    # 2. 确认提交（写路径）
+    # ======================================================================
+    - name: travel-agent.confirm
+      interval: 30s
+      rules:
+        - alert: TravelConfirmSuccessRateLow
+          expr: >-
+            (
+              sum(rate(travel_confirm_outcome_total{result="success"}[10m]))
+              /
+              clamp_min(sum(rate(travel_confirm_outcome_total{result=~"success|failed"}[10m])), 1e-9)
+            ) < 0.995
+            and
+            sum(increase(travel_confirm_outcome_total{result=~"success|failed"}[10m])) > 5
+          for: 10m
+          labels:
+            severity: critical
+            team: travel-agent
+            slo: confirm-success
+          annotations:
+            summary: "确认提交成功率低于 99.5%（用户点确认后没落库）"
+            description: >-
+              10 分钟窗口内确认提交成功率 {{ $value | humanizePercentage }}。
+              conflict 是并发/指纹/版本竞争（用户可重试），不计入分母；这里只剩"方案不存在/过期、
+              风险门拒绝、提交抛异常"三类。写路径故障优先怀疑数据库事务与跨模块同步（日程/预算/足迹）。
+            runbook_url: "https://github.com/OWNER/travel-agent/blob/main/docs/operations/runbook.md#3-travelconfirmsuccessratelow-p0"
+
+        - alert: TravelConfirmConflictHigh
+          expr: >-
+            (
+              sum(rate(travel_confirm_outcome_total{result="conflict"}[30m]))
+              /
+              clamp_min(sum(rate(travel_confirm_outcome_total[30m])), 1e-9)
+            ) > 0.02
+            and
+            sum(increase(travel_confirm_outcome_total[30m])) > 10
+          for: 30m
+          labels:
+            severity: info
+            team: travel-agent
+          annotations:
+            summary: "确认冲突率超过 2%（多标签页/重复点击/版本竞争）"
+            description: >-
+              30 分钟窗口内确认冲突率 {{ $value | humanizePercentage }}。用户可重试，不影响数据正确性，
+              但持续偏高说明前端重复提交或多端并发改同一行程，值得做产品侧收敛。
+            runbook_url: "https://github.com/OWNER/travel-agent/blob/main/docs/operations/runbook.md#4-travelconfirmconflicthigh-p2"
+
+    # ======================================================================
+    # 3. SSE 流式链路
+    # ======================================================================
+    - name: travel-agent.sse
+      interval: 30s
+      rules:
+        - alert: TravelSseAbnormalDisconnectHigh
+          expr: >-
+            (
+              sum(rate(sse_disconnects_total{reason=~"error|timeout"}[10m]))
+              /
+              clamp_min(sum(rate(http_server_requests_seconds_count{uri="/api/agent/stream"}[10m])), 1e-9)
+            ) > 0.01
+            and
+            sum(rate(http_server_requests_seconds_count{uri="/api/agent/stream"}[10m])) > 0
+          for: 10m
+          labels:
+            severity: critical
+            team: travel-agent
+            slo: sse-stability
+          annotations:
+            summary: "SSE 异常中断率超过 1%（error/timeout）"
+            description: >-
+              10 分钟窗口内 error/timeout 断连占流式请求的 {{ $value | humanizePercentage }}。
+              这类中断是服务端/网络故障（不是用户切页）。查反向代理/网关读超时（SSE 需要关闭
+              响应缓冲并放大 read timeout）、容器存活探针重启、事件循环线程池耗尽。
+            runbook_url: "https://github.com/OWNER/travel-agent/blob/main/docs/operations/runbook.md#5-travelsseabnormaldisconnecthigh-p0"
+
+        - alert: TravelSseClientAbortHigh
+          expr: >-
+            (
+              sum(rate(sse_disconnects_total{reason="complete"}[30m]))
+              /
+              clamp_min(sum(rate(http_server_requests_seconds_count{uri="/api/agent/stream"}[30m])), 1e-9)
+            ) > 0.10
+            and
+            sum(rate(http_server_requests_seconds_count{uri="/api/agent/stream"}[30m])) > 0
+          for: 30m
+          labels:
+            severity: warning
+            team: travel-agent
+          annotations:
+            summary: "SSE 客户端中断率超过 10%（用户在流结束前关页面/断网）"
+            description: >-
+              30 分钟窗口内客户端半途断开占 {{ $value | humanizePercentage }}。
+              多数是产品行为（用户等不及/切页）。若同时段规划变慢（见 TravelPlanStageLatencyP95High），
+              说明根因是"太慢导致用户离开"，应优先修慢而不是修断连。
+            runbook_url: "https://github.com/OWNER/travel-agent/blob/main/docs/operations/runbook.md#6-travelsseclientaborthigh-p1"
+
+    # ======================================================================
+    # 4. 外部依赖降级（指标由 T3 韧性任务提供）
+    # ======================================================================
+    - name: travel-agent.external
+      interval: 30s
+      rules:
+        - alert: TravelExternalDegradedHigh
+          expr: >-
+            (
+              sum(rate(external_degraded_total[10m]))
+              /
+              clamp_min(sum(rate(http_server_requests_seconds_count[10m])), 1e-9)
+            ) > 0.05
+            and
+            sum(rate(http_server_requests_seconds_count[10m])) > 0
+          for: 10m
+          labels:
+            severity: warning
+            team: travel-agent
+            slo: external-degradation
+          annotations:
+            summary: "外部依赖降级率超过 5%（每请求降级次数）"
+            description: >-
+              10 分钟窗口内，平均每个 HTTP 请求触发 {{ $value }} 次外部依赖降级
+              （external_degraded_total）。服务仍可用，但方案质量在下降（天气/路线/POI 变成估算）。
+              按 provider 拆开看是哪一家：rate(external_degraded_total[10m]) by (provider, reason)。
+              该指标由韧性任务（T3）提供；未合入时本告警不会触发。
+            runbook_url: "https://github.com/OWNER/travel-agent/blob/main/docs/operations/runbook.md#7-travelexternaldegradedhigh-p1"
+
+        - alert: TravelExternalProviderDegraded
+          expr: sum by (provider) (rate(external_degraded_total[15m])) > 0.2
+          for: 15m
+          labels:
+            severity: warning
+            team: travel-agent
+          annotations:
+            summary: "外部依赖 {{ $labels.provider }} 持续降级（> 0.2 次/秒）"
+            description: >-
+              provider={{ $labels.provider }} 连续 15 分钟每秒降级超过 0.2 次。
+              单家依赖长时间降级通常意味着 Key 失效/额度耗尽/上游故障，而不是偶发抖动。
+            runbook_url: "https://github.com/OWNER/travel-agent/blob/main/docs/operations/runbook.md#7-travelexternaldegradedhigh-p1"
+
+    # ======================================================================
+    # 5. 延迟（P95）
+    # ======================================================================
+    - name: travel-agent.latency
+      interval: 30s
+      rules:
+        - alert: TravelHttpLatencyP95High
+          expr: >-
+            histogram_quantile(
+              0.95,
+              sum by (le) (rate(http_server_requests_seconds_bucket{uri!~"/api/agent/stream"}[5m]))
+            ) > 0.8
+          for: 10m
+          labels:
+            severity: warning
+            team: travel-agent
+            slo: api-latency
+          annotations:
+            summary: "HTTP P95 超过 800ms（排除 SSE 长连接）"
+            description: >-
+              5 分钟窗口 P95 = {{ $value }}s。SSE（/api/agent/stream）被排除，因为它的耗时等于整个会话时长。
+              注意 /api/agent/chat 同步规划本身可能到几十秒（受 30s 预算约束），
+              它被包含在这条规则里时更容易触发 —— 先看 uri 维度定位是哪个接口。
+            runbook_url: "https://github.com/OWNER/travel-agent/blob/main/docs/operations/runbook.md#8-travelhttplatencyp95high-p1"
+
+        - alert: TravelPlanStageLatencyP95High
+          expr: >-
+            histogram_quantile(
+              0.95,
+              sum by (le) (rate(agent_stage_seconds_bucket{stage="plan"}[5m]))
+            ) > 25
+          for: 10m
+          labels:
+            severity: warning
+            team: travel-agent
+            slo: plan-latency
+          annotations:
+            summary: "规划阶段 P95 超过 25s（总预算 30s 的 80%）"
+            description: >-
+              agent.stage{stage="plan"} 的 P95 = {{ $value }}s。规划吃掉 80% 预算后，
+              审核/润色几乎必然被降级（触发 TravelPlanDegradedHigh）。
+              先看 llm.latency（模型变慢）与外部工具耗时（路线/天气），再看结构化规划的重试。
+            runbook_url: "https://github.com/OWNER/travel-agent/blob/main/docs/operations/runbook.md#9-travelplanstagelatencyp95high-p1"
+
+    # ======================================================================
+    # 6. LLM 调用与成本
+    # ======================================================================
+    - name: travel-agent.llm
+      interval: 30s
+      rules:
+        - alert: TravelLlmFailureHigh
+          expr: >-
+            (
+              sum(rate(llm_calls_total{result="failed"}[10m]))
+              /
+              clamp_min(sum(rate(llm_calls_total{result=~"ok|failed"}[10m])), 1e-9)
+            ) > 0.10
+            and
+            sum(rate(llm_calls_total{result=~"ok|failed"}[10m])) > 0.01
+          for: 10m
+          labels:
+            severity: critical
+            team: travel-agent
+          annotations:
+            summary: "LLM 调用失败率超过 10%（已全面降级到规则路径）"
+            description: >-
+              10 分钟窗口 LLM 失败率 {{ $value | humanizePercentage }}。服务仍可用（规则模板兜底），
+              但意图识别/结构化规划/文案润色都会退化。常见原因：Key 失效或余额耗尽（402）、
+              供应商 5xx、读超时（30s）、网络/DNS。看 llm.calls{result="skipped"} 区分"没配 Key"。
+            runbook_url: "https://github.com/OWNER/travel-agent/blob/main/docs/operations/runbook.md#10-travelllmfailurehigh-p0"
+
+        - alert: TravelLlmQuotaRejectedHigh
+          expr: >-
+            (
+              sum(rate(llm_calls_total{result="quota"}[30m]))
+              /
+              clamp_min(sum(rate(llm_calls_total[30m])), 1e-9)
+            ) > 0.05
+            and
+            sum(rate(llm_calls_total[30m])) > 0.01
+          for: 30m
+          labels:
+            severity: info
+            team: travel-agent
+          annotations:
+            summary: "LLM 配额拒绝率超过 5%（travel.llm.quota-daily-limit 生效中）"
+            description: >-
+              30 分钟窗口配额拒绝 {{ $value | humanizePercentage }}。
+              要么是配额配置过紧（正常用户被挡），要么是有账号滥用；先按用户维度看日志再谈调额。
+            runbook_url: "https://github.com/OWNER/travel-agent/blob/main/docs/operations/runbook.md#11-travelllmquotarejectedhigh-p2"
+
+        - alert: TravelLlmCostBudgetHigh
+          expr: sum(rate(travel_llm_cost_usd_total[1h])) * 3600 > 2
+          for: 1h
+          labels:
+            severity: warning
+            team: travel-agent
+          annotations:
+            summary: "LLM 成本超过 2 USD/小时（单实例）"
+            description: >-
+              1 小时窗口折合 {{ $value }} USD/h。单价由 travel.llm.prompt-price-per-1k-usd /
+              travel.llm.completion-price-per-1k-usd 配置；默认 0 时该指标不存在、本告警不会触发。
+              排查方向：单次规划 token 暴涨（prompt 变长/研究循环步数变多）、重试风暴、异常账号刷量。
+            runbook_url: "https://github.com/OWNER/travel-agent/blob/main/docs/operations/runbook.md#12-travelllmcostbudgethigh-p1"
+
+    # ======================================================================
+    # 7. RAG 与限流
+    # ======================================================================
+    - name: travel-agent.rag
+      interval: 30s
+      rules:
+        - alert: TravelRagHitRateLow
+          expr: >-
+            (
+              sum(rate(travel_rag_retrieval_total{result="hit"}[30m]))
+              /
+              clamp_min(sum(rate(travel_rag_retrieval_total[30m])), 1e-9)
+            ) < 0.30
+            and
+            sum(increase(travel_rag_retrieval_total[30m])) > 10
+          for: 30m
+          labels:
+            severity: warning
+            team: travel-agent
+          annotations:
+            summary: "RAG 命中率低于 30%（知识库可能没被用上）"
+            description: >-
+              30 分钟窗口命中率 {{ $value | humanizePercentage }}。miss 既可能是"知识库真没资料"，
+              也可能是索引未加载（RagBootstrap 失败）、embedding 服务异常、版本回滚后索引未 reload。
+              对比启动日志与 /api/knowledge 的文档数再判断。
+            runbook_url: "https://github.com/OWNER/travel-agent/blob/main/docs/operations/runbook.md#13-travelraghitratelow-p1"
+
+        - alert: TravelRateLimitFailOpen
+          expr: increase(ratelimit_failopen_total[15m]) > 0
+          for: 5m
+          labels:
+            severity: warning
+            team: travel-agent
+          annotations:
+            summary: "Redis 限流持续 fail-open（限流已失效）"
+            description: >-
+              15 分钟内出现 {{ $value }} 次限流 fail-open：Redis 不可用，请求被放行。
+              这是刻意的 fail-open（限流不该把站点打挂），但意味着登录/上传/Agent 配额当前没有保护。
+              查 Redis 连通性与连接池，必要时切 RATE_LIMIT_STORE=memory 止血。
+            runbook_url: "https://github.com/OWNER/travel-agent/blob/main/docs/operations/runbook.md#15-travelratelimitfailopen-p1"

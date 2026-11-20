@@ -1,5 +1,7 @@
 # 第十批共享契约（Batch 10 shared contract）
 
+> 状态：已落地（历史） | 日期：2026-11-16 | 说明：契约内容已进入实现，保留原文作追溯；当前事实见 [docs/guide](../guide/README.md)，落地记录见 [CHANGELOG 第十批](../CHANGELOG.md)。
+
 本批覆盖 README/DEVELOPMENT 的 P0/P1/P2 路线图：真实数据源（MCP 高德）、schema 单一权威、
 知识库不变量、并发首建、可观测性、会话记忆进规划、移动端/暗色/PWA 离线。
 
