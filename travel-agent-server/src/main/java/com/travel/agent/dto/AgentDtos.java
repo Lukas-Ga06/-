@@ -44,6 +44,12 @@ public class AgentDtos {
         /** 确认提交后的跨模块同步结果（FR-09）：只有 confirm 成功路径才带 */
         private ExecutionSummary execution;
 
+        /**
+         * 方案的知识依据（P1）：RAG 命中的文档/版本/片段/相似度/来源。
+         * 为空数组表示方案没有引用知识库，不代表「没有依据」；前端不得编造。
+         */
+        private List<Citation> citations;
+
         /** 追加一行消息（null 安全）：确认后同步结果摘要等场景使用 */
         public void appendMessage(String line) {
             if (line == null || line.isBlank()) {
@@ -53,8 +59,26 @@ public class AgentDtos {
         }
     }
 
-    /** GUI Focus 协议：AI 回复后前端自动滚动时间轴 / 地图定位 */
+    /**
+     * 知识引用（P1）：与 {@code TravelKnowledgeController} 的搜索响应同构，
+     * 前端无需理解 RAG 内部结构即可把「依据」列在方案下方。
+     */
     @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class Citation {
+        private Long documentId;
+        private Integer version;
+        private Long chunkId;
+        private Double score;
+        private String source;
+        private String title;
+        private String snippet;
+        private String label;
+    }
+
+    /** GUI Focus 协议：AI 回复后前端自动滚动时间轴 / 地图定位 */    @Data
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor

@@ -10,6 +10,8 @@ import com.travel.agent.llm.LlmProperties;
 import com.travel.agent.model.Hotel;
 import com.travel.agent.model.Restaurant;
 import com.travel.agent.model.WeatherInfo;
+import com.travel.agent.rag.RagCitation;
+import com.travel.agent.rag.RagService;
 import com.travel.agent.service.BudgetService;
 import com.travel.agent.service.ItineraryService;
 import com.travel.agent.service.OperationHistoryService;
@@ -58,6 +60,8 @@ public class PlannerAgent {
     private final AgentToolLoop toolLoop;
     /** 研究任务记录（receiver=research-agent，任务/工具调用进 run 追踪） */
     private final AgentTaskRecorder taskRecorder;
+    /** P1：静态旅行知识进入规划证据链（带 documentId/version/chunkId/score/source） */
+    private final RagService ragService;
 
     public AgentPlan plan(AgentContext ctx, IntentResult intent, Trip trip) {
         String message = ctx.getMessage() == null ? "" : ctx.getMessage();
@@ -147,6 +151,9 @@ public class PlannerAgent {
         // 收集到的天气/路线事实作为参考证据进入结构化 Prompt；无 LLM 或循环未完成时不带任何研究块。
         // P1：两个 LLM 阶段都先看剩余预算——预算不够就跳过并留痕，规划本身仍由规则路径完成（绝不空返回）。
         AgentBudget timeBudget = ctx.getBudget();
+        // P1：RAG 进入规划证据链。无论 LLM 是否可用都先检索静态旅行知识，
+        // 命中的引用（documentId/version/chunkId/score/source）随方案进入 extras 与 SSE。
+        List<RagCitation> citations = knowledgeCitations(ctx, city.name(), message);
         List<String> researchNotes = List.of();
         if (llmProperties.usable()) {
             if (timeBudget.allows(AgentBudget.MIN_RESEARCH_STEP_MS)) {
@@ -161,6 +168,7 @@ public class PlannerAgent {
                 AgentPlan structured = tryStructuredNewTrip(ctx, intent, city, trip, draft, days, budget, message,
                         researchNotes, timeBudget);
                 if (structured != null) {
+                    attachKnowledge(structured, citations);
                     return structured;
                 }
             } else {
@@ -213,6 +221,7 @@ public class PlannerAgent {
         extras.put("hotelName", hotel == null ? "暂无" : hotel.name());
         extras.put("total", total);
         extras.put("days", days);
+        extras.put("citations", citations);
 
         return AgentPlan.builder()
                 .planId(UUID.randomUUID().toString())
@@ -361,6 +370,14 @@ public class PlannerAgent {
 
     // ==================== 行程修改（天气替换 / 选中替换） ====================
 
+    /**
+     * P1 行中锁定：只有 PENDING 的条目允许被自动重规划改动。
+     * 状态为空的历史数据按 PENDING 处理（兼容升级前数据）。
+     */
+    static boolean isAdjustable(ItineraryDtos.ItineraryItemDTO item) {
+        return item.getStatus() == null || ItineraryItem.STATUS_PENDING.equals(item.getStatus());
+    }
+
     private AgentPlan planModification(AgentContext ctx, IntentResult intent, CityCatalog city, Trip trip, String message) {
         if (trip == null) {
             return emptyPlan(intent, city, null,
@@ -369,6 +386,8 @@ public class PlannerAgent {
         List<ItineraryDtos.ItineraryItemDTO> fetched =
                 (List<ItineraryDtos.ItineraryItemDTO>) tools.invoke(ctx, "get_itinerary", Map.of("tripId", trip.getId()));
         final List<ItineraryDtos.ItineraryItemDTO> items = fetched == null ? List.of() : fetched;
+        // P1：修改方案同样带知识依据，便于用户判断替换推荐是否有出处
+        List<RagCitation> citations = knowledgeCitations(ctx, city.name(), message);
         // 日期 → 行程第几天：不在行程区间内时按「当前天 + 偏移」顺推，并把这件事告诉用户
         MessageParser.TripDay tripDay = MessageParser.resolveTripDay(trip, ctx.getCurrentDay(), message);
         int scopeDay = tripDay.dayIndex();
@@ -389,6 +408,7 @@ public class PlannerAgent {
                 AgentPlan structured = tryStructuredModify(ctx, intent, city, trip, items, weather,
                         trip.getStartDate(), message, dateNote, modifyBudget);
                 if (structured != null) {
+                    attachKnowledge(structured, citations);
                     return structured;
                 }
             } else {
@@ -401,24 +421,40 @@ public class PlannerAgent {
         // 注意：不要写成三元表达式——int 与 Integer 混用会被拆箱，currentDay 为 null 时直接 NPE
         final Integer dayFilter = resolveDayFilter(message, ctx.getCurrentDay(), scopeDay);
 
+        // P1 行中锁定：已开始/已完成/已跳过是既成事实，自动重规划不得覆盖（只允许动 PENDING）
         if (IntentResult.TARGET_SELECTED.equals(intent.getTarget()) && ctx.getSelectedElement() != null) {
             Long selId = ctx.getSelectedElement().getId();
             String selTitle = ctx.getSelectedElement().getTitle();
-            items.stream().filter(i -> selId != null && selId.equals(i.getId())).findFirst()
-                    .or(() -> items.stream().filter(i -> selTitle != null && selTitle.equals(i.getTitle())).findFirst())
-                    .ifPresent(targets::add);
+            java.util.Optional<ItineraryDtos.ItineraryItemDTO> selected = items.stream()
+                    .filter(i -> selId != null && selId.equals(i.getId())).findFirst()
+                    .or(() -> items.stream().filter(i -> selTitle != null && selTitle.equals(i.getTitle())).findFirst());
+            if (selected.isPresent() && !isAdjustable(selected.get())) {
+                return emptyPlan(intent, city, trip,
+                        "「" + selected.get().getTitle() + "」已开始或已完成，不能再被自动替换。"
+                                + "如需调整，请先在行程里把它重置为未开始，或改选其他安排。");
+            }
+            selected.ifPresent(targets::add);
         } else {
             items.stream()
                     .filter(i -> ItineraryItem.TYPE_ATTRACTION.equals(i.getItemType()))
                     .filter(i -> i.getTags() != null && i.getTags().contains("室外"))
                     .filter(i -> dayFilter == null || dayFilter.equals(i.getDayIndex()))
+                    .filter(PlannerAgent::isAdjustable)
                     .forEach(targets::add);
         }
 
         if (targets.isEmpty()) {
+            long lockedOutdoor = items.stream()
+                    .filter(i -> ItineraryItem.TYPE_ATTRACTION.equals(i.getItemType()))
+                    .filter(i -> i.getTags() != null && i.getTags().contains("室外"))
+                    .filter(i -> !isAdjustable(i))
+                    .count();
+            String lockedNote = lockedOutdoor > 0
+                    ? "该日的 " + lockedOutdoor + " 个户外景点已开始或已完成，按「只调整未开始条目」的规则保持不动。"
+                    : "";
             return emptyPlan(intent, city, trip,
-                    "在 Day " + scopeDay + " 没有找到需要替换的户外景点。" + dateNote
-                            + "你可以在时间轴上点选一个安排，然后说「这个换成类似的」。");
+                    "在 Day " + scopeDay + " 没有找到需要替换的未开始户外景点。" + lockedNote + dateNote
+                            + "你可以在时间轴上点选一个未开始的安排，然后说「这个换成类似的」。");
         }
 
         List<PlanOperation> ops = new ArrayList<>();
@@ -483,6 +519,7 @@ public class PlannerAgent {
         extras.put("weather", weather);
         extras.put("replacements", replacements);
         extras.put("day", lastTarget != null ? lastTarget.getDayIndex() : firstDay);
+        extras.put("citations", citations);
 
         return AgentPlan.builder()
                 .planId(UUID.randomUUID().toString())
@@ -504,7 +541,8 @@ public class PlannerAgent {
 
     /** 研究循环允许的只读工具白名单：规划期只允许只读工具，写操作一律经确认门 */
     private static final Set<String> RESEARCH_TOOLS = Set.of(
-            "query_weather", "search_attraction", "search_restaurant", "search_hotel", "calculate_route");
+            "query_weather", "search_attraction", "search_restaurant", "search_hotel", "calculate_route",
+            "query_travel_knowledge");
 
     /** 研究循环步骤上限：每步一次 LLM 决策 + 至多一次工具调用，避免整体规划被显著拖慢 */
     private static final int RESEARCH_MAX_STEPS = 4;
@@ -527,7 +565,7 @@ public class PlannerAgent {
                 + " 天、" + BudgetService.effectiveParty(draft.getPartySize()) + " 人、预算 ¥"
                 + budget.stripTrailingZeros().toPlainString()
                 + " 的行程收集决策事实：逐日天气与降雨风险、景点/餐厅/酒店候选是否充足、"
-                + "主要相邻地点之间的移动耗时。";
+                + "主要相邻地点之间的移动耗时，以及目的地攻略/预约/交通注意事项（知识库检索）。";
         AgentToolLoop.LoopResult result = taskRecorder.around(ctx,
                 com.travel.agent.entity.AgentTask.RECEIVER_RESEARCH, "RESEARCH",
                 () -> toolLoop.run(ctx, goal, RESEARCH_TOOLS, RESEARCH_MAX_STEPS),
@@ -536,6 +574,53 @@ public class PlannerAgent {
                         + (r.summary() == null || r.summary().isBlank() ? "" : "（" + r.summary() + "）"));
         // 未完成也保留已成功的事实：notes() 只取 success=true 的步骤
         return result.notes();
+    }
+
+    /**
+     * P1：规划期的 RAG 证据检索。
+     *
+     * <p>直接检索（而不是只依赖研究循环）是为了保证「无论 LLM 是否可用」方案都能带上知识依据：
+     * 命中结果同时发 {@code rag_result} SSE 事件，方案 extras 里保留完整引用结构。
+     * 相似度低于 0.05 的噪声不进入方案；检索失败只告警，绝不阻断规划。
+     */
+    private List<RagCitation> knowledgeCitations(AgentContext ctx, String city, String message) {
+        if (message == null || message.isBlank()) {
+            return List.of();
+        }
+        try {
+            String query = city == null || city.isBlank() ? message : city + " " + message;
+            List<RagCitation> hits = ragService.searchWithCitations(query, city, ctx.getUserId(), 3);
+            List<RagCitation> top = hits.stream()
+                    .filter(citation -> citation.score() >= 0.05)
+                    .limit(3)
+                    .toList();
+            if (!top.isEmpty()) {
+                ctx.emit("rag_result", Map.of(
+                        "sources", top.stream().map(RagCitation::label).distinct().toList(),
+                        "citations", top));
+            }
+            return top;
+        } catch (RuntimeException e) {
+            log.warn("规划期知识库检索失败，方案不带知识引用: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    /** 把引用挂到结构化方案上（extras + reasoning），前端与确认弹窗可追溯 */
+    private static void attachKnowledge(AgentPlan plan, List<RagCitation> citations) {
+        if (plan == null || citations == null || citations.isEmpty()) {
+            return;
+        }
+        Map<String, Object> extras = plan.getExtras() == null
+                ? new HashMap<>() : new HashMap<>(plan.getExtras());
+        extras.put("citations", citations);
+        plan.setExtras(extras);
+        String reasoning = plan.getReasoning() == null ? "" : plan.getReasoning();
+        if (!reasoning.contains("知识依据")) {
+            String labels = citations.stream().map(RagCitation::label).distinct()
+                    .collect(java.util.stream.Collectors.joining("、"));
+            plan.setReasoning(reasoning + (reasoning.isEmpty() ? "" : " ") + "知识依据：" + labels + "。");
+        }
     }
 
     // ==================== LLM 结构化规划组装 ====================
@@ -607,6 +692,18 @@ public class PlannerAgent {
                 structuredPlanner.planModification(city, items, trip.getStartDate(), weatherHint, message,
                         ctx.getHistory(), timeBudget);
         if (parse == null || !parse.ok()) {
+            return null;
+        }
+        // P1 行中锁定复核：模型不得替换已开始/已完成/已跳过的条目；命中即回退规则路径
+        java.util.Set<Long> lockedIds = items.stream()
+                .filter(i -> !isAdjustable(i))
+                .map(ItineraryDtos.ItineraryItemDTO::getId)
+                .filter(java.util.Objects::nonNull)
+                .collect(java.util.stream.Collectors.toSet());
+        boolean touchesLocked = parse.removes().stream()
+                .anyMatch(remove -> remove.target() != null && lockedIds.contains(remove.target().getId()));
+        if (touchesLocked) {
+            log.info("结构化修改命中了已开始/已完成条目，按行中锁定规则回退规则路径");
             return null;
         }
         List<PlanOperation> ops = new ArrayList<>();

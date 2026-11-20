@@ -4,6 +4,7 @@ import com.travel.agent.dto.ApiResponse;
 import com.travel.agent.dto.BudgetDtos;
 import com.travel.agent.dto.ItineraryDtos;
 import com.travel.agent.dto.TripDtos;
+import com.travel.agent.dto.TravelReviewDtos;
 import com.travel.agent.entity.Trip;
 import com.travel.agent.entity.User;
 import com.travel.agent.service.AuthService;
@@ -38,6 +39,10 @@ public class TripController {
     private final TripGuidebookService guidebookService;
     /** V2.2 FR-07：每日路线段（真实/估算距离 + 来源标记） */
     private final ItineraryRouteService itineraryRouteService;
+    /** P1：行后回顾聚合 */
+    private final com.travel.agent.service.TripReviewService tripReviewService;
+    /** P1：旅行事件流 */
+    private final com.travel.agent.service.TripEventService tripEventService;
 
     @GetMapping
     public ApiResponse<List<TripDtos.TripResponse>> list(
@@ -128,7 +133,34 @@ public class TripController {
         Trip trip = tripService.getOwned(id, user.getId());
         var saved = historyService.withHistory(trip, user.getId(), "手动新增行程项：" + request.getTitle(),
                 () -> itineraryService.addItem(trip, request));
+        tripEventService.record(trip.getId(), saved.getId(),
+                com.travel.agent.entity.TripEvent.TYPE_MANUAL_EDIT, "user",
+                "新增行程项：「" + saved.getTitle() + "」");
         return ApiResponse.ok(itineraryService.toDto(saved, trip));
+    }
+
+    /**
+     * 旅行回顾（P1）：完成率、计划/实际花费、到访地点、实际路线、照片、事件与修改历史。
+     * 只读聚合，不改变行程；口径见 {@code TravelReviewDtos} 与 {@code TripReviewService}。
+     */
+    @GetMapping("/{id}/review")
+    public ApiResponse<TravelReviewDtos.TripReview> review(@PathVariable Long id, Authentication authentication) {
+        User user = authService.requireUser(authentication.getName());
+        Trip trip = tripService.getOwned(id, user.getId());
+        return ApiResponse.ok(tripReviewService.forTrip(trip));
+    }
+
+    /** 旅行事件流（P1）：天气突变 / 拥堵 / 闭馆 / 打卡 / Agent 调整，按时间倒序 */
+    @GetMapping("/{id}/events")
+    public ApiResponse<List<TripDtos.TripEventResponse>> events(
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "20") int limit,
+            Authentication authentication) {
+        User user = authService.requireUser(authentication.getName());
+        tripService.getOwned(id, user.getId());
+        return ApiResponse.ok(tripEventService.list(id, limit).stream()
+                .map(TripDtos.TripEventResponse::from)
+                .toList());
     }
 
     /** 路书导出：行程 + 每日安排 + 预算小结 → PDF（浏览器内联预览，可另存） */

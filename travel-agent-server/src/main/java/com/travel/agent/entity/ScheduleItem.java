@@ -68,6 +68,22 @@ public class ScheduleItem {
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
+    /** 关联行程（P1，可空）：出行相关的日程可按 tripId 聚合到行程详情 */
+    @Column(name = "trip_id")
+    private Long tripId;
+
+    /** 关联行程项（可空）：例如「提醒办理签证」挂在出发日条目上 */
+    @Column(name = "itinerary_item_id")
+    private Long itineraryItemId;
+
+    /** 来源：MANUAL / AGENT / PLAN_SYNC，用于区分手工与方案同步生成 */
+    @Column(length = 30)
+    private String source;
+
+    /** 行程第几天（1-based），仅当 tripId 非空时有意义 */
+    @Column(name = "travel_day")
+    private Integer travelDay;
+
     @PrePersist
     public void prePersist() {
         if (createdAt == null) {

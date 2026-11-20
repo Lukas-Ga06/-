@@ -2,6 +2,7 @@ package com.travel.agent.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.travel.agent.config.AmapProperties;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
@@ -31,8 +32,10 @@ public class CityGeoLocator {
 
     private volatile RestClient nominatimClient;
 
-    public CityGeoLocator(AmapProperties amapProperties) {
-        this.amap = new AmapGeocodeClient(amapProperties.getKey());
+    public CityGeoLocator(AmapProperties amapProperties, MeterRegistry meterRegistry) {
+        // AmapGeocodeClient 不是 Bean（只被本类持有）：baseUrl/超时预算与降级指标都从配置与注册表透传进去
+        this.amap = new AmapGeocodeClient(amapProperties.getKey(), amapProperties.getBaseUrl(),
+                amapProperties.getConnectTimeoutMs(), amapProperties.getReadTimeoutMs(), meterRegistry);
     }
 
     /** 是否配置了高德 Key（未配置时走 Nominatim / LLM 兜底路径） */

@@ -47,6 +47,8 @@ public class TripMapService {
     private final CityAtlas cityAtlas;
     private final TravelCatalogService catalogService;
     private final OnlineCityService onlineCityService;
+    /** P1：足迹区分 planned / visited / actualRoute（只认 visitedAt，不把计划当到访） */
+    private final com.travel.agent.repository.ItineraryItemRepository itineraryItemRepository;
 
     /** 目的地坐标缓存（跨请求复用，避免重复联网） */
     private final Map<String, double[]> coordCache = new ConcurrentHashMap<>();
@@ -161,6 +163,26 @@ public class TripMapService {
     }
 
     private TripDtos.TripMapPoint point(Trip trip, double[] c) {
+        List<com.travel.agent.entity.ItineraryItem> items =
+                itineraryItemRepository.findByTripIdOrderByDayIndexAscStartTimeAsc(trip.getId());
+        List<com.travel.agent.entity.ItineraryItem> visited = items.stream()
+                .filter(item -> item.getVisitedAt() != null && item.getLatitude() != null && item.getLongitude() != null)
+                .sorted(java.util.Comparator.comparing(com.travel.agent.entity.ItineraryItem::getVisitedAt)
+                        .thenComparing(com.travel.agent.entity.ItineraryItem::getId,
+                                java.util.Comparator.nullsLast(Long::compareTo)))
+                .toList();
+        int planned = (int) items.stream()
+                .filter(item -> item.getLatitude() != null && item.getLongitude() != null)
+                .count();
+        List<TripDtos.RouteStop> route = visited.stream()
+                .map(item -> TripDtos.RouteStop.builder()
+                        .itemId(item.getId())
+                        .title(item.getTitle())
+                        .visitedAt(item.getVisitedAt().toString())
+                        .lat(item.getLatitude())
+                        .lng(item.getLongitude())
+                        .build())
+                .toList();
         return TripDtos.TripMapPoint.builder()
                 .tripId(trip.getId())
                 .name(trip.getName())
@@ -171,6 +193,11 @@ public class TripMapService {
                 .budget(trip.getBudget())
                 .lat(c == null ? null : c[0])
                 .lng(c == null ? null : c[1])
+                .phase(trip.phase(java.time.LocalDate.now()))
+                .plannedPlaces(planned)
+                .visitedPlaces(visited.size())
+                .visited(!visited.isEmpty())
+                .actualRoute(route)
                 .build();
     }
 }

@@ -5,7 +5,6 @@ import com.travel.agent.config.RateLimitProperties;
 import com.travel.agent.llm.LlmProperties;
 import com.travel.agent.llm.LlmRuntimeStatus;
 import com.travel.agent.service.AmapDataService;
-import com.travel.agent.service.InvoiceTextExtractor;
 import com.travel.agent.service.LlmQuotaService;
 import com.travel.agent.service.PriceReferenceService;
 import com.travel.agent.service.RouteService;
@@ -30,7 +29,6 @@ import static org.mockito.Mockito.when;
 class SystemControllerStatusTest {
 
     private final LlmProperties llmProperties = mock(LlmProperties.class);
-    private final InvoiceTextExtractor invoiceTextExtractor = mock(InvoiceTextExtractor.class);
     private final RateLimitProperties rateLimitProperties = mock(RateLimitProperties.class);
     private final LlmQuotaService llmQuotaService = mock(LlmQuotaService.class);
     private final AmapProperties amapProperties = mock(AmapProperties.class);
@@ -39,7 +37,7 @@ class SystemControllerStatusTest {
     private SystemController controller(AmapDataService amap) {
         when(llmProperties.getQuotaDailyLimit()).thenReturn(0);
         when(amapProperties.usable()).thenReturn(false);
-        return new SystemController(llmProperties, invoiceTextExtractor, rateLimitProperties,
+        return new SystemController(llmProperties, rateLimitProperties,
                 llmQuotaService, amapProperties, new RouteService(amap), llmRuntimeStatus,
                 new PriceReferenceService());
     }
@@ -61,7 +59,7 @@ class SystemControllerStatusTest {
     void configuredButUnverifiedAmapIsReportedAsEstimatedWithHonestHint() {
         Map<String, Object> data = data(controller(amap(true, false, null)));
 
-        // routeProvider 取值域保持 amap|estimated，不新增枚举值（前端 Health 页与既有测试依赖）
+        // routeProvider 取值域保持 amap|estimated，不新增枚举值（前端系统状态卡与既有测试依赖）
         assertThat(data.get("routeProvider")).isEqualTo(RouteService.SOURCE_ESTIMATED);
         assertThat(data.get("routeConfigured")).isEqualTo(true);
         assertThat(data.get("amapVerified")).isEqualTo(false);

@@ -28,6 +28,14 @@ public class ChatDtos {
         @Size(max = 64, message = "长度不能超过 64 个字符")
         @Pattern(regexp = "[A-Za-z0-9_-]*", message = "格式不正确")
         private String conversationId;
+        /**
+         * 幂等标识（P0-01）：客户端为每次命令生成，重试时复用。
+         * 服务端按 (userId, requestId) 去重，保证刷新 / 重连 / 重放只写入一次；
+         * 为空表示不做幂等（旧客户端行为不变）。
+         */
+        @Size(max = 64, message = "长度不能超过 64 个字符")
+        @Pattern(regexp = "[A-Za-z0-9_-]*", message = "格式不正确")
+        private String requestId;
     }
 
     /**
@@ -48,6 +56,10 @@ public class ChatDtos {
         @Size(max = 64, message = "长度不能超过 64 个字符")
         @Pattern(regexp = "[A-Za-z0-9_-]*", message = "格式不正确")
         private String conversationId;
+        /** 幂等标识（P0-01），语义与 {@link ChatRequest#getRequestId()} 一致 */
+        @Size(max = 64, message = "长度不能超过 64 个字符")
+        @Pattern(regexp = "[A-Za-z0-9_-]*", message = "格式不正确")
+        private String requestId;
     }
 
     /** 多模态上下文：用户点击选中的元素，解决「这个换成类似的」中的指代问题 */

@@ -177,7 +177,9 @@ public class WeatherService {
     // ==================== 模拟路径（MVP 演示数据） ====================
 
     private WeatherInfo simulated(String city, LocalDate date, boolean mentionRain) {
-        int seed = Math.abs((city + date).hashCode());
+        // floorMod 而非 Math.abs：String.hashCode() 可能等于 Integer.MIN_VALUE，abs 之后仍是负数，
+        // 会让下面的取模得到负下标（ArrayIndexOutOfBoundsException）。对非负 hash，两者结果一致。
+        int seed = Math.floorMod((city + date).hashCode(), Integer.MAX_VALUE);
         String condition = CONDITIONS.get(seed % CONDITIONS.size());
         int rainProbability = switch (condition) {
             case "小雨" -> 70 + seed % 20;

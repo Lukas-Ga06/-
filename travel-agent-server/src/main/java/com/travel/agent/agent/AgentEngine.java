@@ -7,6 +7,8 @@ import com.travel.agent.entity.ItineraryItem;
 import com.travel.agent.entity.Trip;
 import com.travel.agent.exception.BusinessException;
 import com.travel.agent.model.WeatherInfo;
+import com.travel.agent.observability.TravelMetrics;
+import com.travel.agent.service.AgentCommandIdempotency;
 import com.travel.agent.service.ConversationService;
 import com.travel.agent.service.ItineraryService;
 import com.travel.agent.service.PlanNarrationService;
@@ -35,7 +37,7 @@ import java.util.Set;
  * <p>本类只保留<b>状态机与编排</b>：取消边界、会话记忆、规划→预览→反思→待确认链路、
  * 外部工具调用；各类意图的具体答复与确认/撤销分别委托给：
  * <ul>
- *   <li>{@link AssistantIntentHandler}：备忘 / 日程 / 日报 / 健康；</li>
+ *   <li>{@link AssistantIntentHandler}：旅行备忘 / 日程提醒；</li>
  *   <li>{@link TravelQueryHandler}：知识问答 / 预算 / 记账；</li>
  *   <li>{@link PlanConfirmationService}：确认 / 取消 / 取回 / 撤销；</li>
  *   <li>{@link AgentStageTimer}：阶段计时指标。</li>
@@ -47,19 +49,27 @@ import java.util.Set;
 public class AgentEngine {
 
     /**
-     * 票据只读会话下禁止执行的"直接写入类"意图：这四类都会立刻落库
-     * （账单 / 备忘 / 日程 / 日报），而票据是 URL 凭证，泄漏面大，不能凭它代受害者写数据。
+     * 票据只读会话下禁止执行的"直接写入类"意图：这三类都会立刻落库
+     * （账单 / 备忘 / 日程），而票据是 URL 凭证，泄漏面大，不能凭它代受害者写数据。
      *
      * <p>规划类（PLAN_TRIP / MODIFY_ITINERARY）保持可用：它们只产出待确认方案（pending_plan），
      * 真正提交仍需 POST /api/agent/confirm，而 POST 不接受票据。查询类本来就只读。
      */
     private static final Set<String> TICKET_READONLY_BLOCKED_INTENTS = Set.of(
             IntentResult.RECORD_EXPENSE, IntentResult.ADD_MEMO,
-            IntentResult.ADD_SCHEDULE, IntentResult.GEN_DAILY_REPORT);
+            IntentResult.ADD_SCHEDULE);
+
+    /**
+     * 幂等覆盖范围（P0-01）：与「直接写入类意图」完全一致 —— 记账 / 备忘 / 日程。
+     * 规划类不在此列：它们只产出待确认方案，重复规划不会重复落库，且需要保留多轮改稿。
+     */
+    private static final Set<String> IDEMPOTENT_WRITE_INTENTS = Set.of(
+            IntentResult.RECORD_EXPENSE, IntentResult.ADD_MEMO,
+            IntentResult.ADD_SCHEDULE);
 
     /** 票据只读会话拒绝写意图时返回的文案（明确告知原因与替代路径，不当作错误处理） */
     private static final String TICKET_READONLY_MESSAGE =
-            "当前连接为只读票据会话，记账/备忘/日程/日报请在网页端操作。";
+            "当前连接为只读票据会话，记账/备忘/日程请在网页端操作。";
 
     /** SSE 断连计数：reason=complete|timeout|error（controller 记）＋ cancelled（引擎阶段边界短路记） */
     private static final String SSE_DISCONNECTS_METRIC = "sse.disconnects";
@@ -115,6 +125,9 @@ public class AgentEngine {
     private final AssistantIntentHandler assistantHandler;
     private final TravelQueryHandler travelQueryHandler;
     private final PlanConfirmationService planConfirmation;
+
+    /** P0-01 写入幂等闸门：记账 / 备忘 / 日程按 (userId, requestId) 最多执行一次 */
+    private final AgentCommandIdempotency idempotency;
     /** V2.2 追踪：run / 任务 / 工具调用落库（内部吞异常，绝不反噬主流程） */
     private final com.travel.agent.service.AgentTraceService traceService;
     /**
@@ -128,6 +141,8 @@ public class AgentEngine {
     private final ReflectAgent reflectAgent;
     /** 指标：sse.disconnects（注入方式与 StructuredPlanner、LlmClient 一致） */
     private final MeterRegistry meterRegistry;
+    /** T5：规划结果指标 travel.plan.outcome（success|degraded|failed） */
+    private final com.travel.agent.observability.TravelMetrics travelMetrics;
 
     public AgentDtos.AgentResult handle(AgentContext ctx) {
         ctx.emit("start", Map.of("sessionId", ctx.getSessionId()));
@@ -166,25 +181,48 @@ public class AgentEngine {
         }
     }
 
-    /** 运行收尾：按结果状态映射 run 状态（NEED_CONFIRMATION 也是成功——规划完成等确认） */
+    /**
+     * 运行收尾：按结果状态映射 run 状态（NEED_CONFIRMATION 也是成功——规划完成等确认）。
+     *
+     * <p>P0-07：「成功」不再是无条件绿色。本轮只要有过程警告、预算降级或失败/降级任务，
+     * 总状态就是 {@link com.travel.agent.entity.AgentRun#STATUS_PARTIAL}，界面必须显示
+     * 「部分完成 / 待核实」，让用户知道结论可能不完整。
+     */
     private void finishRunRecord(AgentContext ctx, AgentDtos.AgentResult result) {
         if (ctx.getRunId() == null) {
             return;
         }
-        String status;
-        String error = null;
-        if (result == null) {
-            status = com.travel.agent.entity.AgentRun.STATUS_FAILED;
-        } else if (AgentDtos.STATUS_FAILED.equals(result.getStatus())) {
-            status = com.travel.agent.entity.AgentRun.STATUS_FAILED;
-            error = result.getMessage();
-        } else {
-            status = com.travel.agent.entity.AgentRun.STATUS_SUCCEEDED;
-        }
+        String status = aggregateRunStatus(result, ctx.hasBudgetDegradations(),
+                traceService.failedTaskCount(ctx.getRunId()));
+        String error = result != null && AgentDtos.STATUS_FAILED.equals(result.getStatus())
+                ? result.getMessage()
+                : null;
         traceService.finishRun(ctx.getRunId(), result == null ? null : result.getIntent(), status, error);
     }
 
+    /**
+     * 总状态聚合（P0-07 的唯一判定点，包可见以便单测直接驱动）。
+     *
+     * <p>优先级：整体失败 → FAILED；本轮有过程警告 / 预算降级 / 失败任务 → PARTIAL_SUCCESS；
+     * 其余才是 SUCCEEDED。任一必要模块出问题都不允许出现无条件的「成功」。
+     */
+    static String aggregateRunStatus(AgentDtos.AgentResult result, boolean budgetDegraded, int failedTasks) {
+        if (result == null) {
+            return com.travel.agent.entity.AgentRun.STATUS_FAILED;
+        }
+        if (AgentDtos.STATUS_FAILED.equals(result.getStatus())) {
+            return com.travel.agent.entity.AgentRun.STATUS_FAILED;
+        }
+        boolean hasWarnings = result.getWarnings() != null && !result.getWarnings().isEmpty();
+        if (hasWarnings || budgetDegraded || failedTasks > 0) {
+            return com.travel.agent.entity.AgentRun.STATUS_PARTIAL;
+        }
+        return com.travel.agent.entity.AgentRun.STATUS_SUCCEEDED;
+    }
+
     private AgentDtos.AgentResult doHandle(AgentContext ctx) {
+        // 幂等抢占是否成功：异常路径必须释放，否则同一 requestId 会被永久挡住
+        boolean idempotencyClaimed = false;
         try {
             Trip trip = ctx.getTripId() != null ? tripService.getOwned(ctx.getTripId(), ctx.getUserId()) : null;
             if (abortIfCancelled(ctx, "before-intent")) {
@@ -213,6 +251,25 @@ public class AgentEngine {
                         .build()), intent.getIntent());
             }
 
+            // P0-01 幂等闸门：写入类意图按 (userId, requestId) 最多执行一次。
+            // claim 在业务写入之前落库，重放请求看到已完成行就直接返回首次结果，绝不再写一遍。
+            boolean idempotentWrite = ctx.getRequestId() != null
+                    && IDEMPOTENT_WRITE_INTENTS.contains(intent.getIntent());
+            if (idempotentWrite) {
+                AgentCommandIdempotency.Outcome outcome = idempotency.claim(
+                        ctx.getUserId(), ctx.getRequestId(), intent.getIntent());
+                if (outcome.decision() != AgentCommandIdempotency.Decision.EXECUTE) {
+                    log.info("幂等命中，跳过执行: user={} requestId={} decision={}",
+                            ctx.getUsername(), ctx.getRequestId(), outcome.decision());
+                    AgentDtos.AgentResult replayed = outcome.result();
+                    if (replayed != null && replayed.getIntent() == null) {
+                        replayed.setIntent(intent.getIntent());
+                    }
+                    return finish(ctx, complete(ctx, replayed), intent.getIntent());
+                }
+                idempotencyClaimed = true;
+            }
+
             AgentDtos.AgentResult result = switch (intent.getIntent()) {
                 case IntentResult.QUERY_KNOWLEDGE -> travelQueryHandler.answerKnowledge(ctx, intent, trip);
                 case IntentResult.QUERY_BUDGET -> travelQueryHandler.answerBudget(ctx, intent, trip);
@@ -221,8 +278,6 @@ public class AgentEngine {
                 case IntentResult.QUERY_MEMO -> assistantHandler.queryMemo(ctx, intent);
                 case IntentResult.ADD_SCHEDULE -> assistantHandler.addSchedule(ctx, intent);
                 case IntentResult.QUERY_SCHEDULE -> assistantHandler.querySchedule(ctx, intent);
-                case IntentResult.GEN_DAILY_REPORT -> assistantHandler.dailyReport(ctx, intent);
-                case IntentResult.QUERY_HEALTH -> assistantHandler.queryHealth(ctx, intent);
                 case IntentResult.INVOKE_TOOL -> answerInvokeTool(ctx, intent, intentReceipt.handle());
                 case IntentResult.PLAN_TRIP, IntentResult.MODIFY_ITINERARY ->
                         planAndPresent(ctx, intent, trip, intentReceipt.handle());
@@ -232,6 +287,15 @@ public class AgentEngine {
                         .message(MessageTemplates.HELP)
                         .build());
             };
+            // 写入已经发生：先登记结果供重放，再做取消检查（取消不能抹掉已落库的事实）
+            if (idempotentWrite) {
+                if (result == null || AgentDtos.STATUS_FAILED.equals(result.getStatus())) {
+                    idempotency.release(ctx.getUserId(), ctx.getRequestId());
+                } else {
+                    idempotency.complete(ctx.getUserId(), ctx.getRequestId(), result);
+                }
+                idempotencyClaimed = false;
+            }
             if (abortIfCancelled(ctx, "before-return")) {
                 return aborted(ctx);
             }
@@ -242,6 +306,7 @@ public class AgentEngine {
         } catch (BusinessException e) {
             // 业务规则/校验类错误（含越权、参数不合法）：原样告诉用户，不伪装成系统故障
             log.info("Agent 业务校验未通过: {}", e.getMessage());
+            releaseIdempotencyIfClaimed(idempotencyClaimed, ctx);
             ctx.setState(AgentState.ERROR);
             AgentDtos.AgentResult rejected = AgentDtos.AgentResult.builder()
                     .intent("REJECTED")
@@ -254,6 +319,7 @@ public class AgentEngine {
         } catch (Exception e) {
             log.error("Agent 执行异常", e);
             ctx.setState(AgentState.ERROR);
+            releaseIdempotencyIfClaimed(idempotencyClaimed, ctx);
             AgentDtos.AgentResult failed = AgentDtos.AgentResult.builder()
                     .intent("ERROR")
                     .status(AgentDtos.STATUS_FAILED)
@@ -263,6 +329,16 @@ public class AgentEngine {
             ctx.emit("error", Map.of("message", failed.getMessage()));
             ctx.emit("complete", failed);
             return finish(ctx, failed, "ERROR");
+        }
+    }
+
+    /**
+     * 执行异常时释放幂等抢占（fail-open）：否则用户拿同一个 requestId 重试，
+     * 永远只会得到「正在处理中」，等于被一次偶发故障永久拉黑。
+     */
+    private void releaseIdempotencyIfClaimed(boolean claimed, AgentContext ctx) {
+        if (claimed) {
+            idempotency.release(ctx.getUserId(), ctx.getRequestId());
         }
     }
 
@@ -446,6 +522,9 @@ public class AgentEngine {
         // plan 阶段：规则路径 + LLM 结构化规划都在 plannerAgent.plan 内部，一并计时。
         // 任务图：PLAN 依赖 INTENT（意图没定就不该规划）——依赖边由 Coordinator 强制校验。
         Timer.Sample planSample = stageTimer.start();
+        // T5：降级口径 =「本次规划新增了预算降级」，而不是「上下文里曾经有过降级」
+        // （intent 阶段的降级不该污染规划成功率，否则一次预算紧张的会话会被记两次 degraded）
+        int planDegradationsBefore = ctx.getBudgetDegradations().size();
         Coordinator.Receipt<AgentPlan> planReceipt;
         try {
             planReceipt = coordinator.dispatch(ctx,
@@ -453,10 +532,20 @@ public class AgentEngine {
                     () -> plannerAgent.plan(ctx, intent, trip),
                     p -> p.getOperations().isEmpty() ? "未产出操作：" + truncateForTask(p.getReasoning())
                             : "生成 " + p.getOperations().size() + " 项操作");
+        } catch (RuntimeException e) {
+            // T5：异常路径同样要落到指标上（阶段耗时在 finally 已记，但"失败"这个结论不能只留在日志里）
+            travelMetrics.planOutcome(TravelMetrics.RESULT_FAILED);
+            throw e;
         } finally {
             stageTimer.stop(AgentStageTimer.STAGE_PLAN, planSample);
         }
         AgentPlan plan = planReceipt.value();
+        // T5：规划结果埋点。degraded 只表示"计划产出了，但本轮跳过了研究/结构化规划"；
+        // 空操作方案（无需改动）是正常业务结论，计 success，不算失败。
+        travelMetrics.planOutcome(plan == null ? TravelMetrics.RESULT_FAILED
+                : ctx.getBudgetDegradations().size() > planDegradationsBefore
+                        ? TravelMetrics.RESULT_DEGRADED
+                        : TravelMetrics.RESULT_SUCCESS);
         Coordinator.TaskHandle planTask = planReceipt.handle();
         // 计划携带 runId：确认提交（REST 线程）据此把 COMMIT 任务挂回同一运行
         if (plan != null && plan.getRunId() == null) {

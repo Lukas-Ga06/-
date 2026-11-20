@@ -1,6 +1,7 @@
 package com.travel.agent.security;
 
 import io.micrometer.core.instrument.MeterRegistry;
+import com.travel.agent.util.ExternalDegradationMetrics;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -73,5 +74,8 @@ public class RedisRateCounter implements RateCounter {
         log.warn("Redis 限流不可用，本次 fail-open 放行: bucket={} operation={} error={}: {}",
                 bucket, operation, e.getClass().getSimpleName(), e.getMessage());
         meterRegistry.counter(FAIL_OPEN_METRIC).increment();
+        // 统一降级口径（T3）：ratelimit.failopen 说明「限流没生效」，external.degraded 说明「依赖不可用」，
+        // 两者是同一事件的两个视角，告警按后者统一聚合到全部外部依赖
+        ExternalDegradationMetrics.record(meterRegistry, ExternalDegradationMetrics.PROVIDER_REDIS, e);
     }
 }

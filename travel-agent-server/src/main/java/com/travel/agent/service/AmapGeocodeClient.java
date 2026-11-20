@@ -3,6 +3,8 @@ package com.travel.agent.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.travel.agent.util.CityNames;
 import com.travel.agent.util.CoordinateTransform;
+import com.travel.agent.util.ExternalDegradationMetrics;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
@@ -30,11 +32,29 @@ class AmapGeocodeClient {
     /** 单批地理编码上限（高德 batch 接口限制） */
     private static final int BATCH_LIMIT = 10;
 
+    /** 默认根地址（配置缺失/空白时的兜底，与 {@code AmapProperties.baseUrl} 默认值一致） */
+    static final String DEFAULT_BASE_URL = "https://restapi.amap.com";
+
     private final String amapKey;
+    private final String baseUrl;
+    private final int connectTimeoutMs;
+    private final int readTimeoutMs;
+    private final MeterRegistry meterRegistry;
     private volatile RestClient geoClient;
 
-    AmapGeocodeClient(String amapKey) {
+    /**
+     * @param baseUrl          根地址（如 {@code https://restapi.amap.com}；降级测试指向本地 WireMock）
+     * @param connectTimeoutMs 建连超时预算
+     * @param readTimeoutMs    读超时预算（服务端固定延迟超过它即视为超时降级）
+     * @param meterRegistry    {@code external.degraded{provider=amap}} 的写入目标，可为 null（不记指标）
+     */
+    AmapGeocodeClient(String amapKey, String baseUrl, int connectTimeoutMs, int readTimeoutMs,
+                      MeterRegistry meterRegistry) {
         this.amapKey = amapKey;
+        this.baseUrl = (baseUrl == null || baseUrl.isBlank() ? DEFAULT_BASE_URL : baseUrl).replaceAll("/+$", "");
+        this.connectTimeoutMs = connectTimeoutMs;
+        this.readTimeoutMs = readTimeoutMs;
+        this.meterRegistry = meterRegistry;
     }
 
     /** 是否配置了可用的高德 Key（空/空白一律视为未配置） */
@@ -68,8 +88,19 @@ class AmapGeocodeClient {
         try {
             JsonNode resp = geoClient().get().uri(URI.create(amapGeoUri(
                     URLEncoder.encode(address, StandardCharsets.UTF_8), cityHint))).retrieve().body(JsonNode.class);
+            if (resp == null) {
+                ExternalDegradationMetrics.record(meterRegistry, ExternalDegradationMetrics.PROVIDER_AMAP,
+                        ExternalDegradationMetrics.REASON_BAD_RESPONSE);
+                return null;
+            }
+            if (!"1".equals(resp.path("status").asText("1"))) {
+                // HTTP 200 + status=0（如 INVALID_USER_KEY / QPS 超限 10021）：对端明确拒绝，按坏响应降级
+                ExternalDegradationMetrics.record(meterRegistry, ExternalDegradationMetrics.PROVIDER_AMAP,
+                        ExternalDegradationMetrics.REASON_BAD_RESPONSE);
+            }
             return firstLocation(resp, verifyCity ? address : null);
         } catch (Exception e) {
+            ExternalDegradationMetrics.record(meterRegistry, ExternalDegradationMetrics.PROVIDER_AMAP, e);
             log.info("高德定位失败: {} - {}", address, e.getMessage());
             return null;
         }
@@ -109,6 +140,9 @@ class AmapGeocodeClient {
             JsonNode geocodes = resp == null ? null : resp.path("geocodes");
             if (resp == null || !"1".equals(resp.path("status").asText())
                     || !geocodes.isArray() || geocodes.size() != chunk.size()) {
+                // 请求成功但内容不可用（数量对不齐 / status=0）：记一次坏响应，随后逐个查询兜底
+                ExternalDegradationMetrics.record(meterRegistry, ExternalDegradationMetrics.PROVIDER_AMAP,
+                        ExternalDegradationMetrics.REASON_BAD_RESPONSE);
                 return false;
             }
             for (int i = 0; i < geocodes.size(); i++) {
@@ -119,13 +153,15 @@ class AmapGeocodeClient {
             }
             return true;
         } catch (Exception e) {
+            ExternalDegradationMetrics.record(meterRegistry, ExternalDegradationMetrics.PROVIDER_AMAP, e);
             log.info("高德批量定位失败，退回逐个查询: {}", e.getMessage());
             return false;
         }
     }
 
+    /** 拼完整 URI：根地址可配置（测试指向本地 WireMock），路径仍是高德 /v3/geocode/geo */
     private String amapGeoUri(String encodedAddress, String cityHint) {
-        String uri = "https://restapi.amap.com/v3/geocode/geo?batch=true&address=" + encodedAddress
+        String uri = baseUrl + "/v3/geocode/geo?batch=true&address=" + encodedAddress
                 + "&key=" + amapKey;
         if (cityHint != null && !cityHint.isBlank()) {
             uri += "&city=" + URLEncoder.encode(cityHint, StandardCharsets.UTF_8);
@@ -208,8 +244,8 @@ class AmapGeocodeClient {
             synchronized (this) {
                 if (geoClient == null) {
                     SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-                    factory.setConnectTimeout(3000);
-                    factory.setReadTimeout(5000);
+                    factory.setConnectTimeout(connectTimeoutMs);
+                    factory.setReadTimeout(readTimeoutMs);
                     geoClient = RestClient.builder()
                             .requestFactory(factory)
                             .defaultHeader("User-Agent", "travel-agent-demo/0.1 (educational demo)")

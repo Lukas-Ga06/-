@@ -208,7 +208,7 @@ public class TripGuidebookService {
             .empty { color: #666; }
             .footer { margin-top: 20px; color: #888; font-size: 9px; text-align: center; border-top: 1px solid #ddd; padding-top: 6px; }
             </style></head>
-            <body>%s<div class="footer">由 AI 个人助理 · 行程路书生成于 %s</div></body>
+            <body>%s<div class="footer">由 AI 智能旅行助手 · 行程路书生成于 %s</div></body>
             </html>
             """;
 

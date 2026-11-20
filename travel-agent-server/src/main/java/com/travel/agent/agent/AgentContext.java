@@ -48,6 +48,12 @@ public class AgentContext {
      */
     private String conversationId;
 
+    /**
+     * 幂等标识（P0-01）：客户端生成、重试复用，服务端按 (userId, requestId) 保证写入最多一次。
+     * 为空表示本条不做幂等（旧客户端 / 内部调用）。
+     */
+    private String requestId;
+
     /** 多模态上下文：用户当前选中的元素，解决「这个换成类似的」的指代 */
     private ChatDtos.SelectedElement selectedElement;
     private ChatDtos.MapLocation mapCenter;
@@ -56,7 +62,7 @@ public class AgentContext {
      * 仅凭 URL 票据认证的只读会话（没有 Cookie / Authorization 头）。
      *
      * <p>票据会随 URL 进入日志与 Referer，泄漏代价低；因此这种会话允许查询与规划，
-     * 但不允许执行记账/备忘/日程/日报这类直接落库的写意图（见 AgentEngine）。
+     * 但不允许执行记账/备忘/日程这类直接落库的写意图（见 AgentEngine）。
      */
     private boolean ticketOnly;
 

@@ -241,7 +241,8 @@ class PlannerHistoryPromptTest {
         PlannerAgent plannerAgent = new PlannerAgent(mock(ToolInvoker.class), catalog,
                 mock(ItineraryService.class), budgetService, props, structured,
                 new PlannerDraftSupport(mock(ToolInvoker.class)), toolLoop,
-                new AgentTaskRecorder(mock(com.travel.agent.service.AgentTraceService.class)));
+                new AgentTaskRecorder(mock(com.travel.agent.service.AgentTraceService.class)),
+                mock(com.travel.agent.rag.RagService.class));
 
         AgentContext ctx = new AgentContext();
         ctx.setMessage("帮我规划测试市三日游");
@@ -271,7 +272,8 @@ class PlannerHistoryPromptTest {
         PlannerAgent plannerAgent = new PlannerAgent(mock(ToolInvoker.class), catalog,
                 mock(ItineraryService.class), budgetService, props, planner(client),
                 new PlannerDraftSupport(mock(ToolInvoker.class)), mock(AgentToolLoop.class),
-                new AgentTaskRecorder(mock(com.travel.agent.service.AgentTraceService.class)));
+                new AgentTaskRecorder(mock(com.travel.agent.service.AgentTraceService.class)),
+                mock(com.travel.agent.rag.RagService.class));
 
         AgentContext ctx = new AgentContext();
         ctx.setMessage("帮我规划测试市三日游");

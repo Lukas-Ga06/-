@@ -54,14 +54,6 @@ class PagingApiTest extends IntegrationTestSupport {
                 .andExpect(status().isOk());
     }
 
-    private void addHealth(Account account, LocalDate date) throws Exception {
-        mockMvc.perform(post("/api/health/record")
-                        .header("Authorization", account.bearer())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"date\":\"%s\",\"steps\":6000,\"sleepHours\":7.5}".formatted(date)))
-                .andExpect(status().isOk());
-    }
-
     @Test
     @DisplayName("行程列表支持 limit/offset 并返回 pagination 元数据")
     void tripListSupportsPaging() throws Exception {
@@ -198,29 +190,6 @@ class PagingApiTest extends IntegrationTestSupport {
                 .andExpect(jsonPath("$.pagination.hasMore").value(true));
 
         mockMvc.perform(get("/api/trips/" + tripId + "/expenses").param("limit", "2").param("offset", "2")
-                        .header("Authorization", account.bearer()))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.length()").value(1))
-                .andExpect(jsonPath("$.pagination.hasMore").value(false));
-    }
-
-    @Test
-    @DisplayName("健康记录列表分页（最近 7 天窗口）")
-    void healthRecordPagination() throws Exception {
-        Account account = registerNew();
-        LocalDate today = LocalDate.now();
-        addHealth(account, today);
-        addHealth(account, today.minusDays(1));
-        addHealth(account, today.minusDays(2));
-
-        mockMvc.perform(get("/api/health/records").param("limit", "2")
-                        .header("Authorization", account.bearer()))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.length()").value(2))
-                .andExpect(jsonPath("$.pagination.total").value(3))
-                .andExpect(jsonPath("$.pagination.hasMore").value(true));
-
-        mockMvc.perform(get("/api/health/records").param("limit", "2").param("offset", "2")
                         .header("Authorization", account.bearer()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.length()").value(1))

@@ -9,7 +9,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * 进程内固定窗口限流计数器（无第三方依赖，默认实现）。
  *
- * 选择固定窗口而不是令牌桶：实现足够短、行为可预测，个人助理场景够用。
+ * 选择固定窗口而不是令牌桶：实现足够短、行为可预测，旅行助手场景够用。
  * 计数不落库，重启即清零；多实例部署时用 travel.rate-limit.store=redis 切换
  * {@link RedisRateCounter}，配额由全部实例共享。
  */

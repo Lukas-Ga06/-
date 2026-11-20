@@ -50,11 +50,18 @@ public class SecurityConfig {
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         // 免登录路径。H2 控制台以 sa 空密码直连数据库，默认绝不能放行：
         // 未启用时该路径不在白名单里，任何请求都会先被认证拦截（避免"匿名读写全库"）。
+        //
+        // OpenAPI 文档（/v3/api-docs/** 与 /swagger-ui/**）同样公开：它是契约的机器可读出口，
+        // 内容只有 Controller 签名与 DTO 推导出的 schema，不含任何密钥/凭证（JWT secret、LLM Key、
+        // 数据库口令都不进 schema）。生产环境如需收紧，应在网关/反向代理层按来源限制，
+        // 而不是在这里加登录——否则契约快照测试与压测工具都无法直接取文档。
         String[] publicPaths = h2ConsoleEnabled
                 ? new String[]{"/api/auth/login", "/api/auth/register", "/api/auth/logout",
-                        "/api/channels/**", "/h2-console/**", "/error", "/actuator/health"}
+                        "/api/channels/**", "/h2-console/**", "/error", "/actuator/health",
+                        "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html"}
                 : new String[]{"/api/auth/login", "/api/auth/register", "/api/auth/logout",
-                        "/api/channels/**", "/error", "/actuator/health"};
+                        "/api/channels/**", "/error", "/actuator/health",
+                        "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html"};
         http
                 .csrf(csrf -> csrf.disable())
                 .cors(Customizer.withDefaults())

@@ -20,6 +20,14 @@ public class LlmProperties {
     /** 每用户每日 LLM 调用次数上限；0 = 不限制（UserContext 取不到用户的系统调用不受限） */
     private int quotaDailyLimit = 0;
 
+    // ==================== 成本估算（可观测性，T5） ====================
+    // 默认 0 = 不计成本：不同供应商/模型价目表差异极大，写死一个"看起来合理"的默认值
+    // 会让成本面板长期虚报。真正需要成本 SLO 时，按当期价目表配置这两个值（美元 / 1K tokens）。
+    /** 每 1K prompt（输入）token 的美元单价；默认 0 = 不记录 travel.llm.cost.usd */
+    private double promptPricePer1kUsd = 0.0;
+    /** 每 1K completion（输出）token 的美元单价；默认 0 = 不记录 travel.llm.cost.usd */
+    private double completionPricePer1kUsd = 0.0;
+
     public boolean usable() {
         return enabled && apiKey != null && !apiKey.isBlank();
     }

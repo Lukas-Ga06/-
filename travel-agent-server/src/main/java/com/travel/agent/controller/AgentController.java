@@ -78,6 +78,7 @@ public class AgentController {
                              @RequestParam(value = "tripId", required = false) Long tripId,
                              @RequestParam(value = "currentDay", required = false) Integer currentDay,
                              @RequestParam(value = "conversationId", required = false) String conversationId,
+                             @RequestParam(value = "requestId", required = false) String requestId,
                              @RequestParam(value = "selType", required = false) String selType,
                              @RequestParam(value = "selId", required = false) Long selId,
                              @RequestParam(value = "selTitle", required = false) String selTitle,
@@ -92,7 +93,8 @@ public class AgentController {
                 message, tripId, currentDay,
                 selType == null ? null : new ChatDtos.SelectedElement(selType, selId, selTitle),
                 (lat == null || lng == null) ? null : new ChatDtos.MapLocation(lat, lng),
-                sanitizeConversationId(conversationId));
+                sanitizeConversationId(conversationId),
+                sanitizeRequestId(requestId));
         return doStream(user, request, ticketOnly(httpRequest));
     }
 
@@ -111,7 +113,8 @@ public class AgentController {
         noReferrer(httpResponse);
         ChatDtos.ChatRequest request = new ChatDtos.ChatRequest(
                 body.getMessage(), body.getTripId(), body.getCurrentDay(),
-                body.getSelectedElement(), body.getMapCenter(), body.getConversationId());
+                body.getSelectedElement(), body.getMapCenter(), body.getConversationId(),
+                sanitizeRequestId(body.getRequestId()));
         return doStream(user, request, ticketOnly(httpRequest));
     }
 
@@ -324,6 +327,7 @@ public class AgentController {
         ctx.setTripId(request.getTripId());
         ctx.setSessionId(UUID.randomUUID().toString());
         ctx.setConversationId(request.getConversationId());
+        ctx.setRequestId(request.getRequestId());
         ctx.setMessage(request.getMessage());
         ctx.setCurrentDay(request.getCurrentDay());
         ctx.setSelectedElement(request.getSelectedElement());
@@ -364,5 +368,13 @@ public class AgentController {
             return null;
         }
         return trimmed;
+    }
+
+    /**
+     * 幂等标识的清洗规则与 conversationId 相同：不合法就当作没传（不做幂等），
+     * 绝不把一个任意字符串直接当去重键写库。
+     */
+    private static String sanitizeRequestId(String requestId) {
+        return sanitizeConversationId(requestId);
     }
 }

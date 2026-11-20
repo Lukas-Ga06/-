@@ -14,4 +14,10 @@ public interface ScheduleItemRepository extends JpaRepository<ScheduleItem, Long
 
     /** 行程删除时清理该方案同步出来的日程（按前缀 plan-sync:{planId}:） */
     long deleteBySourceKeyStartingWith(String prefix);
+
+    /** P1：按行程聚合的日程数量（回顾页） */
+    long countByTripId(Long tripId);
+
+    /** P1：行程删除时清理挂在该行程上的日程 */
+    long deleteByTripId(Long tripId);
 }

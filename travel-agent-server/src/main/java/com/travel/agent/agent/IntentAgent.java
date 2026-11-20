@@ -38,7 +38,6 @@ public class IntentAgent {
             IntentResult.QUERY_KNOWLEDGE, IntentResult.RECORD_EXPENSE,
             IntentResult.ADD_MEMO, IntentResult.QUERY_MEMO,
             IntentResult.ADD_SCHEDULE, IntentResult.QUERY_SCHEDULE,
-            IntentResult.GEN_DAILY_REPORT, IntentResult.QUERY_HEALTH,
             IntentResult.INVOKE_TOOL, IntentResult.CHITCHAT);
 
     private final LlmClient llmClient;
@@ -68,16 +67,9 @@ public class IntentAgent {
     }
 
     /**
-     * 模型越界分类的兜底：例如把「总结我在上海的旅行」判成「生成今日日报」。
-     * 日报只应在用户明确提到日报/今天/今日时触发，否则交回规则引擎重新判断
-     * （这类问题更适合走预算/知识问答，并带上行程上下文）。
+     * 模型越界分类的兜底：只认注册过的 mcp_* 工具；模型编造工具名时交回规则引擎。
      */
     private boolean plausible(IntentResult result, String message) {
-        if (IntentResult.GEN_DAILY_REPORT.equals(result.getIntent())
-                && !MessageParser.mentions(message, "日报", "今天", "今日")) {
-            log.info("模型把「{}」判成日报，交回规则引擎", message);
-            return false;
-        }
         // INVOKE_TOOL 只认注册过的 mcp_* 工具：模型编造工具名时交回规则引擎
         if (IntentResult.INVOKE_TOOL.equals(result.getIntent())
                 && (result.getToolName() == null || result.getToolName().isBlank()
@@ -94,15 +86,12 @@ public class IntentAgent {
             String historyBlock = renderHistory(ctx);
             String toolsBlock = renderToolCatalog();
             String prompt = """
-                    你是个人智能助理的意图识别模块。将用户消息分类为以下意图之一：
+                    你是智能旅行助手的意图识别模块。将用户消息分类为以下意图之一：
                     PLAN_TRIP（规划新行程；用户说「重新规划/重排整个行程」也归这里）、
                     MODIFY_ITINERARY（只改某一项或某一天，如换掉某个景点、调整时间）、QUERY_BUDGET（查询预算花费）、
                     QUERY_KNOWLEDGE（旅游知识问答，如攻略/推荐/介绍）、RECORD_EXPENSE（记账：记录一笔实际花费，如「记一笔午餐45元」）、
                     ADD_MEMO（添加个人备忘/待办，如「记一下明天办签证」）、QUERY_MEMO（查看备忘/待办列表）、
-                    ADD_SCHEDULE（添加日程，如「明天下午3点开评审会」）、QUERY_SCHEDULE（查看日程安排）、
-                    GEN_DAILY_REPORT（生成"今天"的个人日报；只有用户明确说要日报或回顾今天时才用，
-                    说「总结我在上海的旅行」「回顾某次旅行」属于 QUERY_KNOWLEDGE 或 QUERY_BUDGET，不要判成日报）、
-                    QUERY_HEALTH（查询健康数据，如步数/睡眠/心率/手环）、
+                    ADD_SCHEDULE（添加出行日程/提醒，如「明天下午3点去办签证」）、QUERY_SCHEDULE（查看日程安排）、
                     CHITCHAT（其他闲聊）。
                     %s
                     target 为操作目标：OUTDOOR_ACTIVITY / SELECTED_ITEM / NONE。
@@ -282,15 +271,7 @@ public class IntentAgent {
                     .intent(IntentResult.QUERY_MEMO).target(IntentResult.TARGET_NONE).constraints(constraints).build();
         }
 
-        // 5. 办公：日报 / 日程 / 健康
-        if (MessageParser.mentions(message, "日报")) {
-            return IntentResult.builder()
-                    .intent(IntentResult.GEN_DAILY_REPORT).target(IntentResult.TARGET_NONE).constraints(constraints).build();
-        }
-        if (MessageParser.mentions(message, "健康", "步数", "睡眠", "心率", "手环", "体重")) {
-            return IntentResult.builder()
-                    .intent(IntentResult.QUERY_HEALTH).target(IntentResult.TARGET_NONE).constraints(constraints).build();
-        }
+        // 5. 日程（出行提醒）
         boolean scheduleQuery = MessageParser.mentions(message, "我的日程", "日程表", "日程安排", "有哪些安排", "日程有哪些");
         // 必须有明确时间点或排期动词才算"添加日程"。
         // 旧实现只要求关键词 + parseScheduleRequest 非 null，而后者对任何文本都返回非 null，

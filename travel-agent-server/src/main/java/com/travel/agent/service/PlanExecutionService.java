@@ -2,7 +2,6 @@ package com.travel.agent.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.travel.agent.agent.PendingPlanStore;
 import com.travel.agent.dto.AgentDtos;
 import com.travel.agent.entity.PlanExecution;
 import com.travel.agent.entity.ScheduleItem;
@@ -18,7 +17,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
@@ -179,6 +177,9 @@ public class PlanExecutionService {
                             .time(LocalTime.of(9, 0))
                             .note("同步自行程计划（目的地 " + trip.getDestination() + "）")
                             .sourceKey(sourceKey)
+                            .tripId(tripId)
+                            .travelDay(day)
+                            .source("PLAN_SYNC")
                             .build());
                     created++;
                 } catch (DataIntegrityViolationException e) {

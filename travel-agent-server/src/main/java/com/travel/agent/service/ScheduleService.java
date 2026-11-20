@@ -43,6 +43,13 @@ public class ScheduleService {
     @Transactional
     public ScheduleItem add(Long userId, String title, LocalDate date, java.time.LocalTime time, String note,
                             String recurrence, LocalDate repeatUntil) {
+        return add(userId, title, date, time, note, recurrence, repeatUntil, null, null);
+    }
+
+    /** P1：旅行相关日程带上 tripId / travelDay（可空），来源默认 AGENT */
+    @Transactional
+    public ScheduleItem add(Long userId, String title, LocalDate date, java.time.LocalTime time, String note,
+                            String recurrence, LocalDate repeatUntil, Long tripId, Integer travelDay) {
         return repository.save(ScheduleItem.builder()
                 .userId(userId)
                 .title(title)
@@ -51,6 +58,9 @@ public class ScheduleService {
                 .note(note)
                 .recurrence(Recurrence.normalize(recurrence))
                 .repeatUntil(repeatUntil)
+                .tripId(tripId)
+                .travelDay(travelDay)
+                .source(tripId == null ? "MANUAL" : "AGENT")
                 .build());
     }
 

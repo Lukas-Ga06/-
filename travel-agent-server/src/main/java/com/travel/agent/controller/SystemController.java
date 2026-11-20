@@ -5,7 +5,6 @@ import com.travel.agent.config.AmapProperties;
 import com.travel.agent.config.RateLimitProperties;
 import com.travel.agent.llm.LlmProperties;
 import com.travel.agent.llm.LlmRuntimeStatus;
-import com.travel.agent.service.InvoiceTextExtractor;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -35,7 +34,6 @@ import java.util.Map;
 public class SystemController {
 
     private final LlmProperties llmProperties;
-    private final InvoiceTextExtractor invoiceTextExtractor;
     private final RateLimitProperties rateLimitProperties;
     private final com.travel.agent.service.LlmQuotaService llmQuotaService;
     private final AmapProperties amapProperties;
@@ -71,7 +69,7 @@ public class SystemController {
 
         status.put("timezone", ZoneId.systemDefault().getId());
 
-        // 路线数据来源（FR-05 + P2）：provider 的取值域仍是 amap|estimated（前端 Health 页与既有测试依赖），
+        // 路线数据来源（FR-05 + P2）：provider 的取值域仍是 amap|estimated（前端系统状态卡与既有测试依赖），
         // 另用 routeConfigured / amapVerified / routeLastError 说明「配置了」「验证过了」「为什么失败」。
         String routeProvider = routeService.provider();
         boolean routeConfigured = routeService.configured();
@@ -87,10 +85,6 @@ public class SystemController {
         // priceHint 必须与之一致——前端据此在价格旁固定展示「参考价」与免责声明。
         status.put("priceProvider", priceReferenceService.provider());
         status.put("priceHint", priceReferenceService.hint());
-        status.put("ocrConfigured", invoiceTextExtractor.ocrConfigured());
-        status.put("ocrHint", invoiceTextExtractor.ocrConfigured()
-                ? "已配置 Tesseract：图片发票可直接 OCR"
-                : "未配置 OCR：支持 PDF 电子发票与粘贴文本；图片需设置 TESSERACT_CMD");
 
         // 运维可见性：待确认方案已落库（多实例可用），限流是否开启
         status.put("pendingPlanStore", "database");

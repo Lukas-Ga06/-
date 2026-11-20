@@ -37,6 +37,8 @@ public class ItineraryService {
     private final TripRepository tripRepository;
     /** 参考价自报（ADR-006）：纯本地推算，无网络调用 */
     private final PriceReferenceService priceReferenceService;
+    /** P1：行程项状态变化写入旅行事件（打卡/跳过留痕） */
+    private final TripEventService tripEventService;
 
     public List<ItineraryDtos.ItineraryItemDTO> listByTrip(Long tripId) {
         Pageable pageable = PageRequest.of(0, MAX_ITINERARY_ROWS,
@@ -107,6 +109,64 @@ public class ItineraryService {
         if (req.getTags() != null) item.setTags(String.join(",", req.getTags()));
         if (req.getDescription() != null) item.setDescription(req.getDescription());
         return repository.save(item);
+    }
+
+    @Transactional
+    public ItineraryItem updateStatus(Trip trip, Long itemId, String status) {
+        ItineraryItem item = repository.findById(itemId)
+                .filter(i -> i.getTripId().equals(trip.getId()))
+                .orElseThrow(() -> new BusinessException(404, "行程条目不存在"));
+        String normalized = status == null ? "" : status.trim().toUpperCase();
+        if (!java.util.Set.of(ItineraryItem.STATUS_PENDING, ItineraryItem.STATUS_IN_PROGRESS,
+                ItineraryItem.STATUS_COMPLETED, ItineraryItem.STATUS_SKIPPED).contains(normalized)) {
+            throw new BusinessException(400, "未知的行程项状态: " + status);
+        }
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+        switch (normalized) {
+            case ItineraryItem.STATUS_PENDING -> {
+                // 重置为未开始：清掉实际时间，回到可被自动重规划调整的状态
+                item.setStartedAt(null);
+                item.setCompletedAt(null);
+                item.setVisitedAt(null);
+            }
+            case ItineraryItem.STATUS_IN_PROGRESS -> {
+                if (item.getStartedAt() == null) {
+                    item.setStartedAt(now);
+                }
+                item.setCompletedAt(null);
+                item.setVisitedAt(null);
+            }
+            case ItineraryItem.STATUS_COMPLETED -> {
+                if (item.getStartedAt() == null) {
+                    item.setStartedAt(now);
+                }
+                item.setCompletedAt(now);
+                // 实际到访时间 = 完成时间：足迹只认 visitedAt，不把计划时间当成「去过」
+                item.setVisitedAt(now);
+            }
+            case ItineraryItem.STATUS_SKIPPED -> {
+                item.setCompletedAt(now);
+                item.setVisitedAt(null);
+            }
+            default -> throw new BusinessException(400, "未知的行程项状态: " + status);
+        }
+        item.setStatus(normalized);
+        ItineraryItem saved = repository.save(item);
+        // 打卡/完成/跳过写旅行事件；重置回未开始不记事件（避免把「撤销打卡」记成一次打卡）
+        if (!ItineraryItem.STATUS_PENDING.equals(normalized)) {
+            String summary = switch (normalized) {
+                case ItineraryItem.STATUS_IN_PROGRESS -> "开始：" + item.getTitle();
+                case ItineraryItem.STATUS_COMPLETED -> "已完成：" + item.getTitle();
+                case ItineraryItem.STATUS_SKIPPED -> "已跳过：" + item.getTitle();
+                default -> "状态更新：" + item.getTitle();
+            };
+            tripEventService.record(trip.getId(), item.getId(),
+                    ItineraryItem.STATUS_COMPLETED.equals(normalized)
+                            ? com.travel.agent.entity.TripEvent.TYPE_CHECK_IN
+                            : com.travel.agent.entity.TripEvent.TYPE_MANUAL_EDIT,
+                    "user", summary);
+        }
+        return saved;
     }
 
     @Transactional
@@ -211,6 +271,11 @@ public class ItineraryService {
         target.setCost(desired.getCost());
         target.setTags(desired.getTags());
         target.setDescription(desired.getDescription());
+        // 执行状态随快照还原：撤销「手动改行程」不应把已完成的打卡重置掉
+        target.setStatus(desired.getStatus() == null ? ItineraryItem.STATUS_PENDING : desired.getStatus());
+        target.setStartedAt(desired.getStartedAt());
+        target.setCompletedAt(desired.getCompletedAt());
+        target.setVisitedAt(desired.getVisitedAt());
     }
 
     /**
@@ -272,7 +337,8 @@ public class ItineraryService {
                         .append(':').append(item.getStartTime())
                         .append(':').append(item.getEndTime())
                         .append(':').append(item.getCost())
-                        .append(':').append(item.getItemType()));
+                        .append(':').append(item.getItemType())
+                        .append(':').append(item.getStatus()));
         return sha256(sb.toString());
     }
 

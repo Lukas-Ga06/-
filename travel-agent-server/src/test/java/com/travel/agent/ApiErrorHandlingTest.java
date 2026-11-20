@@ -65,19 +65,6 @@ class ApiErrorHandlingTest extends IntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("健康记录日期不存在（2026-13-01）返回 400 而不是 500")
-    void healthRecordWithInvalidDateIsBadRequest() throws Exception {
-        Account account = registerNew();
-
-        mockMvc.perform(post("/api/health/record")
-                        .header("Authorization", account.bearer())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"date\":\"2026-13-01\",\"steps\":1000}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value(400));
-    }
-
-    @Test
     @DisplayName("记账金额为 0 返回 400")
     void expenseWithZeroAmountIsBadRequest() throws Exception {
         Account account = registerNew();

@@ -48,7 +48,11 @@ public class TravelQueryHandler {
         }
         RagService.RagAnswer answer = ragService.answer(
                 ctx.getMessage() == null ? "" : ctx.getMessage(), city, ctx.getUserId());
-        ctx.emit("rag_result", java.util.Map.of("sources", answer.sources()));
+        // P1：SSE 同时给出 sources（文案）与 citations（documentId/version/chunkId/score/source），
+        // 前端可把「知识依据」列在回答下方，而不是只展示一句来源标题。
+        ctx.emit("rag_result", java.util.Map.of(
+                "sources", answer.sources(),
+                "citations", answer.citations()));
         return complete(ctx, AgentDtos.AgentResult.builder()
                 .intent(intent.getIntent())
                 .status(AgentDtos.STATUS_COMPLETED)

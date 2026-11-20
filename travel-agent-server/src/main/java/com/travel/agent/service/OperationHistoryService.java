@@ -34,39 +34,52 @@ public class OperationHistoryService {
     private final ObjectMapper objectMapper;
 
     @Transactional
-    public void recordCommit(Trip trip, Long userId, List<ItineraryItem> before, List<ItineraryItem> after, String reason) {
-        save(trip, userId, OperationHistory.OP_AGENT_COMMIT, before, after, reason);
+    public void recordCommit(Trip trip, Long userId, List<ItineraryDtos.ItineraryItemDTO> before,
+                             List<ItineraryItem> after, String reason) {
+        save(trip, userId, OperationHistory.OP_AGENT_COMMIT, before, toDtoList(after), reason);
     }
 
     /** Agent 新建行程（撤销时整体删除行程） */
     @Transactional
     public void recordTripCreate(Trip trip, Long userId, List<ItineraryItem> after, String reason) {
-        save(trip, userId, OperationHistory.OP_TRIP_CREATE, List.of(), after, reason);
+        save(trip, userId, OperationHistory.OP_TRIP_CREATE, List.of(), toDtoList(after), reason);
+    }
+
+    /**
+     * 在变更发生<b>之前</b>调用：把当前行程转成 DTO 快照。
+     *
+     * <p>不能等变更后再序列化实体列表——JPA 持久化上下文里 before/after 是同一批受管对象，
+     * 字段被就地修改后「before 快照」会跟着变成新值，撤销就会还原出错误的旧状态。
+     */
+    public List<ItineraryDtos.ItineraryItemDTO> snapshot(List<ItineraryItem> items) {
+        return toDtoList(items);
     }
 
     /**
      * 在「同一个事务」里执行一次行程变更并记录前后快照。
      *
-     * 用于界面上手动的增/删/改：否则手工改动不进历史，用户点「撤销」会回滚到上一次 Agent 提交前的快照，
-     * 把手工改动一并冲掉；同时保证「改动成功但历史写失败」时整体回滚。
+     * <p>用于界面上手动的增/删/改与状态打卡：否则手工改动不进历史，用户点「撤销」会回滚到
+     * 上一次 Agent 提交前的快照，把手工改动一并冲掉；同时保证「改动成功但历史写失败」时整体回滚。
      */
     @Transactional
     public <T> T withHistory(Trip trip, Long userId, String reason, java.util.function.Supplier<T> change) {
-        List<ItineraryItem> before = itineraryService.listEntities(trip.getId());
+        // 变更前立刻快照（见 snapshot 的说明：受管实体在变更后会被就地修改）
+        List<ItineraryDtos.ItineraryItemDTO> before = toDtoList(itineraryService.listEntities(trip.getId()));
         T result = change.get();
-        save(trip, userId, OperationHistory.OP_MANUAL_EDIT, before, itineraryService.listEntities(trip.getId()), reason);
+        save(trip, userId, OperationHistory.OP_MANUAL_EDIT, before,
+                toDtoList(itineraryService.listEntities(trip.getId())), reason);
         return result;
     }
 
-    private void save(Trip trip, Long userId, String operationType, List<ItineraryItem> before,
-                      List<ItineraryItem> after, String reason) {
+    private void save(Trip trip, Long userId, String operationType, List<ItineraryDtos.ItineraryItemDTO> before,
+                      List<ItineraryDtos.ItineraryItemDTO> after, String reason) {
         try {
             repository.save(OperationHistory.builder()
                     .tripId(trip.getId())
                     .userId(userId)
                     .operationType(operationType)
-                    .beforeState(objectMapper.writeValueAsString(toDtoList(before)))
-                    .afterState(objectMapper.writeValueAsString(toDtoList(after)))
+                    .beforeState(objectMapper.writeValueAsString(before))
+                    .afterState(objectMapper.writeValueAsString(after))
                     .agentReason(reason)
                     .build());
         } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
@@ -135,7 +148,23 @@ public class OperationHistoryService {
                 .cost(dto.getCost())
                 .tags(dto.getTags() == null ? null : String.join(",", dto.getTags()))
                 .description(dto.getDescription())
+                .status(dto.getStatus() == null ? ItineraryItem.STATUS_PENDING : dto.getStatus())
+                .startedAt(parseInstant(dto.getStartedAt()))
+                .completedAt(parseInstant(dto.getCompletedAt()))
+                .visitedAt(parseInstant(dto.getVisitedAt()))
                 .build();
+    }
+
+    /** 实际发生时间（开始/完成/到访）按绝对时间还原，不随行程改期平移——它们是不可改写的事实 */
+    private static LocalDateTime parseInstant(String iso) {
+        if (iso == null || iso.isBlank()) {
+            return null;
+        }
+        try {
+            return LocalDateTime.parse(iso);
+        } catch (java.time.format.DateTimeParseException e) {
+            return null;
+        }
     }
 
     private static LocalDateTime reanchor(String iso, LocalDate date) {

@@ -30,6 +30,11 @@ public class AgentRun {
 
     public static final String STATUS_RUNNING = "RUNNING";
     public static final String STATUS_SUCCEEDED = "SUCCEEDED";
+    /**
+     * 部分完成（P0-07）：本轮正常收尾，但有阶段失败/降级、过程警告或预算降级，
+     * 结论可能不完整。绝不能与 {@link #STATUS_SUCCEEDED} 显示成同一个绿色标签。
+     */
+    public static final String STATUS_PARTIAL = "PARTIAL_SUCCESS";
     public static final String STATUS_FAILED = "FAILED";
     public static final String STATUS_CANCELLED = "CANCELLED";
 
@@ -55,6 +60,7 @@ public class AgentRun {
     @Column(length = 50)
     private String intent;
 
+    /** 运行总状态（列宽 16：PARTIAL_SUCCESS 占 15，改名不能再长，否则写入会被截断/报错） */
     @Column(nullable = false, length = 16)
     private String status;
 

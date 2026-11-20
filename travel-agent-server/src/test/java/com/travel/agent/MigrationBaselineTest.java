@@ -101,6 +101,10 @@ class MigrationBaselineTest {
         core.add(16);
         core.add(17);
         core.add(18);
+        // V19：旅行闭环（itinerary status / trip_event / 日程与备忘的旅行关联），双方言中性 SQL
+        core.add(19);
+        // V20：Agent 写入命令幂等台账（agent_command_dedupe，P0-01），双方言中性 SQL
+        core.add(20);
         Set<Integer> mysqlExpected = new LinkedHashSet<>(core);
         mysqlExpected.addAll(List.of(8, 12, 13));
         Set<Integer> h2Expected = new LinkedHashSet<>(core);

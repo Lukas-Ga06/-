@@ -3,13 +3,11 @@ package com.travel.agent;
 import com.travel.agent.dto.ExpenseDtos;
 import com.travel.agent.dto.TripDtos;
 import com.travel.agent.entity.Expense;
-import com.travel.agent.entity.HealthRecord;
 import com.travel.agent.entity.Memo;
 import com.travel.agent.entity.Trip;
 import com.travel.agent.repository.ExpenseRepository;
 import com.travel.agent.repository.MemoRepository;
 import com.travel.agent.service.ExpenseService;
-import com.travel.agent.service.HealthService;
 import com.travel.agent.service.MemoService;
 import com.travel.agent.service.TripService;
 import com.travel.agent.support.IntegrationTestSupport;
@@ -25,7 +23,6 @@ import java.time.LocalDate;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.within;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -51,9 +48,6 @@ class ExpenseAggregationTest extends IntegrationTestSupport {
 
     @Autowired
     private MemoRepository memoRepository;
-
-    @Autowired
-    private HealthService healthService;
 
     private Trip createTrip(long userId, String name) {
         TripDtos.TripRequest request = new TripDtos.TripRequest();
@@ -207,30 +201,5 @@ class ExpenseAggregationTest extends IntegrationTestSupport {
         assertThat(page.getContent()).hasSize(2);
         // done asc：未完成在前
         assertThat(page.getContent().get(0).isDone()).isFalse();
-    }
-
-    @Test
-    @DisplayName("健康：最近 7 天窗口用 AVG/COUNT 下推，均值与天数与旧逻辑一致")
-    void healthWindowAggregates() throws Exception {
-        Account account = registerNew();
-        LocalDate today = LocalDate.now();
-        for (int i = 0; i < 10; i++) {
-            // 窗口外（today-9..today-7）应被排除
-            healthService.upsert(account.id(), today.minusDays(i), 5000 + i, 7.0 + i / 10.0, 60, 65.0);
-        }
-
-        double[] avg = healthService.weeklyAverages(account.id());
-        // 窗口 today-6..today 对应 i=0..6：步数 5000..5006（均值 5003），睡眠 7.0..7.6（均值 7.3）
-        assertThat(avg[0]).isCloseTo(5003.0, within(0.001));
-        assertThat(avg[1]).isCloseTo(7.3, within(0.001));
-        assertThat((long) avg[2]).isEqualTo(7);
-
-        Page<HealthRecord> page = healthService.last7Days(account.id(), 0, 3);
-        assertThat(page.getTotalElements()).isEqualTo(7);
-        assertThat(page.getContent()).hasSize(3);
-        assertThat(page.getContent().get(0).getDate()).isEqualTo(today.minusDays(6));
-
-        assertThat(healthService.last7Days(account.id(), 6, 3).getContent()).hasSize(1);
-        assertThat(healthService.latest(account.id()).getDate()).isEqualTo(today);
     }
 }

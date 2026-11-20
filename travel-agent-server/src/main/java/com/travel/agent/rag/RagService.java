@@ -2,8 +2,11 @@ package com.travel.agent.rag;
 
 import com.travel.agent.llm.LlmClient;
 import com.travel.agent.llm.LlmMessage;
+import com.travel.agent.observability.TravelMetrics;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -26,7 +29,21 @@ public class RagService {
     private final LlmClient llmClient;
     private final RagVersionService versionService;
 
-    public record RagAnswer(String message, List<String> sources) {}
+    /**
+     * 低相似度阈值：低于它的命中不进入问答上下文（避免「没有资料却硬答」）。
+     * 只影响问答，不影响知识库搜索接口与 Planner 研究（它们需要看到完整候选与分数）。
+     */
+    @Value("${travel.rag.min-score:0.05}")
+    private double minScore;
+
+    /**
+     * T5 检索命中指标（可选注入）：既有单测直接 {@code new RagService(...)} 四参构造，
+     * 指标缺失（纯单测）时静默跳过，绝不能因为"没有指标"就让检索失败。
+     */
+    @Autowired(required = false)
+    private TravelMetrics travelMetrics;
+
+    public record RagAnswer(String message, List<String> sources, List<RagCitation> citations) {}
 
     /**
      * 重建内存向量索引（只装载 ACTIVE 版本与 version_id 为空的历史块）。
@@ -60,20 +77,59 @@ public class RagService {
         return vectorStore.search(vector, city, currentUserId, topK);
     }
 
+    /**
+     * 带引用的检索（P1）：在向量命中之上补齐 documentId / version / chunkId / score / source。
+     *
+     * <p>Planner 研究链路、知识库搜索接口与问答都走这里，保证「方案里引用的知识」
+     * 与「知识库页面上看到的来源」是同一份口径。
+     */
+    public List<RagCitation> searchWithCitations(String query, String city, Long currentUserId, int topK) {
+        List<RagCitation> citations = search(query, city, currentUserId, topK).stream()
+                .map(r -> new RagCitation(
+                        r.getDocument().getId(),
+                        versionService.versionNoOf(r.getChunk().getVersionId()),
+                        r.getChunk().getId(),
+                        r.getScore(),
+                        r.getDocument().getSource(),
+                        r.getDocument().getTitle(),
+                        r.getChunk().getContent()))
+                .toList();
+        recordRetrieval(citations);
+        return citations;
+    }
+
+    /** T5：命中/未命中计数。检索抛异常时不记——失败会由调用方日志与 5xx 体现，不该混进命中率 */
+    private void recordRetrieval(List<RagCitation> citations) {
+        if (travelMetrics == null) {
+            return;
+        }
+        try {
+            travelMetrics.ragRetrieval(citations != null && !citations.isEmpty());
+        } catch (RuntimeException ignored) {
+            // 指标故障不影响检索
+        }
+    }
+
     public RagAnswer answer(String question, String city) {
         return answer(question, city, null);
     }
 
     public RagAnswer answer(String question, String city, Long currentUserId) {
-        List<VectorSearchResult> results = search(question, city, currentUserId, 3);
+        List<RagCitation> hits = searchWithCitations(question, city, currentUserId, 3);
+        // 相似度阈值（P1）：低相似度命中不能伪装成「知识库里有这条资料」；
+        // 阈值可配（travel.rag.min-score），默认 0.05 只滤掉近乎无关的噪声。
+        List<RagCitation> results = hits.stream()
+                .filter(c -> c.score() >= minScore)
+                .toList();
         if (results.isEmpty()) {
-            return new RagAnswer("知识库中暂无相关资料，你可以换个问法，或直接告诉我你的旅行需求。", List.of());
+            return new RagAnswer("知识库中暂无可靠资料（相似度低于阈值），你可以换个问法，或直接告诉我你的旅行需求。",
+                    List.of(), List.of());
         }
         String context = results.stream()
-                .map(r -> "【" + r.getDocument().getTitle() + "】" + r.getChunk().getContent())
+                .map(r -> "【" + r.title() + (r.version() == null ? "" : " v" + r.version()) + "】" + r.snippet())
                 .collect(Collectors.joining("\n\n"));
         List<String> sources = results.stream()
-                .map(r -> r.getDocument().getTitle())
+                .map(RagCitation::label)
                 .distinct()
                 .toList();
 
@@ -85,17 +141,18 @@ public class RagService {
             ), 0.3);
         }
         if (llmReply != null) {
-            return new RagAnswer(llmReply, sources);
+            return new RagAnswer(llmReply, sources, results);
         }
-        // 规则降级：直接拼接最相关知识片段
+        // 规则降级：直接拼接最相关知识片段（带文档来源与版本，便于追溯）
         StringBuilder sb = new StringBuilder("根据旅游知识库：\n");
-        for (VectorSearchResult r : results) {
-            String snippet = r.getChunk().getContent();
+        for (RagCitation r : results) {
+            String snippet = r.snippet();
             if (snippet.length() > 160) {
                 snippet = snippet.substring(0, 160) + "……";
             }
-            sb.append("· ").append(snippet).append("（来源：").append(r.getDocument().getTitle()).append("）\n");
+            sb.append("· ").append(snippet).append("（来源：").append(r.label()).append("）\n");
         }
-        return new RagAnswer(sb.toString().trim(), sources);
+        return new RagAnswer(sb.toString().trim(), sources, results);
     }
 }
+

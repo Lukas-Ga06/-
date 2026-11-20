@@ -24,7 +24,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /**
  * 票据只读会话：仅凭 {@code ?ticket=} 认证（没有 Cookie / Authorization）的 SSE 连接
- * 不得执行记账/备忘/日程/日报这类直接落库的写意图。
+ * 不得执行记账/备忘/日程这类直接落库的写意图。
  *
  * <p>回归背景：票据只允许两个 GET 路径本是好事，但 {@code /api/agent/stream} 能执行
  * RECORD_EXPENSE / ADD_MEMO / ADD_SCHEDULE / GEN_DAILY_REPORT——泄漏一条 URL

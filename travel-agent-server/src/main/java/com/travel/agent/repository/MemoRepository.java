@@ -16,4 +16,10 @@ public interface MemoRepository extends JpaRepository<Memo, Long> {
 
     /** 待办数量（COUNT 下推，不再先取全量再 filter） */
     long countByUserIdAndDoneFalse(Long userId);
+
+    /** P1：按行程聚合的备忘数量（回顾页） */
+    long countByTripId(Long tripId);
+
+    /** P1：行程删除时清理挂在该行程上的备忘 */
+    long deleteByTripId(Long tripId);
 }

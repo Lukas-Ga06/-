@@ -37,12 +37,20 @@ public class MemoService {
 
     @Transactional
     public Memo add(Long userId, String content) {
+        return add(userId, content, null);
+    }
+
+    /** P1：旅行相关备忘可带上 tripId（可空），列表/回顾按行程聚合 */
+    @Transactional
+    public Memo add(Long userId, String content, Long tripId) {
         if (content == null || content.isBlank()) {
             throw new BusinessException("备忘内容不能为空");
         }
         return memoRepository.save(Memo.builder()
                 .userId(userId)
                 .content(content.trim())
+                .tripId(tripId)
+                .source(tripId == null ? "MANUAL" : "AGENT")
                 .build());
     }
 

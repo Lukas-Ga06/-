@@ -2,7 +2,10 @@ package com.travel.agent.rag;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.travel.agent.util.ExternalDegradationMetrics;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpHeaders;
@@ -30,14 +33,24 @@ public class OpenAiCompatibleEmbeddingService implements EmbeddingService {
 
     private final EmbeddingProperties props;
     private final LocalHashEmbeddingService fallback;
+    /** {@code external.degraded{provider=embedding}} 的写入目标；null 时不记指标（既有单测的直接构造路径） */
+    private final MeterRegistry meterRegistry;
     private final RestClient client;
     private final ObjectMapper mapper = new ObjectMapper();
     private final AtomicInteger dimension = new AtomicInteger(-1);
     private volatile boolean degraded = false;
 
+    /** 不注入指标的构造：既有单测与「指标未装配」场景；生产走下面的三参构造 */
     public OpenAiCompatibleEmbeddingService(EmbeddingProperties props, LocalHashEmbeddingService fallback) {
+        this(props, fallback, null);
+    }
+
+    @Autowired
+    public OpenAiCompatibleEmbeddingService(EmbeddingProperties props, LocalHashEmbeddingService fallback,
+                                            MeterRegistry meterRegistry) {
         this.props = props;
         this.fallback = fallback;
+        this.meterRegistry = meterRegistry;
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(props.getConnectTimeoutMs());
         factory.setReadTimeout(props.getReadTimeoutMs());
@@ -79,6 +92,7 @@ public class OpenAiCompatibleEmbeddingService implements EmbeddingService {
             dimension.set(vector.length);
             return vector;
         } catch (Exception e) {
+            ExternalDegradationMetrics.record(meterRegistry, ExternalDegradationMetrics.PROVIDER_EMBEDDING, e);
             degraded = true;
             log.warn("真实 Embedding 调用失败，本进程降级为本地哈希（保持向量空间一致，恢复需重启）: {}", e.getMessage());
             return fallback.embed(text);

@@ -3,6 +3,7 @@ package com.travel.agent.agent;
 import com.travel.agent.dto.AgentDtos;
 import com.travel.agent.entity.Trip;
 import com.travel.agent.exception.BusinessException;
+import com.travel.agent.observability.TravelMetrics;
 import com.travel.agent.service.ItineraryService;
 import com.travel.agent.service.OperationHistoryService;
 import com.travel.agent.service.TripService;
@@ -38,6 +39,8 @@ public class PlanConfirmationService {
     private final com.travel.agent.service.AgentTraceService traceService;
     /** V2.2 FR-09：确认后日程/预算/足迹跨模块同步（模块级幂等 + 可重试） */
     private final com.travel.agent.service.PlanExecutionService executionService;
+    /** T5：确认提交结果指标 travel.confirm.outcome（success|conflict|failed） */
+    private final TravelMetrics travelMetrics;
 
     /**
      * 确认并提交待确认方案（不带内容指纹，向后兼容入口）。
@@ -73,6 +76,7 @@ public class PlanConfirmationService {
         // 1) 先确认方案存在且属于当前用户（不存在 / 过期 → 业务失败）
         PendingPlanStore.PendingPlan pending = pendingPlans.peek(planId, userId);
         if (pending == null) {
+            travelMetrics.confirmOutcome(TravelMetrics.RESULT_FAILED);
             return AgentDtos.AgentResult.builder()
                     .planId(planId)
                     .status(AgentDtos.STATUS_FAILED)
@@ -83,6 +87,7 @@ public class PlanConfirmationService {
         //    这一步把「读方案 → 提交 → 删除」串行化：并发确认同一方案时，
         //    后到的请求拿到 0 行，直接返回业务失败（不是 500，也没有重复落库）。
         if (!pendingPlans.claim(planId, userId)) {
+            travelMetrics.confirmOutcome(TravelMetrics.RESULT_CONFLICT);
             return AgentDtos.AgentResult.builder()
                     .planId(planId)
                     .tripId(pending.tripId())
@@ -93,6 +98,7 @@ public class PlanConfirmationService {
         // 2.5) 内容指纹校验（FR-08）：在 claim 之后、commit 之前的短窗口内完成，失败不消费方案
         if (!contentHashMatches(pending, contentHash)) {
             pendingPlans.release(planId);
+            travelMetrics.confirmOutcome(TravelMetrics.RESULT_CONFLICT);
             return AgentDtos.AgentResult.builder()
                     .planId(planId)
                     .tripId(pending.tripId())
@@ -108,6 +114,7 @@ public class PlanConfirmationService {
                     itineraryService.listEntities(current.getId()));
             if (pending.planRevision() != null && !pending.planRevision().equals(currentRevision)) {
                 pendingPlans.remove(planId);
+                travelMetrics.confirmOutcome(TravelMetrics.RESULT_CONFLICT);
                 return AgentDtos.AgentResult.builder()
                         .planId(planId)
                         .tripId(pending.tripId())
@@ -121,6 +128,7 @@ public class PlanConfirmationService {
         AgentDtos.PlanReview review = pending.preview() == null ? null : pending.preview().getReview();
         if (review != null && review.isBlocked() && !Boolean.TRUE.equals(acknowledgeIssues)) {
             pendingPlans.release(planId);
+            travelMetrics.confirmOutcome(TravelMetrics.RESULT_FAILED);
             return AgentDtos.AgentResult.builder()
                     .planId(planId)
                     .tripId(pending.tripId())
@@ -148,10 +156,12 @@ public class PlanConfirmationService {
             attachExecution(result, pending, userId);
             // 成功：方案已被消费
             pendingPlans.remove(planId);
+            travelMetrics.confirmOutcome(TravelMetrics.RESULT_SUCCESS);
             return result;
         } catch (RuntimeException e) {
             // 提交失败：释放所有权、保留方案行，用户可用同一 planId 重试（原设计语义）
             pendingPlans.release(planId);
+            travelMetrics.confirmOutcome(TravelMetrics.RESULT_FAILED);
             throw e;
         }
     }

@@ -90,7 +90,7 @@ class RagVersioningTest extends IntegrationTestSupport {
     }
 
     private long addPersonalKnowledge(Account account, String title, String content) throws Exception {
-        MvcResult result = mockMvc.perform(post("/api/learning/knowledge/add")
+        MvcResult result = mockMvc.perform(post("/api/knowledge/add")
                         .header("Authorization", account.bearer())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(Map.of("title", title, "content", content))))

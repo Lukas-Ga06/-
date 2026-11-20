@@ -33,6 +33,12 @@ public class ItineraryDtos {
         private BigDecimal cost;
         private List<String> tags;
         private String description;
+        /** 执行状态：PENDING / IN_PROGRESS / COMPLETED / SKIPPED（P1） */
+        private String status;
+        /** 实际开始/完成/到访时间（ISO）；未发生时为 null，绝不拿计划时间冒充实际时间 */
+        private String startedAt;
+        private String completedAt;
+        private String visitedAt;
         /**
          * 参考价（ADR-006：估算必须自报家门）。{@code cost} 为 null 或 0 时该字段为 null；
          * 由 {@code PriceReferenceService} 构建，纯本地推算，绝非实时报价。
@@ -54,6 +60,10 @@ public class ItineraryDtos {
                     .cost(e.getCost())
                     .tags(e.getTags() == null ? new ArrayList<>() : Arrays.asList(e.getTags().split(",")))
                     .description(e.getDescription())
+                    .status(e.getStatus() == null ? ItineraryItem.STATUS_PENDING : e.getStatus())
+                    .startedAt(e.getStartedAt() == null ? null : e.getStartedAt().toString())
+                    .completedAt(e.getCompletedAt() == null ? null : e.getCompletedAt().toString())
+                    .visitedAt(e.getVisitedAt() == null ? null : e.getVisitedAt().toString())
                     .build();
         }
 
@@ -169,5 +179,15 @@ public class ItineraryDtos {
         private Double longitude;
         private List<String> tags;
         private String description;
+    }
+
+    /** 行程项状态推进（P1）：PENDING / IN_PROGRESS / COMPLETED / SKIPPED */
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class UpdateStatusRequest {
+        @NotBlank(message = "不能为空")
+        @Size(max = 20, message = "长度不能超过 20 个字符")
+        private String status;
     }
 }

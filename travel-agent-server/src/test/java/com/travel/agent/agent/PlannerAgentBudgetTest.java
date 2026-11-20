@@ -79,7 +79,8 @@ class PlannerAgentBudgetTest {
         when(budgetService.totalOf(any())).thenReturn(BigDecimal.valueOf(500));
         return new PlannerAgent(tools, catalog, mock(ItineraryService.class), budgetService,
                 usableLlmProperties(), structured, new PlannerDraftSupport(tools), toolLoop,
-                new AgentTaskRecorder(mock(com.travel.agent.service.AgentTraceService.class)));
+                new AgentTaskRecorder(mock(com.travel.agent.service.AgentTraceService.class)),
+                mock(com.travel.agent.rag.RagService.class));
     }
 
     @Test

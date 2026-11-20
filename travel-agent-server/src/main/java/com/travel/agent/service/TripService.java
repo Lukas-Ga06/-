@@ -8,6 +8,7 @@ import com.travel.agent.exception.BusinessException;
 import com.travel.agent.repository.ExpenseRepository;
 import com.travel.agent.repository.ItineraryItemRepository;
 import com.travel.agent.repository.OperationHistoryRepository;
+import com.travel.agent.repository.TripEventRepository;
 import com.travel.agent.repository.TripPhotoRepository;
 import com.travel.agent.repository.TripRepository;
 import com.travel.agent.util.Dates;
@@ -38,6 +39,11 @@ public class TripService {
     private final ExpenseRepository expenseRepository;
     private final OperationHistoryRepository operationHistoryRepository;
     private final TripPhotoRepository tripPhotoRepository;
+    /** P1：旅行事件随行程删除（只追加的事件流，不做跨行程保留） */
+    private final TripEventRepository tripEventRepository;
+    /** P1：行程关联的日程与备忘随行程删除（可空关联，只删挂在该行程上的） */
+    private final com.travel.agent.repository.ScheduleItemRepository scheduleItemRepository;
+    private final com.travel.agent.repository.MemoRepository memoRepository;
     private final PhotoStore photoStorage;
     private final ItineraryService itineraryService;
     /** V2.2 FR-09：删除行程时清理确认同步出来的日程与执行台账（该服务只依赖仓库，无循环依赖） */
@@ -165,6 +171,9 @@ public class TripService {
         expenseRepository.deleteByTripId(trip.getId());
         operationHistoryRepository.deleteByTripId(trip.getId());
         itineraryItemRepository.deleteByTripId(trip.getId());
+        tripEventRepository.deleteByTripId(trip.getId());
+        scheduleItemRepository.deleteByTripId(trip.getId());
+        memoRepository.deleteByTripId(trip.getId());
         // V2.2 FR-09：确认时同步出来的日程时间块与执行台账一并清理，避免孤儿日程
         planExecutionService.cleanupForTrip(trip.getId());
         tripRepository.delete(trip);

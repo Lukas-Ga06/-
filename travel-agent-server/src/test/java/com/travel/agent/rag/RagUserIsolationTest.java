@@ -50,7 +50,7 @@ class RagUserIsolationTest extends IntegrationTestSupport {
     }
 
     private void addKnowledge(Account account, String title, String content) throws Exception {
-        mockMvc.perform(post("/api/learning/knowledge/add")
+        mockMvc.perform(post("/api/knowledge/add")
                         .header("Authorization", account.bearer())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(Map.of("title", title, "content", content))))
@@ -60,7 +60,7 @@ class RagUserIsolationTest extends IntegrationTestSupport {
     }
 
     private JsonNode search(Account account, String query) throws Exception {
-        MvcResult result = mockMvc.perform(post("/api/learning/knowledge/search")
+        MvcResult result = mockMvc.perform(post("/api/knowledge/search")
                         .header("Authorization", account.bearer())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(Map.of("query", query))))

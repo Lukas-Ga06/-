@@ -12,6 +12,8 @@ import lombok.NoArgsConstructor;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
+
 public class TripDtos {
 
     @Data
@@ -57,6 +59,57 @@ public class TripDtos {
         private BigDecimal budget;
         private Double lat;
         private Double lng;
+        /**
+         * 足迹口径（P1）：phase = UPCOMING / ONGOING / PAST / CANCELLED。
+         * 前端据此区分「计划要去」与「真的去过」，绝不把未来行程渲染成已到访。
+         */
+        private String phase;
+        /** 计划地点数（有条目的目的地数量） */
+        private Integer plannedPlaces;
+        /** 实际到访数（只认 visitedAt） */
+        private Integer visitedPlaces;
+        /** 是否有实际到访（visitedPlaces &gt; 0） */
+        private boolean visited;
+        /** 实际到访路线（按到访时间排序；无坐标地点跳过） */
+        private List<RouteStop> actualRoute;
+    }
+
+    /** 足迹实际路线点（WGS-84，纬度在前，与全仓坐标契约一致） */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class RouteStop {
+        private Long itemId;
+        private String title;
+        private String visitedAt;
+        private Double lat;
+        private Double lng;
+    }
+
+    /** 旅行事件（P1）：天气突变 / 拥堵 / 闭馆 / 打卡 / Agent 调整 */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class TripEventResponse {
+        private Long id;
+        private Long itemId;
+        private String type;
+        private String source;
+        private String summary;
+        private String occurredAt;
+
+        public static TripEventResponse from(com.travel.agent.entity.TripEvent event) {
+            return TripEventResponse.builder()
+                    .id(event.getId())
+                    .itemId(event.getItineraryItemId())
+                    .type(event.getEventType())
+                    .source(event.getSource())
+                    .summary(event.getSummary())
+                    .occurredAt(event.getOccurredAt() == null ? null : event.getOccurredAt().toString())
+                    .build();
+        }
     }
 
     @Data

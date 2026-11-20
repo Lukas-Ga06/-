@@ -27,6 +27,12 @@ public class ItineraryItem {
     public static final String TYPE_RESTAURANT = "restaurant";
     public static final String TYPE_TRANSPORT = "transport";
 
+    /** 行程项执行状态（P1）：未开始 / 进行中 / 已完成 / 已跳过 */
+    public static final String STATUS_PENDING = "PENDING";
+    public static final String STATUS_IN_PROGRESS = "IN_PROGRESS";
+    public static final String STATUS_COMPLETED = "COMPLETED";
+    public static final String STATUS_SKIPPED = "SKIPPED";
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -64,6 +70,26 @@ public class ItineraryItem {
     @Column(columnDefinition = "TEXT")
     private String description;
 
+    /**
+     * 执行状态（P1）：默认 PENDING。
+     * 行中重规划只允许自动调整 {@link #STATUS_PENDING} 的条目；COMPLETED / SKIPPED 是不可覆盖的既成事实。
+     */
+    @Column(length = 20, nullable = false, columnDefinition = "varchar(20) default 'PENDING'")
+    @Builder.Default
+    private String status = STATUS_PENDING;
+
+    /** 实际开始时间（用户点击「开始」或到达时写） */
+    @Column(name = "started_at")
+    private LocalDateTime startedAt;
+
+    /** 实际完成时间 */
+    @Column(name = "completed_at")
+    private LocalDateTime completedAt;
+
+    /** 实际到访时间（打卡）：足迹与回顾以它为准，计划时间不算「去过」 */
+    @Column(name = "visited_at")
+    private LocalDateTime visitedAt;
+
     public boolean hasTag(String tag) {
         return tags != null && List.of(tags.split(",")).contains(tag);
     }
@@ -74,5 +100,20 @@ public class ItineraryItem {
 
     public boolean isIndoor() {
         return hasTag("室内");
+    }
+
+    /** 未开始：唯一允许被自动重规划改动的状态 */
+    public boolean isPending() {
+        return status == null || STATUS_PENDING.equals(status);
+    }
+
+    /** 已开始或已结束：重规划不得自动覆盖（用户仍需显式确认手工修改） */
+    public boolean isStarted() {
+        return STATUS_IN_PROGRESS.equals(status);
+    }
+
+    /** 既成事实：已完成或已跳过 */
+    public boolean isFinished() {
+        return STATUS_COMPLETED.equals(status) || STATUS_SKIPPED.equals(status);
     }
 }

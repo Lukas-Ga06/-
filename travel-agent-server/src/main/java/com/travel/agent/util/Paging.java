@@ -12,7 +12,7 @@ import java.util.List;
  *
  * 这里有两套常量，对应两种实现阶段：
  * - {@link #DEFAULT_LIMIT} / {@link #MAX_LIMIT}：历史「内存切片」{@link #slice} 的兜底上限。
- *   尚未迁移到数据库分页的调用方（学习/照片/日程等）仍在使用，保持原值不动，避免跨模块行为突变。
+ *   尚未迁移到数据库分页的调用方（照片/日程/知识版本等）仍在使用，保持原值不动，避免跨模块行为突变。
  * - {@link #DEFAULT_PAGE_LIMIT} / {@link #MAX_PAGE_LIMIT}：第九批列表分页契约
  *   （limit 默认 20、上限 200、offset 负数按 0；见 docs/proposals/batch9-contract.md §1）。
  *

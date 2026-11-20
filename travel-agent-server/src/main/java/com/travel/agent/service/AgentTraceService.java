@@ -112,6 +112,27 @@ public class AgentTraceService {
     // ==================== 阶段任务 ====================
 
     /**
+     * 本轮失败/降级的阶段任务数（P0-07 聚合总状态用）。
+     *
+     * <p>工具/阶段失败后被 {@code recover} 重派成功，任务行仍然是 FAILED：
+     * 那属于「已降级完成」，不能与完全成功共用同一个绿色标签。
+     * 追踪不可用（runId 为空或查询异常）时返回 0 —— 缺追踪是缺证据，不是失败。
+     */
+    public int failedTaskCount(String runId) {
+        if (runId == null) {
+            return 0;
+        }
+        try {
+            return (int) taskRepository.findByRunIdOrderByIdAsc(runId).stream()
+                    .filter(task -> com.travel.agent.entity.AgentTask.STATUS_FAILED.equals(task.getStatus()))
+                    .count();
+        } catch (RuntimeException e) {
+            log.debug("统计失败任务数出错: runId={} err={}", runId, e.getMessage());
+            return 0;
+        }
+    }
+
+    /**
      * 以独立任务包裹一段 Agent 阶段逻辑：开始时落一条 RUNNING 任务，正常结束置
      * SUCCEEDED 并写入摘要，异常置 FAILED 并记录原因后原样抛出。
      *

@@ -30,7 +30,7 @@ import java.util.Set;
  * <p><b>只读语义</b>：票据只对上面两个 GET 路径生效（见 {@link JwtAuthenticationFilter}），
  * 因此即使票据泄漏，也无法用于写接口、任意业务路径或 POST /api/access-ticket 自我续期。
  * 另外，仅凭票据认证（没有 Cookie/Authorization）的请求会被标记为
- * {@link AuthAttributes#TICKET_ONLY}，Agent 侧据此拒绝记账/备忘/日程/日报这类直接写入操作。
+ * {@link AuthAttributes#TICKET_ONLY}，Agent 侧据此拒绝记账/备忘/日程这类直接写入操作。
  *
  * <p>票据不落库：内容为 {@code v2|aud|expiresAt|username}，附 HMAC-SHA256 签名。
  */

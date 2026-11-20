@@ -7,6 +7,7 @@ import com.travel.agent.entity.Trip;
 import com.travel.agent.service.BudgetService;
 import com.travel.agent.service.ItineraryService;
 import com.travel.agent.service.OperationHistoryService;
+import com.travel.agent.service.TripEventService;
 import com.travel.agent.service.TripService;
 import com.travel.agent.tool.RiskLevel;
 import com.travel.agent.tool.SafetyInterceptor;
@@ -34,6 +35,8 @@ public class ExecutorAgent {
     private final TripService tripService;
     private final OperationHistoryService historyService;
     private final SafetyInterceptor safetyInterceptor;
+    /** P1：确认后的局部调整写旅行事件（只追加，供回顾页追溯） */
+    private final TripEventService tripEventService;
 
     /** 生成 Diff 预览与确认请求 */
     public AgentDtos.AgentResult preview(AgentContext ctx, AgentPlan plan, Trip trip) {
@@ -103,9 +106,40 @@ public class ExecutorAgent {
                 .diff(diff)
                 .budget(budget)
                 .warnings(new ArrayList<>())
+                .citations(citationsOf(plan))
                 .confirmation(AgentDtos.ConfirmationRequest.builder()
                         .planId(plan.getPlanId()).summary(summary).riskLevel(risk.name()).build())
                 .build();
+    }
+
+    /**
+     * 方案 extras 里的知识引用 → 对外 DTO。
+     * 只复制结构化字段，不让前端依赖 RAG 记录类型；空/缺失一律返回空数组。
+     */
+    private static List<AgentDtos.Citation> citationsOf(AgentPlan plan) {
+        if (plan.getExtras() == null) {
+            return List.of();
+        }
+        Object raw = plan.getExtras().get("citations");
+        if (!(raw instanceof List<?> list)) {
+            return List.of();
+        }
+        List<AgentDtos.Citation> citations = new ArrayList<>();
+        for (Object item : list) {
+            if (item instanceof com.travel.agent.rag.RagCitation citation) {
+                citations.add(AgentDtos.Citation.builder()
+                        .documentId(citation.documentId())
+                        .version(citation.version())
+                        .chunkId(citation.chunkId())
+                        .score(citation.score())
+                        .source(citation.source())
+                        .title(citation.title())
+                        .snippet(citation.snippet())
+                        .label(citation.label())
+                        .build());
+            }
+        }
+        return citations;
     }
 
     /**
@@ -135,14 +169,30 @@ public class ExecutorAgent {
                     .focus(AgentDtos.AgentFocus.builder().type("itinerary").tripId(trip.getId())
                             .day(1).itemId(first == null ? null : first.getId()).build())
                     .budget(budget)
+                    .citations(citationsOf(plan))
                     .build();
         }
 
         Trip trip = tripService.getOwned(plan.getTripId(), userId);
         List<ItineraryItem> before = itineraryService.listEntities(trip.getId());
+        // 变更前快照：JPA 受管实体在 applyOperations 后会被就地修改，after 时再序列化会把 before 污染
+        List<ItineraryDtos.ItineraryItemDTO> beforeSnapshot = historyService.snapshot(before);
         itineraryService.applyOperations(trip.getId(), plan.getOperations());
         List<ItineraryItem> after = itineraryService.listEntities(trip.getId());
-        historyService.recordCommit(trip, userId, before, after, plan.getReasoning());
+        historyService.recordCommit(trip, userId, beforeSnapshot, after, plan.getReasoning());
+        // P1：已确认的局部调整留痕（只有真正落库的改动才算事件，预览不算）。
+        // 天气驱动的替换写成 WEATHER 事件（source=weather），其余写入 AGENT_ADJUST（source=agent）。
+        if (!plan.getOperations().isEmpty()) {
+            Object weather = plan.getExtras() == null ? null : plan.getExtras().get("weather");
+            boolean weatherDriven = weather instanceof com.travel.agent.model.WeatherInfo info && info.isRainy();
+            tripEventService.record(trip.getId(), null,
+                    weatherDriven
+                            ? com.travel.agent.entity.TripEvent.TYPE_WEATHER
+                            : com.travel.agent.entity.TripEvent.TYPE_AGENT_ADJUST,
+                    weatherDriven ? "weather" : "agent",
+                    (weatherDriven ? "天气变化调整行程：" : "Agent 调整行程：")
+                            + plan.getOperations().size() + " 项操作");
+        }
 
         Long focusItemId = plan.getOperations().stream()
                 .filter(op -> PlanOperation.ADD.equals(op.getType()))
@@ -160,6 +210,7 @@ public class ExecutorAgent {
                         .day(plan.getFocus() == null ? null : plan.getFocus().getDay())
                         .itemId(focusItemId).build())
                 .budget(budgetService.summarize(after, budgetService.totalOf(before)))
+                .citations(citationsOf(plan))
                 .build();
     }
 }

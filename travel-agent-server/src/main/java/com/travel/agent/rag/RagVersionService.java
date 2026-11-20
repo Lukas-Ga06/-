@@ -280,4 +280,17 @@ public class RagVersionService {
     public List<RagDocumentVersion> versions(Long documentId) {
         return versionRepository.findByDocumentIdOrderByVersionNoDesc(documentId);
     }
+
+    /**
+     * 版本行 id → 版本号（引用展示用）。{@code versionId} 为空或版本行已不存在时返回 null，
+     * 调用方据此显示「历史数据（未版本化）」，不要编造版本号。
+     */
+    public Integer versionNoOf(Long versionId) {
+        if (versionId == null) {
+            return null;
+        }
+        return versionRepository.findById(versionId)
+                .map(RagDocumentVersion::getVersionNo)
+                .orElse(null);
+    }
 }
