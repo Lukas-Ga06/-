@@ -30,6 +30,8 @@ export interface AMapMap {
   getZoom?(): number;
   setZoom?(zoom: number): void;
   setCenter?(center: AMapLngLat): void;
+  /** 容器尺寸变化后重算画布；旧版本 SDK 可能没有 */
+  resize?(): void;
   setMapStyle?(style: string): void;
   destroy(): void;
 }

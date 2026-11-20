@@ -27,4 +27,10 @@ export interface MapProvider {
   setPitched?(pitched: boolean): void;
   /** 可选扩展：切换底图主题（暗色底图），不重建地图 */
   setTheme?(theme: ThemeMode): void;
+  /**
+   * 可选扩展：容器尺寸变化后重算画布。
+   * 侧栏 keep-alive 用 visibility 隐藏面板，窗口在隐藏期间变化时地图收不到，
+   * 切回可见后必须校正一次，否则会出现「地图只画了左上角一块」。
+   */
+  resize?(): void;
 }

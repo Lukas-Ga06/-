@@ -469,6 +469,14 @@ export class AMapProvider implements MapProvider {
     this.map.setRotation(pitched ? -16 : 0);
   }
 
+  /**
+   * 容器尺寸变化后重算画布：侧栏 keep-alive 用 visibility 隐藏面板，
+   * 隐藏期间窗口尺寸变化不会触发高德自己的 resize 监听，切回可见时需要补一次。
+   */
+  resize(): void {
+    this.map?.resize?.();
+  }
+
   destroy(): void {
     this.destroyed = true;
     this.stopTour();

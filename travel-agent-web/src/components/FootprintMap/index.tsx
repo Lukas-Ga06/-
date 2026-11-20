@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import type { GeoJSONSource, Map, Marker, Popup } from 'maplibre-gl';
+import { loadMaplibre, type MapLibre } from './maplibreLoader';
 import type { TripMapPoint } from '../../types/trip';
 import { wgs84ToGcj02 } from '../../lib/coords';
 import {
@@ -91,13 +92,19 @@ export default function FootprintMap({
   zoom: initialZoom = 2.4,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const mapRef = useRef<maplibregl.Map | null>(null);
-  const markersRef = useRef<maplibregl.Marker[]>([]);
-  const popupRef = useRef<maplibregl.Popup | null>(null);
+  /** 运行时按需加载的 maplibre 模块；加载完成前所有地图操作都是 no-op */
+  const engineRef = useRef<MapLibre | null>(null);
+  const mapRef = useRef<Map | null>(null);
+  const markersRef = useRef<Marker[]>([]);
+  const popupRef = useRef<Popup | null>(null);
   const tourTimerRef = useRef<number | null>(null);
   const spinTimerRef = useRef<number | null>(null);
   const introDoneRef = useRef(false);
   const [activeBasemap, setActiveBasemap] = useState<FootprintBasemap>(basemap);
+  const [engineLoading, setEngineLoading] = useState(true);
+  const [engineError, setEngineError] = useState<string | null>(null);
+  /** 递增触发重新加载地图引擎（首次失败后给用户「重试」按钮） */
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   // 高德底图用 GCJ-02，OSM 用 WGS-84；业务 points 始终是 WGS-84。
   const geoPoints = useMemo(
@@ -178,38 +185,48 @@ export default function FootprintMap({
     return root;
   }, []);
 
-  const cityPopup = useCallback((city: string, trips: TripMapPoint[], color: string): HTMLElement => {
-    const visits = trips.length;
-    const days = trips.reduce((sum, point) => sum + tripDays(point), 0);
-    const budget = trips.reduce((sum, point) => sum + (point.budget ?? 0), 0);
-    const { root, meta } = popupShell(city, `${visits} 次到访`, color);
-    meta.append(
-      metaLine(`🗓 累计 ${days} 天`),
-      metaLine(`💰 预算合计 ¥${budget.toFixed(0)}`),
-      metaLine(`🕒 最近 ${trips.map((t) => t.startDate).filter(Boolean).sort().reverse()[0] ?? '—'}`),
-    );
-    const hint = document.createElement('div');
-    hint.className = 'fp-popup-hint';
-    hint.textContent = '点击查看该城市足迹 →';
-    root.append(hint);
-    return root;
-  }, []);
-
-  const showPopupAt = useCallback(
-    (content: HTMLElement, lng: number, lat: number, map: maplibregl.Map) => {
-      popupRef.current?.remove();
-      popupRef.current = new maplibregl.Popup({
-        offset: 26,
-        closeButton: false,
-        className: 'fp-popup',
-        maxWidth: '260px',
-      })
-        .setLngLat([lng, lat])
-        .setDOMContent(content)
-        .addTo(map);
+  const cityPopup = useCallback(
+    (city: string, trips: TripMapPoint[], color: string): HTMLElement => {
+      const visits = trips.length;
+      const days = trips.reduce((sum, point) => sum + tripDays(point), 0);
+      const budget = trips.reduce((sum, point) => sum + (point.budget ?? 0), 0);
+      const { root, meta } = popupShell(city, `${visits} 次到访`, color);
+      meta.append(
+        metaLine(`🗓 累计 ${days} 天`),
+        metaLine(`💰 预算合计 ¥${budget.toFixed(0)}`),
+        metaLine(
+          `🕒 最近 ${
+            trips
+              .map((t) => t.startDate)
+              .filter(Boolean)
+              .sort()
+              .reverse()[0] ?? '—'
+          }`,
+        ),
+      );
+      const hint = document.createElement('div');
+      hint.className = 'fp-popup-hint';
+      hint.textContent = '点击查看该城市足迹 →';
+      root.append(hint);
+      return root;
     },
     [],
   );
+
+  const showPopupAt = useCallback((content: HTMLElement, lng: number, lat: number, map: Map) => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    popupRef.current?.remove();
+    popupRef.current = new engine.Popup({
+      offset: 26,
+      closeButton: false,
+      className: 'fp-popup',
+      maxWidth: '260px',
+    })
+      .setLngLat([lng, lat])
+      .setDOMContent(content)
+      .addTo(map);
+  }, []);
 
   /** 标记元素：城市节点 / 行程节点共用，city 模式额外显示到访次数 */
   const markerElement = (label: string, initial: string, color: string, visits?: number) => {
@@ -238,7 +255,7 @@ export default function FootprintMap({
   };
 
   /** 航线坐标：city 模式按首次到访顺序串城市，trip 模式按行程时间顺序 */
-  const routeOf = useCallback((located: TripMapPoint[]): [number, number][] => {
+  const routeOf = useCallback((): [number, number][] => {
     if (modeRef.current !== 'city') {
       return routeCoordinates(pointsRef.current);
     }
@@ -249,8 +266,9 @@ export default function FootprintMap({
   }, []);
 
   const draw = useCallback(() => {
+    const engine = engineRef.current;
     const map = mapRef.current;
-    if (!map) return [] as TripMapPoint[];
+    if (!engine || !map) return [] as TripMapPoint[];
 
     markersRef.current.forEach((marker) => marker.remove());
     markersRef.current = [];
@@ -259,13 +277,15 @@ export default function FootprintMap({
     const located = orderedFootprints(pointsRef.current);
 
     // 航线：先按时间顺序连线，再叠加一层虚线形成「飞行轨迹」质感
-    const coordinates = routeOf(located);
-    const source = map.getSource('fp-route') as maplibregl.GeoJSONSource | undefined;
+    const coordinates = routeOf();
+    const source = map.getSource('fp-route') as GeoJSONSource | undefined;
     source?.setData(
       coordinates.length > 1
         ? {
             type: 'FeatureCollection',
-            features: [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates } }],
+            features: [
+              { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates } },
+            ],
           }
         : { type: 'FeatureCollection', features: [] },
     );
@@ -286,7 +306,7 @@ export default function FootprintMap({
         el.addEventListener('mouseleave', () => popupRef.current?.remove());
         el.addEventListener('click', () => cityClickRef.current?.(city.city));
         markersRef.current.push(
-          new maplibregl.Marker({ element: el, anchor: 'center' })
+          new engine.Marker({ element: el, anchor: 'center' })
             .setLngLat([city.lng, city.lat])
             .addTo(map),
         );
@@ -310,7 +330,7 @@ export default function FootprintMap({
       el.addEventListener('mouseleave', () => popupRef.current?.remove());
       el.addEventListener('click', () => selectRef.current?.(point.tripId));
       markersRef.current.push(
-        new maplibregl.Marker({ element: el, anchor: 'center' })
+        new engine.Marker({ element: el, anchor: 'center' })
           .setLngLat([point.lng as number, point.lat as number])
           .addTo(map),
       );
@@ -320,8 +340,9 @@ export default function FootprintMap({
   }, [cityPopup, routeOf, showPopupAt, theme, tripPopup]);
 
   const fitAll = useCallback((duration = 2200) => {
+    const engine = engineRef.current;
     const map = mapRef.current;
-    if (!map) return;
+    if (!map || !engine) return;
     const located = orderedFootprints(pointsRef.current);
     if (located.length === 0) {
       map.flyTo({ center: CHINA_OVERVIEW, zoom: 3.2, pitch: 0, duration });
@@ -338,7 +359,7 @@ export default function FootprintMap({
       });
       return;
     }
-    const bounds = new maplibregl.LngLatBounds();
+    const bounds = new engine.LngLatBounds();
     located.forEach((point) => bounds.extend([point.lng as number, point.lat as number]));
     map.fitBounds(bounds, { padding: 84, maxZoom: 9.5, duration, essential: true });
     map.easeTo({ pitch: 55, bearing: -16, duration: Math.round(duration * 0.8) });
@@ -361,7 +382,12 @@ export default function FootprintMap({
         curve: 1.6,
         essential: true,
       });
-      showPopupAt(tripPopup(point, footprintColor(index)), point.lng as number, point.lat as number, map);
+      showPopupAt(
+        tripPopup(point, footprintColor(index)),
+        point.lng as number,
+        point.lat as number,
+        map,
+      );
     },
     [showPopupAt, tripPopup],
   );
@@ -455,132 +481,169 @@ export default function FootprintMap({
     mapRef.current?.easeTo({ pitch: pitched ? 55 : 0, bearing: pitched ? -16 : 0, duration: 900 });
   }, []);
 
-  // 初始化地图（主题变化时重建）
+  // 初始化地图：先按需加载地图引擎（~1.1 MB，不在 bundle 里），加载完成后再创建 Map。
+  // 主题/底图/初始视角变化会重建地图；卸载或重建时如果加载还没完成，用 cancelled 兜住、不 setState。
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
-    const supportsGlobe =
-      typeof (maplibregl.Map.prototype as unknown as { setProjection?: unknown }).setProjection === 'function';
+    let cancelled = false;
+    let dispose: (() => void) | null = null;
+    setEngineError(null);
+    setEngineLoading(true);
 
-    const map = new maplibregl.Map({
-      container,
-      // 高德底图用栅格样式以保留球体投影；OSM 深色仍优先用免 Key 的矢量样式
-      style:
-        activeBasemap === 'amap'
-          ? buildAmapRasterStyle(theme)
-          : theme === 'dark'
-            ? DARK_STYLE_URL
-            : buildOsmRasterStyle('light'),
-      center: CHINA_OVERVIEW,
-      zoom: initialZoom,
-      pitch: initialPitch,
-      bearing: initialBearing,
-      maxPitch: 78,
-      minZoom: 1,
-      attributionControl: false,
-      ...(supportsGlobe ? { projection: 'globe' as const } : {}),
-    });
-    map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
-    mapRef.current = map;
-    setGlobe(supportsGlobe);
+    loadMaplibre()
+      .then((maplibregl) => {
+        if (cancelled) return;
 
-    const syncLabels = () => setLabelsOff(map.getZoom() < LABEL_MIN_ZOOM);
-    map.on('zoom', syncLabels);
-    syncLabels();
+        engineRef.current = maplibregl;
+        const supportsGlobe =
+          typeof (maplibregl.Map.prototype as unknown as { setProjection?: unknown })
+            .setProjection === 'function';
 
-    let styleFallbackApplied = false;
-    map.on('error', (event: unknown) => {
-      const message = String((event as unknown as { error?: { message?: string } })?.error?.message ?? '');
-      if (!/style|fetch|load|network|tile/i.test(message)) {
-        return;
-      }
-      // 高德瓦片不可达时整块回退到 OSM，避免首页只看到纸底。
-      if (activeBasemap === 'amap' && !styleFallbackApplied) {
-        styleFallbackApplied = true;
-        console.warn('[footprint] 高德底图加载失败，已回退 OSM 底图');
-        setActiveBasemap('osm');
-        return;
-      }
-      // OSM 深色矢量样式不可达时，退回压暗的 OSM 栅格。
-      if (activeBasemap !== 'osm' || theme !== 'dark' || styleFallbackApplied) {
-        return;
-      }
-      styleFallbackApplied = true;
-      console.warn('[footprint] 深色底图加载失败，已退回压暗的 OSM 栅格底图');
-      map.setStyle(buildOsmRasterStyle('dark'));
-    });
+        const map = new maplibregl.Map({
+          container,
+          // 高德底图用栅格样式以保留球体投影；OSM 深色仍优先用免 Key 的矢量样式
+          style:
+            activeBasemap === 'amap'
+              ? buildAmapRasterStyle(theme)
+              : theme === 'dark'
+                ? DARK_STYLE_URL
+                : buildOsmRasterStyle('light'),
+          center: CHINA_OVERVIEW,
+          zoom: initialZoom,
+          pitch: initialPitch,
+          bearing: initialBearing,
+          maxPitch: 78,
+          minZoom: 1,
+          attributionControl: false,
+          ...(supportsGlobe ? { projection: 'globe' as const } : {}),
+        });
+        mapRef.current = map;
+        // 先把清理函数挂好：后面任何一步抛错（例如 WebGL 初始化失败）也不会漏掉 map.remove()
+        dispose = () => {
+          stopTour();
+          stopSpin();
+          popupRef.current?.remove();
+          popupRef.current = null;
+          markersRef.current = [];
+          map.remove();
+          mapRef.current = null;
+        };
 
-    // style.load 在每次样式加载完成后都会触发（含上面的兜底切换），因此图层在这里注册
-    map.on('style.load', () => {
-      if (map.getSource('fp-route')) {
-        draw();
-        return;
-      }
-      map.addSource('fp-route', {
-        type: 'geojson',
-        data: { type: 'FeatureCollection', features: [] },
-      });
-      const routeColor = theme === 'dark' ? '#4da3ff' : '#1f6feb';
-      map.addLayer({
-        id: 'fp-route-glow',
-        type: 'line',
-        source: 'fp-route',
-        layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': routeColor, 'line-width': 14, 'line-blur': 12, 'line-opacity': 0.26 },
-      });
-      map.addLayer({
-        id: 'fp-route-core',
-        type: 'line',
-        source: 'fp-route',
-        layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': routeColor, 'line-width': 2.6, 'line-opacity': 0.75 },
-      });
-      map.addLayer({
-        id: 'fp-route-dash',
-        type: 'line',
-        source: 'fp-route',
-        layout: { 'line-cap': 'butt', 'line-join': 'round' },
-        paint: {
-          'line-color': '#ffffff',
-          'line-width': 1.6,
-          'line-opacity': 0.85,
-          'line-dasharray': [1.1, 2.2],
-        },
-      });
+        map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
+        setGlobe(supportsGlobe);
+        setEngineLoading(false);
 
-      const located = draw();
-      // 从地球视角飞入首个足迹：先环绕地球，再落到行程范围
-      if (located.length > 0 && !introDoneRef.current) {
-        introDoneRef.current = true;
-        map.flyTo({ center: CHINA_OVERVIEW, zoom: supportsGlobe ? 1.9 : 3, duration: 2400, essential: true });
-        window.setTimeout(() => {
-          fitAll(2600);
-          if (autoSpin) {
-            startSpin();
+        const syncLabels = () => setLabelsOff(map.getZoom() < LABEL_MIN_ZOOM);
+        map.on('zoom', syncLabels);
+        syncLabels();
+
+        let styleFallbackApplied = false;
+        map.on('error', (event: unknown) => {
+          const message = String(
+            (event as unknown as { error?: { message?: string } })?.error?.message ?? '',
+          );
+          if (!/style|fetch|load|network|tile/i.test(message)) {
+            return;
           }
-        }, 2500);
-      }
-    });
+          // 高德瓦片不可达时整块回退到 OSM，避免首页只看到纸底。
+          if (activeBasemap === 'amap' && !styleFallbackApplied) {
+            styleFallbackApplied = true;
+            console.warn('[footprint] 高德底图加载失败，已回退 OSM 底图');
+            setActiveBasemap('osm');
+            return;
+          }
+          // OSM 深色矢量样式不可达时，退回压暗的 OSM 栅格。
+          if (activeBasemap !== 'osm' || theme !== 'dark' || styleFallbackApplied) {
+            return;
+          }
+          styleFallbackApplied = true;
+          console.warn('[footprint] 深色底图加载失败，已退回压暗的 OSM 栅格底图');
+          map.setStyle(buildOsmRasterStyle('dark'));
+        });
 
-    // 用户手动操作时停止环绕，避免「抢镜头」
-    const stopOnInteract = () => stopSpin();
-    map.on('dragstart', stopOnInteract);
-    map.on('rotatestart', stopOnInteract);
-    map.on('zoomstart', stopOnInteract);
+        // style.load 在每次样式加载完成后都会触发（含上面的兜底切换），因此图层在这里注册
+        map.on('style.load', () => {
+          if (map.getSource('fp-route')) {
+            draw();
+            return;
+          }
+          map.addSource('fp-route', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] },
+          });
+          const routeColor = theme === 'dark' ? '#4da3ff' : '#1f6feb';
+          map.addLayer({
+            id: 'fp-route-glow',
+            type: 'line',
+            source: 'fp-route',
+            layout: { 'line-cap': 'round', 'line-join': 'round' },
+            paint: {
+              'line-color': routeColor,
+              'line-width': 14,
+              'line-blur': 12,
+              'line-opacity': 0.26,
+            },
+          });
+          map.addLayer({
+            id: 'fp-route-core',
+            type: 'line',
+            source: 'fp-route',
+            layout: { 'line-cap': 'round', 'line-join': 'round' },
+            paint: { 'line-color': routeColor, 'line-width': 2.6, 'line-opacity': 0.75 },
+          });
+          map.addLayer({
+            id: 'fp-route-dash',
+            type: 'line',
+            source: 'fp-route',
+            layout: { 'line-cap': 'butt', 'line-join': 'round' },
+            paint: {
+              'line-color': '#ffffff',
+              'line-width': 1.6,
+              'line-opacity': 0.85,
+              'line-dasharray': [1.1, 2.2],
+            },
+          });
+
+          const located = draw();
+          // 从地球视角飞入首个足迹：先环绕地球，再落到行程范围
+          if (located.length > 0 && !introDoneRef.current) {
+            introDoneRef.current = true;
+            map.flyTo({
+              center: CHINA_OVERVIEW,
+              zoom: supportsGlobe ? 1.9 : 3,
+              duration: 2400,
+              essential: true,
+            });
+            window.setTimeout(() => {
+              fitAll(2600);
+              if (autoSpin) {
+                startSpin();
+              }
+            }, 2500);
+          }
+        });
+
+        // 用户手动操作时停止环绕，避免「抢镜头」
+        const stopOnInteract = () => stopSpin();
+        map.on('dragstart', stopOnInteract);
+        map.on('rotatestart', stopOnInteract);
+        map.on('zoomstart', stopOnInteract);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setEngineLoading(false);
+        setEngineError(error instanceof Error ? error.message : String(error));
+      });
 
     return () => {
-      stopTour();
-      stopSpin();
-      popupRef.current?.remove();
-      popupRef.current = null;
-      markersRef.current = [];
-      map.remove();
-      mapRef.current = null;
+      cancelled = true;
+      dispose?.();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
     // 初始视角只在首次初始化时生效；pitch/bearing 变化会重建地图（首页给的是固定值）
-  }, [theme, activeBasemap, initialPitch, initialBearing, initialZoom]);
+  }, [theme, activeBasemap, initialPitch, initialBearing, initialZoom, loadAttempt]);
 
   // 数据或模式变化时重绘
   useEffect(() => {
@@ -611,10 +674,70 @@ export default function FootprintMap({
   }, [playSignal]);
 
   return (
-    <div className={`fp-canvas ${labelsOff ? 'labels-off' : ''} ${theme === 'dark' ? 'fp-theme-dark' : ''}`}>
+    <div
+      className={`fp-canvas ${labelsOff ? 'labels-off' : ''} ${theme === 'dark' ? 'fp-theme-dark' : ''}`}
+    >
       <div ref={containerRef} className="fp-map" />
+      {engineLoading && !engineError && (
+        <div
+          className="fp-engine-status"
+          style={{
+            position: 'absolute',
+            inset: 0,
+            zIndex: 2,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            pointerEvents: 'none',
+            color: 'var(--ink-3, #666)',
+            fontSize: 13,
+          }}
+        >
+          正在加载地图引擎…
+        </div>
+      )}
+      {engineError && (
+        <div
+          className="fp-engine-error"
+          role="alert"
+          style={{
+            position: 'absolute',
+            inset: 0,
+            zIndex: 2,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 12,
+            padding: 24,
+            textAlign: 'center',
+            color: theme === 'dark' ? '#e6e9ef' : '#333',
+            background: theme === 'dark' ? 'rgba(18, 21, 27, 0.92)' : 'rgba(255, 255, 255, 0.92)',
+          }}
+        >
+          <b>地图引擎加载失败</b>
+          <span
+            style={{
+              maxWidth: 520,
+              fontSize: 12,
+              lineHeight: 1.6,
+              wordBreak: 'break-all',
+              opacity: 0.85,
+            }}
+          >
+            {engineError}
+          </span>
+          <button
+            type="button"
+            className="fp-ctl"
+            onClick={() => setLoadAttempt((value) => value + 1)}
+          >
+            🔄 重试
+          </button>
+        </div>
+      )}
       {globe && <div className="fp-globe-hint">🌐 球体视角</div>}
-      {showControls && (
+      {showControls && !engineError && (
         <div className="fp-controls">
           <div className="fp-ctl-group">
             <button

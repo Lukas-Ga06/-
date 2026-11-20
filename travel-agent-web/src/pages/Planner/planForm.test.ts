@@ -3,6 +3,7 @@ import {
   clampPlanMessage,
   compilePlanPrompt,
   compilePlanSummary,
+  describeRequirementRows,
   emptyPlanForm,
   guidesTotalChars,
   isFormSubmittable,
@@ -40,7 +41,9 @@ describe('planForm 编译器', () => {
   });
 
   it('从零模式：不含攻略段落，收尾为从零规划指令', () => {
-    const text = compilePlanPrompt(guidesForm({ mode: 'scratch', guides: [], focus: [], locked: '' }));
+    const text = compilePlanPrompt(
+      guidesForm({ mode: 'scratch', guides: [], focus: [], locked: '' }),
+    );
     expect(text).toContain('请从零规划一份完整行程。');
     expect(text).not.toContain('参考攻略');
     expect(text).not.toContain('重点优化');
@@ -52,15 +55,26 @@ describe('planForm 编译器', () => {
   });
 
   it('预算启用时输出金额，未启用或非法值输出灵活', () => {
-    expect(compilePlanPrompt(guidesForm({ budgetEnabled: true, budget: 3000 }))).toContain('预算：¥3000');
-    expect(compilePlanPrompt(guidesForm({ budgetEnabled: true, budget: null }))).toContain('预算：灵活');
-    expect(compilePlanPrompt(guidesForm({ budgetEnabled: false, budget: 3000 }))).toContain('预算：灵活');
+    expect(compilePlanPrompt(guidesForm({ budgetEnabled: true, budget: 3000 }))).toContain(
+      '预算：¥3000',
+    );
+    expect(compilePlanPrompt(guidesForm({ budgetEnabled: true, budget: null }))).toContain(
+      '预算：灵活',
+    );
+    expect(compilePlanPrompt(guidesForm({ budgetEnabled: false, budget: 3000 }))).toContain(
+      '预算：灵活',
+    );
   });
 
   it('空标题攻略自动编号占位', () => {
-    const text = compilePlanPrompt(guidesForm({
-      guides: [{ title: '', content: '正文A' }, { title: '', content: '正文B' }],
-    }));
+    const text = compilePlanPrompt(
+      guidesForm({
+        guides: [
+          { title: '', content: '正文A' },
+          { title: '', content: '正文B' },
+        ],
+      }),
+    );
     expect(text).toContain('【参考攻略 1】');
     expect(text).toContain('【参考攻略 2】');
   });
@@ -74,7 +88,12 @@ describe('planForm 编译器', () => {
   });
 
   it('guidesTotalChars 统计全部正文长度', () => {
-    expect(guidesTotalChars([{ title: '', content: '12345' }, { title: 'x', content: '1234' }])).toBe(9);
+    expect(
+      guidesTotalChars([
+        { title: '', content: '12345' },
+        { title: 'x', content: '1234' },
+      ]),
+    ).toBe(9);
   });
 
   it('compilePlanSummary 不包含攻略正文', () => {
@@ -91,5 +110,39 @@ describe('planForm 编译器', () => {
     const clamped = clampPlanMessage(long);
     expect(clamped.length).toBeLessThanOrEqual(PLAN_MESSAGE_MAX + 12);
     expect(clamped).toContain('已截断');
+  });
+});
+
+describe('describeRequirementRows（第 3 步确认页 / 右侧摘要共用）', () => {
+  it('攻略模式：带上攻略篇数、重点优化与不可修改项', () => {
+    const rows = describeRequirementRows(guidesForm());
+    const valueOf = (key: string) => rows.find((row) => row.key === key)?.value;
+
+    expect(valueOf('destination')).toBe('东京');
+    expect(valueOf('time')).toBe('计划玩 3 天');
+    expect(valueOf('companions')).toContain('成人 1');
+    expect(valueOf('budget')).toBe('灵活');
+    expect(valueOf('pace')).toContain('张弛有度');
+    expect(valueOf('mode')).toBe('整合 2 篇攻略');
+    expect(valueOf('focus')).toBe('减少步行、筛选美食');
+    expect(valueOf('locked')).toContain('teamLab');
+    // 重点优化排在规划方式之后，读起来是「怎么规划 → 优化什么」
+    expect(rows.findIndex((row) => row.key === 'focus')).toBe(
+      rows.findIndex((row) => row.key === 'mode') + 1,
+    );
+  });
+
+  it('从零规划：不展示只对攻略整合生效的「重点优化」', () => {
+    const rows = describeRequirementRows(guidesForm({ mode: 'scratch' }));
+    expect(rows.some((row) => row.key === 'focus')).toBe(false);
+    expect(rows.find((row) => row.key === 'mode')?.value).toBe('从零规划');
+  });
+
+  it('必填项未填时 value 为空串并标记 required，供摘要标红', () => {
+    const rows = describeRequirementRows({ ...emptyPlanForm(), days: null });
+    const destination = rows.find((row) => row.key === 'destination');
+    const time = rows.find((row) => row.key === 'time');
+    expect(destination).toMatchObject({ value: '', required: true });
+    expect(time).toMatchObject({ value: '', required: true });
   });
 });

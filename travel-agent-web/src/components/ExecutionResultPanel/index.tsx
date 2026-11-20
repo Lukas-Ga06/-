@@ -27,7 +27,11 @@ function renderModule(m: ExecutionModule, onRetry?: () => void, retrying?: boole
   const meta = MODULE_META[m.module] ?? { name: m.module, icon: '•' };
   const failed = m.status === 'FAILED';
   return (
-    <div key={m.module} className={`exec-module-row ${failed ? 'fail' : 'ok'}`} data-module={m.module}>
+    <div
+      key={m.module}
+      className={`exec-module-row ${failed ? 'fail' : 'ok'}`}
+      data-module={m.module}
+    >
       <span className="em-icon">{meta.icon}</span>
       <span className="em-name">{meta.name}</span>
       <span className={`em-status ${failed ? 'fail' : 'ok'}`}>{failed ? '失败' : '已同步'}</span>

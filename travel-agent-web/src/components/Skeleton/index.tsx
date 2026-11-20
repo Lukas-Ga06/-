@@ -44,11 +44,7 @@ function Paragraph({
   return (
     <div className="sk-paragraph" style={{ display: 'flex', flexDirection: 'column', gap }}>
       {Array.from({ length: lines }).map((_, i) => (
-        <Bone
-          key={i}
-          width={i === lines - 1 ? '60%' : width}
-          height={lineHeight}
-        />
+        <Bone key={i} width={i === lines - 1 ? '60%' : width} height={lineHeight} />
       ))}
     </div>
   );

@@ -55,6 +55,73 @@ function uiOwnCopy(container: HTMLElement): string {
 
 const FORBIDDEN_WORDS = ['实时', '可订', '有房', '立即预订'];
 
+describe('ItineraryCard · P1 执行状态与操作', () => {
+  it('已完成条目显示完成徽标与完成时间，并有明显视觉标记', () => {
+    const { container } = render(
+      <ItineraryCard
+        item={item({
+          status: 'COMPLETED',
+          completedAt: '2026-05-01T10:30:00',
+          visitedAt: '2026-05-01T10:30:00',
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId('item-status').textContent).toBe('已完成');
+    expect(container.querySelector('.t-card')?.className).toContain('tc-done');
+    expect(container.textContent).toContain('完成于');
+    expect(container.textContent).toContain('05-01 10:30');
+  });
+
+  it('未开始条目只有一个一级主动作「开始」，其余动作收进更多菜单', async () => {
+    const onStatusChange = vi.fn();
+    render(<ItineraryCard item={item({ status: 'PENDING' })} onStatusChange={onStatusChange} />);
+
+    expect(screen.getByTestId('item-status').textContent).toBe('未开始');
+    // 一级只剩一个主动作：不再有开始/完成/跳过/重置四个同权按钮
+    expect(screen.getByRole('button', { name: /开\s*始/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /跳\s*过/ })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /开\s*始/ }));
+    expect(onStatusChange).toHaveBeenLastCalledWith('IN_PROGRESS');
+
+    // 其余动作在菜单里
+    fireEvent.click(screen.getByRole('button', { name: '更多安排操作' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: '直接完成' }));
+    expect(onStatusChange).toHaveBeenLastCalledWith('COMPLETED');
+
+    fireEvent.click(screen.getByRole('button', { name: '更多安排操作' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: '跳过' }));
+    expect(onStatusChange).toHaveBeenLastCalledWith('SKIPPED');
+  });
+
+  it('已跳过条目的主动作是重置，直接从菜单可回到未开始', () => {
+    const onStatusChange = vi.fn();
+    const { container } = render(
+      <ItineraryCard item={item({ status: 'SKIPPED' })} onStatusChange={onStatusChange} />,
+    );
+
+    expect(screen.getByTestId('item-status').textContent).toBe('已跳过');
+    expect(container.querySelector('.t-card')?.className).toContain('tc-skipped');
+    fireEvent.click(screen.getByRole('button', { name: /重\s*置/ }));
+    expect(onStatusChange).toHaveBeenLastCalledWith('PENDING');
+  });
+
+  it('进行中条目的主动作是「完成」，重置被收进菜单', async () => {
+    const onStatusChange = vi.fn();
+    render(
+      <ItineraryCard item={item({ status: 'IN_PROGRESS' })} onStatusChange={onStatusChange} />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /完\s*成/ }));
+    expect(onStatusChange).toHaveBeenLastCalledWith('COMPLETED');
+
+    fireEvent.click(screen.getByRole('button', { name: '更多安排操作' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: '重置' }));
+    expect(onStatusChange).toHaveBeenLastCalledWith('PENDING');
+  });
+});
+
 describe('ItineraryCard · 价格参考价与溯源展示', () => {
   it('有 price：金额 + 「参考价」标签 + 来源 + 免责声明 + 查价/地图深链', () => {
     const { container } = render(<ItineraryCard item={item({ price: CONTRACT_PRICE })} />);
@@ -127,7 +194,12 @@ describe('ItineraryCard · 价格参考价与溯源展示', () => {
             sourceLabel: '实时房价',
             disclaimer: CONTRACT_PRICE.disclaimer,
             links: [
-              { provider: 'ctrip', label: '立即预订', url: 'https://hotels.ctrip.com/x', kind: 'price' },
+              {
+                provider: 'ctrip',
+                label: '立即预订',
+                url: 'https://hotels.ctrip.com/x',
+                kind: 'price',
+              },
               { provider: 'amap', label: '有房地图', url: 'https://uri.amap.com/x', kind: 'map' },
             ],
           },
@@ -181,9 +253,7 @@ describe('ItineraryCard · 价格参考价与溯源展示', () => {
 
     // price 对象存在但 amount 缺失：不显示金额、不加「参考价」标签，只展示溯源信息
     rerender(
-      <ItineraryCard
-        item={item({ cost: null, price: { ...CONTRACT_PRICE, amount: null } })}
-      />,
+      <ItineraryCard item={item({ cost: null, price: { ...CONTRACT_PRICE, amount: null } })} />,
     );
     expect(document.querySelectorAll('.tc-cost')).toHaveLength(0);
     expect(screen.queryByTestId('price-tag')).toBeNull();

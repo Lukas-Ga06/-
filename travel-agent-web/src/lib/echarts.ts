@@ -32,7 +32,7 @@ import type {
 import type { ComposeOption } from 'echarts/core';
 
 echarts.use([
-  // 图表（Health 的柱+折线、BudgetChart 的饼+柱、ExpensePanel 的饼）
+  // 图表（预算/支出的饼+柱、趋势折线）
   BarChart,
   LineChart,
   PieChart,

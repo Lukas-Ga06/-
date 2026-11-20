@@ -6,7 +6,7 @@ import PlanDiff from '../../components/PlanDiff';
 import { getPendingPlan } from '../../api/agent';
 import { useAgentStore } from '../../store/agentStore';
 
-/** AI 助理：统一对话入口（旅行规划 / 记账 / 备忘 / 日报 / 知识问答） */
+/** AI 助手：旅行场景统一对话入口（行程规划 / 记账 / 备忘 / 日程 / 旅行知识库） */
 export default function Assistant() {
   const [params, setParams] = useSearchParams();
   const send = useAgentStore((s) => s.send);
@@ -17,25 +17,24 @@ export default function Assistant() {
   const streaming = useAgentStore((s) => s.streaming);
   const restorePending = useAgentStore((s) => s.restorePending);
   const startedRef = useRef(false);
+  const autoSendRef = useRef(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // 从总览输入框跳转而来时自动发送一次
+  // 离页即取消待发送的定时器：组件卸载后不能再发出请求（P0-01）
   useEffect(() => {
-    const q = params.get('q');
-    if (q && !startedRef.current) {
-      startedRef.current = true;
-      const tripId = Number(params.get('tripId'));
-      setTimeout(
-        () => send({ message: q, tripId: Number.isFinite(tripId) && tripId > 0 ? tripId : null }),
-        120,
-      );
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params]);
+    return () => {
+      if (timerRef.current !== null) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     return () => {
-      // 离开页面时清空会话，避免污染其他页面的聊天面板
-      if (!params.get('q')) reset();
+      // 离开页面时清空会话，避免污染其他页面的聊天面板；
+      // 本页自己发起的对话（q 参数或已有消息）保留，跨页继续同一会话。
+      if (!autoSendRef.current) reset();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -76,6 +75,33 @@ export default function Assistant() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingConfirm?.planId]);
 
+  // 从总览输入框跳转而来时自动发送一次。
+  // 关键：先把 q 从 URL 上消费掉，再发送 —— 否则刷新 / 前进后退会再执行一次，
+  // 「记一下明天办签证」这类写入类命令就会重复落库（P0-01）。
+  // 放在最后一个参数相关 effect：URL 写入以本 effect 为准，不会被 planId 同步覆盖。
+  useEffect(() => {
+    const q = params.get('q');
+    if (!q || startedRef.current) return;
+    startedRef.current = true;
+    autoSendRef.current = true;
+    const rawTripId = Number(params.get('tripId'));
+    const tripId = Number.isFinite(rawTripId) && rawTripId > 0 ? rawTripId : null;
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('q');
+        next.delete('tripId');
+        return next;
+      },
+      { replace: true },
+    );
+    timerRef.current = setTimeout(() => {
+      timerRef.current = null;
+      send({ message: q, tripId });
+    }, 120);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params]);
+
   // acknowledgeIssues：存在未解决高风险时由确认弹窗的勾选门槛传入
   const onConfirm = async (acknowledgeIssues?: boolean) => {
     await confirm(acknowledgeIssues);
@@ -86,13 +112,20 @@ export default function Assistant() {
       <div className="dash-wrap">
         <div className="dash-greeting">
           <div>
-            <h1>🤖 AI 助理</h1>
-            <div className="dg-date">统一对话入口：旅行规划 · 记账 · 备忘 · 日程 · 日报 · 知识问答（意图自动路由）</div>
+            <h1>🤖 AI 助手</h1>
+            <div className="dg-date">
+              旅行场景统一对话入口：行程规划 · 记账 · 备忘 · 日程 · 旅行知识库（意图自动路由）
+            </div>
           </div>
         </div>
         <div
           className="dash-card fade-up"
-          style={{ display: 'flex', flexDirection: 'column', minHeight: 'calc(100vh - 230px)', padding: 0 }}
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            minHeight: 'calc(100vh - 230px)',
+            padding: 0,
+          }}
         >
           <ChatPanel placeholder="告诉我你想完成什么……（如：记一下明天办签证）" />
         </div>

@@ -1,11 +1,16 @@
 import { useEffect, useState } from 'react';
-import { Button, Empty } from 'antd';
+import { Empty } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import AppShell from '../../components/AppShell';
 import CountUp from '../../components/CountUp';
 import Skeleton from '../../components/Skeleton';
 import { getExpenseOverview } from '../../api/expense';
-import { CATEGORY_COLORS, PAYMENT_COLORS, PAYMENT_METHODS, type ExpenseOverview } from '../../types/expense';
+import {
+  CATEGORY_COLORS,
+  PAYMENT_COLORS,
+  PAYMENT_METHODS,
+  type ExpenseOverview,
+} from '../../types/expense';
 
 /** 记账模块：跨行程支出总览 */
 export default function Expenses() {
@@ -31,7 +36,8 @@ export default function Expenses() {
           <div>
             <h1>💰 记账</h1>
             <div className="dg-date">
-              跨行程实际支出与支付渠道统计 · 进入行程可在「记账」面板记录明细，也可以对助理说「记一笔午餐 45 元」
+              跨行程实际支出与支付渠道统计 ·
+              进入行程可在「记账」面板记录明细，也可以对助理说「记一笔午餐 45 元」
             </div>
           </div>
         </div>
@@ -47,7 +53,10 @@ export default function Expenses() {
           </div>
         ) : !overview || overview.count === 0 ? (
           <div className="empty-trips">
-            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有支出记录，去行程里记一笔吧" />
+            <Empty
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              description="还没有支出记录，去行程里记一笔吧"
+            />
           </div>
         ) : (
           <>
@@ -55,7 +64,9 @@ export default function Expenses() {
               <div className="dash-card stagger-item" style={{ animationDelay: '0s' }}>
                 <div className="dc-head">
                   <b>支出概览</b>
-                  <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>{overview.count} 条记录</span>
+                  <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
+                    {overview.count} 条记录
+                  </span>
                 </div>
                 <div className="exp-stats">
                   <div className="exp-stat">
@@ -81,7 +92,10 @@ export default function Expenses() {
                         {p}
                       </span>
                       <span className="pay-track">
-                        <span className="pay-fill" style={{ width: `${pct}%`, background: PAYMENT_COLORS[p] }} />
+                        <span
+                          className="pay-fill"
+                          style={{ width: `${pct}%`, background: PAYMENT_COLORS[p] }}
+                        />
                       </span>
                       <span className="pay-amount">
                         <CountUp value={amount} prefix="¥" duration={600} />

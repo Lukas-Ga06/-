@@ -38,11 +38,7 @@ export default function PageTransition({ children, variant = 'fade', duration = 
   const cls = `page-transition page-transition-${variant} ${direction === 'forward' ? 'entering' : 'entered'}`;
 
   return (
-    <div
-      key={currentPath}
-      className={cls}
-      style={{ animationDuration: `${duration}ms` }}
-    >
+    <div key={currentPath} className={cls} style={{ animationDuration: `${duration}ms` }}>
       {children}
     </div>
   );

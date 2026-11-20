@@ -3,7 +3,13 @@ import { App, Button, DatePicker, Empty, Input, Select, Spin, TimePicker } from 
 import { CheckOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import AppShell from '../../components/AppShell';
-import { addSchedule, deleteSchedule, listSchedule, toggleSchedule, type ScheduleItem } from '../../api/assistant';
+import {
+  addSchedule,
+  deleteSchedule,
+  listSchedule,
+  toggleSchedule,
+  type ScheduleItem,
+} from '../../api/assistant';
 
 /** 日程模块：日程规划与管理 */
 export default function Schedule() {
@@ -30,20 +36,27 @@ export default function Schedule() {
     }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+  }, []);
 
   const today = dayjs().format('YYYY-MM-DD');
   /** 重复日程按"下一次发生日期"参与今天/待办的划分 */
   const effectiveDate = (s: ScheduleItem) => s.nextOccurrence ?? s.date;
   const sorted = items
     .slice()
-    .sort((a, b) => (effectiveDate(a) + (a.time ?? '')).localeCompare(effectiveDate(b) + (b.time ?? '')));
+    .sort((a, b) =>
+      (effectiveDate(a) + (a.time ?? '')).localeCompare(effectiveDate(b) + (b.time ?? '')),
+    );
   const todayItems = sorted.filter((s) => effectiveDate(s) === today && !s.done);
   const upcoming = sorted.filter((s) => effectiveDate(s) !== today || s.done);
   const openCount = sorted.filter((s) => !s.done).length;
 
   const add = async () => {
-    if (!title.trim()) { message.warning('填写日程事项'); return; }
+    if (!title.trim()) {
+      message.warning('填写日程事项');
+      return;
+    }
     setSubmitting(true);
     try {
       await addSchedule({
@@ -51,10 +64,14 @@ export default function Schedule() {
         date: date.format('YYYY-MM-DD'),
         time: time ? time.format('HH:mm') : undefined,
         recurrence,
-        repeatUntil: recurrence !== 'NONE' && repeatUntil ? repeatUntil.format('YYYY-MM-DD') : undefined,
+        repeatUntil:
+          recurrence !== 'NONE' && repeatUntil ? repeatUntil.format('YYYY-MM-DD') : undefined,
       });
       message.success('已加入日程');
-      setTitle(''); setTime(null); setRecurrence('NONE'); setRepeatUntil(null);
+      setTitle('');
+      setTime(null);
+      setRecurrence('NONE');
+      setRepeatUntil(null);
       load();
     } catch (e: any) {
       message.error(e.message);
@@ -81,7 +98,13 @@ export default function Schedule() {
   };
 
   const remove = async (id: number) => {
-    try { await deleteSchedule(id); message.success('已删除'); load(); } catch (e: any) { message.error(e.message); }
+    try {
+      await deleteSchedule(id);
+      message.success('已删除');
+      load();
+    } catch (e: any) {
+      message.error(e.message);
+    }
   };
 
   const renderRow = (s: ScheduleItem, highlight?: boolean) => (
@@ -90,13 +113,27 @@ export default function Schedule() {
         className={`memo-check ${s.done ? 'checked' : ''}`}
         onClick={() => toggle(s.id)}
         disabled={pending.has(s.id)}
-        title={s.done ? '恢复' : (s.recurrence && s.recurrence !== 'NONE' ? '结束重复' : '标记为完成')}
+        title={
+          s.done ? '恢复' : s.recurrence && s.recurrence !== 'NONE' ? '结束重复' : '标记为完成'
+        }
       >
         {s.done && <CheckOutlined />}
       </button>
-      {highlight && <span className="mini-tag outdoor" style={{ flexShrink: 0 }}>今天</span>}
-      <span style={{ fontSize: 12, color: 'var(--ink-3)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
-        {effectiveDate(s).slice(5)}{s.time ? ` ${s.time.slice(0, 5)}` : ''}
+      {highlight && (
+        <span className="mini-tag outdoor" style={{ flexShrink: 0 }}>
+          今天
+        </span>
+      )}
+      <span
+        style={{
+          fontSize: 12,
+          color: 'var(--ink-3)',
+          flexShrink: 0,
+          fontVariantNumeric: 'tabular-nums',
+        }}
+      >
+        {effectiveDate(s).slice(5)}
+        {s.time ? ` ${s.time.slice(0, 5)}` : ''}
       </span>
       <span className="memo-content">{s.title}</span>
       {s.recurrence && s.recurrence !== 'NONE' && (
@@ -105,7 +142,13 @@ export default function Schedule() {
           {s.repeatUntil ? ` 至 ${s.repeatUntil.slice(5)}` : ''}
         </span>
       )}
-      <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => remove(s.id)} />
+      <Button
+        type="text"
+        size="small"
+        danger
+        icon={<DeleteOutlined />}
+        onClick={() => remove(s.id)}
+      />
     </div>
   );
 
@@ -122,7 +165,16 @@ export default function Schedule() {
         </div>
 
         <div className="search-card fade-up" style={{ marginBottom: 16 }}>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', position: 'relative', zIndex: 1 }}>
+          <div
+            style={{
+              display: 'flex',
+              gap: 8,
+              flexWrap: 'wrap',
+              alignItems: 'center',
+              position: 'relative',
+              zIndex: 1,
+            }}
+          >
             <Input
               size="large"
               style={{ flex: 2, minWidth: 200 }}
@@ -132,8 +184,19 @@ export default function Schedule() {
               onPressEnter={add}
               maxLength={100}
             />
-            <DatePicker size="large" value={date} onChange={(d) => d && setDate(d)} allowClear={false} />
-            <TimePicker size="large" value={time} onChange={(t) => setTime(t)} format="HH:mm" placeholder="时间(可选)" />
+            <DatePicker
+              size="large"
+              value={date}
+              onChange={(d) => d && setDate(d)}
+              allowClear={false}
+            />
+            <TimePicker
+              size="large"
+              value={time}
+              onChange={(t) => setTime(t)}
+              format="HH:mm"
+              placeholder="时间(可选)"
+            />
             <Select
               size="large"
               value={recurrence}
@@ -154,7 +217,13 @@ export default function Schedule() {
                 placeholder="结束日期(可选)"
               />
             )}
-            <Button size="large" type="primary" icon={<PlusOutlined />} onClick={add} loading={submitting}>
+            <Button
+              size="large"
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={add}
+              loading={submitting}
+            >
               添加日程
             </Button>
           </div>
@@ -166,15 +235,24 @@ export default function Schedule() {
           <>
             {todayItems.length > 0 && (
               <>
-                <div className="section-head"><h3>今天</h3></div>
-                <div className="inset-list fade-up">{todayItems.map((s) => renderRow(s, true))}</div>
+                <div className="section-head">
+                  <h3>今天</h3>
+                </div>
+                <div className="inset-list fade-up">
+                  {todayItems.map((s) => renderRow(s, true))}
+                </div>
               </>
             )}
-            <div className="section-head"><h3>全部日程</h3></div>
+            <div className="section-head">
+              <h3>全部日程</h3>
+            </div>
             <div className="inset-list fade-up">
               {upcoming.length === 0 && todayItems.length === 0 ? (
                 <div style={{ padding: 10 }}>
-                  <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="日程是空的，添加第一项吧" />
+                  <Empty
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                    description="日程是空的，添加第一项吧"
+                  />
                 </div>
               ) : upcoming.length === 0 ? (
                 <div style={{ padding: 10 }}>

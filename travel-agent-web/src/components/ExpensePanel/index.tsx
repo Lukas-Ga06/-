@@ -1,5 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { App, Button, DatePicker, Empty, Form, Input, InputNumber, List, Popconfirm, Progress, Select } from 'antd';
+import {
+  App,
+  Button,
+  DatePicker,
+  Empty,
+  Form,
+  Input,
+  InputNumber,
+  List,
+  Popconfirm,
+  Progress,
+  Select,
+} from 'antd';
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import { echarts, type EChartsType } from '../../lib/echarts';
@@ -7,7 +19,13 @@ import { addExpense, deleteExpense, getExpensesPage } from '../../api/expense';
 import { getBudgetExecution } from '../../api/trip';
 import { DEFAULT_PAGE_SIZE } from '../../api/client';
 import PaginationBar from '../PaginationBar';
-import { CATEGORY_COLORS, EXPENSE_CATEGORIES, PAYMENT_COLORS, PAYMENT_METHODS, type Expense } from '../../types/expense';
+import {
+  CATEGORY_COLORS,
+  EXPENSE_CATEGORIES,
+  PAYMENT_COLORS,
+  PAYMENT_METHODS,
+  type Expense,
+} from '../../types/expense';
 import { useThemeStore } from '../../store/themeStore';
 import { chartPalette } from '../../lib/chartTheme';
 
@@ -45,7 +63,12 @@ export default function ExpensePanel({ tripId, budget, planned }: Props) {
   /** 翻页/静默刷新的请求态：只禁用翻页按钮，不动列表（保留滚动位置与当前行） */
   const [paging, setPaging] = useState(false);
   const [offset, setOffset] = useState(0);
-  const [meta, setMeta] = useState({ total: 0, hasMore: false, paged: false, limit: DEFAULT_PAGE_SIZE });
+  const [meta, setMeta] = useState({
+    total: 0,
+    hasMore: false,
+    paged: false,
+    limit: DEFAULT_PAGE_SIZE,
+  });
   const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
   const chartElRef = useRef<HTMLDivElement>(null);
@@ -77,7 +100,9 @@ export default function ExpensePanel({ tripId, budget, planned }: Props) {
         execution
           ? {
               total: Number(execution.actual ?? 0),
-              byCategory: Object.fromEntries(categories.map((c) => [c.category, Number(c.actual ?? 0)])),
+              byCategory: Object.fromEntries(
+                categories.map((c) => [c.category, Number(c.actual ?? 0)]),
+              ),
             }
           : summarize(page.items),
       );
@@ -177,7 +202,8 @@ export default function ExpensePanel({ tripId, budget, planned }: Props) {
       await deleteExpense(id);
       message.success('已删除');
       // 删掉当前页最后一条时回退一页，避免停在空页
-      const nextOffset = items.length === 1 && offset > 0 ? Math.max(offset - meta.limit, 0) : offset;
+      const nextOffset =
+        items.length === 1 && offset > 0 ? Math.max(offset - meta.limit, 0) : offset;
       await load(nextOffset, { silent: true });
     } catch (e: any) {
       message.error(e.message);
@@ -200,10 +226,19 @@ export default function ExpensePanel({ tripId, budget, planned }: Props) {
       <div style={{ marginBottom: 14 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
           <span style={{ color: 'var(--ink-2)', fontSize: 12.5 }}>实际支出</span>
-          <span style={{ fontSize: 22, fontWeight: 800, color: over ? 'var(--danger)' : 'var(--primary)' }}>
+          <span
+            style={{
+              fontSize: 22,
+              fontWeight: 800,
+              color: over ? 'var(--danger)' : 'var(--primary)',
+            }}
+          >
             ¥{total.toFixed(0)}
             {budget != null && (
-              <span style={{ fontSize: 12.5, color: 'var(--ink-3)', fontWeight: 400 }}> / ¥{budget}</span>
+              <span style={{ fontSize: 12.5, color: 'var(--ink-3)', fontWeight: 400 }}>
+                {' '}
+                / ¥{budget}
+              </span>
             )}
           </span>
         </div>
@@ -211,29 +246,62 @@ export default function ExpensePanel({ tripId, budget, planned }: Props) {
           <Progress
             percent={Number(percent.toFixed(1))}
             showInfo={false}
-            strokeColor={over ? { from: '#f87171', to: '#dc2626' } : { from: '#38bdf8', to: '#818cf8' }}
+            strokeColor={
+              over ? { from: '#f87171', to: '#dc2626' } : { from: '#38bdf8', to: '#818cf8' }
+            }
             trailColor="rgba(255,255,255,0.08)"
             size={['100%', 8]}
             style={{ marginTop: 6 }}
           />
         )}
-        <div style={{ fontSize: 11.5, color: 'var(--ink-3)', marginTop: 4, display: 'flex', justifyContent: 'space-between' }}>
+        <div
+          style={{
+            fontSize: 11.5,
+            color: 'var(--ink-3)',
+            marginTop: 4,
+            display: 'flex',
+            justifyContent: 'space-between',
+          }}
+        >
           <span>行程预估 ¥{Number(planned ?? 0).toFixed(0)}</span>
-          {remaining != null && <span>{over ? `已超支 ¥${(-remaining).toFixed(0)}` : `剩余 ¥${remaining.toFixed(0)}`}</span>}
+          {remaining != null && (
+            <span>
+              {over ? `已超支 ¥${(-remaining).toFixed(0)}` : `剩余 ¥${remaining.toFixed(0)}`}
+            </span>
+          )}
         </div>
       </div>
 
       {/* 分类饼图 */}
       <div ref={chartElRef} style={{ width: '100%', height: 165, marginBottom: 8 }} />
-      {items.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有记账，记录第一笔吧" style={{ marginBottom: 10 }} />}
+      {items.length === 0 && (
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description="还没有记账，记录第一笔吧"
+          style={{ marginBottom: 10 }}
+        />
+      )}
 
       {/* 记一笔 */}
-      <Form form={form} layout="vertical" onFinish={onFinish} initialValues={{ category: '餐饮', spentAt: dayjs(), paymentMethod: '微信支付' }}>
+      <Form
+        form={form}
+        layout="vertical"
+        onFinish={onFinish}
+        initialValues={{ category: '餐饮', spentAt: dayjs(), paymentMethod: '微信支付' }}
+      >
         <div style={{ display: 'flex', gap: 8 }}>
-          <Form.Item name="category" style={{ flex: 1, marginBottom: 8 }} rules={[{ required: true }]}>
+          <Form.Item
+            name="category"
+            style={{ flex: 1, marginBottom: 8 }}
+            rules={[{ required: true }]}
+          >
             <Select options={EXPENSE_CATEGORIES.map((c) => ({ value: c, label: c }))} />
           </Form.Item>
-          <Form.Item name="amount" style={{ flex: 1, marginBottom: 8 }} rules={[{ required: true, message: '金额' }]}>
+          <Form.Item
+            name="amount"
+            style={{ flex: 1, marginBottom: 8 }}
+            rules={[{ required: true, message: '金额' }]}
+          >
             <InputNumber min={0.01} precision={2} placeholder="金额 ¥" style={{ width: '100%' }} />
           </Form.Item>
         </div>
@@ -245,7 +313,9 @@ export default function ExpensePanel({ tripId, budget, planned }: Props) {
             <Select
               options={PAYMENT_METHODS.map((p) => ({ value: p, label: p }))}
               optionRender={(o) => (
-                <span style={{ color: PAYMENT_COLORS[o.value as string] ?? undefined }}>{o.label}</span>
+                <span style={{ color: PAYMENT_COLORS[o.value as string] ?? undefined }}>
+                  {o.label}
+                </span>
               )}
             />
           </Form.Item>
@@ -288,7 +358,14 @@ export default function ExpensePanel({ tripId, budget, planned }: Props) {
                 {item.category}
               </span>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <div
+                  style={{
+                    fontSize: 13,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
                   {item.note || item.category}
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>
@@ -296,7 +373,9 @@ export default function ExpensePanel({ tripId, budget, planned }: Props) {
                   {item.paymentMethod ? ` · ${item.paymentMethod}` : ''}
                 </div>
               </div>
-              <span style={{ fontWeight: 700, color: 'var(--accent)', flexShrink: 0 }}>¥{item.amount}</span>
+              <span style={{ fontWeight: 700, color: 'var(--accent)', flexShrink: 0 }}>
+                ¥{item.amount}
+              </span>
             </div>
           </List.Item>
         )}

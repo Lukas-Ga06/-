@@ -1,6 +1,20 @@
 import { createContext, useContext, useEffect, useState } from 'react';
-import { Badge, Button } from 'antd';
-import { LogoutOutlined } from '@ant-design/icons';
+import { Badge, Button, Tooltip } from 'antd';
+import {
+  BookOutlined,
+  BugOutlined,
+  CheckSquareOutlined,
+  CompassOutlined,
+  EnvironmentOutlined,
+  HomeOutlined,
+  LogoutOutlined,
+  MessageOutlined,
+  PlusOutlined,
+  ReadOutlined,
+  SettingOutlined,
+  UserOutlined,
+  WalletOutlined,
+} from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { signOut } from '../api/auth';
@@ -8,48 +22,78 @@ import { useThemeStore } from '../store/themeStore';
 import { getMemoOpenCount } from '../api/memo';
 import ReminderBell from './ReminderBell';
 
-const GROUPS: { section: string; items: { key: string; label: string; path: string; icon: string }[] }[] = [
+/**
+ * 信息架构（方案 §6.1）：
+ * 一级导航只放用户任务，且按「总览 / 行程 / 智能 / 旅行资料」分组；
+ * 「新建行程」是固定主动作，不占用分组；诊断默认不出现在导航里（见 DEV_ONLY 项）。
+ */
+const GROUPS: {
+  section: string;
+  items: { key: NavModule; label: string; path: string; icon: React.ReactNode }[];
+}[] = [
   {
     section: '总览',
-    items: [
-      { key: 'home', label: '首页', path: '/', icon: '🏠' },
-      { key: 'travel', label: '旅行规划', path: '/travel', icon: '🧭' },
-    ],
+    items: [{ key: 'home', label: '首页', path: '/', icon: <HomeOutlined /> }],
   },
   {
-    section: '生活',
-    items: [
-      { key: 'expenses', label: '记账', path: '/expenses', icon: '💰' },
-      { key: 'memos', label: '备忘', path: '/memos', icon: '📝' },
-      { key: 'health', label: '健康', path: '/health', icon: '❤️' },
-    ],
+    section: '行程',
+    items: [{ key: 'travel', label: '我的行程', path: '/travel', icon: <CompassOutlined /> }],
   },
   {
     section: '智能',
+    items: [{ key: 'assistant', label: 'AI 助手', path: '/assistant', icon: <MessageOutlined /> }],
+  },
+  {
+    section: '旅行资料',
     items: [
-      { key: 'assistant', label: 'AI 助理', path: '/assistant', icon: '🤖' },
-      { key: 'workbench', label: '工作台', path: '/workbench', icon: '🧰' },
+      { key: 'knowledge', label: '攻略库', path: '/knowledge', icon: <ReadOutlined /> },
+      { key: 'memos', label: '备忘', path: '/memos', icon: <CheckSquareOutlined /> },
+      { key: 'expenses', label: '记账', path: '/expenses', icon: <WalletOutlined /> },
+      { key: 'review', label: '回顾', path: '/review', icon: <BookOutlined /> },
+      {
+        key: 'footprint',
+        label: '足迹与照片',
+        path: '/travel?tab=footprint',
+        icon: <EnvironmentOutlined />,
+      },
     ],
   },
 ];
 
-/** 窄屏底部标签栏：只放最高频的四个入口 */
-const TABS: { key: NavModule; label: string; path: string; icon: string }[] = [
-  { key: 'home', label: '首页', path: '/', icon: '🏠' },
-  { key: 'travel', label: '旅行', path: '/travel', icon: '🧭' },
-  { key: 'assistant', label: '助手', path: '/assistant', icon: '🤖' },
-  { key: 'profile', label: '我的', path: '/profile', icon: '👤' },
+/** 窄屏底部标签栏：只放最高频的四个入口（主题切换已移入「我的」） */
+const TABS: { key: NavModule; label: string; path: string; icon: React.ReactNode }[] = [
+  { key: 'home', label: '首页', path: '/', icon: <HomeOutlined /> },
+  { key: 'travel', label: '行程', path: '/travel', icon: <CompassOutlined /> },
+  { key: 'assistant', label: '助手', path: '/assistant', icon: <MessageOutlined /> },
+  { key: 'profile', label: '我的', path: '/profile', icon: <UserOutlined /> },
 ];
 
 export type NavModule =
-  | 'home' | 'schedule' | 'travel' | 'footprint' | 'expenses' | 'memos' | 'health'
-  | 'assistant' | 'office' | 'learning' | 'workbench' | 'profile';
+  | 'home'
+  | 'planner'
+  | 'schedule'
+  | 'travel'
+  | 'footprint'
+  | 'expenses'
+  | 'memos'
+  | 'knowledge'
+  | 'review'
+  | 'assistant'
+  | 'workbench'
+  | 'diagnostics'
+  | 'profile';
 
-/** 嵌套在已有外壳内时不再重复渲染侧栏（例如工作台用 Tabs 复用办公/学习页） */
+/** 嵌套在已有外壳内时不再重复渲染侧栏（例如旅行页用 Tabs 复用日程/足迹页） */
 const InsideShell = createContext(false);
 
-/** 个人助理应用外壳：左侧固定侧栏（窄屏收成图标栏 / 底部标签栏）+ 右侧内容区 */
-export default function AppShell({ active, children }: { active: NavModule; children: React.ReactNode }) {
+/** 智能旅行助手应用外壳：左侧固定侧栏（窄屏收成底部标签栏）+ 右侧内容区 */
+export default function AppShell({
+  active,
+  children,
+}: {
+  active: NavModule;
+  children: React.ReactNode;
+}) {
   const insideShell = useContext(InsideShell);
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
@@ -76,102 +120,141 @@ export default function AppShell({ active, children }: { active: NavModule; chil
     return <>{children}</>;
   }
 
+  /** 运行诊断只对开发者暴露（方案 §6.2）：普通用户导航里看不到 DAG / 工具调用 / 异常类名 */
+  const devOnly = import.meta.env.DEV;
+
   return (
     <InsideShell.Provider value={true}>
       <div className="app-shell">
         <aside className="app-sidebar">
-        <div className="sb-brand" data-testid="app-shell-brand" onClick={() => navigate('/')} style={{ cursor: 'pointer' }}>
-          <span className="hn-logo">🧠</span>
-          <span className="sb-brand-text">AI 个人助理</span>
-        </div>
-        <nav className="sb-modules">
-          {GROUPS.map((g) => (
-            <div key={g.section}>
-              <div className="sb-section">{g.section}</div>
-              {g.items.map((m) => (
-                <button
-                  key={m.key}
-                  className={`sb-link ${active === m.key ? 'active' : ''}`}
-                  onClick={() => navigate(m.path)}
-                  title={m.label}
-                >
-                  {m.key === 'memos' && memoOpen > 0 ? (
-                    <Badge count={memoOpen} size="small" overflowCount={99} offset={[-3, 3]}>
-                      <span>{m.icon}</span>
-                    </Badge>
-                  ) : (
-                    <span>{m.icon}</span>
-                  )}
-                  <span className="sb-label">{m.label}</span>
-                </button>
-              ))}
-            </div>
-          ))}
-        </nav>
-        <div className="sb-footer">
-          <ReminderBell />
           <button
-            className={`sb-link ${active === 'profile' ? 'active' : ''}`}
-            onClick={() => navigate('/profile')}
-            title="设置"
+            type="button"
+            className="sb-brand"
+            data-testid="app-shell-brand"
+            onClick={() => navigate('/')}
+            aria-label="回到首页"
           >
-            <span>⚙️</span>
-            <span className="sb-label">设置</span>
-          </button>
-          <div className="sb-user">
-            <span className="sb-avatar">{(user?.nickname || user?.username || '旅')[0]}</span>
-            <span
-              className="sb-user-name"
-              style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}
-            >
-              {user?.nickname ?? user?.username}
+            <span className="hn-logo" aria-hidden="true">
+              🧳
             </span>
-            <Button
-              type="text"
-              size="small"
-              danger
-              icon={<LogoutOutlined />}
-              title="退出登录"
-              onClick={() => {
-                signOut();
-                navigate('/login');
-              }}
-            />
-            <Button
-              type="text"
-              size="small"
-              title={themeMode === 'dark' ? '切换到浅色' : '切换到暗色'}
-              aria-label={themeMode === 'dark' ? '切换到浅色模式' : '切换到暗色模式'}
-              data-testid="theme-toggle-sidebar"
-              onClick={toggleTheme}
+            <span className="sb-brand-text">AI 智能旅行助手</span>
+          </button>
+
+          {/* 固定主动作：新建行程不再让用户在多个相似入口间选择 */}
+          <Button
+            type="primary"
+            block
+            icon={<PlusOutlined />}
+            className="sb-new-trip"
+            onClick={() => navigate('/planner')}
+          >
+            新建行程
+          </Button>
+
+          <nav className="sb-modules" aria-label="主导航">
+            {GROUPS.map((g) => (
+              <div key={g.section}>
+                <div className="sb-section">{g.section}</div>
+                {g.items.map((m) => (
+                  <button
+                    key={m.key}
+                    type="button"
+                    className={`sb-link ${active === m.key ? 'active' : ''}`}
+                    onClick={() => navigate(m.path)}
+                    title={m.label}
+                    aria-current={active === m.key ? 'page' : undefined}
+                  >
+                    {m.key === 'memos' && memoOpen > 0 ? (
+                      <Badge count={memoOpen} size="small" overflowCount={99} offset={[-3, 3]}>
+                        <span className="sb-icon" aria-hidden="true">
+                          {m.icon}
+                        </span>
+                      </Badge>
+                    ) : (
+                      <span className="sb-icon" aria-hidden="true">
+                        {m.icon}
+                      </span>
+                    )}
+                    <span className="sb-label">{m.label}</span>
+                  </button>
+                ))}
+              </div>
+            ))}
+          </nav>
+
+          <div className="sb-footer">
+            <ReminderBell />
+            <button
+              type="button"
+              className={`sb-link ${active === 'profile' ? 'active' : ''}`}
+              onClick={() => navigate('/profile')}
+              title="设置"
+              aria-current={active === 'profile' ? 'page' : undefined}
             >
-              {themeMode === 'dark' ? '☀️' : '🌙'}
-            </Button>
+              <span className="sb-icon" aria-hidden="true">
+                <SettingOutlined />
+              </span>
+              <span className="sb-label">设置</span>
+            </button>
+            {devOnly && (
+              <button
+                type="button"
+                className={`sb-link ${active === 'diagnostics' ? 'active' : ''}`}
+                onClick={() => navigate('/settings/diagnostics')}
+                title="运行诊断"
+                aria-current={active === 'diagnostics' ? 'page' : undefined}
+              >
+                <span className="sb-icon" aria-hidden="true">
+                  <BugOutlined />
+                </span>
+                <span className="sb-label">运行诊断</span>
+              </button>
+            )}
+            <div className="sb-user">
+              <span className="sb-avatar">{(user?.nickname || user?.username || '旅')[0]}</span>
+              <span className="sb-user-name">{user?.nickname ?? user?.username}</span>
+              <Tooltip title="退出登录">
+                <Button
+                  type="text"
+                  size="small"
+                  danger
+                  icon={<LogoutOutlined />}
+                  aria-label="退出登录"
+                  onClick={() => {
+                    signOut();
+                    navigate('/login');
+                  }}
+                />
+              </Tooltip>
+              <Button
+                type="text"
+                size="small"
+                title={themeMode === 'dark' ? '切换到浅色' : '切换到暗色'}
+                aria-label={themeMode === 'dark' ? '切换到浅色模式' : '切换到暗色模式'}
+                data-testid="theme-toggle-sidebar"
+                onClick={toggleTheme}
+              >
+                {themeMode === 'dark' ? '☀️' : '🌙'}
+              </Button>
+            </div>
           </div>
-        </div>
         </aside>
         <main className="app-content">{children}</main>
-        <nav className="app-tabbar">
+        <nav className="app-tabbar" aria-label="主导航">
           {TABS.map((t) => (
-            <a
+            <button
               key={t.key}
-              className={active === t.key ? 'on' : ''}
+              type="button"
+              className={`tb-item ${active === t.key ? 'on' : ''}`}
+              aria-current={active === t.key ? 'page' : undefined}
               onClick={() => navigate(t.path)}
             >
-              <span className="tb-icon">{t.icon}</span>
+              <span className="tb-icon" aria-hidden="true">
+                {t.icon}
+              </span>
               <span>{t.label}</span>
-            </a>
+            </button>
           ))}
-          <a
-            onClick={toggleTheme}
-            role="button"
-            title={themeMode === 'dark' ? '切换到浅色' : '切换到暗色'}
-            aria-label={themeMode === 'dark' ? '切换到浅色模式' : '切换到暗色模式'}
-            data-testid="theme-toggle-tabbar"
-          >
-            <span className="tb-icon">{themeMode === 'dark' ? '☀️' : '🌙'}</span>
-            <span>主题</span>
-          </a>
         </nav>
       </div>
     </InsideShell.Provider>

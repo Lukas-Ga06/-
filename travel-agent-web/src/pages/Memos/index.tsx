@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { App, Button, Empty, Input, Spin } from 'antd';
+import { App, Button, Empty, Input } from 'antd';
 import { CheckOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import AppShell from '../../components/AppShell';
 import SwipeRow from '../../components/SwipeRow';
@@ -18,7 +18,12 @@ export default function Memos() {
   /** 翻页/静默刷新请求态：只禁用翻页按钮，不切骨架屏（避免丢滚动位置） */
   const [paging, setPaging] = useState(false);
   const [offset, setOffset] = useState(0);
-  const [meta, setMeta] = useState({ total: 0, hasMore: false, paged: false, limit: DEFAULT_PAGE_SIZE });
+  const [meta, setMeta] = useState({
+    total: 0,
+    hasMore: false,
+    paged: false,
+    limit: DEFAULT_PAGE_SIZE,
+  });
   const [exiting, setExiting] = useState<Set<number>>(new Set());
   /** toggle 请求在途的行：toggle 是取反语义，连点两次会互相抵消，必须挡住并发 */
   const [pending, setPending] = useState<Set<number>>(new Set());
@@ -98,7 +103,8 @@ export default function Memos() {
         await deleteMemo(id);
         message.success('已删除');
         // 删掉当前页最后一条时回退一页，避免停在空页
-        if (items.length === 1 && offset > 0) fetchPage(Math.max(offset - meta.limit, 0), { silent: true });
+        if (items.length === 1 && offset > 0)
+          fetchPage(Math.max(offset - meta.limit, 0), { silent: true });
         else load();
       } catch (e: any) {
         message.error(e.message);
@@ -121,24 +127,26 @@ export default function Memos() {
         style={{ animationDelay: `${Math.min(index * 0.04, 0.3)}s` }}
       >
         <SwipeRow
-          rightActions={[
-            {
-              label: '删除',
-              bg: 'var(--danger)',
-              onClick: () => remove(m.id),
-            },
-            !m.done
-              ? {
-                  label: '完成',
-                  bg: 'var(--ok)',
-                  onClick: () => toggle(m.id),
-                }
-              : {
-                  label: '撤销',
-                  bg: 'var(--accent)',
-                  onClick: () => toggle(m.id),
-                },
-          ].filter(Boolean) as { label: string; bg: string; onClick: () => void }[]}
+          rightActions={
+            [
+              {
+                label: '删除',
+                bg: 'var(--danger)',
+                onClick: () => remove(m.id),
+              },
+              !m.done
+                ? {
+                    label: '完成',
+                    bg: 'var(--ok)',
+                    onClick: () => toggle(m.id),
+                  }
+                : {
+                    label: '撤销',
+                    bg: 'var(--accent)',
+                    onClick: () => toggle(m.id),
+                  },
+            ].filter(Boolean) as { label: string; bg: string; onClick: () => void }[]
+          }
           threshold={70}
           maxSlide={150}
         >

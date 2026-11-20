@@ -8,9 +8,17 @@ export function footprintColor(index: number): string {
   return FOOTPRINT_COLORS[index % FOOTPRINT_COLORS.length];
 }
 
-/** 只保留有坐标的行程（城市未定位时不参与连线） */
+/**
+ * 真实到访的行程：只认后端 visited === true（其依据是 visitedAt 实际打卡）。
+ * 未来/计划行程即使日期已过也不得计入「去过」，缺失 visited 字段一律按未到访处理。
+ */
+export function visitedPoints(points: TripMapPoint[]): TripMapPoint[] {
+  return points.filter((p) => p.visited === true);
+}
+
+/** 只保留真实到访且有坐标的行程（城市未定位时不参与连线） */
 export function locatedPoints(points: TripMapPoint[]): TripMapPoint[] {
-  return points.filter((p) => p.lat != null && p.lng != null);
+  return visitedPoints(points).filter((p) => p.lat != null && p.lng != null);
 }
 
 /**
@@ -64,28 +72,30 @@ export function tripRangeLabel(point: TripMapPoint): string {
 }
 
 export interface FootprintStats {
-  /** 全部行程数（含未定位） */
+  /** 真实到访行程数（含未定位） */
   trips: number;
-  /** 去过的城市数（按目的地去重） */
+  /** 去过的城市数（只统计真实到访，按目的地去重） */
   cities: number;
-  /** 已定位（可在地图上显示）的行程数 */
+  /** 真实到访且已定位（可在地图上显示）的行程数 */
   located: number;
-  /** 旅行总天数 */
+  /** 真实到访行程的总天数 */
   days: number;
-  /** 行程预算合计 */
+  /** 真实到访行程预算合计 */
   budget: number;
 }
 
 export function footprintStats(points: TripMapPoint[]): FootprintStats {
+  // 统计口径只认 visited：计划行程不能把「去过 N 个城市」撑大
+  const visited = visitedPoints(points);
   const cities = new Set(
-    points.map((p) => (p.destination ?? p.name ?? '').trim()).filter((name) => name.length > 0),
+    visited.map((p) => (p.destination ?? p.name ?? '').trim()).filter((name) => name.length > 0),
   );
   return {
-    trips: points.length,
+    trips: visited.length,
     cities: cities.size,
-    located: locatedPoints(points).length,
-    days: points.reduce((sum, p) => sum + tripDays(p), 0),
-    budget: points.reduce((sum, p) => sum + (p.budget ?? 0), 0),
+    located: locatedPoints(visited).length,
+    days: visited.reduce((sum, p) => sum + tripDays(p), 0),
+    budget: visited.reduce((sum, p) => sum + (p.budget ?? 0), 0),
   };
 }
 
@@ -140,20 +150,20 @@ export function tripYear(point: TripMapPoint): string | null {
   return point.startDate ? point.startDate.slice(0, 4) : null;
 }
 
-/** 有行程数据的年份（升序） */
+/** 有真实到访数据的年份（升序） */
 export function footprintYears(points: TripMapPoint[]): string[] {
   const years = new Set<string>();
-  points.forEach((point) => {
+  visitedPoints(points).forEach((point) => {
     const year = tripYear(point);
     if (year) years.add(year);
   });
   return Array.from(years).sort();
 }
 
-/** 有行程数据的月份「01」..「12」（升序） */
+/** 有真实到访数据的月份「01」..「12」（升序） */
 export function footprintMonths(points: TripMapPoint[]): string[] {
   const months = new Set<string>();
-  points.forEach((point) => {
+  visitedPoints(points).forEach((point) => {
     if (point.startDate && point.startDate.length >= 7) {
       months.add(point.startDate.slice(5, 7));
     }
@@ -165,11 +175,17 @@ export function footprintMonths(points: TripMapPoint[]): string[] {
  * 按时间窗口过滤行程：year 为 null 表示不限年份，month 为 null 表示该年全部月份。
  * 没有日期的行程在「不限年份」时保留，选定年份后排除（无法判断年份）。
  */
-export function filterByPeriod(points: TripMapPoint[], year: string | null, month: string | null): TripMapPoint[] {
+export function filterByPeriod(
+  points: TripMapPoint[],
+  year: string | null,
+  month: string | null,
+): TripMapPoint[] {
+  // 足迹地图/回放只展示真实到访；不带年份时也要先过滤计划行程
+  const visited = visitedPoints(points);
   if (!year) {
-    return points;
+    return visited;
   }
-  return points.filter((point) => {
+  return visited.filter((point) => {
     if (!point.startDate || point.startDate.length < 7) {
       return false;
     }

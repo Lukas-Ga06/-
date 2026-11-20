@@ -138,7 +138,7 @@ export default function SwipeRow({
     };
   });
 
-  const handleAction = (action: Action, isRight: boolean) => {
+  const handleAction = (action: Action) => {
     action.onClick();
     if (onActionClose) {
       setAnimating(true);
@@ -163,7 +163,7 @@ export default function SwipeRow({
               key={i}
               className="swipe-action-btn"
               style={{ background: a.bg, color: a.color ?? '#fff' }}
-              onClick={() => handleAction(a, false)}
+              onClick={() => handleAction(a)}
             >
               {a.label}
             </button>
@@ -178,7 +178,7 @@ export default function SwipeRow({
               key={i}
               className="swipe-action-btn"
               style={{ background: a.bg, color: a.color ?? '#fff' }}
-              onClick={() => handleAction(a, true)}
+              onClick={() => handleAction(a)}
             >
               {a.label}
             </button>

@@ -49,7 +49,10 @@ describe('ExecutionResultPanel', () => {
 
     const second = render(
       <ExecutionResultPanel
-        execution={execution({ status: 'FAILED', modules: [module({ module: 'budget', status: 'FAILED' })] })}
+        execution={execution({
+          status: 'FAILED',
+          modules: [module({ module: 'budget', status: 'FAILED' })],
+        })}
       />,
     );
     expect(second.container.querySelector('.exec-status')?.textContent).toContain('同步失败');
@@ -86,7 +89,14 @@ describe('ExecutionResultPanel', () => {
     render(
       <ExecutionResultPanel
         execution={execution({
-          modules: [module({ module: 'budget', status: 'FAILED', detail: '快照创建失败', error: '服务 500' })],
+          modules: [
+            module({
+              module: 'budget',
+              status: 'FAILED',
+              detail: '快照创建失败',
+              error: '服务 500',
+            }),
+          ],
         })}
       />,
     );

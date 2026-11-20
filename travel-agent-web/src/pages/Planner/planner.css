@@ -1,0 +1,651 @@
+/* ============================================================
+   规划页 · 三步流程（P1-03 / 设计文档 §8.3）
+   ------------------------------------------------------------
+   类名统一 plan3- 前缀，不改 global.css，也不针对既有 .plan-* /
+   .planner-* 写覆盖规则：旧单页表单的样式留在原处，
+   这里只描述「三步 + 草稿 + 右侧摘要 + 移动端操作条」这一套新结构。
+   ============================================================ */
+
+/* ---------- 整体骨架：左表单 + 右吸顶摘要 ---------- */
+.plan3-layout {
+  width: min(1080px, 100%);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 18px;
+  align-items: start;
+}
+
+.plan3-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-2);
+  overflow: hidden;
+}
+
+.plan3-scroll {
+  padding: 20px 22px 4px;
+}
+
+/* 切换步骤时给内容一个轻微的进入动效：6px 上移 + 淡入，
+   让用户明确感知「换了一屏」，而不是内容凭空替换 */
+.plan3-step-body {
+  animation: plan3-step-in 0.22s ease both;
+}
+
+@keyframes plan3-step-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---------- 步骤头 ---------- */
+.plan3-step-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.plan3-step-copy {
+  min-width: 0;
+}
+
+.plan3-step-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+}
+
+.plan3-step-kicker::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.plan3-step-title {
+  margin: 6px 0 0;
+  font-size: 20px;
+  line-height: 1.3;
+  color: var(--text);
+}
+
+.plan3-step-desc {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-3);
+}
+
+/* 进度条只是状态展示，切步骤用页脚按钮（不引入额外交互成本） */
+.plan3-progress {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.plan3-progress li {
+  width: 26px;
+  height: 4px;
+  border-radius: var(--r-full);
+  background: var(--surface-3);
+}
+
+.plan3-progress li.done {
+  background: var(--accent);
+  opacity: 0.45;
+}
+
+.plan3-progress li.current {
+  background: var(--accent);
+}
+
+/* ---------- 草稿恢复提示 ---------- */
+.plan3-draft {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r-sm);
+}
+
+.plan3-draft-copy {
+  min-width: 0;
+}
+
+.plan3-draft-copy b {
+  display: block;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.plan3-draft-copy span {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-3);
+}
+
+.plan3-draft-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+/* ---------- 已识别需求（一句话 → 结构化回填，P1-02） ---------- */
+.plan3-parsed {
+  margin-top: 16px;
+  padding: 12px 14px;
+  background: var(--accent-weak);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r-sm);
+}
+
+.plan3-parsed-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+.plan3-parsed-head b {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.plan3-spacer {
+  flex: 1;
+}
+
+.plan3-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.plan3-chip {
+  display: inline-block;
+  padding: 3px 9px;
+  font-size: 12px;
+  color: var(--text-2);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-full);
+}
+
+.plan3-hints {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--warn);
+}
+
+.plan3-conflict {
+  margin-top: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text);
+  background: var(--warn-weak);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+}
+
+/* ---------- 表单区块 ---------- */
+.plan3-sec {
+  margin-top: 20px;
+}
+
+.plan3-step-head + .plan3-sec,
+.plan3-parsed + .plan3-sec,
+.plan3-draft + .plan3-sec {
+  margin-top: 16px;
+}
+
+.plan3-sec-sub {
+  margin-top: 14px;
+}
+
+.plan3-sec-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.plan3-sec-head b {
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.plan3-sec-head span {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-3);
+}
+
+.plan3-required {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--danger);
+}
+
+.plan3-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.plan3-row-between {
+  justify-content: space-between;
+}
+
+.plan3-field-grow {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.plan3-label {
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.plan3-num {
+  width: 132px;
+}
+
+.plan3-num-sm {
+  width: 92px;
+}
+
+.plan3-counter {
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--text-3);
+}
+
+/* ---------- 可选芯片（同伴类型 / 兴趣 / 重点优化） ---------- */
+.plan3-chip-btn {
+  padding: 5px 12px;
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-full);
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.plan3-chip-btn:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+.plan3-chip-btn.on {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-weak);
+  font-weight: 600;
+}
+
+.plan3-chip-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---------- 规划方式 / 节奏卡片 ---------- */
+.plan3-mode-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.plan3-pace-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.plan3-mode {
+  text-align: left;
+  padding: 12px 14px;
+  font-family: inherit;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.plan3-mode:hover {
+  border-color: var(--border-strong);
+}
+
+.plan3-mode.on {
+  border-color: var(--accent);
+  background: var(--accent-weak);
+}
+
+.plan3-mode:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.plan3-mode b {
+  display: block;
+  font-size: 13.5px;
+  color: var(--text);
+}
+
+.plan3-mode span {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-3);
+}
+
+/* ---------- 攻略卡片 ---------- */
+.plan3-guides {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.plan3-guide {
+  padding: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+
+.plan3-guide-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.plan3-guide-title {
+  margin-bottom: 8px;
+}
+
+/* ---------- 门禁提示 ---------- */
+.plan3-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 9px 12px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--warn);
+  background: var(--warn-weak);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+}
+
+/* ---------- 第 3 步：结构化摘要 ---------- */
+.plan3-summary {
+  margin-top: 16px;
+}
+
+.plan3-summary-card {
+  padding: 16px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+
+.plan3-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin: 0;
+}
+
+.plan3-sum-row {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.plan3-sum-row dt {
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-3);
+}
+
+.plan3-sum-row dd {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.plan3-empty {
+  color: var(--text-3);
+}
+
+.plan3-missing {
+  color: var(--danger);
+}
+
+.plan3-pending {
+  margin-top: 12px;
+  padding: 12px 14px;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--text-2);
+  background: var(--warn-weak);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+}
+
+.plan3-pending b {
+  color: var(--text);
+}
+
+.plan3-pending ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+/* ---------- 页脚操作条 ---------- */
+.plan3-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 12px 22px;
+  border-top: 1px solid var(--border);
+}
+
+.plan3-footer-secondary,
+.plan3-footer-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ---------- 桌面右侧吸顶需求摘要 ---------- */
+.plan3-aside {
+  position: sticky;
+  top: 16px;
+  align-self: start;
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-1);
+}
+
+.plan3-aside-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.plan3-aside-head b {
+  font-size: 13.5px;
+  color: var(--text);
+}
+
+.plan3-aside-badge {
+  padding: 2px 8px;
+  font-size: 11px;
+  color: var(--accent);
+  background: var(--accent-weak);
+  border-radius: var(--r-full);
+}
+
+.plan3-aside-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin: 12px 0 0;
+}
+
+.plan3-aside-row {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.plan3-aside-row dt {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-3);
+}
+
+.plan3-aside-row dd {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.plan3-aside-foot {
+  margin: 14px 0 0;
+  padding-top: 10px;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--text-3);
+  border-top: 1px dashed var(--border);
+}
+
+/* ---------- 移动端：底部固定操作条 ---------- */
+.plan3-mobile-bar {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .plan3-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .plan3-card {
+    border-radius: var(--r-md);
+    /* 固定操作条会盖住卡片末尾：让出与操作条等高的空间 */
+    margin-bottom: calc(78px + env(safe-area-inset-bottom));
+  }
+
+  .plan3-scroll {
+    padding: 16px 16px 4px;
+  }
+
+  .plan3-step-title {
+    font-size: 18px;
+  }
+
+  .plan3-mode-grid,
+  .plan3-pace-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .plan3-footer {
+    padding: 10px 16px;
+  }
+
+  .plan3-sum-row {
+    grid-template-columns: 84px minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .plan3-mobile-bar {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    box-shadow: 0 -4px 12px rgba(16, 24, 40, 0.06);
+  }
+
+  .plan3-mobile-step {
+    flex: 1;
+    text-align: center;
+    font-size: 12px;
+    color: var(--text-3);
+  }
+
+  .plan3-mobile-bar .ant-btn {
+    min-width: 92px;
+  }
+}

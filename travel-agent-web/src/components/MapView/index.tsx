@@ -11,6 +11,12 @@ interface Props {
   focusDay: number | null;
   /** 每日相邻点的转场路线段（FR-07）；缺省时地图退回「按天点位连线」 */
   routeLegs?: RouteLeg[];
+  /**
+   * 是否处于可见面板（侧栏 keep-alive 用）。缺省视为 true。
+   * 传 false 不会卸载地图——只是告诉它「现在被藏起来了」；
+   * 重新可见时补一次 resize，保住相机与缩放。
+   */
+  active?: boolean;
 }
 
 type Engine = '3d' | '2d';
@@ -19,7 +25,7 @@ type Engine = '3d' | '2d';
  * 地图组件：统一使用高德 JS API，支持 3D/2D、辉光路线与沿行程巡航；
  * Agent Focus 事件驱动自动飞行定位。
  */
-export default function MapView({ items, focus, focusDay, routeLegs }: Props) {
+export default function MapView({ items, focus, focusDay, routeLegs, active = true }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const providerRef = useRef<MapProvider | null>(null);
   const [engine, setEngine] = useState<Engine>('3d');
@@ -52,6 +58,12 @@ export default function MapView({ items, focus, focusDay, routeLegs }: Props) {
   useEffect(() => {
     providerRef.current?.setTheme?.(themeMode);
   }, [themeMode]);
+
+  // 侧栏 keep-alive：隐藏期间窗口可能变过尺寸，切回可见时校正一次画布（不重建地图）
+  useEffect(() => {
+    if (!active) return;
+    providerRef.current?.resize?.();
+  }, [active]);
 
   // 数据渲染（Provider 内部按完整行程内容去重；legs 内容变化也要重绘）
   useEffect(() => {

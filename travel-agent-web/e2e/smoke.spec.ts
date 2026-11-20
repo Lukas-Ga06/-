@@ -57,7 +57,7 @@ test('登录 → 建行程 → 行程页与路书可达', async ({ page }) => {
 test('PWA 资源可达：manifest 与 service worker', async ({ request }) => {
   const manifest = await request.get('/manifest.webmanifest');
   await expectOk(manifest, '取 PWA manifest');
-  expect((await manifest.json()).name).toBe('AI 个人助理');
+  expect((await manifest.json()).name).toBe('AI 智能旅行助手');
 
   const sw = await request.get('/sw.js');
   await expectOk(sw, '取 service worker');

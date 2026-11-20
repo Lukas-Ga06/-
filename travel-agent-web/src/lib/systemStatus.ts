@@ -11,7 +11,8 @@ import type { SystemStatus } from '../api/assistant';
  * 旧后端没有 verified 字段时，状态是「已配置但无法确认」，而不是「已验证」。
  */
 
-export type CapabilityState = 'unconfigured' | 'configured-unknown' | 'configured-unverified' | 'verified';
+export type CapabilityState =
+  'unconfigured' | 'configured-unknown' | 'configured-unverified' | 'verified';
 
 export interface CapabilityView {
   state: CapabilityState;
@@ -28,7 +29,12 @@ export interface CapabilityView {
 type LlmFields = Pick<SystemStatus, 'llmConfigured' | 'llmVerified' | 'llmModel' | 'llmHint'>;
 type RouteFields = Pick<
   SystemStatus,
-  'amapConfigured' | 'routeConfigured' | 'amapVerified' | 'routeLastError' | 'routeProvider' | 'routeHint'
+  | 'amapConfigured'
+  | 'routeConfigured'
+  | 'amapVerified'
+  | 'routeLastError'
+  | 'routeProvider'
+  | 'routeHint'
 >;
 
 const NOT_VERIFIED_LABEL = '已配置未验证';

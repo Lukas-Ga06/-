@@ -1,0 +1,141 @@
+/* 短时撤销条（§7.3 第 3 条）：浮在底部中央，倒计时进度条走到头自动收起 */
+.undo-bar {
+  position: fixed;
+  left: 50%;
+  bottom: calc(20px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  padding: 10px 12px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-3);
+  overflow: hidden;
+  animation: undo-bar-in 0.2s ease-out both;
+}
+
+@keyframes undo-bar-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 12px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+.undo-bar .ub-dot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+}
+
+.undo-bar .ub-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.undo-bar .ub-text b {
+  font-weight: 650;
+}
+
+.undo-bar .ub-detail {
+  font-size: 12px;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.undo-bar .ub-action {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border: 1px solid var(--accent);
+  border-radius: var(--r-full);
+  background: var(--accent-weak);
+  color: var(--accent);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.undo-bar .ub-action:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.undo-bar .ub-action:focus-visible,
+.undo-bar .ub-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.undo-bar .ub-close {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-3);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.undo-bar .ub-close:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+.undo-bar .ub-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--surface-3);
+}
+
+.undo-bar .ub-progress-bar {
+  display: block;
+  height: 100%;
+  background: var(--ok);
+  transition: width 0.25s linear;
+}
+
+/* 移动端让开底部标签栏（约 92px 含安全区），否则撤销按钮会被导航压住 */
+@media (max-width: 720px) {
+  .undo-bar {
+    bottom: calc(96px + env(safe-area-inset-bottom));
+    left: var(--sp-2);
+    right: var(--sp-2);
+    width: auto;
+    max-width: none;
+    transform: none;
+    animation: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .undo-bar,
+  .undo-bar .ub-progress-bar {
+    animation: none;
+    transition: none;
+  }
+}

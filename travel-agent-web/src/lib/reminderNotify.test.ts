@@ -33,7 +33,9 @@ describe('remindersToNotify', () => {
 
   it('同一会话内同一条提醒只通知一次', () => {
     const first = item();
-    expect(remindersToNotify([first], new Set([reminderKey(first)]), 'granted', 'hidden')).toHaveLength(0);
+    expect(
+      remindersToNotify([first], new Set([reminderKey(first)]), 'granted', 'hidden'),
+    ).toHaveLength(0);
   });
 
   it('key 区分类型与 id', () => {

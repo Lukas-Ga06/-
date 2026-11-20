@@ -9,7 +9,8 @@ export default function BudgetExecutionPanel({ data }: { data: BudgetExecution |
   if (!data) {
     return null;
   }
-  const ratio = data.budget && data.budget > 0 ? Math.min(Math.max(data.actual / data.budget, 0), 1) : 0;
+  const ratio =
+    data.budget && data.budget > 0 ? Math.min(Math.max(data.actual / data.budget, 0), 1) : 0;
   const over = data.overBudget;
   // executionRate 是 actual / budget 的比例（后端保留 4 位小数，例如 0.8523 = 85%），无预算时为 null
   const ratePercent = data.executionRate == null ? null : data.executionRate * 100;

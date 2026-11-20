@@ -21,7 +21,7 @@ export interface ChartPalette {
   axisLabel: string;
   /** 坐标轴 / 网格线色 */
   axisLine: string;
-  /** 图例文字色（Health 趋势图沿用原有更深的图例色） */
+  /** 图例文字色（趋势图沿用原有更深的图例色） */
   legend: string;
   /** tooltip 背景 / 描边 / 正文 */
   tooltipBg: string;
@@ -29,7 +29,7 @@ export interface ChartPalette {
   tooltipText: string;
   /** 饼图扇区描边：与卡片底色一致 */
   pieBorder: string;
-  /** 系列强调色（Health 柱/折线） */
+  /** 系列强调色（柱/折线） */
   bar: string;
   line: string;
 }

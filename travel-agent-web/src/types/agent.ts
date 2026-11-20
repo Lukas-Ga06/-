@@ -63,6 +63,21 @@ export interface PlanReviewDTO {
   repairs?: string[] | null;
 }
 
+/**
+ * 方案的知识依据（P1）：与知识库检索响应同构，可追溯文档 / 版本 / 切块 / 相似度。
+ * 空数组表示方案没有引用知识库，不代表「没有依据」；前端不得编造来源。
+ */
+export interface AgentCitation {
+  documentId?: number | null;
+  version?: number | null;
+  chunkId?: number | null;
+  score?: number | null;
+  source?: string | null;
+  title?: string | null;
+  snippet?: string | null;
+  label?: string | null;
+}
+
 export interface AgentResult {
   planId?: string | null;
   tripId?: number | null;
@@ -83,13 +98,20 @@ export interface AgentResult {
   warnings?: string[] | null;
   /** 确认提交后的日程/预算/足迹同步执行结果（V2.2 §9.1） */
   execution?: ExecutionSummary | null;
+  /** 方案的知识依据（P1）；旧后端缺失时为空数组 */
+  citations?: AgentCitation[] | null;
 }
 
 /* ============================================================
    V2.2 运行追踪与执行同步（后端契约已冻结）
    ============================================================ */
 
-export type AgentRunStatus = 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED';
+/**
+ * 运行总状态。
+ * PARTIAL_SUCCESS（部分完成）表示本轮正常收尾但有阶段失败/降级、过程警告或预算降级，
+ * 结论可能不完整——界面上不能与 SUCCEEDED 共用同一个绿色标签（P0-07）。
+ */
+export type AgentRunStatus = 'RUNNING' | 'SUCCEEDED' | 'PARTIAL_SUCCESS' | 'FAILED' | 'CANCELLED';
 
 /** GET /api/agent/runs 列表项 */
 export interface RunSummary {
@@ -111,10 +133,16 @@ export type TaskReceiver =
   | 'planner-agent'
   | 'executor-agent'
   | 'reflect-agent'
-  | 'tool-invoker';
+  | 'tool-invoker'
+  /** 预算守卫：时间预算耗尽时落一条 DEGRADE 任务（后端契约 AgentEngine.BUDGET_TASK_TYPE） */
+  | 'budget-guard';
 
-/** REPLAN 是 V2.2 FR-06 新增的任务类型：审核发现 HIGH 问题后的一次有限重规划 */
-export type TaskType = 'INTENT' | 'RESEARCH' | 'PLAN' | 'PREVIEW' | 'REVIEW' | 'REPLAN' | 'TOOL' | 'COMMIT';
+/**
+ * REPLAN 是 V2.2 FR-06 新增的任务类型：审核发现 HIGH 问题后的一次有限重规划。
+ * DEGRADE 是 P1 时间预算的降级留痕：summary 写明哪个阶段因预算被跳过。
+ */
+export type TaskType =
+  'INTENT' | 'RESEARCH' | 'PLAN' | 'PREVIEW' | 'REVIEW' | 'REPLAN' | 'TOOL' | 'COMMIT' | 'DEGRADE';
 
 /** CONFLICT（Batch 15）：前置任务未完成，本次派发被拒绝（不执行任务体） */
 export type TaskViewStatus = 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CONFLICT';
@@ -188,6 +216,8 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   time: string;
+  /** assistant 消息附带的知识依据；用户消息 / 无引用时不设置 */
+  citations?: AgentCitation[] | null;
 }
 
 export interface SelectedElement {

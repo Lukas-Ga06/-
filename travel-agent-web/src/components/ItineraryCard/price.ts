@@ -31,10 +31,7 @@ export function hasForbiddenPriceClaim(text: string | null | undefined): boolean
 }
 
 /** 兜底文案：原文案为空或命中禁词时返回 fallback */
-export function sanitizePriceCopy(
-  text: string | null | undefined,
-  fallback: string,
-): string {
+export function sanitizePriceCopy(text: string | null | undefined, fallback: string): string {
   const raw = text?.trim();
   return raw && !hasForbiddenPriceClaim(raw) ? raw : fallback;
 }
@@ -66,9 +63,7 @@ export function priceLinkText(link: ItineraryPriceLink | null | undefined): stri
 }
 
 /** 可渲染的外链：url 必须是 http(s)；按 kind 排序（price → map → 其它），同 kind 保持后端顺序 */
-export function visiblePriceLinks(
-  price: ItineraryPrice | null | undefined,
-): ItineraryPriceLink[] {
+export function visiblePriceLinks(price: ItineraryPrice | null | undefined): ItineraryPriceLink[] {
   const links = (price?.links ?? []).filter(
     (link): link is ItineraryPriceLink => !!link && safePriceUrl(link.url) != null,
   );
@@ -86,10 +81,7 @@ export function visiblePriceLinks(
  * 参考金额格式化：`amount=520`、currency=CNY → `¥520`；
  * 非 CNY 时用 `USD 520` 这种带币种码的写法，避免把美元显示成人民币。
  */
-export function formatPriceAmount(
-  amount: number,
-  currency: string | null | undefined,
-): string {
+export function formatPriceAmount(amount: number, currency: string | null | undefined): string {
   const rounded = Math.round(amount * 100) / 100;
   const value = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2);
   const code = (currency ?? 'CNY').trim().toUpperCase();

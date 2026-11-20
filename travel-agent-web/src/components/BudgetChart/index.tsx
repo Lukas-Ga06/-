@@ -57,13 +57,17 @@ export default function BudgetChart({ items, budget }: Props) {
       byType[label] = (byType[label] ?? 0) + (i.cost ?? 0);
       byDay[i.dayIndex] = (byDay[i.dayIndex] ?? 0) + (i.cost ?? 0);
     });
-    const dayKeys = Object.keys(byDay).map(Number).sort((a, b) => a - b);
+    const dayKeys = Object.keys(byDay)
+      .map(Number)
+      .sort((a, b) => a - b);
 
     chart.setOption({
       backgroundColor: 'transparent',
       title: {
         text: `总花费 ¥${total.toFixed(0)}`,
-        subtext: budget ? `预算 ¥${budget}（已用 ${((total / budget) * 100).toFixed(0)}%）` : undefined,
+        subtext: budget
+          ? `预算 ¥${budget}（已用 ${((total / budget) * 100).toFixed(0)}%）`
+          : undefined,
         left: 'center',
         top: 8,
         textStyle: { fontSize: 15, color: palette.text },
@@ -117,7 +121,7 @@ export default function BudgetChart({ items, budget }: Props) {
           data: dayKeys.map((d) => Number((byDay[d] ?? 0).toFixed(2))),
           itemStyle: {
             color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-      { offset: 0, color: '#1f6feb' },
+              { offset: 0, color: '#1f6feb' },
               { offset: 1, color: '#5ac8fa' },
             ]),
             borderRadius: [5, 5, 0, 0],

@@ -50,7 +50,14 @@ describe('PlanDiff · V2.2 warnings 与内容指纹', () => {
     render(
       <PlanDiff
         open
-        result={result({ confirmation: { planId: 'plan-1', summary: '将新增 2 项', riskLevel: 'LOW', contentHash: hash } })}
+        result={result({
+          confirmation: {
+            planId: 'plan-1',
+            summary: '将新增 2 项',
+            riskLevel: 'LOW',
+            contentHash: hash,
+          },
+        })}
         onConfirm={() => {}}
         onCancel={() => {}}
       />,
@@ -143,6 +150,48 @@ describe('PlanDiff · Batch 13 审核结论与风险接受', () => {
     fireEvent.click(confirmBtn);
     expect(onConfirm).toHaveBeenCalledTimes(1);
     expect(onConfirm).toHaveBeenCalledWith(true);
+  });
+
+  it('P1：citations 展示知识依据（title / 版本 / 相似度 / snippet / source）', async () => {
+    render(
+      <PlanDiff
+        open
+        result={result({
+          citations: [
+            {
+              documentId: 7,
+              version: 3,
+              chunkId: 12,
+              score: 0.923,
+              source: '个人知识库',
+              title: '上海亲子两日游',
+              snippet: '外滩傍晚人流较少，适合带娃散步。',
+              label: '《上海亲子两日游》 v3',
+            },
+          ],
+        })}
+        onConfirm={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByTestId('plan-diff-dialog')).toBeTruthy());
+    const list = screen.getByTestId('citation-list');
+    expect(list.textContent).toContain('上海亲子两日游');
+    expect(list.textContent).toContain('v3');
+    expect(list.textContent).toContain('相似度 0.923');
+    expect(list.textContent).toContain('外滩傍晚人流较少');
+    expect(list.textContent).toContain('来源：个人知识库');
+    expect(list.textContent).toContain('文档 #7');
+  });
+
+  it('P1：citations 为空数组时不渲染知识依据区块', async () => {
+    render(
+      <PlanDiff open result={result({ citations: [] })} onConfirm={() => {}} onCancel={() => {}} />,
+    );
+
+    await waitFor(() => expect(screen.getByTestId('plan-diff-dialog')).toBeTruthy());
+    expect(screen.queryByTestId('citation-list')).toBeNull();
   });
 
   it('旧后端（无 review / requiresAcknowledgement）渲染零新增，确认仍回调 false', async () => {

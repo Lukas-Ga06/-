@@ -119,7 +119,13 @@ describe('BudgetChart 主题配色', () => {
     const parseRgb = (color: string): number[] => {
       const hex = color.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
       if (hex) {
-        const raw = hex[1].length === 3 ? hex[1].split('').map((c) => c + c).join('') : hex[1];
+        const raw =
+          hex[1].length === 3
+            ? hex[1]
+                .split('')
+                .map((c) => c + c)
+                .join('')
+            : hex[1];
         return [0, 2, 4].map((i) => parseInt(raw.slice(i, i + 2), 16));
       }
       return color

@@ -17,13 +17,7 @@ interface Props<T> {
  * 使用原生 HTML5 拖拽 API，带占位符和拖拽预览。
  * 拖拽过程中显示半透明浮起效果，松开后按新顺序回调 onReorder。
  */
-function DraggableList<T>({
-  items,
-  itemKey,
-  renderItem,
-  onReorder,
-  rowClassName = '',
-}: Props<T>) {
+function DraggableList<T>({ items, itemKey, renderItem, onReorder, rowClassName = '' }: Props<T>) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
   const [yOffset, setYOffset] = useState(0);

@@ -12,6 +12,7 @@ import {
   routeGeoJson,
   tripDays,
   tripRangeLabel,
+  visitedPoints,
 } from './footprintData';
 import type { TripMapPoint } from '../../types/trip';
 
@@ -26,12 +27,26 @@ function point(overrides: Partial<TripMapPoint>): TripMapPoint {
     budget: 3000,
     lat: 31.2304,
     lng: 121.4737,
+    // 足迹统计只认真实打卡；默认夹具是已到访行程
+    visited: true,
     ...overrides,
   };
 }
 
 describe('footprintData', () => {
-  it('只保留有坐标的行程', () => {
+  it('只保留真实到访的行程；未来计划不计入足迹', () => {
+    const points = [
+      point({}),
+      point({ tripId: 2, visited: false, startDate: '2099-01-01', endDate: '2099-01-02' }),
+      point({ tripId: 3, visited: null }),
+    ];
+    expect(visitedPoints(points).map((p) => p.tripId)).toEqual([1]);
+    expect(footprintStats(points)).toMatchObject({ trips: 1, cities: 1, days: 3 });
+    expect(orderedFootprints(points).map((p) => p.tripId)).toEqual([1]);
+    expect(cityFootprints(points).map((c) => c.city)).toEqual(['上海']);
+  });
+
+  it('只保留真实到访且有坐标的行程', () => {
     const points = [point({}), point({ tripId: 2, lat: null, lng: null })];
     expect(locatedPoints(points)).toHaveLength(1);
     expect(locatedPoints(points)[0].tripId).toBe(1);
@@ -47,10 +62,7 @@ describe('footprintData', () => {
   });
 
   it('同为无日期时按 tripId 稳定排序', () => {
-    const points = [
-      point({ tripId: 9, startDate: null }),
-      point({ tripId: 4, startDate: null }),
-    ];
+    const points = [point({ tripId: 9, startDate: null }), point({ tripId: 4, startDate: null })];
     expect(orderedFootprints(points).map((p) => p.tripId)).toEqual([4, 9]);
   });
 
@@ -71,7 +83,10 @@ describe('footprintData', () => {
   });
 
   it('两个以上定位点时生成 LineString', () => {
-    const geo = routeGeoJson([point({ tripId: 1 }), point({ tripId: 2, lat: 30.2741, lng: 120.1551 })]);
+    const geo = routeGeoJson([
+      point({ tripId: 1 }),
+      point({ tripId: 2, lat: 30.2741, lng: 120.1551 }),
+    ]);
     expect(geo?.geometry.type).toBe('LineString');
     expect(geo?.geometry.coordinates).toHaveLength(2);
   });
@@ -83,7 +98,9 @@ describe('footprintData', () => {
   });
 
   it('日期区间文案：单日只显示一天，无日期显示待定', () => {
-    expect(tripRangeLabel(point({ startDate: '2026-01-01', endDate: '2026-01-01' }))).toBe('2026-01-01');
+    expect(tripRangeLabel(point({ startDate: '2026-01-01', endDate: '2026-01-01' }))).toBe(
+      '2026-01-01',
+    );
     expect(tripRangeLabel(point({}))).toBe('2026-01-01 → 2026-01-03');
     expect(tripRangeLabel(point({ startDate: null, endDate: null }))).toBe('日期待定');
   });
@@ -91,7 +108,13 @@ describe('footprintData', () => {
   it('统计城市数去重、预算与天数求和', () => {
     const stats = footprintStats([
       point({ tripId: 1, destination: '上海' }),
-      point({ tripId: 2, destination: '上海', budget: 1000, startDate: '2026-02-01', endDate: '2026-02-02' }),
+      point({
+        tripId: 2,
+        destination: '上海',
+        budget: 1000,
+        startDate: '2026-02-01',
+        endDate: '2026-02-02',
+      }),
       point({ tripId: 3, destination: '杭州', lat: null, lng: null, budget: 500 }),
     ]);
     // 天数按全部行程累加：3 天 + 2 天 + 3 天
@@ -105,9 +128,27 @@ describe('footprintData', () => {
 
   it('按城市聚合：到访次数、天数、预算与首末到访时间', () => {
     const cities = cityFootprints([
-      point({ tripId: 1, destination: '上海', startDate: '2025-01-01', endDate: '2025-01-03', budget: 3000 }),
-      point({ tripId: 2, destination: '上海', startDate: '2026-02-01', endDate: '2026-02-02', budget: 1000 }),
-      point({ tripId: 3, destination: '杭州', startDate: '2025-06-01', endDate: '2025-06-01', budget: 500 }),
+      point({
+        tripId: 1,
+        destination: '上海',
+        startDate: '2025-01-01',
+        endDate: '2025-01-03',
+        budget: 3000,
+      }),
+      point({
+        tripId: 2,
+        destination: '上海',
+        startDate: '2026-02-01',
+        endDate: '2026-02-02',
+        budget: 1000,
+      }),
+      point({
+        tripId: 3,
+        destination: '杭州',
+        startDate: '2025-06-01',
+        endDate: '2025-06-01',
+        budget: 500,
+      }),
     ]);
 
     expect(cities.map((c) => c.city)).toEqual(['上海', '杭州']);

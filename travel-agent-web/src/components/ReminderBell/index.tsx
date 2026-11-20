@@ -2,9 +2,19 @@ import { useEffect, useRef, useState } from 'react';
 import { App, Badge, Button, Drawer, Empty, Tag } from 'antd';
 import { BellOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import { dismissReminder, getReminders, type ReminderBoard, type ReminderItem } from '../../api/reminder';
+import {
+  dismissReminder,
+  getReminders,
+  type ReminderBoard,
+  type ReminderItem,
+} from '../../api/reminder';
 import { useUIStore } from '../../store/uiStore';
-import { loadNotified, remindersToNotify, reminderKey, saveNotified } from '../../lib/reminderNotify';
+import {
+  loadNotified,
+  remindersToNotify,
+  reminderKey,
+  saveNotified,
+} from '../../lib/reminderNotify';
 
 /** 前端轮询间隔；提醒本身由服务端按当前时间实时计算 */
 const POLL_MS = 60_000;
@@ -46,14 +56,18 @@ export default function ReminderBell() {
       .then((next) => {
         setBoard(next);
         // 页面在后台时弹系统通知；本次会话内同一条只弹一次
-        remindersToNotify(next.items, notifiedRef.current, permissionRef.current, document.visibilityState)
-          .forEach((item) => {
-            new Notification(item.title, {
-              body: `${item.detail} · ${relativeTime(item)}`,
-              tag: reminderKey(item),
-            });
-            notifiedRef.current.add(reminderKey(item));
+        remindersToNotify(
+          next.items,
+          notifiedRef.current,
+          permissionRef.current,
+          document.visibilityState,
+        ).forEach((item) => {
+          new Notification(item.title, {
+            body: `${item.detail} · ${relativeTime(item)}`,
+            tag: reminderKey(item),
           });
+          notifiedRef.current.add(reminderKey(item));
+        });
         saveNotified(notifiedRef.current);
       })
       .catch(() => undefined);
@@ -105,7 +119,11 @@ export default function ReminderBell() {
 
   return (
     <>
-      <button className="sb-link" onClick={() => setOpen(true)} title={`提醒${count ? `（${count}）` : ''}`}>
+      <button
+        className="sb-link"
+        onClick={() => setOpen(true)}
+        title={`提醒${count ? `（${count}）` : ''}`}
+      >
         <Badge count={count} size="small">
           <BellOutlined />
         </Badge>

@@ -84,7 +84,12 @@ describe('AgentActivityPanel', () => {
             dependsOn: ['t-intent'],
             attempt: 0,
           }),
-          ev('recover', { taskId: 't-replan', replacesTaskId: 't-plan', taskType: 'REPLAN', attempt: 1 }),
+          ev('recover', {
+            taskId: 't-replan',
+            replacesTaskId: 't-plan',
+            taskType: 'REPLAN',
+            attempt: 1,
+          }),
           ev('conflict', {
             receiver: 'reflect-agent',
             taskType: 'REVIEW',
@@ -106,11 +111,44 @@ describe('AgentActivityPanel', () => {
   });
 
   it('Batch 15：三类事件的字段缺失时退回 stageText 占位文案（不抛错、不空行）', () => {
-    render(<AgentActivityPanel activity={[ev('delegate', {}), ev('recover', {}), ev('conflict', {})]} />);
+    render(
+      <AgentActivityPanel activity={[ev('delegate', {}), ev('recover', {}), ev('conflict', {})]} />,
+    );
 
     expect(screen.getByText('委派 …：…')).toBeTruthy();
     expect(screen.getByText('重派 …（第 1 次尝试）')).toBeTruthy();
     expect(screen.getByText('任务冲突：…/… 前置未完成，已回收')).toBeTruthy();
+  });
+
+  it('P1：rag_result 携带 citations 时展示知识依据，空 citations 不渲染', () => {
+    render(
+      <AgentActivityPanel
+        activity={[
+          ev('rag_result', {
+            sources: ['《杭州攻略》 v1'],
+            citations: [
+              {
+                documentId: 3,
+                version: 2,
+                chunkId: 8,
+                score: 0.8123,
+                source: '个人知识库',
+                title: '杭州亲子攻略',
+                snippet: '西湖边适合推婴儿车的路线…',
+                label: '《杭州亲子攻略》 v2',
+              },
+            ],
+          }),
+        ]}
+      />,
+    );
+
+    expect(screen.getByTestId('activity-citation-list')).toBeTruthy();
+    expect(screen.getByText('杭州亲子攻略')).toBeTruthy();
+    expect(screen.getByText('v2')).toBeTruthy();
+    expect(screen.getByText('相似度 0.812')).toBeTruthy();
+    expect(screen.getByText('西湖边适合推婴儿车的路线…')).toBeTruthy();
+    expect(screen.getByText('来源：个人知识库')).toBeTruthy();
   });
 
   it('未映射的事件（focus）不单独渲染成行', () => {

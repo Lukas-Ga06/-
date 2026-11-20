@@ -9,8 +9,8 @@ interface Props {
 /** 语音输入（浏览器 Web Speech API），不支持的浏览器自动隐藏 */
 export default function VoiceButton({ onText }: Props) {
   const [recording, setRecording] = useState(false);
-  const supported = typeof window !== 'undefined'
-    && !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+  const supported =
+    typeof window !== 'undefined' && !!(window.SpeechRecognition || window.webkitSpeechRecognition);
 
   if (!supported) {
     return null;

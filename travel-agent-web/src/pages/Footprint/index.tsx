@@ -1,10 +1,21 @@
 import { useEffect, useState } from 'react';
 import { App, Button, Empty, Spin } from 'antd';
-import { ArrowLeftOutlined, EnvironmentOutlined, PlayCircleOutlined, ReloadOutlined } from '@ant-design/icons';
+import {
+  ArrowLeftOutlined,
+  EnvironmentOutlined,
+  PlayCircleOutlined,
+  ReloadOutlined,
+} from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import AppShell from '../../components/AppShell';
 import FootprintMap from '../../components/FootprintMap';
-import { footprintStats, orderedFootprints, tripDays, tripRangeLabel } from '../../components/FootprintMap/footprintData';
+import {
+  footprintStats,
+  orderedFootprints,
+  tripDays,
+  tripRangeLabel,
+  visitedPoints,
+} from '../../components/FootprintMap/footprintData';
 import { getTripsMap } from '../../api/trip';
 import type { TripMapPoint } from '../../types/trip';
 
@@ -33,10 +44,13 @@ export default function FootprintPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const stats = footprintStats(points ?? []);
+  // 足迹只认真实打卡：计划/未来行程不计入「去过」，也不上图
+  const visited = visitedPoints(points ?? []);
+  const stats = footprintStats(visited);
   // 列表按时间倒序（最近的旅行在最上面），回放顺序由地图按时间正序处理
-  const recentFirst = orderedFootprints(points ?? []).slice().reverse();
+  const recentFirst = orderedFootprints(visited).slice().reverse();
   const unlocatedCount = stats.trips - stats.located;
+  const hasPlannedOnly = (points?.length ?? 0) > 0 && stats.trips === 0;
 
   const flyTo = (tripId: number) => {
     setFocusTripId(null);
@@ -46,7 +60,11 @@ export default function FootprintPage() {
 
   const replay = () => {
     if (stats.located === 0) {
-      message.warning('还没有可定位的行程，先去规划一次旅行吧');
+      message.warning(
+        hasPlannedOnly
+          ? '还没有实际打卡的足迹：完成行程项后这里才会亮起光点'
+          : '还没有可定位的行程，先去规划一次旅行吧',
+      );
       return;
     }
     setPlaySignal((v) => v + 1);
@@ -61,7 +79,9 @@ export default function FootprintPage() {
             <b>🌍 我的足迹</b>
             <span>
               {stats.trips === 0
-                ? '每次旅行都会在这里留下一个光点'
+                ? hasPlannedOnly
+                  ? '已有行程计划，完成行程项后这里会留下真实足迹'
+                  : '每次旅行都会在这里留下一个光点'
                 : `去过 ${stats.cities} 个城市 · ${stats.trips} 次旅行 · ${stats.days} 天`}
             </span>
           </div>
@@ -116,10 +136,10 @@ export default function FootprintPage() {
               <div className="fp-aside-empty">
                 <Empty
                   image={Empty.PRESENTED_IMAGE_SIMPLE}
-                  description="还没有足迹"
+                  description={hasPlannedOnly ? '还没有实际打卡的足迹' : '还没有足迹'}
                 />
                 <Button type="primary" onClick={() => navigate('/travel')}>
-                  去规划第一次旅行
+                  {hasPlannedOnly ? '去行程里打卡' : '去规划第一次旅行'}
                 </Button>
               </div>
             ) : (
@@ -179,7 +199,11 @@ export default function FootprintPage() {
               <div className="fp-state">
                 <Empty
                   image={Empty.PRESENTED_IMAGE_SIMPLE}
-                  description="行程目的地还没定位到坐标，创建新行程后这里会亮起光点"
+                  description={
+                    hasPlannedOnly
+                      ? '还没有实际打卡的足迹：完成行程项后这里才会亮起光点'
+                      : '行程目的地还没定位到坐标，创建新行程后这里会亮起光点'
+                  }
                 />
                 <Button type="primary" onClick={() => navigate('/travel')}>
                   去规划旅行
@@ -187,7 +211,7 @@ export default function FootprintPage() {
               </div>
             ) : (
               <FootprintMap
-                points={points}
+                points={visited}
                 onSelect={(tripId) => navigate(`/trip/${tripId}`)}
                 focusTripId={focusTripId}
                 playSignal={playSignal}

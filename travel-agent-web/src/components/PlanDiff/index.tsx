@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Alert, Checkbox, Modal, Tag } from 'antd';
 import { ArrowRightOutlined } from '@ant-design/icons';
 import type { AgentResult, DiffChange } from '../../types/agent';
+import CitationList from '../CitationList';
 
 interface Props {
   open: boolean;
@@ -27,7 +28,9 @@ function renderChange(c: DiffChange, key: number) {
     <div key={key} className={`diff-row ${isRemove ? 'remove' : 'add'}`}>
       <span className="dr-icon">{isRemove ? '✕' : isModify ? '✎' : '＋'}</span>
       <span className="dr-title">{c.title}</span>
-      {c.detail && !isRemove && <span style={{ color: 'var(--ink-3)', fontSize: 12 }}>{c.detail}</span>}
+      {c.detail && !isRemove && (
+        <span style={{ color: 'var(--ink-3)', fontSize: 12 }}>{c.detail}</span>
+      )}
       <span className="dr-extra">
         {c.cost != null && c.cost > 0 && <span>¥{c.cost}</span>}
         {c.dayIndex != null && <Tag style={{ marginInlineEnd: 0 }}>Day {c.dayIndex}</Tag>}
@@ -44,6 +47,7 @@ export default function PlanDiff({ open, result, onConfirm, onCancel, loading }:
   const highRisk = result?.confirmation?.riskLevel === 'HIGH';
   const warnings = result?.warnings ?? [];
   const contentHash = result?.confirmation?.contentHash;
+  const citations = result?.citations ?? [];
 
   // Batch 13：审核结论与「未解决高风险必须显式接受」的确认门槛
   const review = result?.review ?? null;
@@ -76,7 +80,11 @@ export default function PlanDiff({ open, result, onConfirm, onCancel, loading }:
       confirmLoading={loading}
       // 确认按钮的 data-testid 交给 antd Button：它会透传到真实 <button>，e2e 直接点
       // 未勾选「接受风险」时按钮 disabled：高风险必须显式确认，不能一键提交
-      okButtonProps={{ danger: highRisk, 'data-testid': 'plan-diff-confirm', disabled: ackRequired && !ack }}
+      okButtonProps={{
+        danger: highRisk,
+        'data-testid': 'plan-diff-confirm',
+        disabled: ackRequired && !ack,
+      }}
       width={580}
     >
       {/* data-testid 必须放在有实际尺寸的内容容器上：antd 的 .ant-modal-root 只是零尺寸包裹层，
@@ -96,7 +104,9 @@ export default function PlanDiff({ open, result, onConfirm, onCancel, loading }:
               type={highRisk ? 'warning' : 'info'}
               showIcon
               message={result.confirmation.summary}
-              description={highRisk ? '本次调整会超出原预算，属于高风险操作，请确认后再提交。' : undefined}
+              description={
+                highRisk ? '本次调整会超出原预算，属于高风险操作，请确认后再提交。' : undefined
+              }
               style={{ marginBottom: 14, marginTop: 4 }}
             />
           )
@@ -105,7 +115,9 @@ export default function PlanDiff({ open, result, onConfirm, onCancel, loading }:
           <div className="plan-review" data-testid="plan-review">
             <div className="plan-review-head">
               <b>审核结论</b>
-              <span className={`pr-badge ${blocked ? 'blocked' : review.passed ? 'passed' : 'warn'}`}>
+              <span
+                className={`pr-badge ${blocked ? 'blocked' : review.passed ? 'passed' : 'warn'}`}
+              >
                 {blocked ? '存在未解决高风险' : review.passed ? '审核通过' : '审核未通过'}
               </span>
             </div>
@@ -140,14 +152,22 @@ export default function PlanDiff({ open, result, onConfirm, onCancel, loading }:
             ))}
           </div>
         )}
+        {/* 知识依据：只在后端给出 citations 时展示；空数组不渲染，不伪造来源 */}
+        <CitationList citations={citations} />
         {contentHash && (
-          <div className="plan-fingerprint" data-testid="plan-diff-fingerprint" title={`方案内容 SHA-256：${contentHash}`}>
+          <div
+            className="plan-fingerprint"
+            data-testid="plan-diff-fingerprint"
+            title={`方案内容 SHA-256：${contentHash}`}
+          >
             <span className="pf-label">内容指纹</span>
             <span className="pf-value">{shortHash(contentHash)}</span>
             <span className="pf-hint">确认将绑定此方案内容</span>
           </div>
         )}
-        <div style={{ maxHeight: 320, overflowY: 'auto' }}>{changes.map((c, idx) => renderChange(c, idx))}</div>
+        <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+          {changes.map((c, idx) => renderChange(c, idx))}
+        </div>
         <div className="diff-budget-box">
           <div>
             <div className="db-label">调整前</div>
@@ -157,15 +177,24 @@ export default function PlanDiff({ open, result, onConfirm, onCancel, loading }:
           </div>
           <ArrowRightOutlined style={{ fontSize: 20, color: 'var(--primary)' }} />
           <div style={{ textAlign: 'right' }}>
-            <div className="db-label">调整后（{(after - before >= 0 ? '+' : '') + Number(after - before).toFixed(0)}）</div>
-            <div className="db-value" style={{ color: after > before ? 'var(--danger)' : 'var(--success)' }}>
+            <div className="db-label">
+              调整后（{(after - before >= 0 ? '+' : '') + Number(after - before).toFixed(0)}）
+            </div>
+            <div
+              className="db-value"
+              style={{ color: after > before ? 'var(--danger)' : 'var(--success)' }}
+            >
               ¥{Number(after).toFixed(0)}
             </div>
           </div>
         </div>
         {ackRequired && (
           <div className="plan-ack">
-            <Checkbox data-testid="plan-diff-ack" checked={ack} onChange={(e) => setAck(e.target.checked)}>
+            <Checkbox
+              data-testid="plan-diff-ack"
+              checked={ack}
+              onChange={(e) => setAck(e.target.checked)}
+            >
               我已了解上述风险，仍然提交
             </Checkbox>
           </div>

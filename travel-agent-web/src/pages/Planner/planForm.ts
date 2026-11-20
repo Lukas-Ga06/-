@@ -51,13 +51,25 @@ export const PACE_LABEL: Record<Pace, string> = {
 };
 
 export const INTEREST_OPTIONS = [
-  '经典地标', '历史文化', '当地美食', '自然风景',
-  '拍照打卡', '购物', '亲子体验', '小众街区',
+  '经典地标',
+  '历史文化',
+  '当地美食',
+  '自然风景',
+  '拍照打卡',
+  '购物',
+  '亲子体验',
+  '小众街区',
 ] as const;
 
 export const FOCUS_OPTIONS = [
-  '减少跨区移动', '减少步行', '降低行程密度', '控制预算',
-  '筛选美食', '适合父母或儿童', '调整景点顺序', '保留景点，只优化路线',
+  '减少跨区移动',
+  '减少步行',
+  '降低行程密度',
+  '控制预算',
+  '筛选美食',
+  '适合父母或儿童',
+  '调整景点顺序',
+  '保留景点，只优化路线',
 ] as const;
 
 /** 单篇攻略正文上限（字符） */
@@ -104,7 +116,7 @@ export function isFormSubmittable(form: PlanFormState): boolean {
   return true;
 }
 
-function describeTime(form: PlanFormState): string {
+function timeText(form: PlanFormState): string {
   if (form.startDate && form.endDate) {
     const days = form.days && form.days > 0 ? form.days : null;
     return `${form.startDate} 至 ${form.endDate}${days ? `，共 ${days} 天` : ''}`;
@@ -112,12 +124,65 @@ function describeTime(form: PlanFormState): string {
   if (form.days && form.days > 0) {
     return `计划玩 ${form.days} 天`;
   }
-  return '时间待定';
+  return '';
+}
+
+function describeTime(form: PlanFormState): string {
+  return timeText(form) || '时间待定';
+}
+
+function budgetText(form: PlanFormState): string {
+  return form.budgetEnabled && form.budget != null && form.budget > 0 ? `¥${form.budget}` : '灵活';
 }
 
 function describeCompanions(form: PlanFormState): string {
   const base = COMPANION_LABEL[form.companion];
   return `${base}（成人 ${form.adults || 1}，儿童 ${form.kids || 0}）`;
+}
+
+/** 结构化需求摘要的一行；value 为空串表示还没填写 */
+export interface RequirementRow {
+  key: string;
+  label: string;
+  value: string;
+  /** 步骤 1 的必填项：缺失时摘要要显式标红，而不是和可选字段一样显示「未填写」 */
+  required: boolean;
+}
+
+/**
+ * 第 3 步确认页与桌面右侧「需求摘要」共用同一份数据，
+ * 保证用户在两处看到的字段口径完全一致（避免一边有预算一边没预算）。
+ */
+export function describeRequirementRows(form: PlanFormState): RequirementRow[] {
+  const usableGuides = form.guides.filter((g) => g.content.trim().length > 0);
+  const rows: RequirementRow[] = [
+    { key: 'destination', label: '目的地', value: form.destination.trim(), required: true },
+    { key: 'time', label: '出行时间', value: timeText(form), required: true },
+    { key: 'companions', label: '同行人员', value: describeCompanions(form), required: true },
+    { key: 'budget', label: '预算', value: budgetText(form), required: false },
+    { key: 'pace', label: '旅行节奏', value: PACE_LABEL[form.pace], required: false },
+    { key: 'interests', label: '想体验', value: form.interests.join('、'), required: false },
+    {
+      key: 'mode',
+      label: '规划方式',
+      value: form.mode === 'guides' ? `整合 ${usableGuides.length} 篇攻略` : '从零规划',
+      required: false,
+    },
+    { key: 'locked', label: '不可修改项', value: form.locked.trim(), required: false },
+    { key: 'notes', label: '特别要求', value: form.notes.trim(), required: false },
+  ];
+  if (form.mode === 'guides' && form.focus.length > 0) {
+    // 优化目标只对攻略整合生效：插在「规划方式」之后，跟着它一起读；
+    // 切到从零规划后不再展示，避免摘要里出现不会提交的字段
+    const modeIndex = rows.findIndex((row) => row.key === 'mode');
+    rows.splice(modeIndex + 1, 0, {
+      key: 'focus',
+      label: '重点优化',
+      value: form.focus.join('、'),
+      required: false,
+    });
+  }
+  return rows;
 }
 
 /**
@@ -126,15 +191,13 @@ function describeCompanions(form: PlanFormState): string {
  */
 export function compilePlanPrompt(form: PlanFormState): string {
   const lines: string[] = [];
-  lines.push('请为我规划一次旅行。以下是结构化表单提交的完整需求，信息以本条消息为准，无需再次向我确认这些字段。');
+  lines.push(
+    '请为我规划一次旅行。以下是结构化表单提交的完整需求，信息以本条消息为准，无需再次向我确认这些字段。',
+  );
   lines.push(`目的地：${form.destination.trim()}`);
   lines.push(`出行时间：${describeTime(form)}`);
   lines.push(`同行人员：${describeCompanions(form)}`);
-  lines.push(
-    form.budgetEnabled && form.budget != null && form.budget > 0
-      ? `预算：¥${form.budget}`
-      : '预算：灵活',
-  );
+  lines.push(`预算：${budgetText(form)}`);
   lines.push(`旅行节奏：${PACE_LABEL[form.pace]}`);
   if (form.interests.length > 0) {
     lines.push(`偏好体验：${form.interests.join('、')}`);

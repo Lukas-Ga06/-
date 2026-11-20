@@ -45,7 +45,13 @@ describe('BudgetExecutionPanel', () => {
   it('使用率未超 100% 时不套 danger 样式', () => {
     render(
       <BudgetExecutionPanel
-        data={execution({ executionRate: 0.856, actual: 856, remaining: 144, variance: 56, overBudget: false })}
+        data={execution({
+          executionRate: 0.856,
+          actual: 856,
+          remaining: 144,
+          variance: 56,
+          overBudget: false,
+        })}
       />,
     );
 

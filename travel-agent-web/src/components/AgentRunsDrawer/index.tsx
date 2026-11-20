@@ -59,7 +59,12 @@ function truncateDigest(digest?: string | null, max = 24): string | null {
 function RunRow({ run, onClick }: { run: RunSummary; onClick: () => void }) {
   const meta = runStatusMeta(run.status);
   return (
-    <button type="button" className="run-row" onClick={onClick} data-testid={`agent-run-${run.runId}`}>
+    <button
+      type="button"
+      className="run-row"
+      onClick={onClick}
+      data-testid={`agent-run-${run.runId}`}
+    >
       <span className={`run-badge ${meta.tone}`}>{meta.text}</span>
       <span className="run-body">
         <span className="run-title">{run.intent || run.message || '（无意图记录）'}</span>
@@ -115,11 +120,19 @@ function ToolRow({ call }: { call: ToolCallView }) {
   const digest = truncateDigest(call.argsDigest);
   return (
     <div className="tool-row">
-      <span className={`run-badge ${call.success ? 'ok' : 'fail'}`}>{call.success ? '成功' : '失败'}</span>
+      <span className={`run-badge ${call.success ? 'ok' : 'fail'}`}>
+        {call.success ? '成功' : '失败'}
+      </span>
       <span className="tool-name">{call.toolName}</span>
       <span className="tool-body">
-        {call.latencyMs != null && <span className="run-sub">{formatDuration(call.latencyMs)}</span>}
-        {digest && <span className="tool-digest" title="参数摘要（已脱敏）">{digest}</span>}
+        {call.latencyMs != null && (
+          <span className="run-sub">{formatDuration(call.latencyMs)}</span>
+        )}
+        {digest && (
+          <span className="tool-digest" title="参数摘要（已脱敏）">
+            {digest}
+          </span>
+        )}
         {!call.success && call.errorCode && <span className="run-error">{call.errorCode}</span>}
       </span>
     </div>
@@ -127,7 +140,15 @@ function ToolRow({ call }: { call: ToolCallView }) {
 }
 
 /** 错误态：显示错误信息与重试按钮（404「他人的 run」/ 网络错误都走这里） */
-function ErrorBox({ message, onRetry, busy }: { message: string; onRetry: () => void; busy?: boolean }) {
+function ErrorBox({
+  message,
+  onRetry,
+  busy,
+}: {
+  message: string;
+  onRetry: () => void;
+  busy?: boolean;
+}) {
   return (
     <div className="run-error-box">
       <div className="run-error">⚠ {message}</div>
@@ -210,7 +231,9 @@ export default function AgentRunsDrawer({ open, onClose }: Props) {
         {!listLoading && !listError && !detail && (
           <>
             {runs && runs.length === 0 && <Empty description="还没有运行记录" />}
-            {runs && runs.length > 0 && runs.map((r) => <RunRow key={r.runId} run={r} onClick={() => loadDetail(r.runId)} />)}
+            {runs &&
+              runs.length > 0 &&
+              runs.map((r) => <RunRow key={r.runId} run={r} onClick={() => loadDetail(r.runId)} />)}
           </>
         )}
         {detailLoading && <Spin style={{ display: 'block', margin: '24px auto' }} />}
@@ -232,7 +255,9 @@ export default function AgentRunsDrawer({ open, onClose }: Props) {
             {(detail.toolCalls ?? []).map((c) => (
               <ToolRow key={`${c.id}-${c.toolName}`} call={c} />
             ))}
-            {(detail.toolCalls ?? []).length === 0 && <div className="runs-empty-line">无工具调用</div>}
+            {(detail.toolCalls ?? []).length === 0 && (
+              <div className="runs-empty-line">无工具调用</div>
+            )}
           </>
         )}
       </div>

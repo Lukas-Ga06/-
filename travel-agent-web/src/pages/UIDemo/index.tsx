@@ -1,6 +1,5 @@
 import { useState } from 'react';
-import { Button, Input } from 'antd';
-import { PlusOutlined } from '@ant-design/icons';
+import { Button } from 'antd';
 import AppShell from '../../components/AppShell';
 import CountUp from '../../components/CountUp';
 import Skeleton from '../../components/Skeleton';
@@ -53,7 +52,9 @@ export default function UIDemo() {
         <div className="dash-greeting">
           <div>
             <h1>✨ UI 组件演示</h1>
-            <div className="dg-date">CountUp · Skeleton · SwipeRow · DraggableList · Collapse · Toast · Intersection</div>
+            <div className="dg-date">
+              CountUp · Skeleton · SwipeRow · DraggableList · Collapse · Toast · Intersection
+            </div>
           </div>
         </div>
 
@@ -61,29 +62,43 @@ export default function UIDemo() {
         <section className="dash-card fade-up">
           <div className="dc-head">
             <b>CountUp · 数字滚动动画</b>
-            <Button size="small" onClick={() => { setCount(Math.floor(Math.random() * 500)); setMoney(Math.floor(Math.random() * 100000)); }}>
+            <Button
+              size="small"
+              onClick={() => {
+                setCount(Math.floor(Math.random() * 500));
+                setMoney(Math.floor(Math.random() * 100000));
+              }}
+            >
               随机刷新
             </Button>
           </div>
           <div className="stat-row" style={{ marginTop: 12 }}>
             <div className="stat-card">
               <div className="sc-icon blue">📊</div>
-              <div className="sc-num"><CountUp value={count} duration={800} /></div>
+              <div className="sc-num">
+                <CountUp value={count} duration={800} />
+              </div>
               <div className="sc-label">整数</div>
             </div>
             <div className="stat-card">
               <div className="sc-icon green">💰</div>
-              <div className="sc-num"><CountUp value={money} prefix="¥" thousandSeparator duration={1000} /></div>
+              <div className="sc-num">
+                <CountUp value={money} prefix="¥" thousandSeparator duration={1000} />
+              </div>
               <div className="sc-label">金额（千分位）</div>
             </div>
             <div className="stat-card">
               <div className="sc-icon orange">📈</div>
-              <div className="sc-num"><CountUp value={Math.PI * 100} decimals={2} suffix="%" duration={700} /></div>
+              <div className="sc-num">
+                <CountUp value={Math.PI * 100} decimals={2} suffix="%" duration={700} />
+              </div>
               <div className="sc-label">小数百分比</div>
             </div>
             <div className="stat-card">
               <div className="sc-icon purple">🎯</div>
-              <div className="sc-num"><CountUp value={3650} prefix="¥" suffix="k" decimals={1} duration={600} /></div>
+              <div className="sc-num">
+                <CountUp value={3650} prefix="¥" suffix="k" decimals={1} duration={600} />
+              </div>
               <div className="sc-label">带前后缀</div>
             </div>
           </div>
@@ -93,7 +108,13 @@ export default function UIDemo() {
         <section className="dash-card fade-up">
           <div className="dc-head">
             <b>Skeleton · 骨架屏</b>
-            <Button size="small" onClick={() => { setLoading(true); setTimeout(() => setLoading(false), 2000); }}>
+            <Button
+              size="small"
+              onClick={() => {
+                setLoading(true);
+                setTimeout(() => setLoading(false), 2000);
+              }}
+            >
               {loading ? '加载中…' : '加载'}
             </Button>
           </div>
@@ -152,7 +173,9 @@ export default function UIDemo() {
                 threshold={70}
                 maxSlide={180}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px' }}>
+                <div
+                  style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px' }}
+                >
                   <span style={{ fontSize: 22 }}>🧭</span>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 600, fontSize: 14 }}>{item.label}</div>
@@ -179,7 +202,9 @@ export default function UIDemo() {
                 toast.success('排序已更新');
               }}
               renderItem={(item, index) => (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px' }}>
+                <div
+                  style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px' }}
+                >
                   <span style={{ fontSize: 16 }}>#{index + 1}</span>
                   <span style={{ flex: 1, fontWeight: 500 }}>{item.label}</span>
                   <span style={{ fontWeight: 700, color: 'var(--accent)' }}>¥{item.value}</span>
@@ -214,19 +239,37 @@ export default function UIDemo() {
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
             <Button onClick={() => showToast('success')}>成功</Button>
             <Button onClick={() => showToast('warning')}>警告</Button>
-            <Button danger onClick={() => showToast('error')}>错误</Button>
+            <Button danger onClick={() => showToast('error')}>
+              错误
+            </Button>
             <Button onClick={() => showToast('info')}>信息</Button>
-            <Button type="primary" onClick={() => showToast('ai')}>AI 消息</Button>
+            <Button type="primary" onClick={() => showToast('ai')}>
+              AI 消息
+            </Button>
           </div>
         </section>
 
         {/* === Intersection === */}
-        <div style={{ height: 300, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', marginTop: 20 }}>
+        <div
+          style={{
+            height: 300,
+            display: 'flex',
+            alignItems: 'flex-end',
+            justifyContent: 'center',
+            marginTop: 20,
+          }}
+        >
           <span style={{ fontSize: 12, color: 'var(--text-3)' }}>↓ 向下滚动到视口触发入场动画</span>
         </div>
-        <div ref={visibleRef} className={inView ? 'in-view' : ''} style={{ opacity: inView ? undefined : 0 }}>
+        <div
+          ref={visibleRef}
+          className={inView ? 'in-view' : ''}
+          style={{ opacity: inView ? undefined : 0 }}
+        >
           <section className="dash-card" style={{ minHeight: 120 }}>
-            <div className="dc-head"><b>useIntersection · 视口触发</b></div>
+            <div className="dc-head">
+              <b>useIntersection · 视口触发</b>
+            </div>
             <div style={{ padding: 12, color: 'var(--text-2)', fontSize: 14 }}>
               {inView ? '✅ 元素已进入视口，触发了 in-view 动画' : '⏳ 等待进入视口…'}
             </div>

@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { Button } from 'antd';
 import { DownOutlined, UpOutlined } from '@ant-design/icons';
 import { stageText, shortRunId, type ActivityEvent } from '../../store/stageText';
+import CitationList from '../CitationList';
+import type { AgentCitation } from '../../types/agent';
 
 interface Props {
   activity: ActivityEvent[];
@@ -35,6 +37,12 @@ function field(value: unknown): string {
 /** 尝试次数：缺省或非法值一律按 0（首次）处理 */
 function attemptOf(data: any): number {
   return typeof data?.attempt === 'number' && data.attempt >= 0 ? data.attempt : 0;
+}
+
+/** rag_result 事件携带的 citations（P1）；旧后端只有 sources 时返回空数组 */
+function eventCitations(data: any): AgentCitation[] {
+  if (!data || !Array.isArray(data.citations)) return [];
+  return data.citations.filter((c: unknown): c is AgentCitation => !!c && typeof c === 'object');
 }
 
 /**
@@ -74,7 +82,9 @@ function eventText(ev: ActivityEvent): string | null {
     }
     case 'recover': {
       const taskType = field(d?.taskType);
-      return taskType ? `重派 ${taskType}（第 ${attemptOf(d) + 1} 次尝试）` : stageText(ev.event, d);
+      return taskType
+        ? `重派 ${taskType}（第 ${attemptOf(d) + 1} 次尝试）`
+        : stageText(ev.event, d);
     }
     case 'conflict': {
       const receiver = field(d?.receiver);
@@ -139,15 +149,25 @@ export default function AgentActivityPanel({ activity }: Props) {
       {open && (
         <div className="aa-list" ref={listRef}>
           {rows.map((r, i) => (
-            <div
-              key={`${r.ev.time}-${i}`}
-              className={`aa-row ${r.ev.event === 'error' || r.ev.event === 'conflict' ? 'error' : ''}`}
-              data-event={r.ev.event}
-            >
-              <span className="aa-icon">{EVENT_ICON[r.ev.event] ?? '•'}</span>
-              <span className="aa-text">{r.text}</span>
-              <span className="aa-time">{relativeTime(r.ev.time)}</span>
-            </div>
+            <Fragment key={`${r.ev.time}-${i}`}>
+              <div
+                className={`aa-row ${r.ev.event === 'error' || r.ev.event === 'conflict' ? 'error' : ''}`}
+                data-event={r.ev.event}
+              >
+                <span className="aa-icon">{EVENT_ICON[r.ev.event] ?? '•'}</span>
+                <span className="aa-text">{r.text}</span>
+                <span className="aa-time">{relativeTime(r.ev.time)}</span>
+              </div>
+              {r.ev.event === 'rag_result' && (
+                <div className="aa-citation-wrap">
+                  <CitationList
+                    citations={eventCitations(r.ev.data)}
+                    compact
+                    testId="activity-citation-list"
+                  />
+                </div>
+              )}
+            </Fragment>
           ))}
         </div>
       )}

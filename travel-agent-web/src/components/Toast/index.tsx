@@ -10,11 +10,6 @@ export interface ToastItem {
   duration: number;
 }
 
-interface ToastContextValue {
-  push: (toast: Omit<ToastItem, 'id' | 'duration'> & { duration?: number }) => void;
-  dismiss: (id: string) => void;
-}
-
 // 全局单例，不依赖 React Context（简化使用）
 const listeners = new Set<(toasts: ToastItem[]) => void>();
 let toastList: ToastItem[] = [];

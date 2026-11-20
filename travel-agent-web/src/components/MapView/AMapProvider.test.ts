@@ -70,16 +70,28 @@ function createMapMock(): MockMap {
 
 function createAMapMock(map: AMapMap) {
   // 这些 API 在生产中通过 new 调用，mock 也必须使用可构造的 function 实现。
-  const Marker = vi.fn(function (options: object) { return { kind: 'marker', options }; });
-  const Polyline = vi.fn(function (options: object) { return { kind: 'polyline', options }; });
-  const ControlBar = vi.fn(function () { return { kind: 'control-bar' }; });
+  const Marker = vi.fn(function (options: object) {
+    return { kind: 'marker', options };
+  });
+  const Polyline = vi.fn(function (options: object) {
+    return { kind: 'polyline', options };
+  });
+  const ControlBar = vi.fn(function () {
+    return { kind: 'control-bar' };
+  });
   const AMap = {
-    Map: vi.fn(function () { return map; }),
+    Map: vi.fn(function () {
+      return map;
+    }),
     Marker,
     Polyline,
     ControlBar,
-    Scale: vi.fn(function () { return { kind: 'scale' }; }),
-    ToolBar: vi.fn(function () { return { kind: 'tool-bar' }; }),
+    Scale: vi.fn(function () {
+      return { kind: 'scale' };
+    }),
+    ToolBar: vi.fn(function () {
+      return { kind: 'tool-bar' };
+    }),
   } as unknown as AMapNamespace;
   return { AMap, Marker, Polyline, ControlBar };
 }
@@ -114,10 +126,10 @@ describe('AMapProvider', () => {
 
     provider.init(document.createElement('div'), status);
     // SDK 尚未 resolve 时提交的数据应在初始化后自动补绘。
-    provider.render([
-      item(),
-      item({ id: 2, title: '南京路', latitude: 31.24, longitude: 121.48 }),
-    ], 1);
+    provider.render(
+      [item(), item({ id: 2, title: '南京路', latitude: 31.24, longitude: 121.48 })],
+      1,
+    );
     await flushLoader();
 
     expect(load).toHaveBeenCalledTimes(1);
@@ -249,8 +261,7 @@ describe('AMapProvider', () => {
     ];
     // 旧后端（无字段）/ 后端空数组 / 后端只回 1 个点，都必须回退且不崩
     for (const polyline of [undefined, [], [[31.235, 121.475]]] as (
-      | [number, number][]
-      | undefined
+      [number, number][] | undefined
     )[]) {
       const map = createMapMock();
       const { AMap, Polyline } = createAMapMock(map);
@@ -283,9 +294,11 @@ describe('AMapProvider', () => {
 
     provider.init(document.createElement('div'));
     await flushLoader();
-    provider.render([item(), item({ id: 2, title: '豫园', latitude: 31.24, longitude: 121.48 })], 1, [
-      leg({ source: 'estimated', polyline }),
-    ]);
+    provider.render(
+      [item(), item({ id: 2, title: '豫园', latitude: 31.24, longitude: 121.48 })],
+      1,
+      [leg({ source: 'estimated', polyline })],
+    );
 
     const options = Polyline.mock.calls.map(([opts]) => opts as Record<string, unknown>);
     expect(options).toHaveLength(2);
@@ -387,12 +400,7 @@ describe('AMapProvider', () => {
 
     provider.flyTo(31.23, 121.47, 16);
     expect(map.setPitch).not.toHaveBeenCalled();
-    expect(map.setZoomAndCenter).toHaveBeenCalledWith(
-      16,
-      toAmapLngLat(31.23, 121.47),
-      false,
-      1400,
-    );
+    expect(map.setZoomAndCenter).toHaveBeenCalledWith(16, toAmapLngLat(31.23, 121.47), false, 1400);
 
     provider.startTour([item()]);
     expect(map.setZoomAndCenter).toHaveBeenLastCalledWith(
@@ -432,9 +440,13 @@ describe('AMapProvider', () => {
     const map = createMapMock();
     const { AMap } = createAMapMock(map);
     let resolveLoader!: (value: AMapNamespace) => void;
-    provider = new AMapProvider('3D', () => new Promise((resolve) => {
-      resolveLoader = resolve;
-    }));
+    provider = new AMapProvider(
+      '3D',
+      () =>
+        new Promise((resolve) => {
+          resolveLoader = resolve;
+        }),
+    );
 
     provider.init(document.createElement('div'));
     provider.destroy();
@@ -489,9 +501,10 @@ describe('AMapProvider', () => {
     const container = document.createElement('div');
     provider = new AMapProvider(
       '3D',
-      () => new Promise((resolve) => {
-        resolveLoader = resolve;
-      }),
+      () =>
+        new Promise((resolve) => {
+          resolveLoader = resolve;
+        }),
       'light',
     );
     provider.init(container);
@@ -538,5 +551,33 @@ describe('AMapProvider', () => {
   it('缺少 Web 端 Key 时给出明确配置错误', async () => {
     vi.stubEnv('VITE_AMAP_KEY', '');
     await expect(loadAMap()).rejects.toThrow('VITE_AMAP_KEY');
+  });
+
+  it('resize 只重算画布：不重建地图、不动相机（侧栏 keep-alive 切回可见时用）', async () => {
+    const map = createMapMock();
+    const resize = vi.fn();
+    (map as AMapMap & { resize?: () => void }).resize = resize;
+    const { AMap } = createAMapMock(map);
+    provider = new AMapProvider('3D', () => Promise.resolve(AMap), 'light');
+    provider.init(document.createElement('div'));
+    await flushLoader();
+
+    provider.resize();
+
+    expect(resize).toHaveBeenCalledTimes(1);
+    // 只调用 resize：地图实例没有被销毁重建，相机也没有被挪动
+    expect(map.destroy).not.toHaveBeenCalled();
+    expect(map.setZoomAndCenter).not.toHaveBeenCalled();
+    expect(AMap.Map).toHaveBeenCalledTimes(1);
+  });
+
+  it('旧版 SDK 没有 resize 时静默跳过，不抛错', async () => {
+    const map = createMapMock();
+    const { AMap } = createAMapMock(map);
+    provider = new AMapProvider('3D', () => Promise.resolve(AMap), 'light');
+    provider.init(document.createElement('div'));
+    await flushLoader();
+
+    expect(() => provider?.resize()).not.toThrow();
   });
 });
