@@ -1,0 +1,62 @@
+version: 2
+
+# 依赖更新：只提 PR，不自动合并。
+# - 同一生态的小版本合并成一个 PR，减少评审负担；
+# - 安全公告（security）单独一个组，优先处理；
+# - 前端 lockfile 与 Maven pom 分属不同生态，各自的 open-pull-requests-limit 独立。
+
+updates:
+  - package-ecosystem: maven
+    directory: /travel-agent-server
+    schedule:
+      interval: weekly
+      day: monday
+      time: '04:30'
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 5
+    groups:
+      maven-minor-patch:
+        patterns: ['*']
+        update-types: [minor, patch]
+    ignore:
+      # Spring Boot 主版本升级会同时改变 BOM 内几乎所有依赖与 Flyway/Jackson 行为，
+      # 必须人工评估迁移（见 docs/guide/quality-gates.md、mysql-migration.md），不让 bot 直接提。
+      - dependency-name: org.springframework.boot:spring-boot-starter-parent
+        update-types: [version-update:semver-major]
+    labels: [dependencies, backend]
+    commit-message:
+      prefix: 'chore(deps)'
+
+  - package-ecosystem: npm
+    directory: /travel-agent-web
+    schedule:
+      interval: weekly
+      day: monday
+      time: '04:30'
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 5
+    groups:
+      npm-minor-patch:
+        patterns: ['*']
+        update-types: [minor, patch]
+    ignore:
+      # maplibre-gl 有专门的包体预算与 vendor 版本一致性断言（scripts/check-bundle-budget.mjs），
+      # 升级必须人工跑 npm run build:check 并确认 gzip 预算，不让 bot 自动提。
+      - dependency-name: maplibre-gl
+      # React 主版本会牵动 react-router / testing-library / 所有组件，需单独排期
+      - dependency-name: react
+        update-types: [version-update:semver-major]
+      - dependency-name: react-dom
+        update-types: [version-update:semver-major]
+    labels: [dependencies, frontend]
+    commit-message:
+      prefix: 'chore(deps)'
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    labels: [dependencies, ci]
+    commit-message:
+      prefix: 'chore(ci)'

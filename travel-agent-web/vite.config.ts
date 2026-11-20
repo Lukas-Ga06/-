@@ -1,6 +1,86 @@
-import { defineConfig } from 'vite';
+import { copyFileSync, mkdirSync, readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
+import { visualizer } from 'rollup-plugin-visualizer';
+
+const ROOT = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * 自托管的地图引擎文件。原样从 node_modules/maplibre-gl/dist 取出，不参与 Rollup 分块：
+ * - maplibre-gl.mjs        主模块（浏览器在真正渲染地图时才 import）
+ * - maplibre-gl-worker.mjs worker（maplibre 用 import.meta.url 推导同目录相对路径，必须同名同目录）
+ * - maplibre-gl.css        样式（业务侧仍静态 import，只进懒加载页面的 CSS，不拉 JS）
+ */
+const MAPLIBRE_FILES = ['maplibre-gl.mjs', 'maplibre-gl-worker.mjs', 'maplibre-gl.css'] as const;
+
+/**
+ * 读取 node_modules 里的真实版本，作为 vendor 目录名。
+ * 目录带版本号：升级依赖后 URL 变化，浏览器/CDN 缓存自然失效，
+ * 不会出现「旧 HTML 配新 worker」的版本错配。
+ */
+function readMaplibreVersion(): string {
+  const pkgPath = resolve(ROOT, 'node_modules/maplibre-gl/package.json');
+  return (JSON.parse(readFileSync(pkgPath, 'utf8')) as { version: string }).version;
+}
+
+/**
+ * 把 MapLibre 从 Rollup 的 import 图里摘出去：
+ * - dev：`/vendor/maplibre/<version>/*` 由中间件直接从 node_modules 读，天然与依赖同步；
+ * - build：`closeBundle` 把三个文件原样拷到 `dist/vendor/maplibre/<version>/`（幂等）。
+ *
+ * 这样页面里只剩 `import type` 与运行时 `import()`（URL 带 @vite-ignore），
+ * 构建产物不会再有 maps chunk，PWA 也通过 globIgnores 排除 vendor。
+ */
+function maplibreVendor(): Plugin {
+  const version = readMaplibreVersion();
+  const distDir = resolve(ROOT, 'node_modules/maplibre-gl/dist');
+  const urlPrefix = `/vendor/maplibre/${version}/`;
+  const allowed = new Set<string>(MAPLIBRE_FILES);
+
+  return {
+    name: 'travel-agent:maplibre-vendor',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        // worker 请求会带 ?v=<version> 的缓存参数，必须按 pathname 匹配
+        const pathname = (req.url ?? '').split('?')[0];
+        if (!pathname.startsWith(urlPrefix)) {
+          next();
+          return;
+        }
+        const file = pathname.slice(urlPrefix.length);
+        // 该前缀下只允许白名单文件：不能交给 SPA fallback，否则请求错文件会拿到 200 的 index.html
+        if (!allowed.has(file)) {
+          res.statusCode = 404;
+          res.end(`maplibre vendor asset not found: ${file}`);
+          return;
+        }
+        try {
+          const body = readFileSync(resolve(distDir, file));
+          res.setHeader(
+            'Content-Type',
+            file.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/javascript; charset=utf-8',
+          );
+          res.setHeader('Cache-Control', 'no-cache');
+          res.end(body);
+        } catch {
+          res.statusCode = 404;
+          res.end(`maplibre vendor asset not found: ${file}`);
+        }
+      });
+    },
+    closeBundle() {
+      const outDir = resolve(ROOT, 'dist/vendor/maplibre', version);
+      mkdirSync(outDir, { recursive: true });
+      for (const file of MAPLIBRE_FILES) {
+        copyFileSync(resolve(distDir, file), resolve(outDir, file));
+      }
+      console.log(`\n[vendor] maplibre ${version} → dist/vendor/maplibre/${version}/`);
+    },
+  };
+}
 
 /**
  * /api 反代目标：默认本地 8080 后端；e2e 需要独立后端时用 E2E_API_TARGET 指向它
@@ -25,28 +105,19 @@ const ITINERARY_API_PATTERN =
  */
 const ITINERARY_CACHE_NAME = 'itinerary-v1';
 
-export default defineConfig({
-  /**
-   * maplibre-gl 自带 worker（maplibre-gl-worker.mjs）。Vite 预打包依赖时不会把这个 worker
-   * 一起产出到 node_modules/.vite/deps，dev 下地图会报
-   * 「Worker failed to load. Check that the worker URL is correct.」并退化成空白底图。
-   * 把 maplibre-gl 排除出预打包，让浏览器直接按 ESM 加载它自己的 worker 路径即可；
-   * 生产构建（vite build）本来就走 Rollup，没有这个问题。
-   */
-  optimizeDeps: {
-    exclude: ['maplibre-gl'],
-  },
+export default defineConfig(({ mode }) => ({
   plugins: [
     react(),
+    maplibreVendor(),
     // PWA：只预缓存 app shell（构建产物 + SPA 回退）。API 一律不缓存——
     // 数据全部带登录态且实时性强（SSE/记账/行程），离线只保证“页面打得开不白屏”
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg'],
       manifest: {
-        name: 'AI 个人助理',
-        short_name: '个人助理',
-        description: '旅行规划 · 记账 · 备忘 · 办公 · 学习 · 健康',
+        name: 'AI 智能旅行助手',
+        short_name: '旅行助手',
+        description: '行程规划 · 旅行知识库 · 足迹与照片 · 记账备忘 · 日程提醒',
         lang: 'zh-CN',
         theme_color: '#1677ff',
         background_color: '#ffffff',
@@ -63,6 +134,10 @@ export default defineConfig({
         navigateFallbackDenylist: [/^\/api\//],
         // 版本升级后清掉上一版 precache / runtime 缓存容器（只清 workbox 自己建的）
         cleanupOutdatedCaches: true,
+        // 地图引擎不进 precache：它是按需加载的大文件，预缓存会让所有用户白下载 1.6 MB；
+        // 地图页真正打开时走浏览器 HTTP 缓存（vendor URL 带版本号，可安全长缓存）。
+        // bundle-stats.html 只在 analyze 模式产生，也不该被当成 app shell 预缓存。
+        globIgnores: ['**/vendor/maplibre/**', '**/bundle-stats.html'],
         // 不动 precache：仍只预缓存 app shell（构建产物 + SPA 回退），不扩大体积。
         // runtimeCaching 只管下面这一条：离线时能继续看已打开过的行程。
         runtimeCaching: [
@@ -85,23 +160,18 @@ export default defineConfig({
         ],
       },
     }),
+    // 只有 npm run analyze（vite build --mode analyze）才产出交互式包体分析页
+    ...(mode === 'analyze'
+      ? [visualizer({ filename: 'dist/bundle-stats.html', gzipSize: true, open: false })]
+      : []),
   ],
   build: {
     // 现代浏览器目标：跳过 esbuild 的降级转译（在部分 Windows 环境里该步骤清理临时目录会被系统拒绝）
     target: 'esnext',
     // 压缩改用 Terser：esbuild 在该环境清理临时目录时会被系统拒绝（Access is denied）
     minify: 'terser',
-    // 把体积大且更新频率低的依赖拆成独立 chunk：
-    // 首屏只加载 react 相关与当前路由页面，图表/地图按需加载并长期缓存。
-    //
-    // 注意：antd / @ant-design / rc-* **刻意不再手动合并成一个 chunk**。
-    // 实测（dist/sw.js + 静态 import 图）证明：旧规则把「所有页面用到的 antd/rc」
-    // 全塞进一个 antd chunk，于是首屏即使只用 Button/Result/Spin，也要先下载
-    // 懒加载页面才需要的 Table/Form/DatePicker 等（该 chunk 实测 1047.82 kB，
-    // 且 react/react-dom 也被一起带进去，首屏静态闭包 1168.80 kB）。
-    // 交给 Rollup 按真实引用自动分块后：壳层用到的 antd 留在首屏闭包，
-    // 页面私有组件跟随各自路由 chunk，不再为首屏买单（重建后用
-    // .evidence/web-bundle/chunk-graph.mjs 复核首屏静态闭包）。
+    // 800 kB 是单文件告警线：地图引擎已移出 Rollup 图（vendor 单独预算），
+    // 任何 JS chunk 再越过这条线都说明有新的重依赖被静态引入。
     chunkSizeWarningLimit: 800,
     rollupOptions: {
       output: {
@@ -109,12 +179,10 @@ export default defineConfig({
           if (!id.includes('node_modules')) {
             return undefined;
           }
-          // echarts / 地图引擎较大且被多个懒加载页面共享，单独成块便于长期缓存。
+          // echarts / zrender 较大且被多个懒加载页面共享，单独成块便于长期缓存。
+          // 地图引擎不再进入这里：它由 maplibreLoader 运行时按需加载，不参与分块。
           if (id.includes('echarts') || id.includes('zrender')) {
             return 'echarts';
-          }
-          if (id.includes('maplibre-gl')) {
-            return 'maps';
           }
           // 其余依赖（含 antd / rc-* / react）交给 Rollup 自动分块：
           // 之前把剩余依赖统一塞进 vendor，会与 react 互相引用形成 vendor -> react -> vendor 循环。
@@ -142,4 +210,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));

@@ -1,5 +1,8 @@
 name: CI
 
+# 发布门禁的唯一权威入口：本地等价命令见 docs/guide/ci.md。
+# 拆分原则：能在一次 job 里跑完的不拆；需要外部服务（MySQL）或独立权限（CodeQL）的单独成 job。
+
 on:
   push:
     branches: [main]
@@ -9,9 +12,12 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   backend:
-    name: Backend / Maven verify
+    name: Backend / mvn verify（测试 + 覆盖率 + Checkstyle + SpotBugs）
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -26,11 +32,72 @@ jobs:
           java-version: '17'
           cache: maven
 
-      - name: Build and test
+      # verify = 单元测试 + JaCoCo check + Checkstyle + SpotBugs，任一不过即失败。
+      # 真实 MySQL 迁移不在这一步：见 mysql-migration job（需要 service container）。
+      - name: Maven verify
         run: mvn -B verify
 
+      - name: Upload coverage and static analysis reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-reports
+          path: |
+            travel-agent-server/target/site/jacoco/
+            travel-agent-server/target/spotbugsXml.xml
+            travel-agent-server/target/checkstyle-result.xml
+          retention-days: 7
+
+  mysql-migration:
+    name: Backend / 真实 MySQL Flyway 迁移 + Hibernate validate
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: travel-agent-server
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      # 该测试默认被 @EnabledIfEnvironmentVariable(MYSQL_IT=true) 跳过；
+      # 这里显式开启，用 service container 的 3306（本地便携实例是 3307）。
+      # 测试自己建一次性库 travel_agent_it_<ts>，不碰其他库；需要 CREATE DATABASE 权限，故用 root。
+      - name: Run Flyway migration test
+        env:
+          MYSQL_IT: 'true'
+          MYSQL_IT_HOST: 127.0.0.1
+          MYSQL_IT_PORT: '3306'
+          MYSQL_IT_USERNAME: root
+          MYSQL_IT_PASSWORD: root
+        run: mvn -B -Dtest=MySqlFlywayMigrationTest test
+
+      - name: Upload migration test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mysql-migration-logs
+          path: travel-agent-server/target/surefire-reports/
+          retention-days: 7
+
   frontend:
-    name: Frontend / typecheck + test + build
+    name: Frontend / typecheck + lint + format + coverage + build budget + 契约类型
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -51,14 +118,154 @@ jobs:
       - name: Type check
         run: npm run typecheck
 
-      - name: Unit tests
-        run: npm test
+      - name: Lint
+        run: npm run lint
 
-      - name: Production build
-        run: npm run build
+      - name: Format check
+        run: npm run format:check
+
+      # 覆盖率阈值写在 vitest.config.ts（全局），核心目录另由 scripts/check-core-coverage.mjs 卡。
+      - name: Unit tests with coverage
+        run: npm run test:coverage
+
+      - name: Core directory coverage gate
+        run: node scripts/check-core-coverage.mjs
+
+      # build:check = tsc + vite build + scripts/check-bundle-budget.mjs（包体预算与地图 vendor 断言）
+      - name: Production build + bundle budget
+        run: npm run build:check
+
+      # 生成类型须与 docs/api/openapi.json 快照一致（快照与后端一致性由 contract job 负责）
+      - name: API contract type drift check
+        run: npm run api:check
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage
+          path: |
+            travel-agent-web/coverage/
+            travel-agent-web/dist/bundle-stats.html
+          retention-days: 7
+
+  contract:
+    name: Contract / OpenAPI 快照一致 + 破坏性变更
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: travel-agent-server
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      # 用当前代码重新生成快照；若与提交的 docs/api/openapi.json 有差异，说明改了 DTO/Controller
+      # 却没更新契约。git diff --exit-code 会把这种漂移变成构建失败。
+      - name: Regenerate OpenAPI snapshot
+        run: mvn -B -Dtest=OpenApiSnapshotTest -Dopenapi.update=true test
+
+      - name: Fail if snapshot drifted
+        run: git diff --exit-code -- ../docs/api/openapi.json
+
+      - name: Download oasdiff
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          VERSION=1.11.7
+          curl -sSfL "https://github.com/oasdiff/oasdiff/releases/download/v${VERSION}/oasdiff_${VERSION}_linux_amd64.tar.gz" \
+            | tar -xz oasdiff
+          sudo mv oasdiff /usr/local/bin/oasdiff
+          oasdiff --version
+
+      # 破坏性变更检查：以 base 分支的快照为基线。首版没有基线文件时跳过（不阻塞首次引入）。
+      - name: Breaking API change check
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          git show "origin/${{ github.base_ref }}:docs/api/openapi.json" > /tmp/openapi-base.json || {
+            echo "::notice::base 分支没有 docs/api/openapi.json，跳过破坏性变更检查（首次引入契约）"
+            exit 0
+          }
+          oasdiff breaking /tmp/openapi-base.json ../docs/api/openapi.json --fail-on ERR
+
+  docs:
+    name: Docs / 链接与命令引用校验
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # 零依赖脚本：校验相对链接是否存在、文档里的 npm run <script> / mvn <goal> 是否真实可用。
+      - name: docs-check（链接 + 命令引用）
+        run: node scripts/docs-check.mjs
+
+      # lychee 只查本地/相对链接；外链容易受网络与对方站点变更影响，放 scheduled（见 lychee.toml 注释）。
+      - name: lychee（offline，仅本地链接）
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: >-
+            --offline
+            --no-progress
+            --include-fragments
+            README.md
+            docs/**/*.md
+          fail: true
+
+  security:
+    name: Security / 依赖漏洞
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+
+      # PR 上只对新增依赖做漏洞评审，避免历史存量债务把每个 PR 都卡死。
+      - name: Dependency review（PR 新增依赖）
+        if: github.event_name == 'pull_request'
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: on-failure
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: travel-agent-web/package-lock.json
+
+      # 前端依赖漏洞：high/critical 阻断。当前存量（vite-plugin-pwa 的 glob/minimatch moderate）
+      # 低于该级别，不会误伤；升级后应把级别收紧到 moderate，见 docs/guide/ci.md。
+      - name: npm audit（high+）
+        working-directory: travel-agent-web
+        run: npm ci --ignore-scripts && npm audit --audit-level=high
+
+      # Maven 依赖漏洞：Trivy 扫依赖清单，忽略「无修复版本」的条目，避免无解除的告警常驻红灯。
+      - name: Trivy dependency scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: travel-agent-server
+          scanners: vuln
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '1'
 
   e2e:
-    name: E2E / Playwright smoke (backend H2 + frontend preview)
+    name: E2E / Playwright smoke（后端 H2 + 前端 preview）
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
