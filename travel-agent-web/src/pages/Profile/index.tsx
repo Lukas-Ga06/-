@@ -8,6 +8,7 @@ import { useAuthStore } from '../../store/authStore';
 import { useThemeStore } from '../../store/themeStore';
 import { useTripStore } from '../../store/tripStore';
 import AppShell from '../../components/AppShell';
+import './profile.css';
 
 export default function Profile() {
   const navigate = useNavigate();

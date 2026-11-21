@@ -19,6 +19,8 @@ const configDir = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   testDir: './e2e',
+  // 视觉回归（e2e/visual）走独立配置与桩数据，不参与需要后端登录的 e2e 套件
+  testIgnore: ['**/visual/**'],
   timeout: 30_000,
   // 本地 0 / CI 1：保留 trace retain-on-failure 的排障能力
   retries: process.env.CI ? 1 : 0,

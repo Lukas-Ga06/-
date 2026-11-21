@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { getItinerary, getRouteLegs, getTrip, listTrips } from '../api/trip';
 import type { ItineraryItem, RouteLeg, Trip } from '../types/trip';
+import { hasRemoteUpdate } from '../lib/tripConflict';
 
 interface TripState {
   trips: Trip[];
@@ -13,6 +14,11 @@ interface TripState {
   routeLegs: RouteLeg[];
   loadTrips: () => Promise<void>;
   loadTrip: (id: number) => Promise<void>;
+  /**
+   * 回到页面时与服务端对齐（阶段 D 冲突提示）：
+   * 用最新的 Trip 覆盖本地，并告诉调用方「版本是否变了」（= 别处更新过）。
+   */
+  syncTrip: (id: number) => Promise<boolean>;
   loadItinerary: (id: number) => Promise<void>;
   loadRouteLegs: (id: number) => Promise<void>;
   clearCurrent: () => void;
@@ -59,6 +65,18 @@ export const useTripStore = create<TripState>()((set, get) => ({
     const trip = await getTrip(id);
     if (seq !== tripSeq) return;
     set({ currentTrip: trip });
+  },
+
+  syncTrip: async (id) => {
+    const seq = ++tripSeq;
+    const before = get().currentTrip;
+    if (before && before.id !== id) return false;
+    const trip = await getTrip(id);
+    if (seq !== tripSeq) return false;
+    // 等待期间用户可能已经切到别的行程：别把旧 id 的数据写回来
+    if (get().currentTrip && get().currentTrip!.id !== id) return false;
+    set({ currentTrip: trip });
+    return before?.id === id && hasRemoteUpdate(before?.version, trip.version);
   },
 
   loadItinerary: async (id) => {

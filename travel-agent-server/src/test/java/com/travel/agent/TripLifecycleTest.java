@@ -134,4 +134,38 @@ class TripLifecycleTest extends IntegrationTestSupport {
         assertThat(persisted.getStatus()).isEqualTo(Trip.STATUS_CANCELLED);
         assertThat(persisted.phase(today)).isEqualTo("CANCELLED");
     }
+
+    @Test
+    @DisplayName("阶段 D：TripResponse 暴露乐观锁 version，且改一次行程版本就递增")
+    void versionIsExposedAndBumpedOnUpdate() throws Exception {
+        Account account = registerNew();
+        LocalDate today = LocalDate.now();
+        long tripId = createTrip(account, today.plusDays(3), today.plusDays(5));
+
+        MvcResult first = mockMvc.perform(get("/api/trips/" + tripId)
+                        .header("Authorization", account.bearer()))
+                .andExpect(status().isOk())
+                .andReturn();
+        // 前端靠这个字段判断「是不是在别的标签页/设备上改过」，缺失就不能做主动冲突提示
+        assertThat(body(first).path("data").has("version")).isTrue();
+        long versionBefore = body(first).path("data").path("version").asLong();
+
+        String update = objectMapper.writeValueAsString(Map.of(
+                "name", "生命周期测试·改名",
+                "destination", "上海",
+                "startDate", today.plusDays(3).toString(),
+                "endDate", today.plusDays(5).toString(),
+                "budget", 3200));
+        mockMvc.perform(put("/api/trips/" + tripId)
+                        .header("Authorization", account.bearer())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(update))
+                .andExpect(status().isOk());
+
+        MvcResult second = mockMvc.perform(get("/api/trips/" + tripId)
+                        .header("Authorization", account.bearer()))
+                .andExpect(status().isOk())
+                .andReturn();
+        assertThat(body(second).path("data").path("version").asLong()).isEqualTo(versionBefore + 1);
+    }
 }

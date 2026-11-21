@@ -641,7 +641,7 @@ return undefined;
 
 **node / DOM 环境差异**：默认 node 覆盖 store、API 客户端等纯逻辑，快且无需 DOM。需要 DOM 时在文件顶部加 `// @vitest-environment happy-dom`（见 `MapView/markerElement.test.ts` 第一行）—— 仓库用 `happy-dom` 而非 jsdom（jsdom 依赖 `require(ESM)`，对 Node 版本更敏感）。另外 `src/test/setup.ts` 在 node 环境补了一个**内存版 `Storage`**：zustand 的 `persist` 中间件依赖 `localStorage`/`sessionStorage`，node 环境下不存在，不补就会在导入 store 时抛错。
 
-当前 **46 个测试文件、468 个用例**（`npm test` 实测，以实际汇总为准）：`api/client.test.ts`、`footprintData.test.ts`、
+当前 **47 个测试文件、482 个用例**（`npm test` 实测，以实际汇总为准）：`api/client.test.ts`、`footprintData.test.ts`、
 `agentStore.test.ts`、`statusQueueStore.test.ts`（离线待同步队列：入队合并/持久化/逐项重放/网络错误中止）、
 `lib/statusQueue.test.ts`、`lib/tripFocus.test.ts`（下一项判定与完成后的滚动目标）、`UndoBar/index.test.tsx`、
 `pages/Planner/planDraft.test.ts`（草稿读写容错与步骤门禁）、`pages/Planner/index.test.tsx`（三步流程）、
@@ -657,7 +657,7 @@ return undefined;
 `playwright.config.ts`：`testDir: './e2e'`、`baseURL: 'http://localhost:4173'`、`trace: 'retain-on-failure'`、`locale: 'zh-CN'`、单 chromium project、`timeout: 30_000`；`webServer.command = 'npm run preview'` 自动起 preview（CI 下 `reuseExistingServer: false`）。
 跑法：终端 1 `cd travel-agent-server && mvn spring-boot:run`；终端 2 `cd travel-agent-web && npm run build && npm run e2e`。
 
-当前 **2 个 spec、5 个用例**（`npm run e2e` 实测 5/5 通过；本批未改动 e2e）：
+当前 **4 个 spec、13 个用例**（`npm run e2e` 实测 13/13 通过：8 条功能 + 5 条无障碍扫描）：
 
 - `e2e/smoke.spec.ts` **3 例**：① **未登录访问首页 → 跳登录页**（`browser.newContext()` 显式空 `storageState`，才是真正的匿名访客）；
   ② **登录 → 建行程 → 行程页与路书可达** —— 登录态来自 `globalSetup` 写入的 `storageState`，用 `page.request.post` 建行程（数据准备不走 UI 表单），
@@ -665,6 +665,11 @@ return undefined;
   ③ **PWA 资源可达** —— `/manifest.webmanifest` 的 `name` 为「AI 智能旅行助手」，`/sw.js` 含 `precache`。
 - `e2e/planner-form.spec.ts` **2 例**：**攻略整合模式**（空提交校验 → 填表 → POST 流式 → 确认 → 新行程）与
   **从零规划模式**（填目的地与天数 → 生成 → 确认 → 新行程），都走规则路径、不依赖 LLM 与外部服务。
+- `e2e/a11y.spec.ts` **5 例**：`@axe-core/playwright` 扫登录/首页/助手/旅行/回顾，WCAG 2.0/2.1 A+AA，critical/serious 必须为 0。
+- `e2e/maplibre-vendor.spec.ts` **3 例**：地图引擎 vendor 文件可发布、浏览器可 import、worker 与样式相对路径可解析。
+
+另有**独立的视觉回归套件**（不在此列，因为不需要后端与登录）：`npm run test:visual`，
+`playwright.visual.config.ts` + `e2e/visual/`，11 张关键页面截图基线，说明见 [frontend-quality.md §6](frontend-quality.md#6-视觉回归截图基线)。
 
 ---
 

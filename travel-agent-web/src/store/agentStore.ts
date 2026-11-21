@@ -15,6 +15,7 @@ import type {
   SelectedElement,
 } from '../types/agent';
 import { stageText, type ActivityEvent } from './stageText';
+import { TRIP_CONFLICT_MESSAGE, isTripConflict } from '../lib/tripConflict';
 
 export interface SendPayload {
   message: string;
@@ -393,10 +394,15 @@ export const useAgentStore = create<AgentState>()(
           });
           return result;
         } catch (e: any) {
+          // 409 = 行程在别处被改过：本地这份方案的前提已失效，不能只提示「提交失败」，
+          // 要明确告诉用户是冲突、以及需要刷新/重新生成后再确认（阶段 D）。
+          const content = isTripConflict(e)
+            ? `⚠ ${TRIP_CONFLICT_MESSAGE}，本次提交未生效；已为你保留方案，刷新行程后重新确认即可`
+            : `⚠ 提交失败：${e.message}`;
           const errMsg: ChatMessage = {
             id: nextId(),
             role: 'assistant',
-            content: `⚠ 提交失败：${e.message}`,
+            content,
             time: new Date().toISOString(),
           };
           set({ messages: pushMessage(get().messages, errMsg), streaming: false, stage: null });

@@ -29,6 +29,11 @@ export interface Trip {
   /** 距出发天数，仅 UPCOMING 有值 */
   daysUntilStart?: number | null;
   createdAt: string;
+  /**
+   * 乐观锁版本（阶段 D 冲突提示）：别的标签页/设备改过同一行程后版本递增。
+   * 旧后端不返回该字段，缺失时前端不做「被别处更新」的主动判断。
+   */
+  version?: number | null;
 }
 
 /** 行程阶段的展示文案（例如「3 天后出发」「进行中」「已结束」） */

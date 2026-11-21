@@ -165,6 +165,38 @@ describe('tripStore · 列表状态与请求乱序（阶段 A）', () => {
     expect(useTripStore.getState().currentTrip?.id).toBe(2);
   });
 
+  it('syncTrip 发现版本变了才返回 true，并写入服务端最新行程（阶段 D 冲突提示）', async () => {
+    useTripStore.setState({ currentTrip: { ...trip(1, '杭州周末'), version: 3 } as any });
+    getTripMock.mockResolvedValue({ ...trip(1, '杭州周末'), version: 4 } as any);
+
+    const changed = await useTripStore.getState().syncTrip(1);
+
+    expect(changed).toBe(true);
+    expect(useTripStore.getState().currentTrip?.version).toBe(4);
+  });
+
+  it('syncTrip 版本没变时返回 false（不打扰用户），旧后端缺 version 时也不误报', async () => {
+    useTripStore.setState({ currentTrip: { ...trip(1, '杭州周末'), version: 4 } as any });
+    getTripMock.mockResolvedValue({ ...trip(1, '杭州周末'), version: 4 } as any);
+    expect(await useTripStore.getState().syncTrip(1)).toBe(false);
+
+    // 旧后端不返回 version：两边都缺版本，同样不判定为「被别处更新」
+    useTripStore.setState({ currentTrip: trip(2, '上海出差') as any });
+    getTripMock.mockResolvedValue(trip(2, '上海出差') as any);
+    expect(await useTripStore.getState().syncTrip(2)).toBe(false);
+  });
+
+  it('syncTrip 不会把非当前行程的数据写回（防止切换行程期间串页）', async () => {
+    useTripStore.setState({ currentTrip: trip(2, '当前行程') as any });
+    getTripMock.mockResolvedValue(trip(1, '另一个行程') as any);
+
+    const changed = await useTripStore.getState().syncTrip(1);
+
+    expect(changed).toBe(false);
+    expect(useTripStore.getState().currentTrip?.id).toBe(2);
+    expect(getTripMock).not.toHaveBeenCalled();
+  });
+
   it('离页（clearCurrent）后迟到的时间轴响应不再写回', async () => {
     let resolveItems: (v: any) => void = () => {};
     getItineraryMock.mockImplementationOnce(() => new Promise((r) => (resolveItems = r)));

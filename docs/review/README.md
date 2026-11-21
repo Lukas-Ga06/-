@@ -35,5 +35,7 @@
 | [2026-11-20-e2e-and-gates.md](2026-11-20-e2e-and-gates.md) | 2026-11-20 | 后端 verify 门禁、前端四道门禁、Playwright e2e、回顾口径 | 本地全绿（540 tests，e2e 8/8）；远端 CI、真机与真实模型仍待验 |
 | [2026-11-20-stage-c-assistant.md](2026-11-20-stage-c-assistant.md) | 2026-11-20 | 结构化结果卡、会话隔离、停止生成、可点击建议、过程折叠 | 四项落地（465 用例 + e2e 8/8）；最近会话列表与阶段 E 待做 |
 | [2026-11-21-stage-e-empty-state-a11y.md](2026-11-21-stage-e-empty-state-a11y.md) | 2026-11-21 | 五处空状态统一、axe 无障碍扫描、对比度修正 | 空状态与无障碍达标（468 用例 + e2e 13/13）；CSS 拆分与视觉回归未做 |
+| [2026-11-21-stage-e-css-split-visual.md](2026-11-21-stage-e-css-split-visual.md) | 2026-11-21 | global.css 页面级拆分、11 张关键页面截图基线 | 拆分逐像素等价（11/11）、482 用例全绿；剩余共享层分批、基线未进 CI |
+| [2026-11-21-stage-d-conflict.md](2026-11-21-stage-d-conflict.md) | 2026-11-21 | 冲突提示「此行程已在其他位置更新」：版本字段、409 处理、版本主动对齐 | 冲突可识别/提示/刷新，后端 verify 与前端 482 用例全绿；真实双端并发未验 |
 
 新增快照后请同步本表，并运行 `node scripts/docs-check.mjs` 校验链接。完整文档规则见 [文档生命周期](../guide/documentation.md)。

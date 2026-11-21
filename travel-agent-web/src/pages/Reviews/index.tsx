@@ -6,6 +6,7 @@ import AppShell from '../../components/AppShell';
 import EmptyState from '../../components/EmptyState';
 import { listTrips } from '../../api/trip';
 import { daysOf, tripPhaseClass, tripPhaseLabel, type Trip } from '../../types/trip';
+import './reviews.css';
 
 /** 进行中/已结束优先，其次待出发，最后已取消 */
 const PHASE_ORDER: Record<string, number> = {

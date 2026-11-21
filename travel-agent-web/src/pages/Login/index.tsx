@@ -10,6 +10,7 @@ import { useNavigate } from 'react-router-dom';
 import { loginApi, registerApi } from '../../api/auth';
 import { useAuthStore } from '../../store/authStore';
 import type { AuthResp } from '../../types/trip';
+import './login.css';
 
 const FEATURES = [
   { icon: <RobotOutlined />, cls: 'blue', title: 'Agent 智能规划', desc: '一句话生成多日完整行程' },

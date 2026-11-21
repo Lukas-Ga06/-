@@ -1,9 +1,8 @@
 /* ============================================================
    规划页 · 三步流程（P1-03 / 设计文档 §8.3）
    ------------------------------------------------------------
-   类名统一 plan3- 前缀，不改 global.css，也不针对既有 .plan-* /
-   .planner-* 写覆盖规则：旧单页表单的样式留在原处，
-   这里只描述「三步 + 草稿 + 右侧摘要 + 移动端操作条」这一套新结构。
+   前半段是三步流程（.plan3-*）；文件末尾并入原 global.css 的
+   `.planner-page / .planner-body / .planner-card` 单页骨架（只换归属，不改声明）。
    ============================================================ */
 
 /* ---------- 整体骨架：左表单 + 右吸顶摘要 ---------- */
@@ -648,4 +647,34 @@
   .plan3-mobile-bar .ant-btn {
     min-width: 92px;
   }
+}
+
+/* ---------- 单页骨架（原 global.css「规划页」段，随本页 chunk 加载） ---------- */
+/* ---------- 规划页 ---------- */
+.planner-page {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.planner-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  justify-content: center;
+  padding: 18px;
+}
+
+.planner-card {
+  width: min(720px, 100%);
+  border-radius: var(--radius-lg);
+  background: var(--lg-bg);
+  border: 1px solid var(--lg-border);
+  box-shadow: var(--lg-shadow);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 }

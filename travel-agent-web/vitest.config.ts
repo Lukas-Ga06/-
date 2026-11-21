@@ -35,10 +35,11 @@ export default defineConfig({
       //    由 node scripts/check-core-coverage.mjs 读 coverage-summary.json 校验。
       // 阈值 = 基线向下取整 2-3 个点；下调必须在 PR 说明具体文件与原因，并同步 docs/guide/frontend-quality.md。
       thresholds: {
-        lines: 55,
-        branches: 53,
-        functions: 49,
-        statements: 54,
+        // 2026-11-21 第二次 ratchet（482 用例实测 58.48/56.97/52.53/57.63，阈值保持 2-3 点缓冲）
+        lines: 56,
+        branches: 54,
+        functions: 50,
+        statements: 55,
       },
     },
   },

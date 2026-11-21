@@ -32,11 +32,12 @@ const summary = JSON.parse(readFileSync(summaryPath, 'utf8'));
  *（较 2026-11-19 的 66.73 / 66.42 / 54.21 / 64.57 大幅提升：离线待同步队列与行程聚焦逻辑
  *  都以纯逻辑 + 单测的形式落在 src/lib、src/store 里）。
  */
+// 2026-11-21 第二次 ratchet：核心目录实测 80.53/77.45/69.78/79.29，阈值保持 2 点缓冲
 const THRESHOLDS = {
-  lines: 76,
-  branches: 74,
-  functions: 66,
-  statements: 75,
+  lines: 78,
+  branches: 75,
+  functions: 68,
+  statements: 77,
 };
 
 const totals = {

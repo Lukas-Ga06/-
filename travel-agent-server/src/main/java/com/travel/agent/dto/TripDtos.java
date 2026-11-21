@@ -131,6 +131,12 @@ public class TripDtos {
         /** 距出发天数（仅 UPCOMING 有值） */
         private Long daysUntilStart;
         private String createdAt;
+        /**
+         * 乐观锁版本（阶段 D 冲突提示）：同一行程被别的标签页/设备改过后版本递增，
+         * 前端回到页面时对比它来发现「此行程已在其他位置更新」。
+         * 存量数据为 0；不参与任何客户端写请求，只读。
+         */
+        private Long version;
 
         public static TripResponse from(Trip trip) {
             LocalDate today = LocalDate.now();
@@ -148,6 +154,7 @@ public class TripDtos {
                     .daysUntilStart("UPCOMING".equals(phase) && trip.getStartDate() != null
                             ? ChronoUnit.DAYS.between(today, trip.getStartDate()) : null)
                     .createdAt(trip.getCreatedAt() == null ? null : trip.getCreatedAt().toLocalDate().toString())
+                    .version(trip.getVersion())
                     .build();
         }
     }

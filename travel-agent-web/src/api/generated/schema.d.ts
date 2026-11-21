@@ -1658,6 +1658,8 @@ export interface components {
             phase?: string;
             startDate?: string;
             status?: string;
+            /** Format: int64 */
+            version?: number;
         };
         TripReview: {
             actualCost?: number;

@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import AppShell from '../../components/AppShell';
 import { getRunDetail, getRuns } from '../../api/agent';
 import type { RunDetail, RunSummary, TaskView, ToolCallView } from '../../types/agent';
+import './workbench.css';
 
 /** 运行状态徽标文案（成功绿 / 部分完成橙 / 失败红 / 运行中蓝 / 取消灰） */
 function runStatusMeta(status: string): {

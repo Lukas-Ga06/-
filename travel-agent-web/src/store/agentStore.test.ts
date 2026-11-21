@@ -466,6 +466,32 @@ describe('agentStore · V2.2 运行追踪与执行同步', () => {
     expect(confirmPlanMock).toHaveBeenCalledWith('plan-1', hash, true);
   });
 
+  it('确认遇到 409 时给出「此行程已在其他位置更新」，并且不丢弃待确认方案（阶段 D）', async () => {
+    confirmPlanMock.mockRejectedValue(
+      Object.assign(new Error('数据已被其他操作修改，请刷新后重试'), { status: 409 }),
+    );
+    useAgentStore.getState().send({ message: '安排' });
+    handlersRef.current?.onComplete?.(
+      completedResult({
+        status: 'NEED_CONFIRMATION',
+        planId: 'plan-3',
+        confirmation: { planId: 'plan-3', summary: '新增 2 项', riskLevel: 'LOW' },
+      }),
+    );
+
+    const result = await useAgentStore.getState().confirm();
+
+    expect(result).toBeNull();
+    // 冲突不是「服务端故障」：方案还在，用户刷新行程后可以重新确认
+    expect(useAgentStore.getState().pendingConfirm?.planId).toBe('plan-3');
+    expect(useAgentStore.getState().streaming).toBe(false);
+    const messages = useAgentStore.getState().messages;
+    const last = messages[messages.length - 1];
+    expect(last?.role).toBe('assistant');
+    expect(last?.content).toContain('此行程已在其他位置更新');
+    expect(last?.content).toContain('本次提交未生效');
+  });
+
   it('setLastExecution 覆盖执行结果（重试成功后由面板回写）', () => {
     const next = {
       executionId: 'exec-9',

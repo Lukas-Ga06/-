@@ -286,6 +286,23 @@ describe('flush · 全部成功', () => {
 });
 
 describe('flush · 失败处理与错误分类', () => {
+  it('409 冲突直接出队（前提已失效，重试无意义），并说明原因', async () => {
+    seedStore([change({ itemId: 1, requestId: 'a' }), change({ itemId: 2, requestId: 'b' })]);
+    const send = vi
+      .fn()
+      .mockRejectedValueOnce(serverError(409, '数据已被其他操作修改，请刷新后重试'))
+      .mockResolvedValueOnce(undefined);
+
+    const results = await useStatusQueueStore.getState().flush(send);
+
+    expect(results[0]).toMatchObject({ requestId: 'a', ok: false });
+    expect(results[0].error).toContain('此行程已在其他位置更新');
+    expect(results[1]).toMatchObject({ requestId: 'b', ok: true });
+    // 冲突条目不会被留下无限重试；后续条目照常同步
+    expect(useStatusQueueStore.getState().entries).toEqual([]);
+    expect(stored()).toEqual([]);
+  });
+
   it('业务拒绝（HTTP 状态码合法）保留该条并记 lastError，继续处理后一条', async () => {
     seedStore([change({ itemId: 1, requestId: 'a' }), change({ itemId: 2, requestId: 'b' })]);
     const send = vi
@@ -320,7 +337,8 @@ describe('flush · 失败处理与错误分类', () => {
     seedStore([change({ itemId: 1, requestId: 'a' }), change({ itemId: 2, requestId: 'b' })]);
     const send = vi
       .fn()
-      .mockRejectedValueOnce(Object.assign(new Error('冲突'), { response: { status: 409 } }))
+      // 用 422 而不是 409：409 现在是「冲突→出队」的专门分支（见上一条用例）
+      .mockRejectedValueOnce(Object.assign(new Error('无法处理'), { response: { status: 422 } }))
       .mockResolvedValueOnce(undefined);
 
     const results = await useStatusQueueStore.getState().flush(send);

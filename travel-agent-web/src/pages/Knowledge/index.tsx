@@ -17,6 +17,7 @@ import type {
   KnowledgeVersionDetail,
   KnowledgeVersionSummary,
 } from '../../types/knowledge';
+import './knowledge.css';
 
 function formatDateTime(value?: string | null): string {
   if (!value) return '—';

@@ -1,0 +1,273 @@
+/* ============================================================
+   旅行回顾
+   ------------------------------------------------------------
+   回顾列表与详情：完成率、花费对照、到访地点、路线与事件流
+   由 src/styles/global.css 拆出：随本页路由 chunk 加载，
+   其它页面不再下载这些规则。规则内容与拆分前逐字一致，
+   只调整了归属文件，因此视觉上应无差异（见 e2e/visual）。
+   ============================================================ */
+/* ---------- P1 旅行回顾 ---------- */
+.review-page .dg-left {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.review-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.review-progress {
+  min-width: 0;
+}
+
+.review-counts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.review-counts .ant-tag {
+  margin-inline-end: 0;
+}
+
+.review-counts-total {
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+.review-note,
+.review-counts-total {
+  overflow-wrap: anywhere;
+}
+
+.review-note {
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+.review-cost-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.review-cost-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+}
+
+.rc-label {
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+.review-cost-item b {
+  font-size: 18px;
+  font-weight: 750;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.review-cost-item b.cost-over {
+  color: var(--danger);
+}
+.review-cost-item b.cost-under {
+  color: var(--success);
+}
+
+.review-place-list,
+.review-route,
+.review-event-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.review-place,
+.review-route-stop,
+.review-event {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  min-width: 0;
+}
+
+.review-place.visited {
+  border-color: var(--success);
+}
+
+.rp-title {
+  flex: 1;
+  min-width: 140px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.rp-status {
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.rp-status.visited {
+  color: var(--success);
+  font-weight: 600;
+}
+.rp-meta {
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+.rr-index {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent-weak);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.rr-title {
+  flex: 1;
+  min-width: 140px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.rr-time,
+.rr-coord {
+  font-size: 11px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.re-summary {
+  flex: 1;
+  min-width: 160px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.re-meta {
+  font-size: 11px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.review-photo-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 4px;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+
+.review-ai-summary {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.9;
+  color: var(--ink-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.review-state {
+  display: grid;
+  place-items: center;
+  gap: 12px;
+  min-height: 200px;
+}
+
+.review-trip-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.review-trip-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+}
+
+.review-trip-main {
+  flex: 1;
+  min-width: 200px;
+}
+
+.review-trip-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.review-trip-title b {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.review-trip-meta {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--ink-3);
+  overflow-wrap: anywhere;
+}
+
+.review-trip-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+@media (max-width: 960px) {
+  .review-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .review-cost-grid {
+    grid-template-columns: 1fr;
+  }
+  .review-trip-actions {
+    width: 100%;
+  }
+}
+
+/* antd 默认绿 Tag 的对比度修正（原 global.css 末尾无障碍块）
+   #389e0d on #f6ffed = 3.37 → #237804 = 5.44 */
+.review-counts .ant-tag {
+  color: #237804;
+}

@@ -345,6 +345,31 @@ describe('Trip · 离线变更进待同步队列（§7.3 第 4 条）', () => {
     expect(screen.getByTestId('undo-bar').textContent).toContain('待同步');
   });
 
+  it('409 冲突时提示「此行程已在其他位置更新」，并重拉行程/时间轴（阶段 D）', async () => {
+    stubViewport(false);
+    const conflict = Object.assign(new Error('数据已被其他操作修改，请刷新后重试'), {
+      status: 409,
+    });
+    api.updateItemStatus.mockRejectedValue(conflict);
+    renderPage();
+
+    await waitFor(() => expect(useTripStore.getState().items).toHaveLength(2));
+    // 首屏已经拉过一次 getTrip/getItinerary，这里记住基线次数
+    const tripsBefore = api.getTrip.mock.calls.length;
+    const itinerariesBefore = api.getItinerary.mock.calls.length;
+    fireEvent.click(screen.getByTestId('complete-item-1'));
+
+    await waitFor(() => expect(document.body.textContent).toContain('此行程已在其他位置更新'));
+    // 冲突不是「网络失败」：不进待同步队列，也不留撤销窗口
+    expect(useStatusQueueStore.getState().entries).toHaveLength(0);
+    expect(screen.queryByTestId('undo-bar')).toBeNull();
+    // 刷新：行程与时间轴都要重新对齐服务端
+    await waitFor(() => expect(api.getTrip.mock.calls.length).toBeGreaterThan(tripsBefore));
+    await waitFor(() =>
+      expect(api.getItinerary.mock.calls.length).toBeGreaterThan(itinerariesBefore),
+    );
+  });
+
   it('服务端明确拒绝（带状态码）时不入队，直接把理由告诉用户', async () => {
     stubViewport(false);
     const rejection = Object.assign(new Error('行程条目不存在'), { status: 404 });

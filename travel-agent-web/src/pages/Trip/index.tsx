@@ -24,6 +24,7 @@ import { getBudgetExecution, updateItemStatus } from '../../api/trip';
 import type { BudgetExecution } from '../../types/expense';
 import { daysOf, totalCost, tripPhaseLabel, type ItineraryStatus } from '../../types/trip';
 import { overlayStatuses, pendingFor, pendingIds } from '../../lib/statusQueue';
+import { conflictNotice, isTripConflict } from '../../lib/tripConflict';
 import { nextFocusAfter, scrollToItem } from '../../lib/tripFocus';
 import MapView from '../../components/MapView';
 import Timeline from '../../components/Timeline';
@@ -84,6 +85,7 @@ export default function TripPage() {
   const loadTrip = useTripStore((s) => s.loadTrip);
   const loadItinerary = useTripStore((s) => s.loadItinerary);
   const loadRouteLegs = useTripStore((s) => s.loadRouteLegs);
+  const syncTrip = useTripStore((s) => s.syncTrip);
   const clearCurrent = useTripStore((s) => s.clearCurrent);
 
   // 离线待同步队列（§7.3 第 4 条）：队列条目叠在服务端数据上，
@@ -139,6 +141,36 @@ export default function TripPage() {
     }
   }, [tripId]);
 
+  /**
+   * 回到页面时对版本（阶段 D）：别的标签页/设备改过同一行程就提示并刷新。
+   * 只在 tab 重新可见时发一次请求，不轮询；3s 内的重复可见事件合并，
+   * 避免用户快速切换窗口时连发请求。网络失败静默忽略——这是增强，不是主流程。
+   */
+  const lastVersionCheck = useRef(0);
+  useEffect(() => {
+    if (!tripId || typeof document === 'undefined') return;
+    const checkVersion = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (!useTripStore.getState().currentTrip) return;
+      const now = Date.now();
+      if (now - lastVersionCheck.current < 3000) return;
+      lastVersionCheck.current = now;
+      void (async () => {
+        try {
+          const changed = await syncTrip(tripId);
+          if (!changed) return;
+          message.warning(conflictNotice());
+          await loadItinerary(tripId).catch(() => undefined);
+          loadRouteLegs(tripId);
+        } catch {
+          // 弱网下版本探测失败很常见：不打扰用户，下次可见时再试
+        }
+      })();
+    };
+    document.addEventListener('visibilitychange', checkVersion);
+    return () => document.removeEventListener('visibilitychange', checkVersion);
+  }, [tripId, syncTrip, loadItinerary, loadRouteLegs, message]);
+
   // Agent Focus：同步选中的 Day
   useEffect(() => {
     if (lastFocus?.day) setSelectedDay(lastFocus.day);
@@ -177,6 +209,16 @@ export default function TripPage() {
     if (!tripId) return;
     await loadItinerary(tripId);
     await loadRouteLegs(tripId);
+  };
+
+  /**
+   * 冲突（409）后的统一收尾（阶段 D）：提示「此行程已在其他位置更新」，
+   * 然后把行程、时间轴、转场段全部换成服务端最新值 —— 本地这份前提已经失效，
+   * 不刷新就继续操作只会重复失败。刷新失败不吞提示：用户至少知道该手动重载。
+   */
+  const onTripConflict = async () => {
+    message.warning(conflictNotice());
+    await Promise.allSettled([syncTrip(tripId), loadItinerary(tripId), loadRouteLegs(tripId)]);
   };
 
   /**
@@ -253,6 +295,9 @@ export default function TripPage() {
       if (isNetworkFailure(e)) {
         enqueueStatus({ tripId, itemId, status: next, previousStatus: previous, title });
         announceChange(itemId, next, previous, title, true);
+      } else if (isTripConflict(e)) {
+        // 409：这条行程在别处被改过，本地状态已过期 → 提示并整页对齐服务端
+        await onTripConflict();
       } else {
         message.error(e?.message || '更新行程项状态失败');
       }
@@ -295,7 +340,11 @@ export default function TripPage() {
       await refreshItinerary();
       message.success('已撤销');
     } catch (e: any) {
-      message.error(e?.message || '撤销失败');
+      if (isTripConflict(e)) {
+        await onTripConflict();
+      } else {
+        message.error(e?.message || '撤销失败');
+      }
     }
   };
 

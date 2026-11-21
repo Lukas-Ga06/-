@@ -10,6 +10,7 @@ import {
   type PendingStatusChange,
 } from '../lib/statusQueue';
 import type { ItineraryStatus } from '../types/trip';
+import { TRIP_CONFLICT_MESSAGE } from '../lib/tripConflict';
 
 /**
  * 离线待同步队列的 store（设计文档 §7.3 第 4 条 / §10.3）。
@@ -184,6 +185,20 @@ export const useStatusQueueStore = create<StatusQueueState>()((set, get) => ({
           results.push({ ...base, ok: true });
           set({ entries: removeEntry(get().entries, entry.requestId) });
         } catch (error) {
+          // 发送器可能抛字符串/undefined（注入的替身或非 axios 实现），先确认是可读对象
+          const status =
+            error && typeof error === 'object' ? readHttpStatus(error as ErrorLike) : undefined;
+          // 409 = 该行程已在其他位置更新（阶段 D）：这条变更的前提失效，
+          // 保留在队列里只会无限重试，直接出队并把冲突告诉用户。
+          if (status === 409) {
+            results.push({
+              ...base,
+              ok: false,
+              error: `${TRIP_CONFLICT_MESSAGE}，已放弃这条待同步变更`,
+            });
+            set({ entries: removeEntry(get().entries, entry.requestId) });
+            continue;
+          }
           const message = errorMessage(error);
           results.push({ ...base, ok: false, error: message });
           // 失败条目保留在队列里并记下原因，下次 flush 会重试
