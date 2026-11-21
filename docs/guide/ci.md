@@ -12,7 +12,7 @@
 | `contract` | push/PR | OpenAPI 快照无漂移；PR 上 oasdiff 破坏性变更 | 见第 4 节 |
 | `docs` | push/PR | 相对链接存在、文档命令真实可用、lychee 本地链接 | `node scripts/docs-check.mjs` |
 | `security` | push/PR | 依赖漏洞（dependency-review / npm audit / Trivy） | 见第 5 节 |
-| `e2e` | push/PR | Playwright 8 条：登录/建行程/路书/PWA 资源 + 地图引擎运行时加载（`e2e/maplibre-vendor.spec.ts`） | `cd travel-agent-web && npx playwright test` |
+| `e2e` | push/PR | Playwright 13 条：登录/建行程/路书/PWA 资源、地图引擎运行时加载、**5 个页面的 axe 无障碍扫描（critical/serious 必须为 0）** | `cd travel-agent-web && npx playwright test` |
 | `CodeQL` | push/PR/每周 | Java + TypeScript SAST | 本地无法等价，靠 PR 结果（第 6 节） |
 
 ## 2. 本地一次跑完全部快速门禁

@@ -3,6 +3,7 @@ import { Button, Empty, Spin, Tag } from 'antd';
 import { ArrowRightOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import AppShell from '../../components/AppShell';
+import EmptyState from '../../components/EmptyState';
 import { listTrips } from '../../api/trip';
 import { daysOf, tripPhaseClass, tripPhaseLabel, type Trip } from '../../types/trip';
 
@@ -91,10 +92,13 @@ export default function Reviews() {
 
         {isEmpty && (
           <div className="dash-card review-state">
-            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有可回顾的行程" />
-            <Button type="primary" onClick={() => navigate('/travel')}>
-              去规划一次旅行
-            </Button>
+            <EmptyState
+              testId="reviews-empty"
+              icon="🧳"
+              title="还没有可回顾的行程"
+              hint="完成一次旅行后，这里会聚合完成率、计划与实际花费、真实到访和照片。"
+              action={{ label: '去规划一次旅行', onClick: () => navigate('/travel') }}
+            />
           </div>
         )}
 
@@ -155,7 +159,7 @@ export default function Reviews() {
                   className="review-trip-row"
                   key={trip.id}
                   data-testid={`review-trip-${trip.id}`}
-                  style={{ opacity: 0.72 }}
+                  style={{ background: 'var(--surface-2)' }}
                 >
                   <div className="review-trip-main">
                     <div className="review-trip-title">

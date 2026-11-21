@@ -6676,3 +6676,45 @@ body {
     width: 100%;
   }
 }
+
+/* ============================================================
+   无障碍对比度（WCAG 2.1 AA）修正 —— 2026-11-21 axe 扫描
+   ------------------------------------------------------------
+   只调「文字色」，不改背景与色相：同一色系取更深一档，保证
+   正常字号文本 ≥ 4.5:1。每一条都对应 e2e/a11y.spec.ts 的一个失败节点，
+   修完应保持该 spec 的 critical/serious 为 0。
+   ============================================================ */
+.login-tip {
+  /* #1f6feb on #ebf4ff = 4.17 → #1a5fd0 = 5.27 */
+  color: var(--accent-hover);
+}
+
+/* 侧栏选中项：accent on accent-weak 4.08 → accent-hover 5.15（两处定义都覆盖，按后者生效） */
+.sb-link.active {
+  color: var(--accent-hover);
+}
+
+.list-tools .filter-chip.active {
+  color: var(--accent-hover);
+}
+
+/* 「进行中」徽标：accent-green on 淡绿底 3.89 → 深一档 5.83 */
+.mini-tag.ongoing {
+  color: #0f6b2f;
+}
+
+/* antd 默认绿 Tag（如「第 1 天」）：#389e0d on #f6ffed = 3.37 → #237804 = 5.44 */
+.ant-tag.ant-tag-green,
+.review-counts .ant-tag {
+  color: #237804;
+}
+
+/* 选中的 Tab：accent on --bg 4.32 → accent-hover 5.45 */
+.ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: var(--accent-hover);
+}
+
+/* 登录页条款说明（antd Typography.Text type="secondary"）：#8b93a1 on white 3.09 → 4.83 */
+.ant-typography.ant-typography-secondary {
+  color: var(--text-3);
+}

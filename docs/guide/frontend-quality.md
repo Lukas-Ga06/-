@@ -47,19 +47,19 @@ npx vitest run src/store/agentStore   # 或 `npx vitest` 交互式 watch
 ## 2. 覆盖率基线与 ratchet
 
 - 工具：`@vitest/coverage-v8`，reporter `text` + `json-summary` + `html`，产物在 `travel-agent-web/coverage/`；范围 `src/**/*.{ts,tsx}`，排除 `**/*.test.*`、`src/test/**`、`src/main.tsx`、`src/api/generated/**`、`**/*.d.ts`、`src/types/**`（纯类型）（见 `vitest.config.ts`）。
-- 基线（2026-11-20 深夜复核，465 个测试全绿后统计）：见下表；阈值 = 基线向下取整 2-3 个点，写在 `vitest.config.ts` 的 `coverage.thresholds` 与 `scripts/check-core-coverage.mjs` 的 `THRESHOLDS`。
+- 基线（2026-11-21 复核，468 个测试全绿后统计）：见下表；阈值 = 基线向下取整 2-3 个点，写在 `vitest.config.ts` 的 `coverage.thresholds` 与 `scripts/check-core-coverage.mjs` 的 `THRESHOLDS`。
   - 2026-11-19 首版基线为 224 个测试下的 lines 39.55 / branches 39.81 / functions 34.11 / statements 38.31（核心目录 66.73 / 66.42 / 54.21 / 64.57）。
   - 本轮提升主要来自新落的纯逻辑 + 单测：离线待同步队列（`lib/statusQueue.ts`、`store/statusQueueStore.ts`，各 98%+）、
     行程聚焦（`lib/tripFocus.ts`）、规划器草稿（`pages/Planner/planDraft.ts`）。**这是 ratchet 上调，不是下调**。
 - **只允许上调**（ratchet）：新增/修改代码必须带测试；下调阈值必须在 PR 说明里给出具体文件与原因，并同步本表。
 - 不追求全仓统一高数字：大量页面组件由 Playwright e2e 覆盖（`e2e/smoke.spec.ts`），单测占比天然偏低，全局阈值防的是「存量单测悄悄退步」；`src/store`、`src/api`、`src/lib` 的业务状态与请求封装单独用 `node scripts/check-core-coverage.mjs` 卡更高阈值。
 
-| 范围 | 指标 | 基线（2026-11-20，465 tests） | 阈值 | 校验处 |
+| 范围 | 指标 | 基线（2026-11-21，468 tests） | 阈值 | 校验处 |
 | --- | --- | --- | --- | --- |
-| 全局 src/** | lines | 57.51% | ≥ 55% | `vitest.config.ts` thresholds |
+| 全局 src/** | lines | 57.52% | ≥ 55% | `vitest.config.ts` thresholds |
 | 全局 src/** | branches | 56.87% | ≥ 53% | 同上 |
-| 全局 src/** | functions | 52.33% | ≥ 49% | 同上 |
-| 全局 src/** | statements | 58.28% | ≥ 54% | 同上 |
+| 全局 src/** | functions | 52.37% | ≥ 49% | 同上 |
+| 全局 src/** | statements | 58.29% | ≥ 54% | 同上 |
 | store/api/lib | lines | 79.67% | ≥ 76% | `scripts/check-core-coverage.mjs` |
 | store/api/lib | branches | 77.04% | ≥ 74% | 同上 |
 | store/api/lib | functions | 69.32% | ≥ 66% | 同上 |

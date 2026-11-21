@@ -26,6 +26,7 @@ import VoiceButton from '../../components/VoiceButton';
 import Skeleton from '../../components/Skeleton';
 import PaginationBar from '../../components/PaginationBar';
 import AppShell from '../../components/AppShell';
+import EmptyState from '../../components/EmptyState';
 import Schedule from '../Schedule';
 import Footprint from '../Footprint';
 
@@ -219,7 +220,9 @@ export default function Travel() {
                         onChange={(e) => setText(e.target.value)}
                         placeholder="例如：帮我安排一个三天的城市旅行，预算3000元，酒店离地铁近一点"
                         onPressEnter={() => start()}
-                        suffix={<span style={{ color: '#8e8e93', fontSize: 12 }}>Enter 发送</span>}
+                        suffix={
+                          <span style={{ color: 'var(--text-3)', fontSize: 12 }}>Enter 发送</span>
+                        }
                       />
                       <VoiceButton onText={(t) => setText(t)} />
                       <Button
@@ -318,9 +321,11 @@ export default function Travel() {
 
                   {tripsResource.status === 'empty' ? (
                     <div className="empty-trips">
-                      <Empty
-                        image={Empty.PRESENTED_IMAGE_SIMPLE}
-                        description="还没有行程，输入一个旅行想法让 AI 帮你规划吧"
+                      <EmptyState
+                        testId="trips-empty"
+                        icon="🗺️"
+                        title="还没有行程，输入一个旅行想法让 AI 帮你规划吧"
+                        hint="点右上角「新建行程」，或用一句话描述你想去哪、几天、几个人。"
                       />
                     </div>
                   ) : null}

@@ -3,6 +3,7 @@ import { App, Button, Empty, Input, InputNumber, Modal, Popconfirm, Spin, Tag } 
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import AppShell from '../../components/AppShell';
+import EmptyState from '../../components/EmptyState';
 import {
   addKnowledge,
   getKnowledgeVersion,
@@ -223,9 +224,10 @@ export default function Knowledge() {
               </div>
             )}
             {!searchBusy && !searchError && hits && hits.length === 0 && (
-              <Empty
-                image={Empty.PRESENTED_IMAGE_SIMPLE}
-                description="没有命中知识，换个关键词试试"
+              <EmptyState
+                testId="knowledge-search-empty"
+                title="没有命中知识"
+                hint="换个更短的关键词，或先在上方把攻略正文入库。"
               />
             )}
             {!searchBusy && !searchError && hits === null && (

@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { App, Button, DatePicker, Empty, Input, Select, Spin, TimePicker } from 'antd';
+import { App, Button, DatePicker, Input, Select, Spin, TimePicker } from 'antd';
 import { CheckOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import AppShell from '../../components/AppShell';
+import EmptyState from '../../components/EmptyState';
 import {
   addSchedule,
   deleteSchedule,
@@ -248,16 +249,14 @@ export default function Schedule() {
             </div>
             <div className="inset-list fade-up">
               {upcoming.length === 0 && todayItems.length === 0 ? (
-                <div style={{ padding: 10 }}>
-                  <Empty
-                    image={Empty.PRESENTED_IMAGE_SIMPLE}
-                    description="日程是空的，添加第一项吧"
-                  />
-                </div>
+                <EmptyState
+                  testId="schedule-empty"
+                  icon="📅"
+                  title="日程是空的，添加第一项吧"
+                  hint="用上方输入框添加，或对助理说「明天下午3点开评审会」，到点会提醒你。"
+                />
               ) : upcoming.length === 0 ? (
-                <div style={{ padding: 10 }}>
-                  <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="其余日期暂无日程" />
-                </div>
+                <EmptyState title="其余日期暂无日程" hint="今天以后暂时没有安排。" />
               ) : (
                 upcoming.map((s) => renderRow(s, effectiveDate(s) === today))
               )}

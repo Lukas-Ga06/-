@@ -34,5 +34,6 @@
 | [2026-11-19-project-improvement-audit.md](2026-11-19-project-improvement-audit.md) | 2026-11-19 | 当前工作区源码、CI 配置、本地构建结果 | 优先发布可信 / 性能 / 契约 / 可观测，而非继续横向加功能 |
 | [2026-11-20-e2e-and-gates.md](2026-11-20-e2e-and-gates.md) | 2026-11-20 | 后端 verify 门禁、前端四道门禁、Playwright e2e、回顾口径 | 本地全绿（540 tests，e2e 8/8）；远端 CI、真机与真实模型仍待验 |
 | [2026-11-20-stage-c-assistant.md](2026-11-20-stage-c-assistant.md) | 2026-11-20 | 结构化结果卡、会话隔离、停止生成、可点击建议、过程折叠 | 四项落地（465 用例 + e2e 8/8）；最近会话列表与阶段 E 待做 |
+| [2026-11-21-stage-e-empty-state-a11y.md](2026-11-21-stage-e-empty-state-a11y.md) | 2026-11-21 | 五处空状态统一、axe 无障碍扫描、对比度修正 | 空状态与无障碍达标（468 用例 + e2e 13/13）；CSS 拆分与视觉回归未做 |
 
 新增快照后请同步本表，并运行 `node scripts/docs-check.mjs` 校验链接。完整文档规则见 [文档生命周期](../guide/documentation.md)。

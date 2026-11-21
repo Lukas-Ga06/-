@@ -136,7 +136,7 @@ Planner 研究链路必须接入 RAG、POI、Weather、Route 和 Budget。RAG �
 - [x] RAG 接口迁入 `TravelKnowledgeController`，知识库页面保留并改为旅行知识管理。
 - [x] README、API 参考、数据模型、前端、部署等文档同步退役模块与新增契约。
 - [x] **后端全量回归**：`mvn test` **540** 个用例全部通过（2026-11-20 复核；含 1 条无 Docker 时按设计跳过的 MySQL 迁移测试）。
-- [x] **前端全量回归**：`npm run typecheck && npm test && npm run build` 通过（45 个测试文件 / 465 个用例；覆盖率阈值已按 ratchet 上调）。
+- [x] **前端全量回归**：`npm run typecheck && npm test && npm run build` 通过（46 个测试文件 / 468 个用例；覆盖率阈值已按 ratchet 上调）。
 - [x] **迁移实跑**：全新 H2 文件库从 V1 迁到 V19，`ddl-auto=validate` 启动通过。
 
 未完成 / 残留：

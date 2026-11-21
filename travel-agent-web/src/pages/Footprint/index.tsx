@@ -8,6 +8,7 @@ import {
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import AppShell from '../../components/AppShell';
+import EmptyState from '../../components/EmptyState';
 import FootprintMap from '../../components/FootprintMap';
 import {
   footprintStats,
@@ -134,13 +135,20 @@ export default function FootprintPage() {
               </div>
             ) : recentFirst.length === 0 ? (
               <div className="fp-aside-empty">
-                <Empty
-                  image={Empty.PRESENTED_IMAGE_SIMPLE}
-                  description={hasPlannedOnly ? '还没有实际打卡的足迹' : '还没有足迹'}
+                <EmptyState
+                  testId="footprint-empty"
+                  icon="🌍"
+                  title={hasPlannedOnly ? '还没有实际打卡的足迹' : '还没有足迹'}
+                  hint={
+                    hasPlannedOnly
+                      ? '在行程页把安排标为「完成」，这里才会亮起光点。'
+                      : '规划并走完一次旅行，足迹会按实际到访记录。'
+                  }
+                  action={{
+                    label: hasPlannedOnly ? '去行程里打卡' : '去规划第一次旅行',
+                    onClick: () => navigate('/travel'),
+                  }}
                 />
-                <Button type="primary" onClick={() => navigate('/travel')}>
-                  {hasPlannedOnly ? '去行程里打卡' : '去规划第一次旅行'}
-                </Button>
               </div>
             ) : (
               recentFirst.map((point, index) => (
@@ -197,17 +205,17 @@ export default function FootprintPage() {
               </div>
             ) : stats.located === 0 ? (
               <div className="fp-state">
-                <Empty
-                  image={Empty.PRESENTED_IMAGE_SIMPLE}
-                  description={
+                <EmptyState
+                  testId="footprint-map-empty"
+                  icon="📍"
+                  title={hasPlannedOnly ? '还没有实际打卡的足迹' : '行程目的地还没定位到坐标'}
+                  hint={
                     hasPlannedOnly
-                      ? '还没有实际打卡的足迹：完成行程项后这里才会亮起光点'
-                      : '行程目的地还没定位到坐标，创建新行程后这里会亮起光点'
+                      ? '完成行程项后这里才会亮起光点；计划中的地点不算“去过”。'
+                      : '创建带目的地的行程后，这里会按坐标亮起光点。'
                   }
+                  action={{ label: '去规划旅行', onClick: () => navigate('/travel') }}
                 />
-                <Button type="primary" onClick={() => navigate('/travel')}>
-                  去规划旅行
-                </Button>
               </div>
             ) : (
               <FootprintMap

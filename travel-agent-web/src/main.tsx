@@ -14,10 +14,12 @@ const PALETTE = {
     colorBgContainer: '#ffffff',
     colorText: '#111827',
     colorTextSecondary: '#5b6472',
-    colorTextTertiary: '#8b93a1',
+    // AA：原 #8b93a1 在白底只有 3.09:1（登录条款、次要说明会不达标）
+    colorTextTertiary: '#6b7280',
     colorBorder: '#e4e6eb',
     colorBorderSecondary: '#eef0f4',
-    colorPrimary: '#1f6feb',
+    // AA：白字落在主色上 4.63:1，压暗一档后 5.85:1（选中 Tab / 主按钮同源）
+    colorPrimary: '#1a5fd0',
   },
   dark: {
     colorBgLayout: '#0f1115',
@@ -48,7 +50,8 @@ function Root() {
         token: {
           ...PALETTE[mode],
           colorInfo: PALETTE[mode].colorPrimary,
-          colorSuccess: dark ? '#4ade80' : '#16a34a',
+          // AA：Tag/成功文本用 colorSuccess，原 #16a34a 在 #f6ffed 上只有 3.3:1
+          colorSuccess: dark ? '#4ade80' : '#15803d',
           colorWarning: dark ? '#fbbf24' : '#d97706',
           colorError: dark ? '#f87171' : '#dc2626',
           borderRadius: 8,
