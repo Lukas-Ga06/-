@@ -81,6 +81,42 @@ describe('agentStore', () => {
     expect(clearConversationSpy).toHaveBeenCalledWith(oldId);
   });
 
+  it('resumeConversation 装载历史消息并切到该会话（§8.6 继续对话）', () => {
+    useAgentStore.getState().send({ message: '开一段新对话' });
+    useAgentStore.getState().newConversation();
+    const before = useAgentStore.getState().conversationId;
+
+    useAgentStore.getState().resumeConversation('conv-history', [
+      { role: 'user', content: '帮我规划杭州周末', createdAt: '2026-11-20T10:00:00' },
+      { role: 'assistant', content: '好的，给你两版方案。', createdAt: '2026-11-20T10:00:05' },
+    ]);
+
+    const state = useAgentStore.getState();
+    expect(state.conversationId).toBe('conv-history');
+    expect(state.conversationId).not.toBe(before);
+    expect(state.messages.map((m) => m.role)).toEqual(['user', 'assistant']);
+    expect(state.messages[1].content).toBe('好的，给你两版方案。');
+    // 回填的是「已结束」的历史：不能残留生成中状态
+    expect(state.streaming).toBe(false);
+    expect(state.pendingConfirm).toBeNull();
+  });
+
+  it('resumeConversation 回填后，作用域缓存也指向同一段会话（切走再切回不丢）', () => {
+    useAgentStore.getState().setScope('assistant');
+    useAgentStore
+      .getState()
+      .resumeConversation('conv-cache', [
+        { role: 'user', content: '缓存里的问题', createdAt: null },
+      ]);
+
+    useAgentStore.getState().setScope('trip:9');
+    expect(useAgentStore.getState().messages).toHaveLength(0);
+
+    useAgentStore.getState().setScope('assistant');
+    expect(useAgentStore.getState().conversationId).toBe('conv-cache');
+    expect(useAgentStore.getState().messages[0].content).toBe('缓存里的问题');
+  });
+
   it('streaming 期间重复发送会被忽略', () => {
     const store = useAgentStore.getState();
     store.send({ message: '第一条' });

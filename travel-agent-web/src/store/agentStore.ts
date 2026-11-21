@@ -14,6 +14,7 @@ import type {
   ExecutionSummary,
   SelectedElement,
 } from '../types/agent';
+import type { ConversationMessageView } from '../api/agent';
 import { stageText, type ActivityEvent } from './stageText';
 import { TRIP_CONFLICT_MESSAGE, isTripConflict } from '../lib/tripConflict';
 
@@ -82,6 +83,11 @@ interface AgentState {
   reset: () => void;
   /** 显式开新会话：清消息 + 换 conversationId（同时清掉服务端该会话历史） */
   newConversation: () => void;
+  /**
+   * 继续一段历史会话（§8.6）：把服务端回填的消息装进当前作用域，并切换 conversationId。
+   * 与 newConversation 对称：都作废在途流、清掉待确认方案与过程状态。
+   */
+  resumeConversation: (conversationId: string, messages: ConversationMessageView[]) => void;
   clearCommitted: () => void;
   /** 覆盖执行同步结果（重试成功后由 ChatPanel 回写，收到新 execution 前面板一直显示） */
   setLastExecution: (execution: ExecutionSummary | null) => void;
@@ -498,6 +504,38 @@ export const useAgentStore = create<AgentState>()(
           // 服务端历史清理失败不影响本地开新会话（历史 7 天后也会被定期清理）
           Promise.resolve(clearConversation(previous)).catch(() => {});
         }
+      },
+
+      resumeConversation: (conversationId, messages) => {
+        const scope = get().scope;
+        // 在途流必须作废：旧会话的回调不能写进这段刚接上的历史里
+        streamSeq += 1;
+        closeFn?.();
+        closeFn = null;
+        const restored: ChatMessage[] = messages
+          .filter((message) => message.content?.trim() !== '')
+          .map((message) => ({
+            id: nextId(),
+            role: message.role === 'user' ? 'user' : 'assistant',
+            content: message.content,
+            // 服务端给的是 ISO 本地时间；缺省时用当前时间兜底（只用于展示）
+            time: message.createdAt ?? new Date().toISOString(),
+          }));
+        scopeCache.set(scope, { messages: restored, conversationId, pendingConfirm: null });
+        set((state) => ({
+          messages: restored,
+          conversationId,
+          conversations: { ...state.conversations, [scope]: conversationId },
+          streaming: false,
+          stage: null,
+          pendingConfirm: null,
+          lastFocus: null,
+          committedTripId: null,
+          currentRun: null,
+          activity: [],
+          warnings: [],
+          lastExecution: null,
+        }));
       },
 
       clearCommitted: () => set({ committedTripId: null }),

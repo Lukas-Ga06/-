@@ -329,6 +329,48 @@
         },
         "type" : "object"
       },
+      "ApiResponseListConversationMessageView" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "items" : {
+              "$ref" : "#/components/schemas/ConversationMessageView"
+            },
+            "type" : "array"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "pagination" : {
+            "$ref" : "#/components/schemas/Pagination"
+          }
+        },
+        "type" : "object"
+      },
+      "ApiResponseListConversationSummary" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "items" : {
+              "$ref" : "#/components/schemas/ConversationSummary"
+            },
+            "type" : "array"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "pagination" : {
+            "$ref" : "#/components/schemas/Pagination"
+          }
+        },
+        "type" : "object"
+      },
       "ApiResponseListExpenseDTO" : {
         "properties" : {
           "code" : {
@@ -1055,6 +1097,38 @@
             "type" : "string"
           },
           "summary" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "ConversationMessageView" : {
+        "properties" : {
+          "content" : {
+            "type" : "string"
+          },
+          "createdAt" : {
+            "type" : "string"
+          },
+          "role" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "ConversationSummary" : {
+        "properties" : {
+          "conversationId" : {
+            "type" : "string"
+          },
+          "lastMessageAt" : {
+            "type" : "string"
+          },
+          "messageCount" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "title" : {
             "type" : "string"
           }
         },
@@ -2641,6 +2715,69 @@
               "*/*" : {
                 "schema" : {
                   "$ref" : "#/components/schemas/ApiResponseVoid"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "agent-controller" ]
+      }
+    },
+    "/api/agent/conversations" : {
+      "get" : {
+        "operationId" : "conversations",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "limit",
+          "required" : false,
+          "schema" : {
+            "default" : 20,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseListConversationSummary"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "agent-controller" ]
+      }
+    },
+    "/api/agent/conversations/{conversationId}/messages" : {
+      "get" : {
+        "operationId" : "conversationMessages",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "conversationId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "limit",
+          "required" : false,
+          "schema" : {
+            "default" : 50,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseListConversationMessageView"
                 }
               }
             },

@@ -1,5 +1,6 @@
 package com.travel.agent.service;
 
+import com.travel.agent.dto.ChatDtos;
 import com.travel.agent.entity.ConversationMessage;
 import com.travel.agent.repository.ConversationMessageRepository;
 import lombok.extern.slf4j.Slf4j;
@@ -15,7 +16,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -54,6 +57,10 @@ public class ConversationService {
     public static final int DEFAULT_RETENTION_DAYS = 7;
     /** 清理节流：最多每小时做一次全表过期清理 */
     private static final long PURGE_INTERVAL_MS = 60 * 60 * 1000;
+    /** 会话标题的最大字数；超出截断加省略号（列表是单行展示，标题不能撑破布局） */
+    private static final int TITLE_MAX_LENGTH = 40;
+    /** 没有任何用户消息时的兜底标题 */
+    private static final String DEFAULT_TITLE = "新会话";
 
     private final ConversationMessageRepository repository;
     /** 喂给模型的最近消息条数（travel.conversation.history-limit，非法值已回落默认） */
@@ -105,6 +112,76 @@ public class ConversationService {
                 new ArrayList<>(repository.findAll(Example.of(probe), latestPage).getContent());
         Collections.reverse(latest);
         return latest;
+    }
+
+    /**
+     * 最近会话列表（§8.6）：只列**当前用户**的会话，按最后活动时间倒序。
+     *
+     * <p>标题取「该会话首条用户消息」的前 {@value #TITLE_MAX_LENGTH} 字 —— 用户开口的第一句
+     * 最能说明这段对话是关于什么的；没有用户消息（理论上只可能是异常数据）时回落为「新会话」。
+     * 只返回「继续对话」需要的字段，不返回正文，避免列表接口变成历史导出。
+     *
+     * <p>边界：会话记忆只保留 {@code retention-days} 天，所以列表天然只覆盖保留期内的对话；
+     * 过期会话不会出现在这里，也不需要前端做过期判断。
+     */
+    @Transactional(readOnly = true)
+    public List<ChatDtos.ConversationSummary> summaries(Long userId, int limit) {
+        if (userId == null || limit <= 0) {
+            return List.of();
+        }
+        List<ConversationMessageRepository.ConversationSummaryView> rows =
+                repository.summarize(userId, PageRequest.of(0, limit));
+        if (rows.isEmpty()) {
+            return List.of();
+        }
+        List<String> ids = rows.stream().map(ConversationMessageRepository.ConversationSummaryView::getConversationId).toList();
+        // 标题：一次 IN 查询取回首条用户消息，按会话去重（不在循环里逐条查，避免 N+1）
+        Map<String, String> titles = new LinkedHashMap<>();
+        for (ConversationMessage message : repository.findFirstOfRole(userId, ConversationMessage.ROLE_USER, ids)) {
+            titles.putIfAbsent(message.getConversationId(), titleOf(message.getContent()));
+        }
+        List<ChatDtos.ConversationSummary> result = new ArrayList<>(rows.size());
+        for (ConversationMessageRepository.ConversationSummaryView row : rows) {
+            result.add(ChatDtos.ConversationSummary.builder()
+                    .conversationId(row.getConversationId())
+                    .title(titles.getOrDefault(row.getConversationId(), DEFAULT_TITLE))
+                    .lastMessageAt(row.getLastMessageAt() == null ? null : row.getLastMessageAt().toString())
+                    .messageCount(row.getMessageCount() == null ? 0L : row.getMessageCount())
+                    .build());
+        }
+        return result;
+    }
+
+    /**
+     * 某个会话最近 {@code limit} 条消息，按时间正序返回（旧 → 新），用于「继续对话」回填。
+     * 不属于当前用户的 conversationId 返回空列表（不抛 404，避免用它探测他人会话是否存在）。
+     */
+    @Transactional(readOnly = true)
+    public List<ChatDtos.ConversationMessageView> messages(Long userId, String conversationId, int limit) {
+        if (userId == null || conversationId == null || conversationId.isBlank() || limit <= 0) {
+            return List.of();
+        }
+        List<ConversationMessage> latest = new ArrayList<>(
+                repository.findByUserIdAndConversationIdOrderByCreatedAtDescIdDesc(
+                        userId, conversationId, PageRequest.of(0, limit)));
+        Collections.reverse(latest);
+        return latest.stream()
+                .map(message -> ChatDtos.ConversationMessageView.builder()
+                        .role(message.getRole())
+                        .content(message.getContent())
+                        .createdAt(message.getCreatedAt() == null ? null : message.getCreatedAt().toString())
+                        .build())
+                .toList();
+    }
+
+    private static String titleOf(String content) {
+        if (content == null || content.isBlank()) {
+            return DEFAULT_TITLE;
+        }
+        String oneLine = content.replaceAll("\\s+", " ").trim();
+        return oneLine.length() <= TITLE_MAX_LENGTH
+                ? oneLine
+                : oneLine.substring(0, TITLE_MAX_LENGTH) + "…";
     }
 
     /** 追加一条消息；conversationId 为空（单轮模式）时不落库 */

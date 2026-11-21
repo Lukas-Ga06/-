@@ -17,7 +17,7 @@
  * 最小豁免（例如只 Omit 单个字段），不要用 `any` 掩盖。
  */
 import type { components, paths } from '../api/generated/schema';
-import type { AgentStreamParams } from '../api/agent';
+import type { AgentStreamParams, ConversationMessageView, ConversationSummary } from '../api/agent';
 import type { AddItemPayload, ItineraryItem, ItineraryPrice, Trip } from './trip';
 
 /** 按 schema 名取生成类型，例如 `ApiSchema<'TripResponse'>`。 */
@@ -72,6 +72,20 @@ export type ItineraryStatusIsNarrowedFromApi = Assert<
 
 /** 参考价结构（ADR-006：kind=reference / source=local-estimate）逐字段一致。 */
 export type ItineraryPriceMatchesSchema = Assert<SameShape<ItineraryPrice, ApiSchema<'PriceDTO'>>>;
+
+// ==================== 最近会话（§8.6） ====================
+
+/**
+ * 会话列表与回填：只读接口，字段与 schema 逐字段一致。
+ * 这里断言的价值在于「后端加/改字段时前端不会静默漂移」——例如标题若改成对象结构，
+ * 列表会渲染成 [object Object]，而这种错误在类型层就能拦住。
+ */
+export type ConversationSummaryMatchesSchema = Assert<
+  SameShape<ConversationSummary, ApiSchema<'ConversationSummary'>>
+>;
+export type ConversationMessageViewMatchesSchema = Assert<
+  SameShape<ConversationMessageView, ApiSchema<'ConversationMessageView'>>
+>;
 
 // ==================== Chat 请求 ====================
 

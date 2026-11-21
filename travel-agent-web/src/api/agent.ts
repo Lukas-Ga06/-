@@ -302,6 +302,43 @@ export function getPendingPlan(planId: string): Promise<AgentResult> {
   return request<AgentResult>({ url: `/agent/plans/${encodeURIComponent(planId)}` });
 }
 
+/** 最近会话摘要（§8.6）：只读，用于「继续对话」；标题由后端取首条用户消息 */
+export interface ConversationSummary {
+  conversationId: string;
+  title: string;
+  /** ISO 本地时间；旧后端可能缺省 */
+  lastMessageAt: string | null;
+  messageCount: number;
+}
+
+/** 会话内的一条历史消息（只读） */
+export interface ConversationMessageView {
+  role: 'user' | 'assistant' | string;
+  content: string;
+  createdAt: string | null;
+}
+
+/** 最近会话列表（按最后活动时间倒序；只返回当前用户、保留期内的会话） */
+export function listConversations(limit = 20): Promise<ConversationSummary[]> {
+  return request<ConversationSummary[]>({
+    url: '/agent/conversations',
+    method: 'get',
+    params: { limit },
+  });
+}
+
+/** 某段会话最近的消息（时间正序），用于「继续对话」回填聊天记录 */
+export function getConversationMessages(
+  conversationId: string,
+  limit = 50,
+): Promise<ConversationMessageView[]> {
+  return request<ConversationMessageView[]>({
+    url: `/agent/conversations/${encodeURIComponent(conversationId)}/messages`,
+    method: 'get',
+    params: { limit },
+  });
+}
+
 /** 最近运行列表（V2.2 运行追踪；limit 默认 20） */
 export function getRuns(limit = 20): Promise<RunSummary[]> {
   return request<RunSummary[]>({ url: '/agent/runs', method: 'get', params: { limit } });

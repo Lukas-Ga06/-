@@ -33,9 +33,18 @@ const CORE_PATHS = [
   '/api/itinerary/{id}',
   '/api/agent/chat',
   '/api/agent/stream',
+  // §8.6 最近会话：助手页的「继续对话」依赖这两个只读接口
+  '/api/agent/conversations',
+  '/api/agent/conversations/{conversationId}/messages',
   '/api/auth/login',
 ];
-const CORE_SCHEMAS = ['TripResponse', 'ItineraryItemDTO', 'ChatRequest', 'AgentResult'];
+const CORE_SCHEMAS = [
+  'TripResponse',
+  'ItineraryItemDTO',
+  'ChatRequest',
+  'AgentResult',
+  'ConversationSummary',
+];
 
 function fail(message) {
   console.error(`\n[api:check] ✗ ${message}`);

@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { App, Button, Input, Popconfirm, Tooltip } from 'antd';
-import { HistoryOutlined, PlusOutlined, SendOutlined, StopOutlined } from '@ant-design/icons';
+import {
+  HistoryOutlined,
+  MessageOutlined,
+  PlusOutlined,
+  SendOutlined,
+  StopOutlined,
+} from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAgentStore } from '../../store/agentStore';
 import { useAuthStore } from '../../store/authStore';
@@ -10,6 +16,7 @@ import VoiceButton from '../VoiceButton';
 import AgentActivityPanel from '../AgentActivityPanel';
 import ExecutionResultPanel from '../ExecutionResultPanel';
 import AgentRunsDrawer from '../AgentRunsDrawer';
+import ConversationDrawer from '../ConversationDrawer';
 import CitationList from '../CitationList';
 import ResultCard from '../ResultCard';
 
@@ -52,6 +59,8 @@ export default function ChatPanel({ tripId, placeholder }: Props) {
   const [executionHidden, setExecutionHidden] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [runsOpen, setRunsOpen] = useState(false);
+  /** 最近会话抽屉（§8.6）：继续历史对话或开新对话 */
+  const [conversationsOpen, setConversationsOpen] = useState(false);
 
   useEffect(() => {
     setExecutionHidden(false);
@@ -254,6 +263,16 @@ export default function ChatPanel({ tripId, placeholder }: Props) {
             style={{ flexShrink: 0 }}
           />
         </Tooltip>
+        <Tooltip title="最近会话：继续之前的对话，或开一段新的">
+          <Button
+            type="text"
+            size="small"
+            icon={<MessageOutlined />}
+            onClick={() => setConversationsOpen(true)}
+            aria-label="最近会话"
+            style={{ flexShrink: 0 }}
+          />
+        </Tooltip>
         {messages.length > 0 && !streaming && (
           <Popconfirm
             title="开新对话？"
@@ -308,6 +327,7 @@ export default function ChatPanel({ tripId, placeholder }: Props) {
       </div>
 
       <AgentRunsDrawer open={runsOpen} onClose={() => setRunsOpen(false)} />
+      <ConversationDrawer open={conversationsOpen} onClose={() => setConversationsOpen(false)} />
     </>
   );
 }

@@ -84,6 +84,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agent/conversations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["conversations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/conversations/{conversationId}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["conversationMessages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agent/executions/{executionId}": {
         parameters: {
             query?: never;
@@ -952,6 +984,20 @@ export interface components {
             message?: string;
             pagination?: components["schemas"]["Pagination"];
         };
+        ApiResponseListConversationMessageView: {
+            /** Format: int32 */
+            code?: number;
+            data?: components["schemas"]["ConversationMessageView"][];
+            message?: string;
+            pagination?: components["schemas"]["Pagination"];
+        };
+        ApiResponseListConversationSummary: {
+            /** Format: int32 */
+            code?: number;
+            data?: components["schemas"]["ConversationSummary"][];
+            message?: string;
+            pagination?: components["schemas"]["Pagination"];
+        };
         ApiResponseListExpenseDTO: {
             /** Format: int32 */
             code?: number;
@@ -1216,6 +1262,18 @@ export interface components {
             requiresAcknowledgement?: boolean;
             riskLevel?: string;
             summary?: string;
+        };
+        ConversationMessageView: {
+            content?: string;
+            createdAt?: string;
+            role?: string;
+        };
+        ConversationSummary: {
+            conversationId?: string;
+            lastMessageAt?: string;
+            /** Format: int64 */
+            messageCount?: number;
+            title?: string;
         };
         DailyBudget: {
             actual?: number;
@@ -1879,6 +1937,52 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseVoid"];
+                };
+            };
+        };
+    };
+    conversations: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseListConversationSummary"];
+                };
+            };
+        };
+    };
+    conversationMessages: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                conversationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseListConversationMessageView"];
                 };
             };
         };

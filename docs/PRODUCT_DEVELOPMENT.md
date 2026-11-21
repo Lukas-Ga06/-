@@ -135,8 +135,8 @@ Planner 研究链路必须接入 RAG、POI、Weather、Route 和 Budget。RAG �
 - [x] Workbench 改为「Agent 运行观察」；品牌改「AI 智能旅行助手」；路书 PDF 页脚与设计系统注释同步改名。
 - [x] RAG 接口迁入 `TravelKnowledgeController`，知识库页面保留并改为旅行知识管理。
 - [x] README、API 参考、数据模型、前端、部署等文档同步退役模块与新增契约。
-- [x] **后端全量回归**：`mvn verify` **542** 个用例（541 执行 + 1 条无 Docker 时按设计跳过）全部通过（2026-11-21 复核；含阶段 D 的版本字段用例）。
-- [x] **前端全量回归**：`npm run typecheck && npm test && npm run build` 通过（47 个测试文件 / 482 个用例；覆盖率阈值已二次 ratchet 上调）。
+- [x] **后端全量回归**：`mvn verify` **547** 个用例（546 执行 + 1 条无 Docker 时按设计跳过）全部通过（2026-11-21 复核；含阶段 D 版本字段与 §8.6 会话列表用例）。
+- [x] **前端全量回归**：`npm run typecheck && npm test && npm run build` 通过（48 个测试文件 / 490 个用例；覆盖率阈值已二次 ratchet 上调）。
 - [x] **迁移实跑**：全新 H2 文件库从 V1 迁到 V19，`ddl-auto=validate` 启动通过。
 
 未完成 / 残留：

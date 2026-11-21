@@ -12,6 +12,7 @@ import com.travel.agent.entity.User;
 import com.travel.agent.llm.LlmProperties;
 import com.travel.agent.security.AuthAttributes;
 import com.travel.agent.service.AuthService;
+import com.travel.agent.util.Paging;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
@@ -24,6 +25,7 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.RejectedExecutionException;
@@ -311,6 +313,34 @@ public class AgentController {
     }
 
     /** 开新会话：清掉当前用户在该会话下的历史消息 */
+    /**
+     * 最近会话列表（体验方案 §8.6）：当前用户、按最后活动时间倒序、只读。
+     *
+     * <p>limit 走统一分页口径（<=0 用默认 20，>200 收敛到 200），与其它列表接口一致；
+     * 不提供 offset：会话列表是「最近 N 段」的短列表，翻页没有意义。
+     */
+    @GetMapping("/conversations")
+    public ApiResponse<List<ChatDtos.ConversationSummary>> conversations(
+            @RequestParam(defaultValue = "" + Paging.DEFAULT_PAGE_LIMIT) int limit,
+            Authentication authentication) {
+        User user = authService.requireUser(authentication.getName());
+        return ApiResponse.ok(conversationService.summaries(user.getId(), Paging.normalizeLimit(limit)));
+    }
+
+    /**
+     * 某段会话最近的消息（继续对话回填）：按时间正序，默认 50 条、上限 200。
+     * 不属于当前用户的 conversationId 返回空数组（不泄露是否存在）。
+     */
+    @GetMapping("/conversations/{conversationId}/messages")
+    public ApiResponse<List<ChatDtos.ConversationMessageView>> conversationMessages(
+            @PathVariable String conversationId,
+            @RequestParam(defaultValue = "50") int limit,
+            Authentication authentication) {
+        User user = authService.requireUser(authentication.getName());
+        return ApiResponse.ok(conversationService.messages(user.getId(), conversationId,
+                Paging.normalizeLimit(limit)));
+    }
+
     @PostMapping("/conversation/clear")
     public ApiResponse<Void> clearConversation(@Valid @RequestBody ChatDtos.ClearConversationRequest request,
                                                Authentication authentication) {

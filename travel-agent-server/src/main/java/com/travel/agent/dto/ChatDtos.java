@@ -5,10 +5,38 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
 public class ChatDtos {
+
+    /**
+     * 最近会话摘要（体验方案 §8.6）：只给「继续哪一段对话」所需的最少信息。
+     * title 取该会话首条用户消息的前若干字；没有用户消息时回落为「新会话」。
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ConversationSummary {
+        private String conversationId;
+        private String title;
+        /** 最后一条消息时间（ISO-8601 本地时间）；前端按它排序/显示「刚刚 / 昨天」 */
+        private String lastMessageAt;
+        private long messageCount;
+    }
+
+    /** 会话内的一条历史消息（只读，用于「继续对话」时回填聊天记录） */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ConversationMessageView {
+        private String role;
+        private String content;
+        private String createdAt;
+    }
 
     @Data
     @NoArgsConstructor
