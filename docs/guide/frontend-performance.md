@@ -1,6 +1,6 @@
 # 前端性能：地图包体与运行时按需加载
 
-> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.7 / Node 20） | 最后验证：2026-11-19 | 事实来源：travel-agent-web/vite.config.ts、travel-agent-web/src/components/FootprintMap/、travel-agent-web/scripts/check-bundle-budget.mjs、本次 `npm run build` / `npm run build:check` / `npm test` 实测产物
+> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.12 / Node 20） | 最后验证：2026-11-19 | 事实来源：travel-agent-web/vite.config.ts、travel-agent-web/src/components/FootprintMap/、travel-agent-web/scripts/check-bundle-budget.mjs、本次 `npm run build` / `npm run build:check` / `npm test` 实测产物
 
 > 面向：要改前端、改构建或排查「地图/图表拖慢首屏」的同学。
 > 结论先行：**地图引擎不再进入 Rollup 的 import 图**，改为页面真正渲染地图时从带版本号的自托管目录按需 `import()`；

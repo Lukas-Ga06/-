@@ -1,6 +1,6 @@
 # 文档生命周期与写作规范
 
-> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.7 / Node 20） | 最后验证：2026-11-19 | 事实来源：README.md、docs/、scripts/docs-check.mjs、travel-agent-server/pom.xml、travel-agent-web/package.json
+> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.12 / Node 20） | 最后验证：2026-11-19 | 事实来源：README.md、docs/、scripts/docs-check.mjs、travel-agent-server/pom.xml、travel-agent-web/package.json
 
 本文定义仓库里**每类文档该写什么、写在哪、怎么标注、什么时候算过期**。目标只有一个：读者能分清「当前事实」与「某天的快照」，并且链接和命令都能被机器校验。
 
@@ -22,7 +22,7 @@
 ### 2.1 guide（紧跟 H1，空一行）
 
 ```markdown
-> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.7 / Node 20） | 最后验证：YYYY-MM-DD | 事实来源：<文件或目录>、<文件或目录>
+> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.12 / Node 20） | 最后验证：YYYY-MM-DD | 事实来源：<文件或目录>、<文件或目录>
 ```
 
 - `最后验证`：真正按当前源码/配置核对过的日期，不是文件修改日期。

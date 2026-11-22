@@ -7,7 +7,11 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.5.7</version>
+        <!-- 3.5.12 起修掉两个 HIGH 认证绕过：
+             CVE-2026-22731（Actuator Health Group additional path 误配置）
+             CVE-2026-22733（Actuator CloudFoundry 端点认证绕过）。
+             CI 的 Trivy 扫描会以 HIGH 阻断，不要为了「先跑通」把阈值调低。 -->
+        <version>3.5.12</version>
         <relativePath/>
     </parent>
 

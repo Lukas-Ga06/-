@@ -1,6 +1,6 @@
 # 架构与核心设计（Agent 引擎 / RAG / 工具层 / SSE）
 
-> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.7 / Node 20） | 最后验证：2026-11-19 | 事实来源：travel-agent-server/src/main/java/com/travel/agent/、travel-agent-web/src/
+> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.12 / Node 20） | 最后验证：2026-11-19 | 事实来源：travel-agent-server/src/main/java/com/travel/agent/、travel-agent-web/src/
 
 一句话导读：本文从源码出发，讲清一条用户消息如何穿过 Controller → AgentEngine 状态机 → 四 Agent → ToolInvoker / RagService / LlmClient，并以「preview → Diff → 确认 → commit」的方式落到数据库。
 

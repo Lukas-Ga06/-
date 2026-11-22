@@ -1,6 +1,6 @@
 # 外部依赖降级矩阵（高德 / LLM / Embedding / Redis / S3）
 
-> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.7 / AWS SDK 2.25.70 / WireMock 3.13.1） | 最后验证：2026-11-19 | 事实来源：`travel-agent-server/src/main/java/com/travel/agent/{service,llm,rag,security,config}/*.java`、`src/main/resources/application.yml`、`src/test/java/com/travel/agent/resilience/*`
+> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.12 / AWS SDK 2.25.70 / WireMock 3.13.1） | 最后验证：2026-11-19 | 事实来源：`travel-agent-server/src/main/java/com/travel/agent/{service,llm,rag,security,config}/*.java`、`src/main/resources/application.yml`、`src/test/java/com/travel/agent/resilience/*`
 
 本文只写**代码与测试能证明的现状**：每个外部依赖的超时预算从哪来、重试到底有没有、
 失败后变成什么、用户看到什么、哪个指标会涨、哪个测试类守住它。

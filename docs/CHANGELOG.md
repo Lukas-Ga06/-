@@ -2,6 +2,23 @@
 
 按主题记录行为变化。**第四节是最需要注意的**：其中几项改变了原有的使用习惯。
 
+## 安全升级：Spring Boot 3.5.7 → 3.5.12（2026-11-22）
+
+> 由首次跑到真 runner 的 Trivy 扫描暴露，不是本轮功能改动引入的问题。
+
+- **两个 HIGH 认证绕过**：
+  - `CVE-2026-22731`：Actuator Health Group `additional path` 误配置导致的认证绕过；
+  - `CVE-2026-22733`：Actuator CloudFoundry 端点下的认证绕过。
+  两者均在 **3.5.12 / 4.0.4** 修复；本项目 3.5.7 命中。
+- 影响面：项目确实对外暴露 `/actuator/health`（Docker `HEALTHCHECK` 用它），
+  所以这不是「没用到就不用修」的类型。
+- 处置：`spring-boot-starter-parent` 升到 **3.5.12**（同一 3.5.x 线上补丁版本，无代码改动）。
+  本地 `mvn -B verify` **551 用例 0 失败 0 错误**，Checkstyle 0 / SpotBugs 0 保持。
+  `docs/guide` 等「当前事实」文档里的版本号同步更新；**历史快照一律保持原文不改**。
+- 门禁口径：CI 的 Trivy 是 `severity: CRITICAL,HIGH` + `exit-code: 1`，
+  **不要为了先跑绿把阈值调低或加 `ignore-unfixed` 之外的豁免**。
+  若将来出现「无修复版本」的条目，按 `docs/guide/ci.md` 第 6 节的豁免流程记录风险与到期时间。
+
 ## 真实模型验收 + 首次远端 CI 跑通（2026-11-22）
 
 ### 一、行为变化

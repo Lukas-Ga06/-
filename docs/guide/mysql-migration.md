@@ -1,6 +1,6 @@
 # 真实 MySQL Flyway 迁移验证
 
-> 状态：当前事实 | 适用版本：`travel-agent-server` 0.1.0 / Spring Boot 3.5.7 / Flyway 11.7.2 / MySQL 8.4.10 | 最后验证：2026-11-19 | 事实来源：`travel-agent-server/src/test/java/com/travel/agent/migration/MySqlFlywayMigrationTest.java`、`scripts/mysql-it.ps1`、本机 3307 实例实测输出
+> 状态：当前事实 | 适用版本：`travel-agent-server` 0.1.0 / Spring Boot 3.5.12 / Flyway 11.7.2 / MySQL 8.4.10 | 最后验证：2026-11-19 | 事实来源：`travel-agent-server/src/test/java/com/travel/agent/migration/MySqlFlywayMigrationTest.java`、`scripts/mysql-it.ps1`、本机 3307 实例实测输出
 
 本文说明如何用**真实 MySQL** 验证「Flyway 从空库全量迁移到最新版本，并且 Hibernate `ddl-auto=validate` 校验 19 个实体全部通过」。这是默认测试 profile（H2 + `create-drop` + Flyway 关闭）覆盖不到的部分：H2 上永远不会执行 `db/migration-mysql` 里的 `information_schema` 探测、`PREPARE` 动态语句、STORED 生成列与 MySQL 方言 DDL。
 
@@ -304,7 +304,7 @@ MySQL 8.4 is newer than this version of Flyway and support has not been tested.
 The latest supported version of MySQL is 8.1.
 ```
 
-- 当前 Flyway 由 Spring Boot 3.5.7 BOM 管理，实际版本 **11.7.2**；它的声明支持上限是 MySQL 8.1。
+- 当前 Flyway 由 Spring Boot 3.5.12 BOM 管理，实际版本 **11.7.2**；它的声明支持上限是 MySQL 8.1。
 - 这是**警告**：迁移、`validate`、断言在本机 8.4.10 全部通过（见 §5）。
 - **不要为了消除警告改 pom**（pom 由 T1 维护）。后续若升级：在 `flyway-core` / `flyway-mysql` 的新版本声明支持 8.4 后，由 pom 维护方升级，然后重跑本测试确认警告消失且断言仍全绿；升级前后都建议保留本次证据。
 

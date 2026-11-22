@@ -1,6 +1,6 @@
 # 高德 MCP 接入（真实地图数据源）
 
-> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.7 / Node 20） | 最后验证：2026-11-19 | 事实来源：travel-agent-server/src/main/java/com/travel/agent/mcp/、travel-agent-server/src/main/resources/application.yml、.tools/amap-mcp-probe/
+> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.12 / Node 20） | 最后验证：2026-11-19 | 事实来源：travel-agent-server/src/main/java/com/travel/agent/mcp/、travel-agent-server/src/main/resources/application.yml、.tools/amap-mcp-probe/
 
 > 面向**要给 Agent 接真实地图数据**的后端开发者，以及**要排「为什么模型没查地图」**的运维。
 > 事实来源两类，缺一不可：① 真实包 `@amap/amap-maps-mcp-server@0.0.8` 的静态源码与本机实测

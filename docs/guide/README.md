@@ -1,6 +1,6 @@
 # AI 智能旅行助手 · 项目文档
 
-> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.7 / Node 20） | 最后验证：2026-11-19 | 事实来源：README.md、travel-agent-server/pom.xml、travel-agent-web/package.json、docs/guide/
+> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.12 / Node 20） | 最后验证：2026-11-19 | 事实来源：README.md、travel-agent-server/pom.xml、travel-agent-web/package.json、docs/guide/
 
 以旅行为唯一核心场景的 AI 智能旅行助手：行前规划、行中动态调整、行后回顾；记账、备忘、日程、照片与知识库都归属旅行域。办公自动化、学习辅助与健康数据已从产品主线移除。
 本目录是面向**开发者、集成者与运维**的完整文档套件；项目定位与功能全貌请先看根目录 [README.md](../../README.md)。
