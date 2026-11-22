@@ -391,16 +391,25 @@ public class AgentEngine {
     /**
      * 会话记忆：载入上一段历史供意图识别消解指代，并把本轮用户消息先落一条。
      * 先载后存，保证 history 不包含本轮消息；无 conversationId 时两者都是空操作。
+     *
+     * <p>V23：落库走 {@code beginTurn} 分配轮次序号（compare-and-set），助手回复在收尾时
+     * 用同一个序号写入，两行因此始终相邻 —— 两台设备同时聊同一会话也不会互相穿插。
      */
     private void loadConversation(AgentContext ctx) {
         try {
             ctx.setHistory(conversationService.recent(ctx.getUserId(), ctx.getConversationId()));
-            conversationService.append(ctx.getUserId(), ctx.getConversationId(),
-                    ConversationMessage.ROLE_USER, ctx.getMessage(), null, ctx.getScope());
         } catch (Exception e) {
-            // 记忆存取失败不能挡住对话：按单轮继续处理
+            // 记忆读取失败不能挡住对话：按单轮继续处理
             log.warn("会话记忆读取失败，按单轮对话处理: {}", e.getMessage());
             ctx.setHistory(List.of());
+        }
+        try {
+            ctx.setTurnSeq(conversationService.beginTurn(ctx.getUserId(), ctx.getConversationId(),
+                    ctx.getMessage(), ctx.getScope()));
+        } catch (Exception e) {
+            // 写失败只丢「分组标记」，本轮照常进行；回复仍会落库（不带序号）
+            log.warn("会话记忆写入失败: {}", e.getMessage());
+            ctx.setTurnSeq(ConversationService.NO_TURN);
         }
     }
 
@@ -410,9 +419,8 @@ public class AgentEngine {
         // 所以 complete() 与 finish() 两处都要挂，靠前缀幂等避免重复）
         attachBudgetNotice(ctx, result);
         try {
-            conversationService.append(ctx.getUserId(), ctx.getConversationId(),
-                    ConversationMessage.ROLE_ASSISTANT, result == null ? null : result.getMessage(), intent,
-                    ctx.getScope());
+            conversationService.appendReply(ctx.getUserId(), ctx.getConversationId(), ctx.getTurnSeq(),
+                    result == null ? null : result.getMessage(), intent, ctx.getScope());
         } catch (Exception e) {
             log.warn("会话记忆写入失败: {}", e.getMessage());
         }

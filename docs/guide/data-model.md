@@ -294,6 +294,8 @@ select coalesce(sum(p.sizeBytes), 0) from TripPhoto p where p.userId = :userId
 | `role` | `VARCHAR(16)` | 否 | `user` / `assistant` |
 | `content` | `TEXT` | 否 | 内容，入库前截断到 `MAX_CONTENT_LENGTH = 1000` |
 | `intent` | `VARCHAR(32)` | 是 | 该轮识别出的意图（仅用户消息） |
+| `scope` | `VARCHAR(32)` | 是 | V21：该会话最近一次使用的页面归属（`assistant` / `planner` / `trip:<id>`），**只是提示，不参与权限判断** |
+| `turn_seq` | `BIGINT` | 是 | V23：轮次序号。一轮问答（用户消息 + 助手回复）共用同一个值，唯一键 `uk_conv_turn_role (user_id, conversation_id, turn_seq, role)`；存量行为 NULL（唯一索引允许多个 NULL） |
 | `created_at` | `TIMESTAMP` | 是 | 消息时间 |
 
 生命周期（`ConversationService`）：
@@ -304,8 +306,28 @@ select coalesce(sum(p.sizeBytes), 0) from TripPhoto p where p.userId = :userId
   `deleteByCreatedAtBefore` 删除；清理有两条路——写入侧**每小时最多一次**的快路径（`PURGE_INTERVAL_MS`），
   以及 `@Scheduled(cron = "0 30 4 * * *")` **每日 04:30 定时兜底**（闲置账号没人写，只靠快路径会让过期数据无限堆积）。
   定时任务开关在 `config/ConversationSchedulingConfig`（`@EnableScheduling`）。
+- **轮次成组（V23）**：`beginTurn()` 取该会话「当前最大 `turn_seq` + 1」后直接插入，撞唯一键就换号重试
+  （compare-and-set，撞键后抖动 1–4ms，上限 20 次）；助手回复用同一个序号写入。两台设备同时聊同一个
+  `conversationId` 时，后到的那一轮顺延到下一个号，各自的问答因此始终相邻，不会交叉。
+  顺序口径统一为 `COALESCE(turn_seq, 0), created_at, id`（存量行排在所有新轮次之前）。
+  分配连续失败时退化为「不带序号的单条写入」——**宁可少一个分组标记，也不丢用户的消息**。
+- **改名与删除（V23）**：`rename()` 只写 `conversation_meta`（空标题 = 删掉覆盖行、恢复自动标题）；
+  `delete()` 把消息与标题覆盖一起删，幂等（重复删除不报错）。
 - `conversationId` 为空（单轮模式）不落库。
 - 历史**只用于意图识别 / 指代消解**（「那把第二天的酒店也换掉」），**不进入规划产物**（不参与行程生成与方案内容）。
+
+### 3.3.1 `conversation_meta` — 会话标题覆盖（唯一键 `uk_conv_meta_user_conv (user_id, conversation_id)`）
+
+V23 新增（`V23__conversation_turn_and_meta.sql`）：只存用户显式改过的会话标题。
+**没有行 = 没改过名 = 继续用「首条用户消息」推导标题**；改名不动消息，删会话时与消息一起删。
+
+| 字段 | DB 类型 | 可空 | 说明 |
+| --- | --- | --- | --- |
+| `id` | `BIGINT` | 否 | 主键，自增 |
+| `user_id` | `BIGINT` | 否 | 归属用户（一切查询按它隔离） |
+| `conversation_id` | `VARCHAR(64)` | 否 | 与消息表同一套 id，仅作同一用户名下的分组键 |
+| `title` | `VARCHAR(64)` | 是 | 用户改的名字；与推导标题同一套截断规则（最长 41 字符含省略号），列宽留余量 |
+| `created_at` / `updated_at` | `TIMESTAMP` | 是 | 审计时间 |
 
 ### 3.4 `trip_event` — 旅行事件流（索引 `idx_trip_event_trip (trip_id)`、`idx_trip_event_item (itinerary_item_id)`、`idx_trip_event_occurred (trip_id, occurred_at)`）
 
@@ -625,13 +647,14 @@ b=<budget>|s=<startDate>|e=<endDate>
 | 20 | `V20__agent_command_dedupe.sql` | `db/migration` | 建 `agent_command_dedupe`：写意图（记账 / 备忘 / 日程）的幂等台账，`UNIQUE (user_id, request_id)` | 中性 SQL；`IN_PROGRESS` 抢占、`COMPLETED` 复用结果、异常时删行 fail-open |
 | 21 | `V21__conversation_scope.sql` | `db/migration` | `conversation_message.scope`（`assistant` / `planner` / `trip:<id>`）+ `idx_conv_user_scope` | 存量行 `scope` 一律 NULL（**不猜**归属）；scope 只是提示，不是权限 |
 | 22 | `V22__schedule_source_key_unique.sql` | `db/migration` | 先去重历史重复（同一 `source_key` 只留 id 最小的一条），再建唯一索引 `uk_schedule_source_key` | 补 V16 的欠账：V16 只加列，注释承诺的「唯一索引兜底并发」从未创建；手工日程 `source_key` 为 NULL，不受唯一约束影响 |
+| 23 | `V23__conversation_turn_and_meta.sql` | `db/migration` | `conversation_message.turn_seq` + 唯一键 `uk_conv_turn_role`；新建 `conversation_meta` + 唯一键 `uk_conv_meta_user_conv` | 会话并发控制：一轮问答共用序号，写入靠唯一键做 compare-and-set；存量行 `turn_seq` 为 NULL，无需回填。唯一键用 `CREATE UNIQUE INDEX` 单独建——H2 会给内联 `UNIQUE KEY` 自动改名（`UK_..._INDEX_2`），索引名对不上就无法作为约束存在的证据 |
 
 **目录与加载**（`application.yml` / `application-mysql.yml` 的 `spring.flyway.locations`）：
 
 | profile | `locations` | 实际看到的版本 |
 | --- | --- | --- |
-| 默认（H2） | `classpath:db/migration,classpath:db/migration-h2` | V1–V11 + V13（H2 版）+ V14 + V15–V22；**没有 V12**，且缺口 V8 是预期 |
-| `mysql` | `classpath:db/migration,classpath:db/migration-mysql` | V1–V13 全链（V8 / V12 / V13 是 MySQL 版）+ V15–V22；没有 V14（H2 专属） |
+| 默认（H2） | `classpath:db/migration,classpath:db/migration-h2` | V1–V11 + V13（H2 版）+ V14 + V15–V23；**没有 V12**，且缺口 V8 是预期 |
+| `mysql` | `classpath:db/migration,classpath:db/migration-mysql` | V1–V13 全链（V8 / V12 / V13 是 MySQL 版）+ V15–V23；没有 V14（H2 专属） |
 
 两个 profile 各自只看到**一个** V13，不会出现「同一 locations 内重复版本号」（`MigrationBaselineTest` 守住这条）。
 `db/migration-mysql/` 与 `db/migration-h2/` 里的脚本含 `information_schema` 探测、会话变量、`PREPARE` 动态语句或方言化
@@ -924,13 +947,13 @@ P0 之后下表涉及的 6 张旧模块表（`daily_report` / `mail_item` / `mee
 
 | 统计项 | 数量 | 核对方式 |
 | --- | --- | --- |
-| `entity/` 下实体文件 | **19** | `glob entity/*.java` |
-| 本文收录的 `@Entity` 表 | **19** | 与实体文件一一对应 |
-| 库内实际表（含 6 张退役旧表） | **25** | `V1`–`V19` 的 `CREATE TABLE` 去重 |
-| `repository/` 下 Repository 接口 | **19** | 与实体一一对应 |
+| `entity/` 下实体文件 | **21** | `glob entity/*.java` |
+| 本文收录的 `@Entity` 表 | **21** | 与实体文件一一对应 |
+| 库内实际表（含 6 张退役旧表） | **26** | `V1`–`V23` 的 `CREATE TABLE` 去重 |
+| `repository/` 下 Repository 接口 | **21** | 与实体一一对应 |
 | 显式 `@Index` 声明 | **29** 条，分布在 18 个实体上 | 源码 `@Index(` 计数（各表索引已在 2–4 节标题中逐条列出） |
-| `@UniqueConstraint` | **5** 条 | `users.username`（未命名）、`uk_llm_quota_user_date`、`uk_rag_document_key`、`uk_rag_version`、`uk_schedule_source_key`（V22） |
-| Flyway 版本 / 脚本文件 | **22 个版本 / 23 个文件**（V1–V22；V13 双方言两份，V8/V12 仅 MySQL，V14 仅 H2） | `db/migration` 18 个 + `db/migration-mysql` 3 个 + `db/migration-h2` 2 个 |
+| `@UniqueConstraint` | **7** 条 | `users.username`（未命名）、`uk_llm_quota_user_date`、`uk_rag_document_key`、`uk_rag_version`、`uk_schedule_source_key`（V22）、`uk_conv_turn_role`（V23）、`uk_conv_meta_user_conv`（V23） |
+| Flyway 版本 / 脚本文件 | **23 个版本 / 24 个文件**（V1–V23；V13 双方言两份，V8/V12 仅 MySQL，V14 仅 H2） | `db/migration` 19 个 + `db/migration-mysql` 3 个 + `db/migration-h2` 2 个 |
 | V1 基线内容 | **15 张表 + 14 个索引** | `V1__baseline.sql` 的 `CREATE TABLE` / `CREATE INDEX` 计数 |
 | V19 增量内容 | **4 列 + 1 张表（3 索引）+ 8 列（schedule/memo 各 4）** | `V19__travel_closed_loop.sql` |
 | 后端测试 | **465** 个 `@Test`（110 个测试文件） | 源码静态计数；实际以 `mvn test` 输出为准 |

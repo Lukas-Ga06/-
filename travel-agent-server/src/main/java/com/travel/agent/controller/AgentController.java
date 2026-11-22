@@ -360,6 +360,41 @@ public class AgentController {
         return ApiResponse.ok(null);
     }
 
+    /**
+     * 重命名一段会话（V23）：只改展示标题，不动消息、不影响续聊。
+     *
+     * <p>标题传空串 = 恢复自动标题（回到「首条用户消息」的推导标题）。
+     * 不属于当前用户的 conversationId 也会正常返回 —— 写入按 userId 隔离，改不到别人的会话，
+     * 也不需要用 404 告诉调用方「这段会话是否存在」（避免变成存在性探测接口）。
+     */
+    @PatchMapping("/conversations/{conversationId}")
+    public ApiResponse<ChatDtos.ConversationRenameResult> renameConversation(
+            @PathVariable String conversationId,
+            @Valid @RequestBody ChatDtos.RenameConversationRequest request,
+            Authentication authentication) {
+        User user = authService.requireUser(authentication.getName());
+        String id = sanitizeConversationId(conversationId);
+        String title = conversationService.rename(user.getId(), id, request.getTitle());
+        return ApiResponse.ok(ChatDtos.ConversationRenameResult.builder()
+                // 回传清洗后的 id（非法 id 会被清洗成 null，此时 title 必然也是 null，语义即「什么都没改」）
+                .conversationId(id)
+                .title(title)
+                .build());
+    }
+
+    /**
+     * 删除一段会话（V23）：消息与标题覆盖一起删，不可恢复。
+     *
+     * <p>幂等：不存在的会话同样返回成功（重复删除不该报错），且永远删不到别人的数据。
+     */
+    @DeleteMapping("/conversations/{conversationId}")
+    public ApiResponse<Void> deleteConversation(@PathVariable String conversationId,
+                                                Authentication authentication) {
+        User user = authService.requireUser(authentication.getName());
+        conversationService.delete(user.getId(), sanitizeConversationId(conversationId));
+        return ApiResponse.ok(null);
+    }
+
     private AgentContext buildContext(User user, ChatDtos.ChatRequest request, boolean ticketOnly) {
         AgentContext ctx = new AgentContext();
         ctx.setUserId(user.getId());

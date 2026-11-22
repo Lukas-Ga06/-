@@ -34,6 +34,13 @@ class ConversationMemoryTest extends IntegrationTestSupport {
     @Autowired
     private ConversationService conversationService;
 
+    /** 直接构造服务实例的用例需要这两个协作者（V23 起 ConversationService 多了元数据与轮次写入器） */
+    @Autowired
+    private com.travel.agent.repository.ConversationMetaRepository metaRepository;
+
+    @Autowired
+    private com.travel.agent.service.ConversationTurnWriter turnWriter;
+
     @Test
     @DisplayName("带 conversationId 对话后，用户消息与助手回复都落库")
     void chatPersistsBothTurns() throws Exception {
@@ -150,21 +157,23 @@ class ConversationMemoryTest extends IntegrationTestSupport {
         insertMessages(user.id(), conversationId, base, 8);
 
         // 直接构造服务实例：验证「条数上限来自构造参数（即配置）」，不依赖 Spring 属性刷新
-        ConversationService smallLimit = new ConversationService(repository, 3, ConversationService.DEFAULT_RETENTION_DAYS);
+        ConversationService smallLimit = new ConversationService(repository, metaRepository, turnWriter,
+                3, ConversationService.DEFAULT_RETENTION_DAYS);
         assertThat(smallLimit.historyLimit()).isEqualTo(3);
         assertThat(smallLimit.recent(user.id(), conversationId))
                 .extracting(ConversationMessage::getContent)
                 .containsExactly("m5", "m6", "m7");
 
         // 配置比实际条数大：全返回，不补空
-        ConversationService bigLimit = new ConversationService(repository, 50, ConversationService.DEFAULT_RETENTION_DAYS);
+        ConversationService bigLimit = new ConversationService(repository, metaRepository, turnWriter,
+                50, ConversationService.DEFAULT_RETENTION_DAYS);
         assertThat(bigLimit.recent(user.id(), conversationId)).hasSize(8);
     }
 
     @Test
     @DisplayName("配置非法（≤0）时回落到默认值，不把记忆关成 0 条")
     void illegalConfigFallsBackToDefaults() {
-        ConversationService broken = new ConversationService(repository, 0, -1);
+        ConversationService broken = new ConversationService(repository, metaRepository, turnWriter, 0, -1);
 
         assertThat(broken.historyLimit()).isEqualTo(ConversationService.DEFAULT_HISTORY_LIMIT);
         assertThat(broken.retentionDays()).isEqualTo(ConversationService.DEFAULT_RETENTION_DAYS);

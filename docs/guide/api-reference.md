@@ -8,7 +8,7 @@
 所有接口、字段、校验规则和错误码均取自 `travel-agent-server` 源码，未使用推测内容。
 
 - 源码根：`travel-agent-server/src/main/java/com/travel/agent/`
-- 接口总数：**63 个**（12 个业务 Controller 的 60 个 + 渠道包 3 个），清单见第 14、15 章
+- 接口总数：**65 个**（12 个业务 Controller 的 62 个 + 渠道包 3 个），清单见第 14、15 章
 - 已退役：`/api/office/**`、`/api/report/**`、`/api/health/**`、`/api/learning/**`（Controller 与实体已删除，调用 404）
 - 每个接口标注 `类名#方法名:行号`，可直接回源码核对
 
@@ -607,7 +607,7 @@ data:{"message":"正在为你规划行程…"}
 event:complete
 data:{"planId":"plan-8f3c","tripId":null,"message":"…","intent":"PLAN_TRIP","status":"NEED_CONFIRMATION"}
 ```
-其余事件：`run`（V2.2 FR-10，紧随 `start`，`{runId}` 可查 §5.11 的完整追踪）、`tool_call`（`{tool,args}`）、
+其余事件：`run`（V2.2 FR-10，紧随 `start`，`{runId}` 可查 §5.13 的完整追踪）、`tool_call`（`{tool,args}`）、
 `tool_result`（`{tool,result}`）、`plan_update`（`{diff,budget}`）、`focus`、
 `confirmation`（含 `contentHash`，确认时回传见 §5.5）、
 `rag_result`（**P1**：`{sources:[标题], citations:[{documentId,version,chunkId,score,source,title,snippet,label}]}`；
@@ -668,7 +668,7 @@ data:{"planId":"plan-8f3c","tripId":null,"message":"…","intent":"PLAN_TRIP","s
 
 **确认后的跨模块同步（V2.2 FR-09）**：提交成功后按 `calendar` / `budget` / `footprint` 逐模块同步并写台账，
 模块级失败**不回滚**已保存的行程，响应 `execution.status` 为 `PARTIAL_FAILED` / `FAILED`，
-失败模块可用 §5.12 单独重试（成功项不重复创建）。口径红线：`budget` 只记计划快照（估算不会自动变成已消费），
+失败模块可用 §5.14 单独重试（成功项不重复创建）。口径红线：`budget` 只记计划快照（估算不会自动变成已消费），
 `footprint` 只标计划态（不会把未来行程记为已到访）。
 
 ### 5.6 POST /api/agent/cancel — 取消方案
@@ -714,7 +714,33 @@ data:{"planId":"plan-8f3c","tripId":null,"message":"…","intent":"PLAN_TRIP","s
 ```
 错误：`400` 校验失败；`401`
 
-### 5.10 GET /api/agent/runs — 运行列表（V2.2 FR-10）
+### 5.10 PATCH /api/agent/conversations/{conversationId} — 重命名会话（V23）
+鉴权：登录 ｜ 源码：`AgentController#renameConversation` ｜ 参数：路径 `conversationId`
+| 参数 | 必填 | 说明 |
+| --- | --- | --- |
+| `title` | 否 | ≤40 字符；**空串 / 只有空白 = 恢复自动标题**（回到「首条用户消息」的推导标题） |
+```json
+// 请求
+{"title":"杭州周末"}
+// 响应
+{"code":0,"message":"success","data":{"conversationId":"c-1a2b3c","title":"杭州周末"}}
+// 恢复自动标题的响应（title=null 表示已删掉覆盖行）
+{"code":0,"message":"success","data":{"conversationId":"c-1a2b3c","title":null}}
+```
+只改展示标题，不动消息、不影响续聊。不属于当前用户的 `conversationId` 同样返回成功
+（写入按 `user_id` 隔离，改不到别人的会话；也不提供 404，避免变成会话存在性探测接口）。
+错误：`400` 标题超长；`401`
+
+### 5.11 DELETE /api/agent/conversations/{conversationId} — 删除会话（V23）
+鉴权：登录 ｜ 源码：`AgentController#deleteConversation` ｜ 参数：路径 `conversationId`
+```json
+{"code":0,"message":"success","data":null}
+```
+把该会话的消息与标题覆盖（`conversation_meta`）一起删，**不可恢复**。幂等：不存在的会话同样返回成功
+（保留期清理可能已经删过）；非法 / 超长的 `conversationId` 清洗成「无此会话」，删不到任何数据。
+错误：`401`
+
+### 5.12 GET /api/agent/runs — 运行列表（V2.2 FR-10）
 鉴权：登录 ｜ 源码：`AgentController#runs` ｜ 参数：`limit`（默认 20，上限 50）
 ```json
 {"code":0,"message":"success","data":[{"runId":"8f3c…","tripId":null,"message":"帮我规划杭州三日游","intent":"PLAN_TRIP","status":"SUCCEEDED","error":null,"startedAt":"2026-11-18 12:03:11","endedAt":"2026-11-18 12:03:19","durationMs":8123}]}
@@ -722,7 +748,7 @@ data:{"planId":"plan-8f3c","tripId":null,"message":"…","intent":"PLAN_TRIP","s
 `status`：`RUNNING` / `SUCCEEDED` / `FAILED` / `CANCELLED`（`NEED_CONFIRMATION` 记为 `SUCCEEDED`——规划已完成，等待用户动作）。
 错误：`401`
 
-### 5.11 GET /api/agent/runs/{runId} — 运行明细（任务图 + 工具调用）
+### 5.13 GET /api/agent/runs/{runId} — 运行明细（任务图 + 工具调用）
 鉴权：登录 ｜ 源码：`AgentController#runDetail` ｜ 参数：路径 `runId`
 ```json
 {"code":0,"message":"success","data":{
@@ -745,7 +771,7 @@ data:{"planId":"plan-8f3c","tripId":null,"message":"…","intent":"PLAN_TRIP","s
 
 摘要字段为截断 JSON（不含密钥）。错误：`401`；`404` `运行记录不存在`（他人的 run 同样 404）
 
-### 5.12 GET /api/agent/executions/{executionId} — 同步台账（V2.2 FR-09）
+### 5.14 GET /api/agent/executions/{executionId} — 同步台账（V2.2 FR-09）
 鉴权：登录 ｜ 源码：`AgentController#executionDetail` ｜ 参数：路径 `executionId`
 ```json
 {"code":0,"message":"success","data":{"executionId":"e-77b1","planId":"plan-8f3c","tripId":1,"status":"PARTIAL_FAILED","modules":[
@@ -755,7 +781,7 @@ data:{"planId":"plan-8f3c","tripId":null,"message":"…","intent":"PLAN_TRIP","s
 `module`：`calendar`（日程时间块）/ `budget`（计划预算快照）/ `footprint`（足迹计划标记）。
 错误：`401`；`404` `执行记录不存在`
 
-### 5.13 POST /api/agent/executions/{executionId}/retry — 重试失败模块
+### 5.15 POST /api/agent/executions/{executionId}/retry — 重试失败模块
 鉴权：登录 ｜ 源码：`AgentController#executionRetry` ｜ 参数：路径 `executionId`（无请求体）
 ```json
 {"code":0,"message":"success","data":{"executionId":"e-77b1","status":"SUCCEEDED","modules":[…]}}
@@ -763,7 +789,7 @@ data:{"planId":"plan-8f3c","tripId":null,"message":"…","intent":"PLAN_TRIP","s
 只重试 `FAILED` 模块，`SUCCEEDED` 模块原样保留（幂等键保证不重复创建）；`retryCount` 递增。
 错误：`400` `该执行记录没有可重试的模块`；`401`；`404`
 
-### 5.14 目的地城市名匹配（`util/CityNames`）
+### 5.16 目的地城市名匹配（`util/CityNames`）
 
 规划链路判断「目的地是否在目录内」统一走 `util/CityNames`（纯静态工具类，`OnlineCityService.matchesCity` 的唯一实现）：
 
@@ -1131,35 +1157,37 @@ RAG 文档接口在 P0 从原 `LearningController` 拆出，迁入 `TravelKnowle
 | 32 | GET | `/api/agent/executions/{executionId}` | 登录 | 同步台账 | `AgentController#executionDetail` |
 | 33 | POST | `/api/agent/executions/{executionId}/retry` | 登录 | 重试失败模块 | `AgentController#executionRetry` |
 | 34 | POST | `/api/agent/conversation/clear` | 登录 | 清空会话 | `AgentController#clearConversation` |
-| 35 | GET | `/api/trips/{tripId}/expenses` | 登录 | 支出列表 | `ExpenseController#list:30` |
-| 36 | POST | `/api/trips/{tripId}/expenses` | 登录 | 记一笔 | `ExpenseController#add:41` |
-| 37 | GET | `/api/expenses/overview` | 登录 | 记账总览 | `ExpenseController#overview:55` |
-| 38 | DELETE | `/api/expenses/{id}` | 登录 | 删除支出 | `ExpenseController#delete:61` |
-| 39 | POST | `/api/trips/{tripId}/photos` | 登录 | 上传照片 | `PhotoController#upload:28` |
-| 40 | GET | `/api/trips/{tripId}/photos` | 登录 | 照片列表 | `PhotoController#list:36` |
-| 41 | GET | `/api/photos/{id}/raw` | 登录/票据 | 读取原图 | `PhotoController#raw:52` |
-| 42 | DELETE | `/api/photos/{id}` | 登录 | 删除照片 | `PhotoController#delete:70` |
-| 43 | GET | `/api/reminders` | 登录 | 提醒板 | `ReminderController#board:22` |
-| 44 | POST | `/api/reminders/schedule/{id}/dismiss` | 登录 | 忽略日程提醒 | `ReminderController#dismissSchedule:28` |
-| 45 | POST | `/api/reminders/trip/{id}/dismiss` | 登录 | 忽略出发提醒 | `ReminderController#dismissTrip:35` |
-| 46 | GET | `/api/memos` | 登录 | 备忘列表 | `MemoController#list` |
-| 47 | POST | `/api/memos` | 登录 | 新增备忘 | `MemoController#add` |
-| 48 | POST | `/api/memos/{id}/toggle` | 登录 | 切换完成状态 | `MemoController#toggle` |
-| 49 | DELETE | `/api/memos/{id}` | 登录 | 删除备忘 | `MemoController#delete` |
-| 50 | GET | `/api/memos/open-count` | 登录 | 未完成备忘数量 | `MemoController#openCount` |
-| 51 | GET | `/api/schedule` | 登录 | 日程列表 | `ScheduleController#list` |
-| 52 | POST | `/api/schedule` | 登录 | 新增日程 | `ScheduleController#add` |
-| 53 | POST | `/api/schedule/{id}/toggle` | 登录 | 切换完成状态 | `ScheduleController#toggle` |
-| 54 | DELETE | `/api/schedule/{id}` | 登录 | 删除日程 | `ScheduleController#delete` |
-| 55 | POST | `/api/knowledge/add` | 登录 | 旅行知识库录入 | `TravelKnowledgeController#addKnowledge` |
-| 56 | POST | `/api/knowledge/search` | 登录 | 知识库检索 | `TravelKnowledgeController#searchKnowledge` |
-| 57 | GET | `/api/knowledge/documents/{id}/versions` | 登录 | 版本列表 | `TravelKnowledgeController#versions` |
-| 58 | GET | `/api/knowledge/documents/{id}/versions/{versionNo}` | 登录 | 版本详情 | `TravelKnowledgeController#version` |
-| 59 | POST | `/api/knowledge/documents/{id}/rollback/{versionNo}` | 登录 | 回滚版本 | `TravelKnowledgeController#rollback` |
-| 60 | GET | `/api/system/status` | 登录 | 运行能力自检 | `SystemController#status` |
-| 61 | POST | `/api/channels/webhook` | 渠道密钥 | 通用 Webhook | `WebhookChannelController#handle:43` |
-| 62 | GET | `/api/channels/wechat` | 微信签名 | 公众号接入验证 | `WeChatOfficialAccountController#verify:66` |
-| 63 | POST | `/api/channels/wechat` | 微信平台 | 公众号消息推送 | `WeChatOfficialAccountController#receive:85` |
+| 35 | PATCH | `/api/agent/conversations/{conversationId}` | 登录 | 重命名会话（V23；空标题=恢复自动标题） | `AgentController#renameConversation` |
+| 36 | DELETE | `/api/agent/conversations/{conversationId}` | 登录 | 删除会话（V23，幂等） | `AgentController#deleteConversation` |
+| 37 | GET | `/api/trips/{tripId}/expenses` | 登录 | 支出列表 | `ExpenseController#list:30` |
+| 38 | POST | `/api/trips/{tripId}/expenses` | 登录 | 记一笔 | `ExpenseController#add:41` |
+| 39 | GET | `/api/expenses/overview` | 登录 | 记账总览 | `ExpenseController#overview:55` |
+| 40 | DELETE | `/api/expenses/{id}` | 登录 | 删除支出 | `ExpenseController#delete:61` |
+| 41 | POST | `/api/trips/{tripId}/photos` | 登录 | 上传照片 | `PhotoController#upload:28` |
+| 42 | GET | `/api/trips/{tripId}/photos` | 登录 | 照片列表 | `PhotoController#list:36` |
+| 43 | GET | `/api/photos/{id}/raw` | 登录/票据 | 读取原图 | `PhotoController#raw:52` |
+| 44 | DELETE | `/api/photos/{id}` | 登录 | 删除照片 | `PhotoController#delete:70` |
+| 45 | GET | `/api/reminders` | 登录 | 提醒板 | `ReminderController#board:22` |
+| 46 | POST | `/api/reminders/schedule/{id}/dismiss` | 登录 | 忽略日程提醒 | `ReminderController#dismissSchedule:28` |
+| 47 | POST | `/api/reminders/trip/{id}/dismiss` | 登录 | 忽略出发提醒 | `ReminderController#dismissTrip:35` |
+| 48 | GET | `/api/memos` | 登录 | 备忘列表 | `MemoController#list` |
+| 49 | POST | `/api/memos` | 登录 | 新增备忘 | `MemoController#add` |
+| 50 | POST | `/api/memos/{id}/toggle` | 登录 | 切换完成状态 | `MemoController#toggle` |
+| 51 | DELETE | `/api/memos/{id}` | 登录 | 删除备忘 | `MemoController#delete` |
+| 52 | GET | `/api/memos/open-count` | 登录 | 未完成备忘数量 | `MemoController#openCount` |
+| 53 | GET | `/api/schedule` | 登录 | 日程列表 | `ScheduleController#list` |
+| 54 | POST | `/api/schedule` | 登录 | 新增日程 | `ScheduleController#add` |
+| 55 | POST | `/api/schedule/{id}/toggle` | 登录 | 切换完成状态 | `ScheduleController#toggle` |
+| 56 | DELETE | `/api/schedule/{id}` | 登录 | 删除日程 | `ScheduleController#delete` |
+| 57 | POST | `/api/knowledge/add` | 登录 | 旅行知识库录入 | `TravelKnowledgeController#addKnowledge` |
+| 58 | POST | `/api/knowledge/search` | 登录 | 知识库检索 | `TravelKnowledgeController#searchKnowledge` |
+| 59 | GET | `/api/knowledge/documents/{id}/versions` | 登录 | 版本列表 | `TravelKnowledgeController#versions` |
+| 60 | GET | `/api/knowledge/documents/{id}/versions/{versionNo}` | 登录 | 版本详情 | `TravelKnowledgeController#version` |
+| 61 | POST | `/api/knowledge/documents/{id}/rollback/{versionNo}` | 登录 | 回滚版本 | `TravelKnowledgeController#rollback` |
+| 62 | GET | `/api/system/status` | 登录 | 运行能力自检 | `SystemController#status` |
+| 63 | POST | `/api/channels/webhook` | 渠道密钥 | 通用 Webhook | `WebhookChannelController#handle:43` |
+| 64 | GET | `/api/channels/wechat` | 微信签名 | 公众号接入验证 | `WeChatOfficialAccountController#verify:66` |
+| 65 | POST | `/api/channels/wechat` | 微信平台 | 公众号消息推送 | `WeChatOfficialAccountController#receive:85` |
 
 ---
 
@@ -1173,7 +1201,7 @@ RAG 文档接口在 P0 从原 `LearningController` 拆出，迁入 `TravelKnowle
 | `AccessTicketController` | 1 | `controller/AccessTicketController.java` |
 | `TripController` | 14 | `controller/TripController.java` |
 | `ItineraryController` | 3 | `controller/ItineraryController.java` |
-| `AgentController` | 12 | `controller/AgentController.java` |
+| `AgentController` | 14 | `controller/AgentController.java` |
 | `ExpenseController` | 4 | `controller/ExpenseController.java` |
 | `PhotoController` | 4 | `controller/PhotoController.java` |
 | `ReminderController` | 3 | `controller/ReminderController.java` |
@@ -1183,7 +1211,7 @@ RAG 文档接口在 P0 从原 `LearningController` 拆出，迁入 `TravelKnowle
 | `SystemController` | 1 | `controller/SystemController.java` |
 | `WeChatOfficialAccountController` | 2 | `channel/WeChatOfficialAccountController.java` |
 | `WebhookChannelController` | 1 | `channel/WebhookChannelController.java` |
-| **合计** | **63** | 12 个 controller 包文件（60 个接口）+ 2 个 channel 包文件（3 个接口） |
+| **合计** | **65** | 12 个 controller 包文件（62 个接口）+ 2 个 channel 包文件（3 个接口） |
 
 ### 15.2 按业务模块
 
@@ -1192,7 +1220,7 @@ RAG 文档接口在 P0 从原 `LearningController` 拆出，迁入 `TravelKnowle
 | 认证与票据 | §2 | 5 |
 | 行程 | §3 | 14 |
 | 行程项 | §4 | 3 |
-| Agent 对话与方案 | §5 | 12 |
+| Agent 对话与方案 | §5 | 14 |
 | 记账 | §6 | 4 |
 | 照片 | §7 | 4 |
 | 提醒 | §8 | 3 |
@@ -1201,11 +1229,11 @@ RAG 文档接口在 P0 从原 `LearningController` 拆出，迁入 `TravelKnowle
 | 旅行知识库 | §11 | 5 |
 | 系统 | §12 | 1 |
 | 渠道 | §13 | 3 |
-| **合计** | — | **63** |
+| **合计** | — | **65** |
 
 ### 15.3 自检结论
 
-- 源码映射注解统计：12 个 controller 共 **60** 个 `@*Mapping` + 2 个 channel 文件共 **3** 个 = **63**，与第 14 章逐条一致。
+- 源码映射注解统计：12 个 controller 共 **62** 个 `@*Mapping` + 2 个 channel 文件共 **3** 个 = **65**，与第 14 章逐条一致。
 - **P0 删除的 22 个接口**（Office 8、Report 2、旧 Learning 8、Health 4）不再存在；原 Learning 的 RAG 三接口已迁到
   `/api/knowledge/documents/**`，知识录入/检索改为 `/api/knowledge/add`、`/api/knowledge/search`。
 - **P1 新增 3 个接口**：`PUT /api/itinerary/{id}/status`、`GET /api/trips/{id}/review`、`GET /api/trips/{id}/events`；

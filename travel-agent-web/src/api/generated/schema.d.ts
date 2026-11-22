@@ -100,6 +100,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agent/conversations/{conversationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["deleteConversation"];
+        options?: never;
+        head?: never;
+        patch: operations["renameConversation"];
+        trace?: never;
+    };
     "/api/agent/conversations/{conversationId}/messages": {
         parameters: {
             query?: never;
@@ -963,6 +979,13 @@ export interface components {
             message?: string;
             pagination?: components["schemas"]["Pagination"];
         };
+        ApiResponseConversationRenameResult: {
+            /** Format: int32 */
+            code?: number;
+            data?: components["schemas"]["ConversationRenameResult"];
+            message?: string;
+            pagination?: components["schemas"]["Pagination"];
+        };
         ApiResponseExecutionSummary: {
             /** Format: int32 */
             code?: number;
@@ -1274,6 +1297,10 @@ export interface components {
             messages?: components["schemas"]["ConversationMessageView"][];
             scope?: string;
         };
+        ConversationRenameResult: {
+            conversationId?: string;
+            title?: string;
+        };
         ConversationSummary: {
             conversationId?: string;
             lastMessageAt?: string;
@@ -1527,6 +1554,9 @@ export interface components {
             items?: components["schemas"]["Reminder"][];
             /** Format: date-time */
             serverTime?: string;
+        };
+        RenameConversationRequest: {
+            title?: string;
         };
         RollbackResult: {
             /** Format: int32 */
@@ -1967,6 +1997,54 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseListConversationSummary"];
+                };
+            };
+        };
+    };
+    deleteConversation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseVoid"];
+                };
+            };
+        };
+    };
+    renameConversation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenameConversationRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseConversationRenameResult"];
                 };
             };
         };

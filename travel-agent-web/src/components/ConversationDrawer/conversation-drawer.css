@@ -1,4 +1,4 @@
-/* 最近会话抽屉（§8.6）：行内只放「标题 + 时间/条数」，不用 antd List，避免与全局列表样式打架 */
+/* 最近会话抽屉（§8.6 / V23）：一行 = 会话按钮（标题 + 时间/条数）+ 右侧改名/删除动作 */
 .conv-drawer-actions {
   display: flex;
   align-items: center;
@@ -13,29 +13,52 @@
 
 .conv-item {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  width: 100%;
-  padding: 10px 12px;
-  text-align: left;
+  align-items: stretch;
+  gap: 4px;
+  padding: 6px 8px 6px 10px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--r-md);
-  cursor: pointer;
   transition:
     border-color 0.15s ease,
     background 0.15s ease;
 }
 
-.conv-item:hover:not(:disabled),
-.conv-item:focus-visible {
+.conv-item:hover,
+.conv-item:focus-within {
   border-color: var(--accent);
   background: var(--accent-weak);
 }
 
-.conv-item:disabled {
+/* 改名/删除请求进行中：整行降透明度，给出「已经点了、正在等」的反馈 */
+.conv-item[data-busy='true'] {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+/* 会话主体：可点击区域铺满左侧，动作按钮不抢它的点击面积 */
+.ci-main {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 4px 2px;
+  text-align: left;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.ci-main:disabled {
   cursor: progress;
   opacity: 0.75;
+}
+
+.ci-main:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
 }
 
 .conv-item.active {
@@ -60,6 +83,28 @@
 .ci-loading {
   font-size: 11.5px;
   color: var(--accent-hover);
+}
+
+/* 动作区：默认半透明，悬停/聚焦时实心，避免列表被一排图标切成两半 */
+.ci-actions {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  opacity: 0.55;
+  transition: opacity 0.15s ease;
+}
+
+.conv-item:hover .ci-actions,
+.conv-item:focus-within .ci-actions {
+  opacity: 1;
+}
+
+.ci-rename {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .conv-drawer-error {

@@ -109,6 +109,9 @@ class MigrationBaselineTest {
         core.add(21);
         // V22：schedule_item.source_key 唯一索引（同步日程幂等兜底），双方言中性 SQL
         core.add(22);
+        // V23：会话轮次序号（conversation_message.turn_seq + 唯一键）与会话元数据（conversation_meta），
+        // 双方言中性 SQL（仅用 ALTER TABLE ADD COLUMN / CREATE UNIQUE INDEX / CREATE TABLE IF NOT EXISTS）
+        core.add(23);
         Set<Integer> mysqlExpected = new LinkedHashSet<>(core);
         mysqlExpected.addAll(List.of(8, 12, 13));
         Set<Integer> h2Expected = new LinkedHashSet<>(core);

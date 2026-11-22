@@ -8,7 +8,7 @@
 
 | 门禁 | 绑定阶段 | 本地命令 | 当前数字 / 阈值 |
 | --- | --- | --- | --- |
-| 单元/集成测试（H2） | test | `mvn -B test` | **540 tests，0 failures，0 errors，1 skipped** |
+| 单元/集成测试（H2） | test | `mvn -B test` | **568 tests，0 failures，0 errors，1 skipped** |
 | JaCoCo INSTRUCTION | verify（check） | `mvn -B verify` | 实测 **79.73%**（38038/47707），阈值 **≥ 0.76** |
 | JaCoCo BRANCH | verify（check） | `mvn -B verify` | 实测 **60.81%**（3105/5106），阈值 **≥ 0.57** |
 | JaCoCo LINE | verify（check） | `mvn -B verify` | 实测 **79.15%**（7252/9162），阈值 **≥ 0.76** |

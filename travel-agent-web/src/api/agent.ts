@@ -405,3 +405,37 @@ export function clearConversation(conversationId: string): Promise<void> {
     data: { conversationId },
   });
 }
+
+/** 重命名结果：服务端真正生效的标题（null = 已恢复自动标题） */
+export interface ConversationRenameResult {
+  conversationId: string;
+  title: string | null;
+}
+
+/**
+ * 重命名一段会话（V23）：只改展示标题，不动消息、不影响续聊。
+ *
+ * 传空串 = 恢复自动标题（回到「首条用户消息」的推导标题），返回值里的 title 也就是 null。
+ */
+export function renameConversation(
+  conversationId: string,
+  title: string,
+): Promise<ConversationRenameResult> {
+  return request<ConversationRenameResult>({
+    url: `/agent/conversations/${encodeURIComponent(conversationId)}`,
+    method: 'patch',
+    data: { title },
+  });
+}
+
+/**
+ * 删除一段会话（V23）：消息与标题一起删，不可恢复。
+ *
+ * 幂等：不存在的会话同样成功（保留期清理可能已经删过），不需要前端区分。
+ */
+export function deleteConversation(conversationId: string): Promise<void> {
+  return request<void>({
+    url: `/agent/conversations/${encodeURIComponent(conversationId)}`,
+    method: 'delete',
+  });
+}

@@ -2,7 +2,7 @@
 
 > 状态：当前事实 | 适用版本：`travel-agent-server` 0.1.0 / Spring Boot 3.5.12 / Flyway 11.7.2 / MySQL 8.4.10 | 最后验证：2026-11-19 | 事实来源：`travel-agent-server/src/test/java/com/travel/agent/migration/MySqlFlywayMigrationTest.java`、`scripts/mysql-it.ps1`、本机 3307 实例实测输出
 
-本文说明如何用**真实 MySQL** 验证「Flyway 从空库全量迁移到最新版本，并且 Hibernate `ddl-auto=validate` 校验 19 个实体全部通过」。这是默认测试 profile（H2 + `create-drop` + Flyway 关闭）覆盖不到的部分：H2 上永远不会执行 `db/migration-mysql` 里的 `information_schema` 探测、`PREPARE` 动态语句、STORED 生成列与 MySQL 方言 DDL。
+本文说明如何用**真实 MySQL** 验证「Flyway 从空库全量迁移到最新版本，并且 Hibernate `ddl-auto=validate` 校验 21 个实体全部通过」。这是默认测试 profile（H2 + `create-drop` + Flyway 关闭）覆盖不到的部分：H2 上永远不会执行 `db/migration-mysql` 里的 `information_schema` 探测、`PREPARE` 动态语句、STORED 生成列与 MySQL 方言 DDL。
 
 - 测试类：[MySqlFlywayMigrationTest.java](../../travel-agent-server/src/test/java/com/travel/agent/migration/MySqlFlywayMigrationTest.java)
 - 本地一键脚本：[scripts/mysql-it.ps1](../../scripts/mysql-it.ps1)
@@ -40,8 +40,8 @@ MYSQL_IT=true mvn -B -Dtest=MySqlFlywayMigrationTest test
 | 关键表 | 19 个 `@Table` 映射表全部存在（另含 6 张退役旧表） | 表名 |
 | 关键列 | V13 补的 `trip.version` / `trip_photo` 列；V16 `pending_plan.content_hash`；V17 `trip.party_size`；V18 `agent_task.depends_on/attempt/replaces_task_id`；V19 `itinerary_item.status`、`trip_event.*`、`schedule_item/memo` 的旅行关联列 | `表.列` |
 | 关键索引 | V13 补齐的 8 个索引、V8/V11 唯一键、V9 复合索引、V15/V16/V19 新表索引 | `索引名（表）` |
-| 实体校验 | 上下文启动时 `ddl-auto=validate` 逐列校验；并断言 Hibernate 元模型恰好 19 个实体 | Hibernate 的 `Schema-validation` 原文 |
-| 证据输出 | schema、MySQL 版本、Flyway 版本、18 条迁移耗时、表数、实体数、证据库名 | 控制台 `[mysql-it]` 行 |
+| 实体校验 | 上下文启动时 `ddl-auto=validate` 逐列校验；并断言 Hibernate 元模型恰好 21 个实体 | Hibernate 的 `Schema-validation` 原文 |
+| 证据输出 | schema、MySQL 版本、Flyway 版本、22 条迁移耗时、表数、实体数、证据库名 | 控制台 `[mysql-it]` 行 |
 
 ### 1.2 不验证（避免误读）
 
@@ -173,29 +173,29 @@ CI 会起 `mysql:8.4` service container。建议的 job（**本次任务不改 `
 
 ## 4. 断言清单（跑完看什么）
 
-### 4.1 为什么是 18 条迁移，不是 19 条
+### 4.1 为什么是 22 条迁移，不是 23 条
 
 `mysql` profile 只加载 `db/migration` + `db/migration-mysql`：
 
 | 目录 | 版本 |
 | --- | --- |
-| `db/migration` | V1–V7、V9–V11、V15–V19（15 个） |
+| `db/migration` | V1–V7、V9–V11、V15–V23（19 个） |
 | `db/migration-mysql` | V8、V12、V13（3 个） |
-| **MySQL 合计** | **18 条**（V1–V13 + V15–V19） |
+| **MySQL 合计** | **22 条**（V1–V13 + V15–V23） |
 
-`V14__llm_quota_unique_h2.sql` 在 `db/migration-h2/`，是 H2 专属（MySQL 侧同一约束由 V8 负责），因此 MySQL 迁移链**没有 V14**。测试从 classpath 动态枚举版本集合，并显式断言「不包含 V14」；新增 V20 会被自动纳入，不需要同步维护版本清单。
+`V14__llm_quota_unique_h2.sql` 在 `db/migration-h2/`，是 H2 专属（MySQL 侧同一约束由 V8 负责），因此 MySQL 迁移链**没有 V14**。测试从 classpath 动态枚举版本集合，并显式断言「不包含 V14」；新增 V24 会被自动纳入版本集合，但 `DOCUMENTED_MYSQL_VERSIONS`（链尾清单）与本文仍需同步更新。
 
 ### 4.2 `flyway_schema_history` 断言
 
-- 行数 = classpath 上 MySQL 迁移脚本数（当前 18）；
+- 行数 = classpath 上 MySQL 迁移脚本数（当前 22）；
 - 每行 `success=1`，`success=0` 计数为 0；
 - 已应用版本集合与 classpath 版本集合**完全相等**（多一条少一条都失败）。
 
 ### 4.3 结构与实体断言
 
-- 19 张实体表：`agent_run`、`agent_task`、`conversation_message`、`expense`、`itinerary_item`、`llm_quota_usage`、`memo`、`operation_history`、`pending_plan`、`plan_execution`、`rag_chunk`、`rag_document`、`rag_document_version`、`schedule_item`、`tool_call_trace`、`trip`、`trip_event`、`trip_photo`、`users`；
+- 21 张实体表：`agent_command_dedupe`、`agent_run`、`agent_task`、`conversation_message`、`conversation_meta`、`expense`、`itinerary_item`、`llm_quota_usage`、`memo`、`operation_history`、`pending_plan`、`plan_execution`、`rag_chunk`、`rag_document`、`rag_document_version`、`schedule_item`、`tool_call_trace`、`trip`、`trip_event`、`trip_photo`、`users`；
 - 关键列与索引见测试源码中的 `REQUIRED_COLUMNS` / `REQUIRED_INDEXES`；
-- Hibernate 在上下文启动时已执行 `validate`；测试再断言元模型恰好 19 个实体。
+- Hibernate 在上下文启动时已执行 `validate`；测试再断言元模型恰好 21 个实体。
 
 ---
 

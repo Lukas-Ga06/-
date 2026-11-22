@@ -66,8 +66,41 @@ public interface ConversationMessageRepository extends JpaRepository<Conversatio
                                               @Param("conversationIds") Collection<String> conversationIds);
 
     /** 某个会话最近的 N 条（倒序取回，由调用方反转成时间正序） */
-    List<ConversationMessage> findByUserIdAndConversationIdOrderByCreatedAtDescIdDesc(
-            Long userId, String conversationId, Pageable pageable);
+    @Query("""
+            select m from ConversationMessage m
+             where m.userId = :userId and m.conversationId = :conversationId
+          order by coalesce(m.turnSeq, 0) desc, m.createdAt desc, m.id desc
+            """)
+    List<ConversationMessage> findRecent(@Param("userId") Long userId,
+                                         @Param("conversationId") String conversationId,
+                                         Pageable pageable);
+
+    /**
+     * 该会话当前最大的轮次序号（V23 分配用）；没有任何带序号的轮次时返回 0。
+     *
+     * <p>存量行（turn_seq 为 null）不计入：它们本来就排在新轮次之前，
+     * 新轮次从 1 开始编号即语义正确。
+     */
+    @Query("""
+            select coalesce(max(m.turnSeq), 0) from ConversationMessage m
+             where m.userId = :userId and m.conversationId = :conversationId
+            """)
+    long maxTurnSeq(@Param("userId") Long userId, @Param("conversationId") String conversationId);
+
+    /** 单个会话的消息条数与最后活动时间（改名的返回值用它回填列表行） */
+    @Query("""
+            select count(m) as messageCount, max(m.createdAt) as lastMessageAt
+              from ConversationMessage m
+             where m.userId = :userId and m.conversationId = :conversationId
+            """)
+    MessageStats stats(@Param("userId") Long userId, @Param("conversationId") String conversationId);
+
+    /** 单会话统计投影（见 {@link #stats}） */
+    interface MessageStats {
+        Long getMessageCount();
+
+        LocalDateTime getLastMessageAt();
+    }
 
     /** 最近 N 条（倒序取回后由调用方反转成时间正序） */
     List<ConversationMessage> findTop20ByUserIdAndConversationIdOrderByCreatedAtDesc(Long userId, String conversationId);

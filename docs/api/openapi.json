@@ -275,6 +275,24 @@
         },
         "type" : "object"
       },
+      "ApiResponseConversationRenameResult" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/ConversationRenameResult"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "pagination" : {
+            "$ref" : "#/components/schemas/Pagination"
+          }
+        },
+        "type" : "object"
+      },
       "ApiResponseExecutionSummary" : {
         "properties" : {
           "code" : {
@@ -1135,6 +1153,17 @@
         },
         "type" : "object"
       },
+      "ConversationRenameResult" : {
+        "properties" : {
+          "conversationId" : {
+            "type" : "string"
+          },
+          "title" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "ConversationSummary" : {
         "properties" : {
           "conversationId" : {
@@ -1827,6 +1856,16 @@
           },
           "serverTime" : {
             "format" : "date-time",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "RenameConversationRequest" : {
+        "properties" : {
+          "title" : {
+            "maxLength" : 40,
+            "minLength" : 0,
             "type" : "string"
           }
         },
@@ -2770,6 +2809,66 @@
               "*/*" : {
                 "schema" : {
                   "$ref" : "#/components/schemas/ApiResponseListConversationSummary"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "agent-controller" ]
+      }
+    },
+    "/api/agent/conversations/{conversationId}" : {
+      "delete" : {
+        "operationId" : "deleteConversation",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "conversationId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseVoid"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "agent-controller" ]
+      },
+      "patch" : {
+        "operationId" : "renameConversation",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "conversationId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/RenameConversationRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseConversationRenameResult"
                 }
               }
             },
