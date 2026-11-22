@@ -48,24 +48,101 @@ beforeEach(() => {
       title: '帮我规划杭州周末',
       lastMessageAt: '2026-11-20T10:00:00',
       messageCount: 4,
+      scope: 'assistant',
     },
     {
       conversationId: 'conv-2',
       title: '记一下明天办签证',
       lastMessageAt: '2026-11-19T09:00:00',
       messageCount: 2,
+      scope: 'trip:12',
     },
   ]);
-  api.getConversationMessages.mockResolvedValue([
-    { role: 'user', content: '帮我规划杭州周末', createdAt: '2026-11-20T10:00:00' },
-    { role: 'assistant', content: '好的，给你两版方案。', createdAt: '2026-11-20T10:00:05' },
-  ]);
+  api.getConversationMessages.mockResolvedValue({
+    conversationId: 'conv-1',
+    scope: 'assistant',
+    messages: [
+      { role: 'user', content: '帮我规划杭州周末', createdAt: '2026-11-20T10:00:00' },
+      { role: 'assistant', content: '好的，给你两版方案。', createdAt: '2026-11-20T10:00:05' },
+    ],
+  });
 });
 
 afterEach(() => {
   cleanup();
   api.listConversations.mockReset();
   api.getConversationMessages.mockReset();
+});
+
+describe('ConversationDrawer · 会话作用域（V21）', () => {
+  it('列表里标出会话是在哪儿聊的，未绑定的存量会话不编造标签', async () => {
+    api.listConversations.mockResolvedValue([
+      {
+        conversationId: 'conv-trip',
+        title: '把第二天的酒店换掉',
+        lastMessageAt: '2026-11-20T10:00:00',
+        messageCount: 6,
+        scope: 'trip:12',
+      },
+      {
+        conversationId: 'conv-plan',
+        title: '排一个三日游',
+        lastMessageAt: '2026-11-19T10:00:00',
+        messageCount: 2,
+        scope: 'planner',
+      },
+      {
+        conversationId: 'conv-legacy',
+        title: '很久以前的对话',
+        lastMessageAt: '2026-11-18T10:00:00',
+        messageCount: 2,
+        scope: null,
+      },
+    ]);
+    renderDrawer();
+
+    const tripRow = (await screen.findByText('把第二天的酒店换掉')).closest('button');
+    expect(tripRow?.textContent).toContain('行程 #12');
+    const planRow = screen.getByText('排一个三日游').closest('button');
+    expect(planRow?.textContent).toContain('规划');
+    const legacyRow = screen.getByText('很久以前的对话').closest('button');
+    // 存量会话 scope 为 null：既不能显示「助手」，也不能显示上一段会话的标签
+    expect(legacyRow?.textContent).not.toContain('行程 #');
+    expect(legacyRow?.textContent).not.toContain('助手');
+  });
+
+  it('继续一段行程会话：把服务端记录的作用域恢复成行程绑定', async () => {
+    api.getConversationMessages.mockResolvedValue({
+      conversationId: 'conv-2',
+      scope: 'trip:12',
+      messages: [{ role: 'user', content: '把第二天的酒店换掉', createdAt: '2026-11-19T09:00:00' }],
+    });
+    renderDrawer();
+
+    const item = await screen.findByText('记一下明天办签证');
+    fireEvent.click(item.closest('button') as HTMLElement);
+
+    await waitFor(() => expect(useAgentStore.getState().conversationId).toBe('conv-2'));
+    expect(useAgentStore.getState().resumedTripId).toBe(12);
+  });
+
+  it('回填返回的作用域优先于列表副本（期间可能在别的标签页聊过）', async () => {
+    api.getConversationMessages.mockResolvedValue({
+      conversationId: 'conv-2',
+      scope: 'assistant',
+      messages: [
+        { role: 'user', content: '顺便记一下明天办签证', createdAt: '2026-11-19T09:00:00' },
+      ],
+    });
+    renderDrawer();
+
+    const item = await screen.findByText('记一下明天办签证');
+    fireEvent.click(item.closest('button') as HTMLElement);
+
+    await waitFor(() => expect(useAgentStore.getState().conversationId).toBe('conv-2'));
+    // 列表里写的是 trip:12，但最近的记录已改成 assistant —— 以回填为准，不恢复绑定
+    expect(useAgentStore.getState().resumedTripId).toBeNull();
+  });
 });
 
 describe('ConversationDrawer · 最近会话列表（§8.6）', () => {

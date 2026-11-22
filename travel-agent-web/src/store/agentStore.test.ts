@@ -21,7 +21,7 @@ vi.mock('../api/agent', () => ({
   clearConversation: clearConversationSpy,
 }));
 
-import { useAgentStore } from './agentStore';
+import { tripIdOfScope, useAgentStore } from './agentStore';
 
 function completedResult(overrides: Partial<AgentResult> = {}): AgentResult {
   return { status: 'COMPLETED', message: '行程已保存', ...overrides };
@@ -115,6 +115,69 @@ describe('agentStore', () => {
     useAgentStore.getState().setScope('assistant');
     expect(useAgentStore.getState().conversationId).toBe('conv-cache');
     expect(useAgentStore.getState().messages[0].content).toBe('缓存里的问题');
+  });
+
+  it('send 携带当前作用域（V21）：服务端据此把会话归属记下来', () => {
+    useAgentStore.getState().setScope('trip:12');
+    useAgentStore.getState().send({ message: '把第二天的酒店换掉', tripId: 12 });
+    expect(paramsRef.current?.scope).toBe('trip:12');
+
+    useAgentStore.getState().setScope('planner');
+    useAgentStore.getState().send({ message: '帮我排一个三日游' });
+    expect(paramsRef.current?.scope).toBe('planner');
+  });
+
+  it('续聊恢复行程绑定：助手页继续一段行程会话时，下一条消息仍带 tripId（V21）', () => {
+    useAgentStore.getState().setScope('assistant');
+    useAgentStore
+      .getState()
+      .resumeConversation(
+        'conv-trip',
+        [{ role: 'user', content: '行程 12 第二天太赶了', createdAt: null }],
+        'trip:12',
+      );
+
+    useAgentStore.getState().send({ message: '把第二天下午的景点删一个' });
+
+    expect(useAgentStore.getState().resumedTripId).toBe(12);
+    expect(paramsRef.current?.tripId).toBe(12);
+    // 作用域仍是助手页：恢复的是行程绑定，不是页面归属
+    expect(paramsRef.current?.scope).toBe('assistant');
+  });
+
+  it('页面自己带了 tripId 时以页面为准，不被历史绑定覆盖（V21）', () => {
+    useAgentStore.getState().resumeConversation('conv-trip', [], 'trip:12');
+
+    useAgentStore.getState().send({ message: '换成后天的', tripId: 30 });
+
+    expect(paramsRef.current?.tripId).toBe(30);
+  });
+
+  it('未绑定的会话不回填 tripId；切换作用域或开新会话后绑定失效（V21）', () => {
+    useAgentStore.getState().resumeConversation('conv-plain', [], null);
+    expect(useAgentStore.getState().resumedTripId).toBeNull();
+    useAgentStore.getState().send({ message: '你好' });
+    expect(paramsRef.current?.tripId).toBeUndefined();
+
+    useAgentStore.getState().resumeConversation('conv-trip', [], 'trip:7');
+    expect(useAgentStore.getState().resumedTripId).toBe(7);
+    // 切作用域：恢复的绑定属于上一段对话，不能泄漏到新页面
+    useAgentStore.getState().setScope('trip:99');
+    expect(useAgentStore.getState().resumedTripId).toBeNull();
+
+    useAgentStore.getState().setScope('assistant');
+    useAgentStore.getState().resumeConversation('conv-trip', [], 'trip:7');
+    useAgentStore.getState().newConversation();
+    expect(useAgentStore.getState().resumedTripId).toBeNull();
+  });
+
+  it('tripIdOfScope 只认 trip:<正整数>（V21）', () => {
+    expect(tripIdOfScope('trip:12')).toBe(12);
+    expect(tripIdOfScope('trip:0')).toBeNull();
+    expect(tripIdOfScope('trip:-1')).toBeNull();
+    expect(tripIdOfScope('trip:abc')).toBeNull();
+    expect(tripIdOfScope('assistant')).toBeNull();
+    expect(tripIdOfScope(null)).toBeNull();
   });
 
   it('streaming 期间重复发送会被忽略', () => {

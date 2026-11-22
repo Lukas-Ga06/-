@@ -105,6 +105,8 @@ class MigrationBaselineTest {
         core.add(19);
         // V20：Agent 写入命令幂等台账（agent_command_dedupe，P0-01），双方言中性 SQL
         core.add(20);
+        // V21：会话作用域（conversation_message.scope，§8.6 续聊边界），双方言中性 SQL
+        core.add(21);
         Set<Integer> mysqlExpected = new LinkedHashSet<>(core);
         mysqlExpected.addAll(List.of(8, 12, 13));
         Set<Integer> h2Expected = new LinkedHashSet<>(core);

@@ -2,6 +2,104 @@
 
 按主题记录行为变化。**第四节是最需要注意的**：其中几项改变了原有的使用习惯。
 
+## 体验方案阶段 E 第三刀：首页 / 行程 / 足迹样式拆分 + 无障碍门禁修复（2026-11-21）
+
+> 承接阶段 E 第二刀末尾的「剩余 ~5.9k 行里的共享层与历史覆盖层，需要按组件归属逐条重建」。
+
+### 一、行为变化（用户能感知的）
+
+1. **无视觉变化**：三张页面样式原样搬到页面文件，11 张截图基线逐像素一致（0 像素差）。
+2. 一处**无障碍修正**（可见）：卡片右上角「全部待办 →」这类小字链接的蓝色加深了一点
+   （`#1f6feb` → `#1a5fd0`）。原色在灰色卡片底上只有 4.06:1，达不到 WCAG AA 的 4.5:1；
+   新色在白色/灰面/`--surface-3` 三种底上分别是 5.85 / 5.13 / 5.26:1。深色主题同样新增专用值（最差 6.77:1）。
+3. 首屏 CSS 再减 **10,851 B（−13.5%）**：首页/行程/足迹的规则改成随路由 chunk 加载。
+
+### 二、实现要点（给维护者）
+
+- 新增 `src/pages/{Home,Trip,Footprint}/{home,trip,footprint}.css`（220 / 176 / 530 行），
+  页面模块各自 import；`global.css` **5,964 → 5,090 行**（两刀合计 −1,631 行，−24.3%）。
+- 等价性用 postcss 规则级 diff 证明：`(at-context, selector) → 声明序列` 多重集，
+  **0 丢失 / 0 新增 / 0 声明变化 / 0 顺序失效**。脚本与输出在 `.evidence/css-split-batch2/`。
+- **7 类规则有意留在 global**（基础与 v5 覆盖必须同文件、`mini-tag` 是全局类名、足迹骨架段会被 vite
+  拆成两个 chunk 等），每类的实测症状写在验收快照里 —— 下一个想继续拆的人不必重新踩。
+- 新增令牌 `--accent-text`（亮 `#1a5fd0` / 深 `#7cb0ff`），**文字**用 `--accent-text`，
+  填充与描边继续用 `--accent`（非文本对比度按 3:1 口径）。
+- `a11y.spec.ts` 首页用例改为先造一条未完成备忘再扫（扫完删除）：此前那个按钮只在有未完成备忘时渲染，
+  于是「扫不扫得到」取决于库里有没有残留数据 —— 全新 CI 库永远扫不到，本地跑久了必红。
+
+### 三、验证结果
+
+- `npm run test:visual` **11/11 PASS，0 像素差**（基线一张未改）。
+- `a11y.spec.ts` **5 passed**（修复前首页 1 failed）。
+- 前端全量 `npm test` **48 文件 / 500 用例**；typecheck / lint（0 error）/ format / build:check / api:check 全过；
+  核心目录覆盖率四条阈值全达标。
+- 主 e2e **13 passed**；新增设备套件 **21 passed**（见下一节）。
+- 验收快照：[docs/review/2026-11-21-stage-e-css-split-batch2.md](review/2026-11-21-stage-e-css-split-batch2.md)。
+
+## 真机边界、弱网与多端并发（2026-11-21）
+
+### 一、行为变化（用户能感知的）
+
+1. 无产品行为变化；新增的是**验收能力**（移动端/弱网/并发三套用例）与一条 CI 观察 job。
+
+### 二、实现要点（给维护者）
+
+- 新增 `e2e/mobile-safari.spec.ts`（WebKit + `devices['iPhone 13']`）、`network-conditions.spec.ts`
+  （Chromium CDP Slow-3G / 离线）、`multi-device.spec.ts`（同账号两个独立 context）、
+  `support-device.ts`、`run-suite.mjs`；`playwright.config.ts` 加 `E2E_SUITE` 与 3 个 project；
+  `package.json` 加 `test:e2e:mobile|network|multi|device`。
+- 主 `npm run e2e` 口径**保持不变**（13 条 Chromium 桌面），新套件不并入其阻塞路径。
+- CI 新增 `e2e-device` job（`continue-on-error: true`），显式 `playwright install chromium webkit`；
+  转正条件写在 [docs/guide/ci.md](guide/ci.md)。
+
+### 三、验证结果
+
+- `npm run test:e2e:device` **21 passed**（13 既有 + 8 新增）；每个新套件连跑 3 轮一致。
+- Slow-3G 首屏实测 **8.3s**（阈值 20s）。
+- **iOS 真机不可验**：本机无 Safari、无真机通道。WebKit 预设证明不了 `safe-area-inset`、
+  真机手势/软键盘、老 iOS 分支 —— 边界写在验收快照里。
+- 发现一个真实缺口（未修，已记录）：同一段会话被两个端同时续聊时，`conversation_message`
+  写入无并发控制（无唯一约束/版本号），消息会交错追加。
+- 验收快照：[docs/review/2026-11-21-device-network-acceptance.md](review/2026-11-21-device-network-acceptance.md)。
+
+## §8.6 续：会话 scope —— 跨页面续聊不再丢失行程绑定（2026-11-21）
+
+> 承接上一节末尾留下的边界：「会话没有 scope 字段，在助手页继续一段行程会话时只恢复消息、不恢复行程绑定」。
+> 这是**契约变更**（新增迁移 + 新增字段 + 一个响应体变形），不是纯展示调整。
+
+### 一、行为变化（用户能感知的）
+
+1. 「最近会话」列表里，每段会话会标出它是在哪儿聊的：`行程 #12` / `规划` / `助手`。
+2. 在助手页点开一段**属于某个行程**的旧会话继续聊，下一句话仍然带着那个行程
+   —— 以前会丢掉这个前提，Agent 只能当你在泛泛地聊。
+3. 存量会话（本次升级前写入的）不显示来源标签，也不会被硬塞进某个行程：未绑定就是未绑定。
+
+### 二、实现要点（给维护者）
+
+- 迁移 `V21__conversation_scope.sql`：`conversation_message` 加 `scope VARCHAR(32)` +
+  `idx_conv_user_scope(user_id, scope)`。**存量行保持 NULL，不猜**（从正文反推归属等于编造数据）。
+  双方言中性 SQL，H2 与 MySQL 都能跑。
+- 契约：`ChatRequest` / `PlanStreamRequest` 新增可选 `scope`；`ConversationSummary` 新增 `scope`；
+  `GET /api/agent/conversations/{id}/messages` 响应由**裸数组**改为
+  `ConversationMessagesView{conversationId, scope, messages}`（不兼容变更，本仓库前端已同步）。
+- 作用域来源：客户端声明优先 → 否则按请求自身字段推导（带 `tripId` 即 `trip:<id>`，否则 `assistant`）→
+  非法值按未声明处理（**不 400**，作用域不该有否决一条消息的权力）。推导只看请求字段，不查库、不读正文。
+- 读路径取「最近一次」：列表用 `coalesce(max(scope), '')` 后还原 null；回填取时间正序最后一条的 scope，
+  两者同口径。前端 `agentStore.resumedTripId` + `tripIdOfScope()` 负责解析，页面自带 tripId 时以页面为准。
+- 作用域**不是权限**：归属校验仍按 `userId` 在各业务接口做，`trip:12` 不代表有权访问行程 12。
+
+### 三、验证结果
+
+- 真实 MySQL 8.4.10（`:3307` 便携实例）：`Successfully applied 20 migrations … now at version v21`，
+  `MySqlFlywayMigrationTest` PASS。顺带修掉一处真实漂移：`MAPPED_ENTITIES` / `hasSize(19)` 在 V20 引入
+  `AgentCommandDedupe` 时漏更新（该测试默认被 `MYSQL_IT=true` 跳过，所以一直没人发现），现改为
+  `hasSize(MAPPED_ENTITIES.size())`，数量与清单不可能再各说各话。
+- 后端 `mvn -B verify` 全绿：**550 用例**（改造前 HEAD 实测 546，净增 4），Checkstyle 0、SpotBugs 0。
+- 前端：`agentStore` 44 例（新增 5）、`ConversationDrawer` 9 例（新增 3）、`api/agent` 11 例（新增 2）；
+  `typecheck` / `api:check`（paths=54, schemas=103）通过。
+- 验收快照：[docs/review/2026-11-21-conversation-scope.md](review/2026-11-21-conversation-scope.md)。
+- 仍未做：会话重命名/删除；同一段会话被两个端同时续聊时 `append` 无并发控制（无唯一约束、无版本号）。
+
 ## §8.6 最近会话列表：会话列表契约 + 继续对话（2026-11-21）
 
 > 对应设计文档 §8.6。新增两个**只读**接口与助手页「最近会话」抽屉；写入路径（chat / stream）零改动。

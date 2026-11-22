@@ -17,7 +17,12 @@
  * 最小豁免（例如只 Omit 单个字段），不要用 `any` 掩盖。
  */
 import type { components, paths } from '../api/generated/schema';
-import type { AgentStreamParams, ConversationMessageView, ConversationSummary } from '../api/agent';
+import type {
+  AgentStreamParams,
+  ConversationMessageView,
+  ConversationResume,
+  ConversationSummary,
+} from '../api/agent';
 import type { AddItemPayload, ItineraryItem, ItineraryPrice, Trip } from './trip';
 
 /** 按 schema 名取生成类型，例如 `ApiSchema<'TripResponse'>`。 */
@@ -86,6 +91,13 @@ export type ConversationSummaryMatchesSchema = Assert<
 export type ConversationMessageViewMatchesSchema = Assert<
   SameShape<ConversationMessageView, ApiSchema<'ConversationMessageView'>>
 >;
+/**
+ * 续聊回填（V21）：消息 + 作用域。字段结构一改（例如 scope 从字符串变成对象），
+ * 抽屉里的「行程 #12」标签与行程绑定恢复会静默失效 —— 这里让它在编译期就失败。
+ */
+export type ConversationResumeMatchesSchema = Assert<
+  SameShape<ConversationResume, ApiSchema<'ConversationMessagesView'>>
+>;
 
 // ==================== Chat 请求 ====================
 
@@ -93,6 +105,8 @@ export type ConversationMessageViewMatchesSchema = Assert<
  * SSE 对话请求：前端 `AgentStreamParams` 与后端 `ChatRequest` 一致。
  * 注意 `message` 的长度限制（前端 500 / 表单流式 2 万）在 schema 里是 `maxLength`，
  * 属于运行时校验而非类型，不在类型断言范围内。
+ *
+ * V21 起 `scope` 也在其中：前端传的是 store 的当前作用域，后端据此把会话归属记下来。
  */
 export type ChatStreamParamsMatchSchema = Assert<
   SameShape<AgentStreamParams, ApiSchema<'ChatRequest'>>

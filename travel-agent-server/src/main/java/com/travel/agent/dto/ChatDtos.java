@@ -9,6 +9,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
+
 public class ChatDtos {
 
     /**
@@ -25,6 +27,11 @@ public class ChatDtos {
         /** 最后一条消息时间（ISO-8601 本地时间）；前端按它排序/显示「刚刚 / 昨天」 */
         private String lastMessageAt;
         private long messageCount;
+        /**
+         * 会话作用域（V21）：{@code assistant} / {@code planner} / {@code trip:<id>}。
+         * 存量会话（V21 之前写入）为 null —— 表示「未绑定」，绝不能猜一个值出来。
+         */
+        private String scope;
     }
 
     /** 会话内的一条历史消息（只读，用于「继续对话」时回填聊天记录） */
@@ -36,6 +43,18 @@ public class ChatDtos {
         private String role;
         private String content;
         private String createdAt;
+    }
+
+    /** 「继续对话」回填：消息本身 + 这段会话的作用域（前端据此恢复行程绑定） */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ConversationMessagesView {
+        private String conversationId;
+        /** 与 {@link ConversationSummary#getScope()} 同一口径；null 表示未绑定 */
+        private String scope;
+        private List<ConversationMessageView> messages;
     }
 
     @Data
@@ -62,8 +81,18 @@ public class ChatDtos {
          * 为空表示不做幂等（旧客户端行为不变）。
          */
         @Size(max = 64, message = "长度不能超过 64 个字符")
-        @Pattern(regexp = "[A-Za-z0-9_-]*", message = "格式不正确")
+        @Pattern(regexp = "[A-Za-z0-9:_-]*", message = "格式不正确")
         private String requestId;
+        /**
+         * 会话作用域（V21）：{@code assistant} / {@code planner} / {@code trip:<id>}。
+         * 服务端只把它记在会话上，用于「最近会话」分组与续聊时恢复行程绑定。
+         *
+         * <p>这里<b>只限长、不限格式</b>：内容不合法时由 Controller 的 {@code sanitizeScope}
+         * 降级成「未绑定」（{@code controller} 层与 GET 查询参数走同一条清洗规则），
+         * 而不是把整条对话打回 400 —— 作用域是展示提示，不该有否决一条消息的权力。
+         */
+        @Size(max = 32, message = "长度不能超过 32 个字符")
+        private String scope;
     }
 
     /**
@@ -88,6 +117,9 @@ public class ChatDtos {
         @Size(max = 64, message = "长度不能超过 64 个字符")
         @Pattern(regexp = "[A-Za-z0-9_-]*", message = "格式不正确")
         private String requestId;
+        /** 会话作用域（V21），语义与 {@link ChatRequest#getScope()} 一致（同样只限长、由 Controller 清洗） */
+        @Size(max = 32, message = "长度不能超过 32 个字符")
+        private String scope;
     }
 
     /** 多模态上下文：用户点击选中的元素，解决「这个换成类似的」中的指代问题 */

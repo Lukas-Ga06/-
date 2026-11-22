@@ -323,3 +323,68 @@ jobs:
             travel-agent-web/test-results
             travel-agent-web/playwright-report
           retention-days: 7
+  # 移动端 / 弱网 / 多端并发：本地已实跑通过，但**暂不作为阻塞门禁**（continue-on-error）。
+  # 转正条件见 docs/guide/ci.md「为什么有三个套件只在本地」：
+  #   1) 观察 2 周，确认在共享 runner 上不因耗时阈值抖动而红；
+  #   2) 把「移动端真实 Safari」与「Playwright WebKit 模拟」的边界写进 PR 模板，避免被当成真机结论。
+  # 注意：不得并入上面的 `e2e` job —— 那个 job 的门禁口径是「13 条 Chromium 桌面冒烟」，保持稳定。
+  e2e-device:
+    name: E2E / 移动端(WebKit) + 弱网(CDP) + 多端并发（观察中，不阻塞）
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: travel-agent-web/package-lock.json
+
+      # 与 e2e job 同款后端：H2 文件库 + demo 账号，关限流（原因见上面 e2e job 的注释）
+      - name: Start backend
+        working-directory: travel-agent-server
+        env:
+          RATE_LIMIT_ENABLED: 'false'
+        run: nohup mvn -B spring-boot:run > backend.log 2>&1 &
+
+      - name: Wait for backend health
+        run: |
+          timeout 240 bash -c 'until curl -sf http://localhost:8080/actuator/health > /dev/null; do sleep 5; done'
+
+      - name: Install frontend dependencies
+        working-directory: travel-agent-web
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: travel-agent-web
+        run: npm run build
+
+      # webkit 必须显式安装：主 e2e job 只装了 chromium
+      - name: Install Playwright browsers (chromium + webkit)
+        working-directory: travel-agent-web
+        run: npx playwright install --with-deps chromium webkit
+
+      # device = 13 条主冒烟 + 8 条新增（移动端 3 / 弱网 3 / 多端并发 2）
+      - name: Run device suites
+        working-directory: travel-agent-web
+        run: npm run test:e2e:device
+
+      - name: Upload artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-device-artifacts
+          path: |
+            travel-agent-server/backend.log
+            travel-agent-web/test-results
+            travel-agent-web/playwright-report
+          retention-days: 7

@@ -45,7 +45,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 真实 MySQL（8.4）上的 Flyway 全量迁移 + Hibernate {@code ddl-auto=validate} 集成验证。
  *
  * <p>这个测试回答一个 H2 单测回答不了的问题：<b>「db/migration + db/migration-mysql 的脚本，
- * 在真实 MySQL 上从空库一路跑到最新版本，并且与 19 个 JPA 实体完全对齐吗？」</b>
+ * 在真实 MySQL 上从空库一路跑到最新版本，并且与 20 个 JPA 实体完全对齐吗？」</b>
  * 测试 profile（H2 + {@code create-drop} + Flyway 关闭）永远覆盖不到方言相关的 DDL：
  * {@code information_schema} 探测、{@code PREPARE} 动态语句、生成列（V12）、
  * {@code ADD COLUMN ... DEFAULT} 回填（V17/V18/V19）等。
@@ -61,9 +61,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p><b>MySQL 版本链</b>：{@code mysql} profile 的 locations 是
  * {@code classpath:db/migration,classpath:db/migration-mysql}，看到的是
- * V1–V13（V8/V12/V13 为 MySQL 方言版）+ V15–V19，共 18 个迁移；
+ * V1–V13（V8/V12/V13 为 MySQL 方言版）+ V15–V21，共 20 个迁移；
  * <b>没有 V14</b>（{@code V14__llm_quota_unique_h2.sql} 是 H2 专属）。
- * 版本集合从 classpath 动态枚举，避免新增 V20 时维护两份清单。
+ * 版本集合从 classpath 动态枚举，避免新增 V21 时维护两份清单。
  *
  * <p><b>环境变量</b>：
  * <ul>
@@ -81,18 +81,20 @@ import static org.assertj.core.api.Assertions.assertThat;
 @ActiveProfiles("mysql")
 class MySqlFlywayMigrationTest {
 
-    /** MySQL 迁移链的版本集合：V1–V13 + V15–V19（V14 是 H2 专属）。 */
+    /** MySQL 迁移链的版本集合：V1–V13 + V15–V21（V14 是 H2 专属）。 */
     private static final List<String> DOCUMENTED_MYSQL_VERSIONS = documentedMysqlVersions();
 
-    /** 19 个 JPA 实体映射的表（@Table(name=...) 逐字摘自 entity/，新增实体时同步维护）。 */
+    /** 20 个 JPA 实体映射的表（@Table(name=...) 逐字摘自 entity/，新增实体时同步维护）。 */
     private static final List<String> MAPPED_TABLES = List.of(
-            "agent_run", "agent_task", "conversation_message", "expense", "itinerary_item",
+            "agent_command_dedupe", "agent_run", "agent_task", "conversation_message", "expense",
+            "itinerary_item",
             "llm_quota_usage", "memo", "operation_history", "pending_plan", "plan_execution",
             "rag_chunk", "rag_document", "rag_document_version", "schedule_item", "tool_call_trace",
             "trip", "trip_event", "trip_photo", "users");
 
-    /** 19 个 JPA 实体的简单类名（新增实体时同步维护，防止「实体删了但迁移还在」静默通过）。 */
+    /** 20 个 JPA 实体的简单类名（新增实体时同步维护，防止「实体删了但迁移还在」静默通过）。 */
     private static final List<String> MAPPED_ENTITIES = List.of(
+            "AgentCommandDedupe",
             "AgentRun", "AgentTask", "ConversationMessage", "Expense", "ItineraryItem",
             "LlmQuotaUsage", "Memo", "OperationHistory", "PendingPlanRecord", "PlanExecution",
             "RagChunk", "RagDocument", "RagDocumentVersion", "ScheduleItem", "ToolCallTrace",
@@ -209,7 +211,7 @@ class MySqlFlywayMigrationTest {
     // ------------------------------------------------------------------
 
     @Test
-    @DisplayName("空库全量 Flyway 迁移（V1..V19 MySQL 链）+ Hibernate validate 19 个实体")
+    @DisplayName("空库全量 Flyway 迁移（V1..V21 MySQL 链）+ Hibernate validate 20 个实体")
     void freshDatabaseAppliesEveryMigrationAndMatchesEntities() throws Exception {
         String schema = jdbc.queryForObject("SELECT DATABASE()", String.class);
         assertThat(schema)
@@ -246,7 +248,7 @@ class MySqlFlywayMigrationTest {
                 .collect(Collectors.toCollection(TreeSet::new));
 
         assertThat(expectedVersions)
-                .as("classpath 上 MySQL 迁移链的版本集合（V1..V13 + V15..V19，V14 仅 H2）")
+                .as("classpath 上 MySQL 迁移链的版本集合（V1..V13 + V15..V21，V14 仅 H2）")
                 .containsAll(DOCUMENTED_MYSQL_VERSIONS);
         assertThat(expectedVersions)
                 .as("V14 是 H2 专属脚本，MySQL locations 不应包含它")
@@ -266,7 +268,7 @@ class MySqlFlywayMigrationTest {
                 .as("flyway_schema_history 中 success=0 的行数")
                 .isZero();
 
-        // 2) 关键表：19 个实体映射的表必须全部存在
+        // 2) 关键表：20 个实体映射的表必须全部存在
         Set<String> tables = jdbc.queryForList(
                         "SELECT table_name FROM information_schema.tables "
                                 + "WHERE table_schema = ? AND table_type = 'BASE TABLE'",
@@ -278,27 +280,27 @@ class MySqlFlywayMigrationTest {
                     .contains(table);
         }
 
-        // 3) 关键列：V13（MySQL 方言补齐）/ V16 / V17 / V18 / V19 的产物
+        // 3) 关键列：V13（MySQL 方言补齐）/ V16 / V17 / V18 / V19 / V21 的产物
         REQUIRED_COLUMNS.forEach((table, columns) -> {
             for (String column : columns) {
                 assertColumnExists(schema, table, column);
             }
         });
 
-        // 4) 关键索引：V13 的索引补齐 + V15/V19 的新表索引 + V8/V11 的唯一键
+        // 4) 关键索引：V13 的索引补齐 + V15/V19/V21 的新索引 + V8/V11 的唯一键
         REQUIRED_INDEXES.forEach((table, indexes) -> {
             for (String index : indexes) {
                 assertIndexExists(schema, table, index);
             }
         });
 
-        // 5) Hibernate 元模型：19 个实体；上下文启动本身已由 ddl-auto=validate 证明结构一致
+        // 5) Hibernate 元模型：20 个实体；上下文启动本身已由 ddl-auto=validate 证明结构一致
         Set<String> entityNames = entityManagerFactory.getMetamodel().getEntities().stream()
                 .map(EntityType::getName)
                 .collect(Collectors.toCollection(TreeSet::new));
         assertThat(entityNames)
                 .as("Hibernate 元模型实体数（上下文启动时 validate 已逐列校验）")
-                .hasSize(19);
+                .hasSize(MAPPED_ENTITIES.size());
         assertThat(entityNames)
                 .as("实体清单应与 entity/ 目录一致（新增实体时同步维护本测试）")
                 .containsExactlyInAnyOrderElementsOf(MAPPED_ENTITIES);
@@ -343,7 +345,7 @@ class MySqlFlywayMigrationTest {
                         + "WHERE table_schema = ? AND table_name = ? AND index_name = ?",
                 Integer.class, schema, table, index);
         assertThat(count)
-                .as("索引 `%s`（表 `%s`，schema=%s）应存在（检查 V13 索引补齐或 V15/V19 建表脚本）",
+                .as("索引 `%s`（表 `%s`，schema=%s）应存在（检查 V13 索引补齐或 V15/V19/V21 建表脚本）",
                         index, table, schema)
                 .isPositive();
     }
@@ -410,7 +412,7 @@ class MySqlFlywayMigrationTest {
 
     private static List<String> documentedMysqlVersions() {
         List<String> versions = new ArrayList<>();
-        for (int version = 1; version <= 19; version++) {
+        for (int version = 1; version <= 21; version++) {
             if (version != 14) { // V14 是 H2 专属（llm_quota_usage 唯一键）
                 versions.add(String.valueOf(version));
             }
@@ -447,6 +449,8 @@ class MySqlFlywayMigrationTest {
         addRequired(required, "schedule_item",
                 "trip_id", "itinerary_item_id", "source", "travel_day");
         addRequired(required, "memo", "trip_id", "itinerary_item_id", "source", "travel_day");
+        // V21 会话作用域
+        addRequired(required, "conversation_message", "scope");
         // 其他实体基线列（证明表不是空壳）
         addRequired(required, "users", "username", "password", "nickname");
         addRequired(required, "rag_document", "doc_key", "fingerprint", "user_id");
@@ -467,7 +471,7 @@ class MySqlFlywayMigrationTest {
         addRequired(required, "rag_document", "idx_rag_document_user", "uk_rag_document_key");
         addRequired(required, "pending_plan", "idx_pending_plan_user", "idx_pending_plan_created");
         addRequired(required, "llm_quota_usage", "idx_llm_quota_date", "uk_llm_quota_user_date");
-        addRequired(required, "conversation_message", "idx_conv_created_at");
+        addRequired(required, "conversation_message", "idx_conv_created_at", "idx_conv_user_scope");
         addRequired(required, "operation_history", "idx_history_trip_status");
         // V9 列表查询复合索引
         addRequired(required, "trip", "idx_trip_user_start_date");

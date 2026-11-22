@@ -257,6 +257,24 @@
         },
         "type" : "object"
       },
+      "ApiResponseConversationMessagesView" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/ConversationMessagesView"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "pagination" : {
+            "$ref" : "#/components/schemas/Pagination"
+          }
+        },
+        "type" : "object"
+      },
       "ApiResponseExecutionSummary" : {
         "properties" : {
           "code" : {
@@ -319,27 +337,6 @@
           },
           "data" : {
             "$ref" : "#/components/schemas/ItineraryItemDTO"
-          },
-          "message" : {
-            "type" : "string"
-          },
-          "pagination" : {
-            "$ref" : "#/components/schemas/Pagination"
-          }
-        },
-        "type" : "object"
-      },
-      "ApiResponseListConversationMessageView" : {
-        "properties" : {
-          "code" : {
-            "format" : "int32",
-            "type" : "integer"
-          },
-          "data" : {
-            "items" : {
-              "$ref" : "#/components/schemas/ConversationMessageView"
-            },
-            "type" : "array"
           },
           "message" : {
             "type" : "string"
@@ -1005,7 +1002,12 @@
           "requestId" : {
             "maxLength" : 64,
             "minLength" : 0,
-            "pattern" : "[A-Za-z0-9_-]*",
+            "pattern" : "[A-Za-z0-9:_-]*",
+            "type" : "string"
+          },
+          "scope" : {
+            "maxLength" : 32,
+            "minLength" : 0,
             "type" : "string"
           },
           "selectedElement" : {
@@ -1116,6 +1118,23 @@
         },
         "type" : "object"
       },
+      "ConversationMessagesView" : {
+        "properties" : {
+          "conversationId" : {
+            "type" : "string"
+          },
+          "messages" : {
+            "items" : {
+              "$ref" : "#/components/schemas/ConversationMessageView"
+            },
+            "type" : "array"
+          },
+          "scope" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "ConversationSummary" : {
         "properties" : {
           "conversationId" : {
@@ -1127,6 +1146,9 @@
           "messageCount" : {
             "format" : "int64",
             "type" : "integer"
+          },
+          "scope" : {
+            "type" : "string"
           },
           "title" : {
             "type" : "string"
@@ -1670,6 +1692,11 @@
             "maxLength" : 64,
             "minLength" : 0,
             "pattern" : "[A-Za-z0-9_-]*",
+            "type" : "string"
+          },
+          "scope" : {
+            "maxLength" : 32,
+            "minLength" : 0,
             "type" : "string"
           },
           "selectedElement" : {
@@ -2777,7 +2804,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ApiResponseListConversationMessageView"
+                  "$ref" : "#/components/schemas/ApiResponseConversationMessagesView"
                 }
               }
             },
@@ -2955,6 +2982,13 @@
         }, {
           "in" : "query",
           "name" : "requestId",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "scope",
           "required" : false,
           "schema" : {
             "type" : "string"

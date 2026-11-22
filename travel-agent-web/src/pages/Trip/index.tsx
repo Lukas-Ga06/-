@@ -35,6 +35,7 @@ import BudgetExecutionPanel from '../../components/BudgetExecution';
 import ExpensePanel from '../../components/ExpensePanel';
 import AppShell from '../../components/AppShell';
 import UndoBar from '../../components/UndoBar';
+import './trip.css';
 import './trip-flow.css';
 
 /** 移动端分段视图：默认「行程」，地图与 AI 是辅助视图（不能压在时间轴之前） */

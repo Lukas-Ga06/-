@@ -44,6 +44,8 @@ const CORE_SCHEMAS = [
   'ChatRequest',
   'AgentResult',
   'ConversationSummary',
+  // V21 续聊回填：消息 + 作用域（恢复行程绑定靠它）
+  'ConversationMessagesView',
 ];
 
 function fail(message) {

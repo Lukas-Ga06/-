@@ -29,6 +29,7 @@ import {
 import type { ExpenseOverview } from '../../types/expense';
 import type { Memo } from '../../types/memo';
 import type { TripMapPoint } from '../../types/trip';
+import './home.css';
 
 // 首页足迹地图依赖 maplibre-gl（约 1MB），懒加载避免拖慢首屏
 const FootprintMap = lazy(() => import('../../components/FootprintMap'));

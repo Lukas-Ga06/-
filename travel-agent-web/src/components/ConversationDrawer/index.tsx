@@ -8,7 +8,7 @@ import {
   listConversations,
   type ConversationSummary,
 } from '../../api/agent';
-import { useAgentStore } from '../../store/agentStore';
+import { tripIdOfScope, useAgentStore } from '../../store/agentStore';
 import './conversation-drawer.css';
 
 interface Props {
@@ -24,11 +24,23 @@ function formatWhen(iso?: string | null): string {
   return value.isSame(dayjs(), 'day') ? value.format('HH:mm') : value.format('MM-DD HH:mm');
 }
 
+/** 会话作用域的中文标签：让用户一眼看出这段对话是在哪儿聊的（V21） */
+function scopeLabel(scope?: string | null): string | null {
+  if (!scope) return null;
+  if (scope === 'planner') return '规划';
+  if (tripIdOfScope(scope) !== null) return `行程 #${tripIdOfScope(scope)}`;
+  if (scope === 'assistant') return '助手';
+  return scope;
+}
+
 /**
- * 最近会话抽屉（体验方案 §8.6）。
+ * 最近会话抽屉（体验方案 §8.6 / V21 作用域）。
  *
  * 只做两件事：**继续对话** 与 **开新对话**。「继续」= 取回该会话最近的若干条消息，
  * 装进当前作用域并切到它的 conversationId，后续消息接着同一段服务端记忆走。
+ *
+ * V21：续聊会连带恢复会话的作用域 —— 一段绑定在行程上的会话，在助手页继续聊时
+ * 下一条消息仍然带 tripId（store 的 resumedTripId），不再「只恢复消息、不恢复绑定」。
  *
  * 边界：会话记忆由后端按保留期清理（默认 7 天），这里拿到的就是「还能继续」的会话；
  * 本地不会缓存历史，每次打开都向服务端要，避免列表和服务端真实状态脱节。
@@ -62,8 +74,11 @@ export default function ConversationDrawer({ open, onClose }: Props) {
     if (resuming) return;
     setResuming(item.conversationId);
     try {
-      const rows = await getConversationMessages(item.conversationId);
-      resumeConversation(item.conversationId, Array.isArray(rows) ? rows : []);
+      const resumed = await getConversationMessages(item.conversationId);
+      const rows = Array.isArray(resumed?.messages) ? resumed.messages : [];
+      // 作用域以服务端记录为准（它比列表里的副本更新：期间可能在别的标签页聊过）
+      const scope = resumed?.scope ?? item.scope ?? null;
+      resumeConversation(item.conversationId, rows, scope);
       onClose();
     } catch (e: any) {
       // 会话可能刚过期（保留期清理）：不静默失败，提示后让用户刷新列表
@@ -137,6 +152,7 @@ export default function ConversationDrawer({ open, onClose }: Props) {
                 <span className="ci-title">{item.title || '新会话'}</span>
                 <span className="ci-meta">
                   {formatWhen(item.lastMessageAt)} · {item.messageCount} 条消息
+                  {scopeLabel(item.scope) ? ` · ${scopeLabel(item.scope)}` : ''}
                   {active ? ' · 当前会话' : ''}
                 </span>
                 {resuming === item.conversationId && <span className="ci-loading">正在打开…</span>}

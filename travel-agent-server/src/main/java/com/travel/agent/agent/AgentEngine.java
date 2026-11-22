@@ -396,7 +396,7 @@ public class AgentEngine {
         try {
             ctx.setHistory(conversationService.recent(ctx.getUserId(), ctx.getConversationId()));
             conversationService.append(ctx.getUserId(), ctx.getConversationId(),
-                    ConversationMessage.ROLE_USER, ctx.getMessage(), null);
+                    ConversationMessage.ROLE_USER, ctx.getMessage(), null, ctx.getScope());
         } catch (Exception e) {
             // 记忆存取失败不能挡住对话：按单轮继续处理
             log.warn("会话记忆读取失败，按单轮对话处理: {}", e.getMessage());
@@ -411,7 +411,8 @@ public class AgentEngine {
         attachBudgetNotice(ctx, result);
         try {
             conversationService.append(ctx.getUserId(), ctx.getConversationId(),
-                    ConversationMessage.ROLE_ASSISTANT, result == null ? null : result.getMessage(), intent);
+                    ConversationMessage.ROLE_ASSISTANT, result == null ? null : result.getMessage(), intent,
+                    ctx.getScope());
         } catch (Exception e) {
             log.warn("会话记忆写入失败: {}", e.getMessage());
         }

@@ -27,6 +27,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
 import java.util.UUID;
+import java.util.regex.Pattern;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -39,6 +40,14 @@ public class AgentController {
 
     /** SSE 断开计数：reason=complete（半途断开）|timeout|error；正常结束不计 */
     static final String SSE_DISCONNECTS_METRIC = "sse.disconnects";
+
+    /** 助手页作用域（V21） */
+    static final String SCOPE_ASSISTANT = "assistant";
+    /** 行程页作用域前缀：完整值形如 {@code trip:12} */
+    static final String SCOPE_TRIP = "trip:";
+    /** 与 conversation_message.scope 列宽一致 */
+    static final int SCOPE_MAX_LENGTH = 32;
+    private static final Pattern SCOPE_PATTERN = Pattern.compile("[A-Za-z0-9:_-]+");
 
     private final AgentEngine agentEngine;
     private final AuthService authService;
@@ -81,6 +90,7 @@ public class AgentController {
                              @RequestParam(value = "currentDay", required = false) Integer currentDay,
                              @RequestParam(value = "conversationId", required = false) String conversationId,
                              @RequestParam(value = "requestId", required = false) String requestId,
+                             @RequestParam(value = "scope", required = false) String scope,
                              @RequestParam(value = "selType", required = false) String selType,
                              @RequestParam(value = "selId", required = false) Long selId,
                              @RequestParam(value = "selTitle", required = false) String selTitle,
@@ -96,7 +106,8 @@ public class AgentController {
                 selType == null ? null : new ChatDtos.SelectedElement(selType, selId, selTitle),
                 (lat == null || lng == null) ? null : new ChatDtos.MapLocation(lat, lng),
                 sanitizeConversationId(conversationId),
-                sanitizeRequestId(requestId));
+                sanitizeRequestId(requestId),
+                sanitizeScope(scope));
         return doStream(user, request, ticketOnly(httpRequest));
     }
 
@@ -116,7 +127,7 @@ public class AgentController {
         ChatDtos.ChatRequest request = new ChatDtos.ChatRequest(
                 body.getMessage(), body.getTripId(), body.getCurrentDay(),
                 body.getSelectedElement(), body.getMapCenter(), body.getConversationId(),
-                sanitizeRequestId(body.getRequestId()));
+                sanitizeRequestId(body.getRequestId()), sanitizeScope(body.getScope()));
         return doStream(user, request, ticketOnly(httpRequest));
     }
 
@@ -332,12 +343,12 @@ public class AgentController {
      * 不属于当前用户的 conversationId 返回空数组（不泄露是否存在）。
      */
     @GetMapping("/conversations/{conversationId}/messages")
-    public ApiResponse<List<ChatDtos.ConversationMessageView>> conversationMessages(
+    public ApiResponse<ChatDtos.ConversationMessagesView> conversationMessages(
             @PathVariable String conversationId,
             @RequestParam(defaultValue = "50") int limit,
             Authentication authentication) {
         User user = authService.requireUser(authentication.getName());
-        return ApiResponse.ok(conversationService.messages(user.getId(), conversationId,
+        return ApiResponse.ok(conversationService.messagesWithScope(user.getId(), conversationId,
                 Paging.normalizeLimit(limit)));
     }
 
@@ -358,6 +369,10 @@ public class AgentController {
         ctx.setSessionId(UUID.randomUUID().toString());
         ctx.setConversationId(request.getConversationId());
         ctx.setRequestId(request.getRequestId());
+        // 作用域：客户端显式声明优先；没声明时按「这条消息本来就带着的上下文」推导 ——
+        // 带 tripId 就是在某个行程里聊，否则 `assistant`。老客户端因此也能得到正确的分组，
+        // 且推导出的值一定来自请求本身，不存在「猜用户当时在看哪个页面」。
+        ctx.setScope(effectiveScope(request));
         ctx.setMessage(request.getMessage());
         ctx.setCurrentDay(request.getCurrentDay());
         ctx.setSelectedElement(request.getSelectedElement());
@@ -406,5 +421,44 @@ public class AgentController {
      */
     private static String sanitizeRequestId(String requestId) {
         return sanitizeConversationId(requestId);
+    }
+
+    /**
+     * 作用域的清洗与推导（V21）。
+     *
+     * <p>显式声明合法就用声明的值；否则按请求本身已有的上下文推导：
+     * 带 {@code tripId} 即 {@code trip:<id>}，不带则 {@code assistant}。
+     * <b>推导只使用请求里的字段</b>，绝不从数据库或聊天正文反推 —— 那样等于替用户编造归属。
+     *
+     * <p>返回 null 的只有一种情况：scope 与 tripId 同时缺失（例如内部调用），
+     * 此时按「未绑定」处理，与本次改造前完全一致。
+     */
+    static String effectiveScope(ChatDtos.ChatRequest request) {
+        if (request == null) {
+            return null;
+        }
+        String declared = sanitizeScope(request.getScope());
+        if (declared != null) {
+            return declared;
+        }
+        Long tripId = request.getTripId();
+        return tripId == null ? SCOPE_ASSISTANT : SCOPE_TRIP + tripId;
+    }
+
+    /**
+     * 作用域字符串的清洗：只允许 {@code [A-Za-z0-9:_-]} 且不超过 32 字符。
+     * 不合法时返回 null（按未绑定处理）而不是报错：作用域是展示与续聊的提示，
+     * 不该让一个脏字段把整条消息打回 400。
+     */
+    private static String sanitizeScope(String scope) {
+        if (scope == null) {
+            return null;
+        }
+        String trimmed = scope.trim();
+        if (trimmed.isEmpty() || trimmed.length() > SCOPE_MAX_LENGTH
+                || !SCOPE_PATTERN.matcher(trimmed).matches()) {
+            return null;
+        }
+        return trimmed;
     }
 }

@@ -147,6 +147,8 @@ public class ConversationService {
                     .title(titles.getOrDefault(row.getConversationId(), DEFAULT_TITLE))
                     .lastMessageAt(row.getLastMessageAt() == null ? null : row.getLastMessageAt().toString())
                     .messageCount(row.getMessageCount() == null ? 0L : row.getMessageCount())
+                    // coalesce 折叠成空串后在这里还原成 null：null 表示「未绑定」，不能伪装成某个作用域
+                    .scope(blankToNull(row.getScope()))
                     .build());
         }
         return result;
@@ -158,20 +160,42 @@ public class ConversationService {
      */
     @Transactional(readOnly = true)
     public List<ChatDtos.ConversationMessageView> messages(Long userId, String conversationId, int limit) {
+        return messagesWithScope(userId, conversationId, limit).getMessages();
+    }
+
+    /**
+     * 「继续对话」回填的完整结果：消息 + 这段会话的作用域。
+     *
+     * <p>作用域取该会话<b>最近一条消息</b>携带的值 —— 与列表接口同一口径，
+     * 前端据此把 {@code trip:<id>} 还原成行程绑定，续聊时才不会丢「我现在在这个行程里」这个前提。
+     * 别人的/不存在的会话返回空消息 + null 作用域（同上，不泄露是否存在）。
+     */
+    @Transactional(readOnly = true)
+    public ChatDtos.ConversationMessagesView messagesWithScope(Long userId, String conversationId, int limit) {
         if (userId == null || conversationId == null || conversationId.isBlank() || limit <= 0) {
-            return List.of();
+            return ChatDtos.ConversationMessagesView.builder()
+                    .conversationId(conversationId)
+                    .messages(List.of())
+                    .build();
         }
         List<ConversationMessage> latest = new ArrayList<>(
                 repository.findByUserIdAndConversationIdOrderByCreatedAtDescIdDesc(
                         userId, conversationId, PageRequest.of(0, limit)));
         Collections.reverse(latest);
-        return latest.stream()
-                .map(message -> ChatDtos.ConversationMessageView.builder()
-                        .role(message.getRole())
-                        .content(message.getContent())
-                        .createdAt(message.getCreatedAt() == null ? null : message.getCreatedAt().toString())
-                        .build())
-                .toList();
+        String scope = latest.isEmpty()
+                ? null
+                : latest.get(latest.size() - 1).getScope();
+        return ChatDtos.ConversationMessagesView.builder()
+                .conversationId(conversationId)
+                .scope(scope)
+                .messages(latest.stream()
+                        .map(message -> ChatDtos.ConversationMessageView.builder()
+                                .role(message.getRole())
+                                .content(message.getContent())
+                                .createdAt(message.getCreatedAt() == null ? null : message.getCreatedAt().toString())
+                                .build())
+                        .toList())
+                .build();
     }
 
     private static String titleOf(String content) {
@@ -184,9 +208,27 @@ public class ConversationService {
                 : oneLine.substring(0, TITLE_MAX_LENGTH) + "…";
     }
 
+    /** 空串与空白一律折叠成 null：「未绑定」只有一个表示法，避免 '' 与 null 两套语义打架 */
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
+    }
+
     /** 追加一条消息；conversationId 为空（单轮模式）时不落库 */
     @Transactional
     public void append(Long userId, String conversationId, String role, String content, String intent) {
+        append(userId, conversationId, role, content, intent, null);
+    }
+
+    /**
+     * 追加一条消息并记录会话作用域（V21）。
+     *
+     * <p>scope 每轮写入，所以「该会话最新一条消息的 scope」= 「最近一次是在哪个页面聊的」，
+     * 列表与续聊都以它为准。scope 为 null 时不覆盖历史值之外的东西：新行就是 null，
+     * 但查询取的是「最后一条」，老客户端（不传 scope）继续聊会让作用域回到未绑定 ——
+     * 这是有意的：没有声明的绑定，不如没有。
+     */
+    @Transactional
+    public void append(Long userId, String conversationId, String role, String content, String intent, String scope) {
         if (userId == null || conversationId == null || conversationId.isBlank()) {
             return;
         }
@@ -199,6 +241,7 @@ public class ConversationService {
                 .role(role)
                 .content(truncate(content))
                 .intent(intent)
+                .scope(blankToNull(scope))
                 .build());
         purgeExpiredIfDue();
     }

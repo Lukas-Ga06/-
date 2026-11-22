@@ -84,10 +84,22 @@ interface AgentState {
   /** 显式开新会话：清消息 + 换 conversationId（同时清掉服务端该会话历史） */
   newConversation: () => void;
   /**
-   * 继续一段历史会话（§8.6）：把服务端回填的消息装进当前作用域，并切换 conversationId。
+   * 继续一段历史会话（§8.6 / V21）：把服务端回填的消息装进当前作用域，并切换 conversationId。
    * 与 newConversation 对称：都作废在途流、清掉待确认方案与过程状态。
+   *
+   * conversationScope 是这段会话**服务端记录的**作用域；`trip:<id>` 表示它绑定在某个行程上，
+   * resumeConversation 会据此设置 resumedTripId，让续聊的下一条消息仍然带上行程。
    */
-  resumeConversation: (conversationId: string, messages: ConversationMessageView[]) => void;
+  resumeConversation: (
+    conversationId: string,
+    messages: ConversationMessageView[],
+    conversationScope?: string | null,
+  ) => void;
+  /**
+   * 续聊恢复出来的行程绑定（V21）：非空时 send 会把它作为 tripId 发给服务端。
+   * 离开该作用域 / 开新会话 / 用户自己带了 tripId 时清空。
+   */
+  resumedTripId: number | null;
   clearCommitted: () => void;
   /** 覆盖执行同步结果（重试成功后由 ChatPanel 回写，收到新 execution 前面板一直显示） */
   setLastExecution: (execution: ExecutionSummary | null) => void;
@@ -100,6 +112,8 @@ let streamSeq = 0;
 
 /** 默认作用域：/assistant 页面 */
 export const DEFAULT_SCOPE = 'assistant';
+/** 行程页作用域前缀：完整值形如 `trip:12`（与后端 AgentController.SCOPE_TRIP 一致） */
+export const TRIP_SCOPE_PREFIX = 'trip:';
 
 interface ScopeSnapshot {
   messages: ChatMessage[];
@@ -131,6 +145,19 @@ function appendActivity(list: ActivityEvent[], event: string, data: any): Activi
   return next.length > ACTIVITY_WINDOW ? next.slice(next.length - ACTIVITY_WINDOW) : next;
 }
 
+/** 会话作用域里的行程 id（`trip:12` → 12）；不是行程作用域或格式不对时返回 null */
+export function tripIdOfScope(scope?: string | null): number | null {
+  if (!scope || !scope.startsWith(TRIP_SCOPE_PREFIX)) {
+    return null;
+  }
+  const raw = scope.slice(TRIP_SCOPE_PREFIX.length);
+  if (!/^\d{1,18}$/.test(raw)) {
+    return null;
+  }
+  const value = Number(raw);
+  return Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
 function newConversationId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
@@ -160,6 +187,7 @@ export const useAgentStore = create<AgentState>()(
       lastFocus: null,
       committedTripId: null,
       scope: DEFAULT_SCOPE,
+      resumedTripId: null,
       conversations: {},
       conversationId: null,
       currentRun: null,
@@ -199,13 +227,20 @@ export const useAgentStore = create<AgentState>()(
           warnings: [],
         });
 
+        /**
+         * 续聊回填（V21）：这段会话原本绑定在某个行程上，而当前页面没有自带 tripId
+         * （典型场景：在助手页继续一段行程会话），就把绑定恢复回来，否则下一条消息会丢行程上下文。
+         * 页面自己带了 tripId 时以页面为准 —— 用户此刻就在那个行程里，比历史绑定更可信。
+         */
+        const restoredTripId =
+          payload.tripId == null ? (get().resumedTripId ?? undefined) : payload.tripId;
         const streamFn = payload.transport === 'post' ? streamAgentChatPost : streamAgentChat;
         /** 迟到的旧流回调一律丢弃：不让上一轮的结果串进当前会话（P0-02） */
         const stale = () => seq !== streamSeq;
         /** 本次命令的幂等键：整条连接（含自动重连）复用同一个值（P0-01） */
         const requestId = newRequestId();
         streamFn(
-          { ...payload, conversationId, requestId },
+          { ...payload, tripId: restoredTripId, conversationId, scope, requestId },
           {
             onEvent: (event, data) => {
               if (stale()) return;
@@ -354,6 +389,8 @@ export const useAgentStore = create<AgentState>()(
           messages: cached?.messages ?? [],
           pendingConfirm: cached?.pendingConfirm ?? null,
           conversationId: conversations[next] ?? null,
+          // 续聊恢复的行程绑定属于上一个作用域，切走即失效
+          resumedTripId: null,
           streaming: false,
           stage: null,
           lastFocus: null,
@@ -475,6 +512,7 @@ export const useAgentStore = create<AgentState>()(
           activity: [],
           warnings: [],
           lastExecution: null,
+          resumedTripId: null,
         });
       },
 
@@ -497,6 +535,7 @@ export const useAgentStore = create<AgentState>()(
           activity: [],
           warnings: [],
           lastExecution: null,
+          resumedTripId: null,
           conversationId: freshId,
           conversations: { ...s.conversations, [scope]: freshId },
         }));
@@ -506,7 +545,7 @@ export const useAgentStore = create<AgentState>()(
         }
       },
 
-      resumeConversation: (conversationId, messages) => {
+      resumeConversation: (conversationId, messages, conversationScope) => {
         const scope = get().scope;
         // 在途流必须作废：旧会话的回调不能写进这段刚接上的历史里
         streamSeq += 1;
@@ -525,6 +564,9 @@ export const useAgentStore = create<AgentState>()(
         set((state) => ({
           messages: restored,
           conversationId,
+          // 只有服务端明确记录了 trip:<id> 才恢复绑定；未绑定（null/存量会话）一律为空，
+          // 绝不从文案里猜行程 id
+          resumedTripId: tripIdOfScope(conversationScope),
           conversations: { ...state.conversations, [scope]: conversationId },
           streaming: false,
           stage: null,

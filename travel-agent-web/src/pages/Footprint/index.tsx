@@ -19,6 +19,7 @@ import {
 } from '../../components/FootprintMap/footprintData';
 import { getTripsMap } from '../../api/trip';
 import type { TripMapPoint } from '../../types/trip';
+import './footprint.css';
 
 /** 我的足迹：全屏 3D 球体地图 + 行程列表 + 按时间回放 */
 export default function FootprintPage() {

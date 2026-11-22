@@ -956,6 +956,13 @@ export interface components {
             message?: string;
             pagination?: components["schemas"]["Pagination"];
         };
+        ApiResponseConversationMessagesView: {
+            /** Format: int32 */
+            code?: number;
+            data?: components["schemas"]["ConversationMessagesView"];
+            message?: string;
+            pagination?: components["schemas"]["Pagination"];
+        };
         ApiResponseExecutionSummary: {
             /** Format: int32 */
             code?: number;
@@ -981,13 +988,6 @@ export interface components {
             /** Format: int32 */
             code?: number;
             data?: components["schemas"]["ItineraryItemDTO"];
-            message?: string;
-            pagination?: components["schemas"]["Pagination"];
-        };
-        ApiResponseListConversationMessageView: {
-            /** Format: int32 */
-            code?: number;
-            data?: components["schemas"]["ConversationMessageView"][];
             message?: string;
             pagination?: components["schemas"]["Pagination"];
         };
@@ -1230,6 +1230,7 @@ export interface components {
             mapCenter?: components["schemas"]["MapLocation"];
             message: string;
             requestId?: string;
+            scope?: string;
             selectedElement?: components["schemas"]["SelectedElement"];
             /** Format: int64 */
             tripId?: number;
@@ -1268,11 +1269,17 @@ export interface components {
             createdAt?: string;
             role?: string;
         };
+        ConversationMessagesView: {
+            conversationId?: string;
+            messages?: components["schemas"]["ConversationMessageView"][];
+            scope?: string;
+        };
         ConversationSummary: {
             conversationId?: string;
             lastMessageAt?: string;
             /** Format: int64 */
             messageCount?: number;
+            scope?: string;
             title?: string;
         };
         DailyBudget: {
@@ -1474,6 +1481,7 @@ export interface components {
             mapCenter?: components["schemas"]["MapLocation"];
             message: string;
             requestId?: string;
+            scope?: string;
             selectedElement?: components["schemas"]["SelectedElement"];
             /** Format: int64 */
             tripId?: number;
@@ -1982,7 +1990,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseListConversationMessageView"];
+                    "*/*": components["schemas"]["ApiResponseConversationMessagesView"];
                 };
             };
         };
@@ -2105,6 +2113,7 @@ export interface operations {
                 currentDay?: number;
                 conversationId?: string;
                 requestId?: string;
+                scope?: string;
                 selType?: string;
                 selId?: number;
                 selTitle?: string;

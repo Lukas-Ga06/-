@@ -89,6 +89,20 @@ describe('streamAgentChat', () => {
     expect(url.searchParams.get('requestId')).toBe('req-abc-123');
   });
 
+  it('V21：scope 进查询参数（GET 主路径），值为当前会话作用域', async () => {
+    await streamAgentChat({ message: '把第二天的酒店换掉', tripId: 12, scope: 'trip:12' }, {});
+
+    const url = new URL(FakeEventSource.last().url, 'http://localhost');
+    expect(url.searchParams.get('scope')).toBe('trip:12');
+  });
+
+  it('V21：没有 scope 时不往 URL 里写空参数（旧后端也不该收到 scope=）', async () => {
+    await streamAgentChat({ message: '你好' }, {});
+
+    const url = new URL(FakeEventSource.last().url, 'http://localhost');
+    expect(url.searchParams.has('scope')).toBe(false);
+  });
+
   it('普通事件交给 onEvent，complete 事件收尾并关闭连接', async () => {
     const onEvent = vi.fn();
     const onComplete = vi.fn();

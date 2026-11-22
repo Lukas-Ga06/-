@@ -17,6 +17,11 @@ export interface AgentStreamParams {
   /** 会话记忆标识（UUID）：后端据此回放历史做指代消解 */
   conversationId?: string | null;
   /**
+   * 会话作用域（V21）：`assistant` / `planner` / `trip:<id>`，由调用方（store）按当前作用域填。
+   * 服务端只把它记在会话上，用于「最近会话」分组与续聊时恢复行程绑定。
+   */
+  scope?: string | null;
+  /**
    * 幂等标识（P0-01）：同一条命令的重放（EventSource 自动重连、代理重试、手动重发）
    * 必须带同一个值，服务端按 (userId, requestId) 保证写入最多一次。
    */
@@ -114,6 +119,7 @@ export async function streamAgentChat(
   if (params.tripId) qs.set('tripId', String(params.tripId));
   if (params.currentDay) qs.set('currentDay', String(params.currentDay));
   if (params.conversationId) qs.set('conversationId', params.conversationId);
+  if (params.scope) qs.set('scope', params.scope);
   // 幂等键必须进 URL：EventSource 断线自动重连会复用同一个 URL，服务端据此只写一次
   if (params.requestId) qs.set('requestId', params.requestId);
   if (params.selectedElement?.id) {
@@ -201,6 +207,7 @@ export async function streamAgentChatPost(
           tripId: params.tripId ?? null,
           currentDay: params.currentDay ?? null,
           conversationId: params.conversationId ?? null,
+          scope: params.scope ?? null,
           requestId: params.requestId ?? null,
           selectedElement: params.selectedElement ?? null,
           mapCenter: params.mapCenter ?? null,
@@ -309,6 +316,11 @@ export interface ConversationSummary {
   /** ISO 本地时间；旧后端可能缺省 */
   lastMessageAt: string | null;
   messageCount: number;
+  /**
+   * 会话作用域（V21）：`assistant` / `planner` / `trip:<id>`。
+   * `null` = 存量会话未绑定（V21 之前写入），**不能**回落到某个猜测值。
+   */
+  scope?: string | null;
 }
 
 /** 会话内的一条历史消息（只读） */
@@ -327,12 +339,26 @@ export function listConversations(limit = 20): Promise<ConversationSummary[]> {
   });
 }
 
-/** 某段会话最近的消息（时间正序），用于「继续对话」回填聊天记录 */
+/** 「继续对话」回填结果：消息本身 + 这段会话最近一次被使用的作用域 */
+export interface ConversationResume {
+  conversationId: string;
+  /** `assistant` / `planner` / `trip:<id>`；null = 未绑定 */
+  scope: string | null;
+  /** 时间正序（旧 → 新） */
+  messages: ConversationMessageView[];
+}
+
+/**
+ * 某段会话最近的消息（时间正序），用于「继续对话」回填聊天记录。
+ *
+ * 返回的是对象而不是裸数组：续聊时必须同时拿到该会话的作用域，才能把行程绑定恢复回来
+ * （否则在助手页接着一段行程会话聊，下一条消息就不带 tripId 了）。
+ */
 export function getConversationMessages(
   conversationId: string,
   limit = 50,
-): Promise<ConversationMessageView[]> {
-  return request<ConversationMessageView[]>({
+): Promise<ConversationResume> {
+  return request<ConversationResume>({
     url: `/agent/conversations/${encodeURIComponent(conversationId)}/messages`,
     method: 'get',
     params: { limit },

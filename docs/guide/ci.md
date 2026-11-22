@@ -1,6 +1,6 @@
 # CI 门禁：每个 job 做什么、本地怎么复现、失败怎么处理
 
-> 状态：当前事实 | 适用版本：0.1.0（GitHub Actions / JDK 17 / Node 20） | 最后验证：2026-11-19 | 事实来源：`.github/workflows/ci.yml`、`.github/workflows/codeql.yml`、`.github/dependabot.yml`、`.gitleaks.toml`、`lychee.toml`、`travel-agent-web/package.json`、`travel-agent-server/pom.xml`
+> 状态：当前事实 | 适用版本：0.1.0（GitHub Actions / JDK 17 / Node 20） | 最后验证：2026-11-21 | 事实来源：`.github/workflows/ci.yml`、`.github/workflows/codeql.yml`、`.github/dependabot.yml`、`.gitleaks.toml`、`lychee.toml`、`travel-agent-web/package.json`、`travel-agent-server/pom.xml`
 
 ## 1. job 总览
 
@@ -12,8 +12,27 @@
 | `contract` | push/PR | OpenAPI 快照无漂移；PR 上 oasdiff 破坏性变更 | 见第 4 节 |
 | `docs` | push/PR | 相对链接存在、文档命令真实可用、lychee 本地链接 | `node scripts/docs-check.mjs` |
 | `security` | push/PR | 依赖漏洞（dependency-review / npm audit / Trivy） | 见第 5 节 |
-| `e2e` | push/PR | Playwright 13 条：登录/建行程/路书/PWA 资源、地图引擎运行时加载、**5 个页面的 axe 无障碍扫描（critical/serious 必须为 0）** | `cd travel-agent-web && npx playwright test` |
+| `e2e` | push/PR | Playwright **13 条**（Chromium 桌面）：登录/建行程/路书/PWA 资源、地图引擎运行时加载、**5 个页面的 axe 无障碍扫描（critical/serious 必须为 0）** | `cd travel-agent-web && npx playwright test` |
+| `e2e-device` | push/PR | **观察中（`continue-on-error: true`，不阻塞合并）**：移动端 WebKit/iPhone 预设 3 条 + CDP 弱网/离线 3 条 + 多端并发 2 条（连同 13 条主冒烟，共 21 条） | `cd travel-agent-web && npm run test:e2e:device`（需后端 + preview 已就绪） |
+| （未接入）视觉回归 | **仅本地** | 11 张截图逐像素比较（`maxDiffPixelRatio: 0`） | `cd travel-agent-web && npm run test:visual` |
 | `CodeQL` | push/PR/每周 | Java + TypeScript SAST | 本地无法等价，靠 PR 结果（第 6 节） |
+
+### 哪些套件只在本地，为什么
+
+| 套件 | 现状 | 原因 / 接入条件 |
+| --- | --- | --- |
+| 视觉回归 | **仅本地** | 基线文件带平台后缀（`-chromium-win32.png`），Linux runner 字体渲染不同，直接复用必然误报。接入需要两套基线（`-chromium-linux.png` 与 `-win32`）或容器内生成；维护成本 = 每次有意改视觉要更新两份 |
+| 移动端 WebKit | 已进 CI，**观察模式** | 已解决：job 里显式 `playwright install --with-deps chromium webkit`，且作为独立 job 不阻塞主 e2e。仍需观察耗时稳定性 |
+| 弱网 / 离线 | 已进 CI，**观察模式** | 依赖 `Network.emulateNetworkConditions`（仅 Chromium）；断言是耗时阈值（用例按 ≤20s，实测 8.3s，约 2.4 倍余量），共享 runner 上需观察波动 |
+| 多端并发 | 已进 CI，**观察模式** | 两个独立 `browserContext` 同账号并发；依赖后端关限流（`RATE_LIMIT_ENABLED=false`，job 已设） |
+
+三类设备类断言都是**真的能跑**的（本地已实跑通过，见
+[真机与弱网验收](../review/2026-11-21-device-network-acceptance.md)）。移动端/弱网/并发已经接进 `e2e-device`，
+但标了 `continue-on-error: true` —— 红了不拦合并，用来观察在共享 runner 上是否稳定。
+视觉回归仍未接入（需要第二套平台基线）。`e2e-device` 转正（去掉 `continue-on-error`）的条件：
+
+1. 连续两周不出现「只有 CI 红、本地绿」的耗时阈值抖动；
+2. PR 模板里写明「WebKit 模拟 ≠ iOS 真机」，避免把模拟结果当真人验收结论。
 
 ## 2. 本地一次跑完全部快速门禁
 

@@ -54,6 +54,13 @@ public class AgentContext {
      */
     private String requestId;
 
+    /**
+     * 会话作用域（V21）：{@code assistant} / {@code planner} / {@code trip:<id>}。
+     * 只用于记录「这段会话最近一次用在哪个页面」，从而在续聊时恢复行程绑定；
+     * 为空表示未绑定（不算错误，老客户端就是这样）。
+     */
+    private String scope;
+
     /** 多模态上下文：用户当前选中的元素，解决「这个换成类似的」的指代 */
     private ChatDtos.SelectedElement selectedElement;
     private ChatDtos.MapLocation mapCenter;

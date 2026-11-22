@@ -15,7 +15,8 @@ import java.time.LocalDateTime;
 @Entity
 @Table(name = "conversation_message", indexes = {
         @Index(name = "idx_conv_user_session", columnList = "user_id, conversation_id"),
-        @Index(name = "idx_conv_created_at", columnList = "created_at")
+        @Index(name = "idx_conv_created_at", columnList = "created_at"),
+        @Index(name = "idx_conv_user_scope", columnList = "user_id, scope")
 })
 @Getter
 @Setter
@@ -49,6 +50,16 @@ public class ConversationMessage {
     /** 该轮识别出的意图（用户消息才有），便于排查意图路由问题 */
     @Column(length = 32)
     private String intent;
+
+    /**
+     * 会话作用域（V21）：这段对话最近一次被使用时的页面归属，
+     * 取值 {@code assistant} / {@code planner} / {@code trip:<id>}，存量数据为 null。
+     *
+     * <p>只是「续聊时把行程绑定恢复回来」的提示，<b>不参与任何权限判断</b>：
+     * 隔离始终靠 user_id。因此不设唯一约束，也不做外键。
+     */
+    @Column(length = 32)
+    private String scope;
 
     @Column(name = "created_at")
     private LocalDateTime createdAt;
