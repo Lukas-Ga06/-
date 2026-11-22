@@ -111,7 +111,7 @@
         <dependency>
             <groupId>org.xhtmlrenderer</groupId>
             <artifactId>flying-saucer-pdf</artifactId>
-            <version>9.13.0</version>
+            <version>10.7.0</version>
         </dependency>
 
         <!-- OpenAPI 契约：/v3/api-docs 是机器可校验的事实来源，Swagger UI 仅本地/受控环境使用 -->
