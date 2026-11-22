@@ -183,7 +183,15 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <argLine>@{argLine} -Dfile.encoding=UTF-8 -Dsun.stdout.encoding=UTF-8 -Dsun.stderr.encoding=UTF-8</argLine>
+                    <!--
+                         时区：显式钉死业务时区（travel.timezone 默认 Asia/Shanghai）。
+                         为什么必须写在这里：TimeZoneConfig 在上下文启动后才 setDefault，
+                         而 JDBC 会话/驱动在建连时就用掉了「启动时」的默认时区；
+                         在 UTC 的 CI runner 上这会让 LocalDate 整体偏一天
+                         （实测：行程 2026-11-20 被读回 2026-11-19，携程链接日期同样偏移）。
+                         生产镜像也必须设 TZ（见 Dockerfile），否则同一台 UTC 主机上会出现同样的偏移。
+                    -->
+                    <argLine>@{argLine} -Duser.timezone=Asia/Shanghai -Dfile.encoding=UTF-8 -Dsun.stdout.encoding=UTF-8 -Dsun.stderr.encoding=UTF-8</argLine>
                 </configuration>
             </plugin>
 

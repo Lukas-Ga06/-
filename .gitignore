@@ -68,3 +68,4 @@ travel-agent-web/eslint-report.json
 
 # 会话内临时目录（CI 日志/PR payload 等，不进仓库）
 .prtmp/
+.tmpci/

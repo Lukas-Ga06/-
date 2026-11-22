@@ -56,7 +56,7 @@ npm install
 npm run dev
 ```
 
-打开 http://localhost:5173，用 **demo / demo123** 登录。前端高德 Key 是「Web 端(JS API)」，与后端 `AMAP_KEY`（Web 服务）不是同一凭据。
+打开 <http://localhost:5173>，用 **demo / demo123** 登录。前端高德 Key 是「Web 端(JS API)」，与后端 `AMAP_KEY`（Web 服务）不是同一凭据。
 
 ### 3. 演示一条闭环
 
