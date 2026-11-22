@@ -290,13 +290,15 @@ P1 新增字段（口径见 `TripDtos.TripMapPoint`）：
 | `endDate` | 否 | `yyyy-MM-dd`，缺省 `startDate + 2 天`（共 3 天） |
 | `budget` | 否 | `BigDecimal` ≥ 0，缺省 `5000` |
 | `partySize` | 否 | **V2.2 FR-01** 同行人数 1..20，缺省 1；预算的房数/餐费/门票口径随它变化 |
+> 跨度上限：`endDate` 不得晚于 `startDate` + 1 年（按日历算，含当天；闰年自动多一天）。
+> 只传一端时，先按缺省值补齐再判定。超过返回 `400 行程跨度不能超过 1 年（当前 N 天）`。
 ```json
 // 请求
 {"name":"杭州三日","destination":"杭州","startDate":"2026-11-20","endDate":"2026-11-22","budget":5000,"partySize":2}
 // 响应
 {"code":0,"message":"success","data":{"id":1,"name":"杭州三日","destination":"杭州","startDate":"2026-11-20","endDate":"2026-11-22","budget":5000.00,"partySize":2,"status":"PLANNING","phase":"UPCOMING","daysUntilStart":12,"createdAt":"2026-11-08"}}
 ```
-错误：`400` 校验失败 / `结束日期不能早于开始日期` / `开始日期不是有效日期，请使用 yyyy-MM-dd`；`401`
+错误：`400` 校验失败 / `结束日期不能早于开始日期` / `开始日期不是有效日期，请使用 yyyy-MM-dd` / `行程跨度不能超过 1 年（当前 N 天）`；`401`
 
 ### 3.4 GET /api/trips/{id} — 行程详情
 鉴权：登录 ｜ 源码：`TripController#get:62` ｜ 参数：路径 `id` ｜ 响应结构同 §3.3
@@ -313,7 +315,7 @@ P1 新增字段（口径见 `TripDtos.TripMapPoint`）：
 // 响应
 {"code":0,"message":"success","data":{"id":1,"name":"杭州四日","destination":"杭州","startDate":"2026-11-20","endDate":"2026-11-23","budget":6000.00,"partySize":3,"status":"PLANNING","phase":"UPCOMING","daysUntilStart":12,"createdAt":"2026-11-01"}}
 ```
-错误：`400` 结束日期早于开始日期 / `缩短后第 N 天的安排会超出范围…`；`401`；`404`
+错误：`400` 结束日期早于开始日期 / `缩短后第 N 天的安排会超出范围…` / `行程跨度不能超过 1 年（当前 N 天）`（按合并后的起止日期判定）；`401`；`404`
 改期会整体平移行程项时间（保持「第几天 + 时刻」不变）。
 
 ### 3.6 DELETE /api/trips/{id} — 删除行程
@@ -407,7 +409,7 @@ P1 新增字段（口径见 `TripDtos.TripMapPoint`）：
 | 参数 | 必填 | 说明 |
 | --- | --- | --- |
 | `title` | 是 | ≤200 字符 |
-| `dayIndex` | 否 | 第几天，从 1 开始，缺省 1 |
+| `dayIndex` | 否 | 第几天，从 1 开始，缺省 1；不得超过行程天数（越界 `400`） |
 | `itemType` | 否 | `attraction`（缺省）/ `hotel` / `restaurant` / `transport` |
 | `startTime` / `endTime` | 否 | `HH:mm`，缺省 `09:00` / `11:00`（按行程日期锚定） |
 | `cost` | 否 | ≥0 |
@@ -420,7 +422,7 @@ P1 新增字段（口径见 `TripDtos.TripMapPoint`）：
 // 响应
 {"code":0,"message":"success","data":{"id":12,"tripId":1,"dayIndex":1,"itemType":"restaurant","title":"楼外楼","startTime":"2026-11-20T12:00:00","endTime":"2026-11-20T13:00:00","latitude":null,"longitude":null,"cost":180.00,"tags":["餐饮"],"description":"西湖边"}}
 ```
-错误：`400` 校验失败；`401`；`404`（手动新增会写入撤销历史）
+错误：`400` 校验失败 / `第 N 天超出行程范围（当前共 M 天）`；`401`；`404`（手动新增会写入撤销历史）
 
 ### 3.11 GET /api/trips/{id}/budget — 预算执行对账
 鉴权：登录 ｜ 源码：`TripController#budget:100` ｜ 参数：路径 `id`
