@@ -90,5 +90,6 @@ Dependabot 开了 12 个 PR（vite 8、vite-plugin-pwa 2、antd 6、typescript 7
 - 工作流：`.github/workflows/ci.yml`（8 个 job）
 - 逐 job 日志留档：CI 页面 `https://github.com/Lukas-Ga06/-/actions`
 - 复现时区偏移：见 §3 的 `JAVA_TOOL_OPTIONS` 命令
-- 本地等价门禁：`mvn -B verify` / `npm run typecheck && npm run lint && npm run format:check &&
-  npm run test:coverage && node scripts/check-core-coverage.mjs && npm run build:check && npm run api:check`
+- 本地等价门禁：`mvn -B verify`；前端依次跑 `npm run typecheck`、`npm run lint`、
+  `npm run format:check`、`npm run test:coverage`、`node scripts/check-core-coverage.mjs`、
+  `npm run build:check`、`npm run api:check`
