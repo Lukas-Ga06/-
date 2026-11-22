@@ -41,5 +41,6 @@
 | [2026-11-21-conversation-scope.md](2026-11-21-conversation-scope.md) | 2026-11-21 | 会话 scope（V21 迁移 + scope 字段 + 回填带作用域 + 前端恢复行程绑定） | scope 端到端打通、跨页面续聊恢复 tripId；真实 MySQL V1..V21 全绿（550 后端用例）；会话管理与同会话并发控制未做 |
 | [2026-11-21-stage-e-css-split-batch2.md](2026-11-21-stage-e-css-split-batch2.md) | 2026-11-21 | global.css 第二批拆分（首页 / 行程 / 足迹）+ 视觉基线复核 | 逐规则等价（0 丢失 / 0 声明变化）、11/11 基线 0 像素差、入口 CSS −13.5%；7 类必须留在 global 的规则已列明 |
 | [2026-11-21-device-network-acceptance.md](2026-11-21-device-network-acceptance.md) | 2026-11-21 | WebKit/iPhone 预设移动端、CDP 弱网与离线、同账号多端并发 | 8 条新增用例全过（21/21）；iOS 真机不可验；顺带把 a11y 门禁从「数据依赖」修成确定性并修掉一处真实对比度缺陷 |
+| [2026-11-22-real-model-acceptance.md](2026-11-22-real-model-acceptance.md) | 2026-11-22 | 真实 DeepSeek key 下的规划/意图链路、模型运行态自报 | `llmVerified=true` 链路打通（23s 出规划）；默认模型名 `deepseek-chat` 在售列表里已不存在，需 `deepseek-flash`；余额仅 ¥0.80 只做 2 次调用 |
 
 新增快照后请同步本表，并运行 `node scripts/docs-check.mjs` 校验链接。完整文档规则见 [文档生命周期](../guide/documentation.md)。

@@ -2,6 +2,40 @@
 
 按主题记录行为变化。**第四节是最需要注意的**：其中几项改变了原有的使用习惯。
 
+## 真实模型验收 + 首次远端 CI 跑通（2026-11-22）
+
+### 一、行为变化
+
+无产品行为变化；补齐了两件长期缺证据的事：**真实模型链路**与**远端 CI**。
+
+### 二、真实模型
+
+- 拿到有余额的 key（¥0.80）后实跑：结构化规划 23s 出「4 吃 5 玩 + 预算 ¥1204 + 自动重规划 1 次」，
+  `/api/system/status` 的 `llmVerified=true`（应用自己记录的「最近一次真实调用成功」）。
+- **默认模型名失效**：仓库默认 `LLM_MODEL:deepseek-chat`，但该 key 的模型列表只有
+  `deepseek-flash` / `deepseek-v4-pro`，用默认值会拿不到模型并落入「降级为规则模板」的通用分支。
+  本次用 `LLM_MODEL=deepseek-flash` 覆盖；默认值的调整属于部署口径，未擅自改。
+- 多意图混写（一句里既有问句又有提醒）按单意图路由，只做了一半且界面不提示，属于既有架构约束。
+
+### 三、远端 CI（首次真正跑起来）
+
+仓库 `Lukas-Ga06/-` 首次接入后，三个 job 首跑即红，全部是**从未在 CI 上跑过**才积累的配置漂移：
+
+| job | 症状 | 根因 | 处置 |
+| --- | --- | --- | --- |
+| `docs` | `Cannot load configuration file: lychee.toml` | lychee 0.24 起只认 snake_case，`max-concurrency` 被判 unknown field | `lychee.toml` 改 `max_retries` / `max_concurrency`，并加注释说明 |
+| `security` | `unable to find version 0.28.0` | 工作流写的是 `trivy-action@0.28.0`，实际 tag 带 `v` | 改为 `@v0.36.0` |
+| `e2e` | 路书 PDF 接口 500 | `ubuntu-latest` 默认无 CJK 字体，而 `TripGuidebookService` 找不到字体时抛 500；**生产镜像已装 `fonts-noto-cjk`**，本地 Windows 也有微软雅黑，所以一直没暴露 | e2e / e2e-device job 增加 `fonts-noto-cjk` 安装步骤，与生产镜像对齐 |
+
+这三个都不是本轮代码引入的缺陷，但都属于「门禁存在 ≠ 门禁有效」的典型：
+配置漂移在没有真 runner 的情况下永远发现不了。
+
+### 四、验证结果
+
+- 首跑：`Contract` / `Frontend` / `Backend MySQL 迁移` 三个 job 直接通过（MySQL job 在 service container 上
+  复现了 V1..V21 迁移 + Hibernate validate）。
+- 修复后重跑结果见 [验收快照](review/2026-11-22-real-model-acceptance.md) 与 PR 页面。
+
 ## 体验方案阶段 E 第三刀：首页 / 行程 / 足迹样式拆分 + 无障碍门禁修复（2026-11-21）
 
 > 承接阶段 E 第二刀末尾的「剩余 ~5.9k 行里的共享层与历史覆盖层，需要按组件归属逐条重建」。

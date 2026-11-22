@@ -255,7 +255,7 @@ jobs:
 
       # Maven 依赖漏洞：Trivy 扫依赖清单，忽略「无修复版本」的条目，避免无解除的告警常驻红灯。
       - name: Trivy dependency scan
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: travel-agent-server
@@ -287,6 +287,13 @@ jobs:
       # 后端：H2 文件库 + demo 账号（默认开启），后台常驻供 e2e 使用
       # RATE_LIMIT_ENABLED=false：/api/auth/login 与 /api/auth/me 共用 10 次/300 秒的 IP 限流桶，
       # e2e 反复刷新页面会把它打满 → 429 → 前端当未登录 → 用例崩溃。e2e 专用后端必须关限流。
+      # 路书 PDF 导出需要 CJK 字体（TripGuidebookService.findCjkFont 在找不到字体时抛 500）。
+      # 生产镜像（travel-agent-server/Dockerfile）已装 fonts-noto-cjk，这里让 CI 与生产对齐：
+      # 否则「登录 → 建行程 → 路书可达」这条用例会以「服务器未找到可用的中文字体」失败，
+      # 而这属于**环境缺失**，不是代码缺陷。
+      - name: Install CJK fonts (PDF export parity with production image)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends fonts-noto-cjk
+
       - name: Start backend
         working-directory: travel-agent-server
         env:
@@ -348,6 +355,10 @@ jobs:
           node-version: '20'
           cache: npm
           cache-dependency-path: travel-agent-web/package-lock.json
+
+      # 与 e2e job 同款：先补 CJK 字体，否则路书 PDF 用例会因环境缺字体失败
+      - name: Install CJK fonts (PDF export parity with production image)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends fonts-noto-cjk
 
       # 与 e2e job 同款后端：H2 文件库 + demo 账号，关限流（原因见上面 e2e job 的注释）
       - name: Start backend

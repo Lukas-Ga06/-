@@ -65,3 +65,6 @@ travel-agent-web/.vite/
 
 # ESLint JSON 报告（临时产物）
 travel-agent-web/eslint-report.json
+
+# 会话内临时目录（CI 日志/PR payload 等，不进仓库）
+.prtmp/

@@ -6,9 +6,13 @@
 #   由本文件的 schedule 任务（或本地 `lychee --config lychee.toml`）周期性检查。
 
 timeout = 20
-max-retries = 2
-max-concurrency = 16
+max_retries = 2
+max_concurrency = 16
 accept = [200, 429]
+
+# 键名用 snake_case：lychee 0.24 起不再接受 kebab-case（`max-concurrency` 会报
+# unknown field，整个配置文件加载失败 → docs job 直接红）。改动时请对照
+# https://github.com/lycheeverse/lychee/blob/master/lychee.example.toml
 
 # 需要登录态/反爬的站点：直接跳过，避免长期红灯
 exclude = [
