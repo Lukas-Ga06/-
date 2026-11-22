@@ -1,0 +1,177 @@
+package com.travel.agent.controller;
+
+import com.travel.agent.dto.ApiResponse;
+import com.travel.agent.dto.BudgetDtos;
+import com.travel.agent.dto.ItineraryDtos;
+import com.travel.agent.dto.TripDtos;
+import com.travel.agent.dto.TravelReviewDtos;
+import com.travel.agent.entity.Trip;
+import com.travel.agent.entity.User;
+import com.travel.agent.service.AuthService;
+import com.travel.agent.service.BudgetExecutionService;
+import com.travel.agent.service.ItineraryRouteService;
+import com.travel.agent.service.ItineraryService;
+import com.travel.agent.service.OperationHistoryService;
+import com.travel.agent.service.TripGuidebookService;
+import com.travel.agent.service.TripMapService;
+import com.travel.agent.service.TripService;
+import com.travel.agent.util.Paging;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/trips")
+@RequiredArgsConstructor
+public class TripController {
+
+    private final TripService tripService;
+    private final ItineraryService itineraryService;
+    private final AuthService authService;
+    private final TripMapService tripMapService;
+    private final OperationHistoryService historyService;
+    private final BudgetExecutionService budgetExecutionService;
+    private final TripGuidebookService guidebookService;
+    /** V2.2 FR-07：每日路线段（真实/估算距离 + 来源标记） */
+    private final ItineraryRouteService itineraryRouteService;
+    /** P1：行后回顾聚合 */
+    private final com.travel.agent.service.TripReviewService tripReviewService;
+    /** P1：旅行事件流 */
+    private final com.travel.agent.service.TripEventService tripEventService;
+
+    @GetMapping
+    public ApiResponse<List<TripDtos.TripResponse>> list(
+            @RequestParam(defaultValue = "" + Paging.DEFAULT_PAGE_LIMIT) int limit,
+            @RequestParam(defaultValue = "0") int offset,
+            Authentication authentication) {
+        User user = authService.requireUser(authentication.getName());
+        int size = Paging.normalizeLimit(limit);
+        int from = Paging.normalizeOffset(offset);
+        var page = tripService.page(user.getId(), from, size);
+        return ApiResponse.ok(page.getContent(), Paging.meta(page.getTotalElements(), size, from));
+    }
+
+    /** 首页足迹地图：各行程目的地坐标 */
+    @GetMapping("/map")
+    public ApiResponse<List<TripDtos.TripMapPoint>> map(Authentication authentication) {
+        User user = authService.requireUser(authentication.getName());
+        return ApiResponse.ok(tripMapService.points(user.getId()));
+    }
+
+    @PostMapping
+    public ApiResponse<TripDtos.TripResponse> create(@Valid @RequestBody TripDtos.TripRequest request, Authentication authentication) {
+        User user = authService.requireUser(authentication.getName());
+        return ApiResponse.ok(TripDtos.TripResponse.from(tripService.create(user.getId(), request)));
+    }
+
+    @GetMapping("/{id}")
+    public ApiResponse<TripDtos.TripResponse> get(@PathVariable Long id, Authentication authentication) {
+        User user = authService.requireUser(authentication.getName());
+        return ApiResponse.ok(TripDtos.TripResponse.from(tripService.getOwned(id, user.getId())));
+    }
+
+    @PutMapping("/{id}")
+    public ApiResponse<TripDtos.TripResponse> update(@PathVariable Long id, @Valid @RequestBody TripDtos.TripRequest request,
+                                                     Authentication authentication) {
+        User user = authService.requireUser(authentication.getName());
+        return ApiResponse.ok(TripDtos.TripResponse.from(tripService.update(id, user.getId(), request)));
+    }
+
+    @DeleteMapping("/{id}")
+    public ApiResponse<Void> delete(@PathVariable Long id, Authentication authentication) {
+        User user = authService.requireUser(authentication.getName());
+        tripService.delete(id, user.getId());
+        return ApiResponse.ok(null);
+    }
+
+    /** 确认 / 取消 / 恢复行程（阶段仍由日期派生） */
+    @PutMapping("/{id}/status")
+    public ApiResponse<TripDtos.TripResponse> updateStatus(@PathVariable Long id,
+                                                           @Valid @RequestBody TripDtos.TripStatusRequest request,
+                                                           Authentication authentication) {
+        User user = authService.requireUser(authentication.getName());
+        return ApiResponse.ok(TripDtos.TripResponse.from(
+                tripService.updateStatus(id, user.getId(), request.getStatus())));
+    }
+
+    @GetMapping("/{id}/itinerary")
+    public ApiResponse<List<ItineraryDtos.ItineraryItemDTO>> itinerary(@PathVariable Long id, Authentication authentication) {
+        User user = authService.requireUser(authentication.getName());
+        tripService.getOwned(id, user.getId());
+        return ApiResponse.ok(itineraryService.listByTrip(id));
+    }
+
+    /**
+     * 每日路线段（V2.2 FR-07）：相邻行程点的距离/时长/打车估算 + 数据来源。
+     * 独立端点，不改变既有 itinerary 响应形状；无坐标条目自动跳过。
+     */
+    @GetMapping("/{id}/route-legs")
+    public ApiResponse<List<ItineraryDtos.RouteLegDTO>> routeLegs(@PathVariable Long id,
+                                                                  Authentication authentication) {
+        User user = authService.requireUser(authentication.getName());
+        tripService.getOwned(id, user.getId());
+        return ApiResponse.ok(itineraryRouteService.forTrip(id));
+    }
+
+    /** 预算执行：计划成本 / 行程预算 / 实际支出 / 偏差 + 分类对账 */
+    @GetMapping("/{id}/budget")
+    public ApiResponse<BudgetDtos.BudgetExecution> budget(@PathVariable Long id, Authentication authentication) {
+        User user = authService.requireUser(authentication.getName());
+        return ApiResponse.ok(budgetExecutionService.forTrip(id, user.getId()));
+    }
+
+    @PostMapping("/{id}/itinerary")
+    public ApiResponse<ItineraryDtos.ItineraryItemDTO> addItem(@PathVariable Long id,
+                                                               @Valid @RequestBody ItineraryDtos.AddItemRequest request,
+                                                               Authentication authentication) {
+        User user = authService.requireUser(authentication.getName());
+        Trip trip = tripService.getOwned(id, user.getId());
+        var saved = historyService.withHistory(trip, user.getId(), "手动新增行程项：" + request.getTitle(),
+                () -> itineraryService.addItem(trip, request));
+        tripEventService.record(trip.getId(), saved.getId(),
+                com.travel.agent.entity.TripEvent.TYPE_MANUAL_EDIT, "user",
+                "新增行程项：「" + saved.getTitle() + "」");
+        return ApiResponse.ok(itineraryService.toDto(saved, trip));
+    }
+
+    /**
+     * 旅行回顾（P1）：完成率、计划/实际花费、到访地点、实际路线、照片、事件与修改历史。
+     * 只读聚合，不改变行程；口径见 {@code TravelReviewDtos} 与 {@code TripReviewService}。
+     */
+    @GetMapping("/{id}/review")
+    public ApiResponse<TravelReviewDtos.TripReview> review(@PathVariable Long id, Authentication authentication) {
+        User user = authService.requireUser(authentication.getName());
+        Trip trip = tripService.getOwned(id, user.getId());
+        return ApiResponse.ok(tripReviewService.forTrip(trip));
+    }
+
+    /** 旅行事件流（P1）：天气突变 / 拥堵 / 闭馆 / 打卡 / Agent 调整，按时间倒序 */
+    @GetMapping("/{id}/events")
+    public ApiResponse<List<TripDtos.TripEventResponse>> events(
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "20") int limit,
+            Authentication authentication) {
+        User user = authService.requireUser(authentication.getName());
+        tripService.getOwned(id, user.getId());
+        return ApiResponse.ok(tripEventService.list(id, limit).stream()
+                .map(TripDtos.TripEventResponse::from)
+                .toList());
+    }
+
+    /** 路书导出：行程 + 每日安排 + 预算小结 → PDF（浏览器内联预览，可另存） */
+    @GetMapping("/{id}/guidebook.pdf")
+    public ResponseEntity<byte[]> guidebook(@PathVariable Long id, Authentication authentication) {
+        User user = authService.requireUser(authentication.getName());
+        tripService.getOwned(id, user.getId());
+        byte[] pdf = guidebookService.renderPdf(id, user.getId());
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_PDF)
+                .header("Content-Disposition", "inline; filename=\"trip-" + id + "-guidebook.pdf\"")
+                .body(pdf);
+    }
+}

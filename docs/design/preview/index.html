@@ -1,0 +1,583 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI 个人助理 · 重设计预览（方向 B：内容优先）</title>
+    <link rel="stylesheet" href="preview.css" />
+  </head>
+  <body>
+    <header class="pv-bar">
+      <div>
+        <strong>AI 个人助理 · 重设计预览</strong>
+        <span class="pv-tag">方向 B：内容优先的工具型</span>
+      </div>
+      <div class="page-actions">
+        <span class="chip" id="themeName">浅色</span>
+        <button class="btn btn-ghost" id="themeToggle">切换暗色</button>
+      </div>
+    </header>
+
+    <main class="pv-main">
+      <!-- ============ 1. 桌面端：外壳 + 首页 ============ -->
+      <section class="pv-section">
+        <h2>1 · 桌面端外壳 + 首页</h2>
+        <p class="pv-note">
+          去掉极光背景与毛玻璃：中性底 + 白色卡片 + 1px 发丝边框；信息密度提高，右栏承载助手与快捷入口。
+        </p>
+        <div class="pv-frame">
+          <div class="app">
+            <aside class="side">
+              <div class="side-brand"><span class="dot">🧠</span> AI 个人助理</div>
+              <nav class="side-nav">
+                <div class="side-group">总览</div>
+                <a class="side-link active">🏠 首页</a>
+                <a class="side-link">🧭 旅行规划</a>
+                <a class="side-link">🧳 我的行程</a>
+                <a class="side-link">🌍 旅行足迹</a>
+                <div class="side-group">生活</div>
+                <a class="side-link">💰 记账</a>
+                <a class="side-link">📝 备忘</a>
+                <a class="side-link">📅 日程</a>
+                <div class="side-group">其它</div>
+                <a class="side-link">🧰 工作台</a>
+                <a class="side-link">❤️ 健康</a>
+                <a class="side-link">🤖 AI 助理</a>
+              </nav>
+              <div class="side-user">
+                <span class="avatar">演</span>
+                <div>
+                  <strong>演示用户</strong>
+                  <small>demo</small>
+                </div>
+              </div>
+            </aside>
+
+            <main class="content">
+              <div class="content-inner">
+                <header class="page-head">
+                  <div>
+                    <h1>下午好，演示用户</h1>
+                    <p class="sub">10 月 6 日 周二 · 距「上海三日游」还有 12 天</p>
+                  </div>
+                  <div class="page-actions">
+                    <button class="btn btn-ghost">＋ 记一笔</button>
+                    <button class="btn">＋ 规划新行程</button>
+                  </div>
+                </header>
+
+                <section class="kpi-strip">
+                  <div class="kpi">
+                    <span>待办</span>
+                    <strong>3</strong>
+                    <small>1 项今天到期</small>
+                  </div>
+                  <div class="kpi">
+                    <span>本周日程</span>
+                    <strong>2</strong>
+                    <small>最近：周四 15:00 评审会</small>
+                  </div>
+                  <div class="kpi">
+                    <span>本月支出</span>
+                    <strong>¥1,280</strong>
+                    <small>预算使用 62%</small>
+                  </div>
+                  <div class="kpi">
+                    <span>足迹</span>
+                    <strong>4 城</strong>
+                    <small>累计 11 天</small>
+                  </div>
+                </section>
+
+                <div class="grid">
+                  <div class="col-main">
+                    <section class="card">
+                      <div class="card-head">
+                        <h3>最近行程</h3>
+                        <span class="link">全部 →</span>
+                      </div>
+                      <ul class="trip-list">
+                        <li class="trip-row">
+                          <div class="trip-when">10-18<span>3 天</span></div>
+                          <div class="trip-body">
+                            <strong>上海 · 外滩亲子三日游</strong>
+                            <span class="meta">已确认 · 6 个安排 · 酒店离地铁 400m</span>
+                            <div class="bar"><i style="width: 62%"></i></div>
+                            <span class="meta">预算 ¥3,000 · 已花 ¥1,860</span>
+                          </div>
+                          <button class="btn btn-ghost">打开</button>
+                        </li>
+                        <li class="trip-row">
+                          <div class="trip-when">11-02<span>2 天</span></div>
+                          <div class="trip-body">
+                            <strong>苏州 · 园林周末</strong>
+                            <span class="meta">规划中 · 3 个安排 · 待确认 1 项改动</span>
+                            <div class="bar"><i class="over" style="width: 88%"></i></div>
+                            <span class="meta">预算 ¥1,200 · 已花 ¥1,050（接近上限）</span>
+                          </div>
+                          <button class="btn btn-ghost">打开</button>
+                        </li>
+                      </ul>
+                    </section>
+
+                    <section class="card">
+                      <div class="card-head">
+                        <h3>今日待办</h3>
+                        <span class="link">＋ 新增</span>
+                      </div>
+                      <ul class="todo">
+                        <li class="done"><input type="checkbox" checked /> 办签证预约</li>
+                        <li><input type="checkbox" /> 确认酒店入住时间 <span class="due">今天</span></li>
+                        <li><input type="checkbox" /> 给苏州行程补交通</li>
+                      </ul>
+                    </section>
+                  </div>
+
+                  <aside class="col-rail">
+                    <section class="card assistant-card">
+                      <div class="card-head">
+                        <h3>AI 助手</h3>
+                        <span class="badge">规则引擎</span>
+                      </div>
+                      <p class="hint">说一句就能安排，例如<br />「帮我安排上海三日游，预算 3000」</p>
+                      <div class="ask">
+                        <input placeholder="说点什么…" />
+                        <button class="btn">→</button>
+                      </div>
+                      <div class="chips">
+                        <span>记一笔午餐 45 元</span>
+                        <span>记一下明天办签证</span>
+                        <span>生成今日日报</span>
+                      </div>
+                    </section>
+
+                    <section class="card">
+                      <div class="card-head">
+                        <h3>快捷入口</h3>
+                      </div>
+                      <div class="quick-grid">
+                        <div class="quick">💰 记一笔</div>
+                        <div class="quick">📝 加备忘</div>
+                        <div class="quick">📅 加日程</div>
+                        <div class="quick">📋 生成日报</div>
+                      </div>
+                    </section>
+
+                    <section class="card">
+                      <div class="card-head">
+                        <h3>旅行足迹</h3>
+                        <span class="link">3D 地图 →</span>
+                      </div>
+                      <div class="map-thumb">
+                        <svg viewBox="0 0 320 152" role="img" aria-label="足迹示意">
+                          <rect width="320" height="152" fill="none" />
+                          <circle cx="160" cy="76" r="54" fill="none" stroke="var(--border-strong)" stroke-width="1" />
+                          <ellipse cx="160" cy="76" rx="22" ry="54" fill="none" stroke="var(--border)" stroke-width="1" />
+                          <path d="M106 76h108" stroke="var(--border)" stroke-width="1" />
+                          <path d="M112 42c30 12 66 12 96 0" stroke="var(--border)" stroke-width="1" fill="none" />
+                          <path d="M112 110c30-12 66-12 96 0" stroke="var(--border)" stroke-width="1" fill="none" />
+                          <path d="M118 96C140 62 186 52 214 44" stroke="var(--accent)" stroke-width="2" stroke-dasharray="5 4" fill="none" />
+                          <circle cx="118" cy="96" r="4" fill="var(--accent)" />
+                          <circle cx="214" cy="44" r="4" fill="var(--accent)" />
+                          <circle cx="168" cy="70" r="3" fill="var(--text-3)" />
+                        </svg>
+                        <span class="map-hint">上海 · 苏州 · 北京 · 杭州</span>
+                      </div>
+                    </section>
+                  </aside>
+                </div>
+              </div>
+            </main>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 2. 桌面端：行程页 ============ -->
+      <section class="pv-section">
+        <h2>2 · 行程页（地图 + AI 助手 + 时间轴）</h2>
+        <p class="pv-note">
+          三块内容一次可见：左侧地图、右侧助手（含 Diff 确认）、底部时间轴；顶部把「预算 / 已花」提为常驻状态。
+        </p>
+        <div class="pv-frame">
+          <div class="app">
+            <aside class="side">
+              <div class="side-brand"><span class="dot">🧠</span> AI 个人助理</div>
+              <nav class="side-nav">
+                <div class="side-group">总览</div>
+                <a class="side-link">🏠 首页</a>
+                <a class="side-link">🧭 旅行规划</a>
+                <a class="side-link active">🧳 我的行程</a>
+                <a class="side-link">🌍 旅行足迹</a>
+                <div class="side-group">生活</div>
+                <a class="side-link">💰 记账</a>
+                <a class="side-link">📝 备忘</a>
+                <a class="side-link">📅 日程</a>
+              </nav>
+              <div class="side-user">
+                <span class="avatar">演</span>
+                <div>
+                  <strong>演示用户</strong>
+                  <small>demo</small>
+                </div>
+              </div>
+            </aside>
+
+            <main class="content">
+              <div class="content-inner">
+                <header class="page-head">
+                  <div>
+                    <h1>上海 · 外滩亲子三日游</h1>
+                    <p class="sub">10-18 → 10-20 · 3 天 · 6 个安排</p>
+                  </div>
+                  <div class="page-actions">
+                    <span class="chip">预算 ¥3,000</span>
+                    <span class="chip chip-ok">已花 ¥1,860</span>
+                    <button class="btn btn-ghost">撤销</button>
+                    <button class="btn">编辑行程</button>
+                  </div>
+                </header>
+
+                <div class="trip-layout">
+                  <section class="card">
+                    <div class="card-head">
+                      <h3>地图</h3>
+                      <div class="seg">
+                        <button class="on">2D</button>
+                        <button>3D</button>
+                      </div>
+                    </div>
+                    <div class="map-area">
+                      <svg viewBox="0 0 640 320" role="img" aria-label="行程地图示意">
+                        <rect width="640" height="320" fill="var(--surface-2)" />
+                        <path d="M0 210h640M0 120h640M180 0v320M420 0v320" stroke="var(--border)" stroke-width="1" />
+                        <path d="M60 250C160 210 240 150 330 132 420 114 500 96 590 72" stroke="var(--accent)" stroke-width="2.5" stroke-dasharray="7 5" fill="none" />
+                        <g fill="var(--accent)">
+                          <circle cx="60" cy="250" r="7" />
+                          <circle cx="330" cy="132" r="7" />
+                          <circle cx="590" cy="72" r="7" />
+                        </g>
+                        <g fill="var(--text-3)">
+                          <circle cx="200" cy="196" r="5" />
+                          <circle cx="470" cy="104" r="5" />
+                        </g>
+                        <g font-size="12" fill="var(--text-2)">
+                          <text x="76" y="238">外滩</text>
+                          <text x="344" y="122">豫园</text>
+                          <text x="520" y="62">上海博物馆</text>
+                        </g>
+                      </svg>
+                    </div>
+                  </section>
+
+                  <aside class="card">
+                    <div class="card-head">
+                      <h3>AI 助手</h3>
+                      <span class="badge">第 2 天 · 阴雨</span>
+                    </div>
+                    <div class="chat">
+                      <div class="msg user">明天下雨，把户外景点换掉</div>
+                      <div class="msg bot">
+                        <span class="stage">调用工具 query_weather → plan_update</span>
+                        已把 Day 2 的 2 个室外景点换成室内场馆，预算 +¥40（仍在 3000 内）。
+                        <div class="diff">
+                          <div>外滩（室外）→ 上海博物馆（室内）</div>
+                          <div>滨江步道（室外）→ 上海科技馆（室内）</div>
+                        </div>
+                        <div class="msg-actions">
+                          <button class="btn">确认修改</button>
+                          <button class="btn btn-ghost">取消</button>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="ask" style="margin-top: 12px">
+                      <input placeholder="继续说…" />
+                      <button class="btn">→</button>
+                    </div>
+                  </aside>
+                </div>
+
+                <section class="card timeline">
+                  <div class="card-head">
+                    <h3>时间轴</h3>
+                    <div class="seg">
+                      <button>Day 1</button>
+                      <button class="on">Day 2</button>
+                      <button>Day 3</button>
+                    </div>
+                  </div>
+                  <ul class="tl">
+                    <li>
+                      <time>09:00</time>
+                      <div>
+                        <strong>上海博物馆</strong>
+                        <span class="meta">景点 · 2 小时 · ¥0</span>
+                      </div>
+                      <span class="tag">室内</span>
+                    </li>
+                    <li>
+                      <time>12:00</time>
+                      <div>
+                        <strong>人民广场本帮菜</strong>
+                        <span class="meta">餐厅 · 1 小时 · ¥180</span>
+                      </div>
+                      <span class="tag">已订位</span>
+                    </li>
+                    <li>
+                      <time>14:00</time>
+                      <div>
+                        <strong>上海科技馆</strong>
+                        <span class="meta">景点 · 3 小时 · ¥90</span>
+                      </div>
+                      <span class="tag">室内</span>
+                    </li>
+                    <li>
+                      <time>18:30</time>
+                      <div>
+                        <strong>南京东路夜景 + 地铁回酒店</strong>
+                        <span class="meta">交通 · 40 分钟 · ¥12</span>
+                      </div>
+                      <span class="tag">已确认</span>
+                    </li>
+                  </ul>
+                </section>
+              </div>
+            </main>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 3. 移动端 ============ -->
+      <section class="pv-section">
+        <h2>3 · 移动端（当前完全缺失的一块）</h2>
+        <p class="pv-note">
+          侧栏在窄屏收起为底部标签栏（首页 / 行程 / 助手 / 我的），内容单列、卡片贴边、主要操作做成常驻输入条。
+        </p>
+        <div class="phone-row">
+          <div class="phone-wrap">
+            <h3>首页</h3>
+            <div class="phone">
+              <div class="phone-top">
+                <strong>下午好，演示用户</strong>
+                <span class="chip">10-06</span>
+              </div>
+              <div class="phone-body">
+                <div class="m-kpi">
+                  <div class="kpi"><span>待办</span><strong>3</strong><small>1 项今天到期</small></div>
+                  <div class="kpi"><span>本月支出</span><strong>¥1,280</strong><small>预算 62%</small></div>
+                </div>
+
+                <div class="card" style="padding: 12px">
+                  <div class="card-head" style="margin-bottom: 8px">
+                    <h3>最近行程</h3>
+                    <span class="link">全部</span>
+                  </div>
+                  <div class="m-trip" style="border: 0; box-shadow: none; padding: 0">
+                    <div class="when">10-18<span>3 天</span></div>
+                    <div>
+                      <strong style="font-size: 13px">上海 · 外滩亲子三日游</strong>
+                      <span class="meta" style="display: block; font-size: 11px; color: var(--text-3)">已确认 · 6 个安排</span>
+                      <div class="bar" style="margin: 8px 0 4px"><i style="width: 62%"></i></div>
+                      <span class="meta" style="font-size: 11px; color: var(--text-2)">预算 ¥3,000 · 已花 ¥1,860</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="m-ask">
+                  <input placeholder="说点什么，比如「记一笔午餐 45 元」" readonly />
+                  <button class="btn">→</button>
+                </div>
+              </div>
+              <nav class="phone-tabs">
+                <a class="on">首页</a>
+                <a>行程</a>
+                <a>助手</a>
+                <a>我的</a>
+              </nav>
+            </div>
+          </div>
+
+          <div class="phone-wrap">
+            <h3>行程页</h3>
+            <div class="phone">
+              <div class="phone-top">
+                <strong>上海 · 外滩亲子三日游</strong>
+                <span class="chip chip-ok">¥1,860 / 3,000</span>
+              </div>
+              <div class="phone-body">
+                <div class="map-area" style="height: 150px; margin-bottom: 12px">
+                  <svg viewBox="0 0 360 150" role="img" aria-label="移动端地图示意">
+                    <rect width="360" height="150" fill="var(--surface-2)" />
+                    <path d="M30 118C110 96 180 70 250 56 296 47 330 40 348 34" stroke="var(--accent)" stroke-width="2" stroke-dasharray="6 4" fill="none" />
+                    <circle cx="30" cy="118" r="5" fill="var(--accent)" />
+                    <circle cx="190" cy="74" r="5" fill="var(--accent)" />
+                    <circle cx="330" cy="40" r="5" fill="var(--accent)" />
+                  </svg>
+                </div>
+
+                <div class="m-day">
+                  <span>Day 1</span>
+                  <span class="on">Day 2</span>
+                  <span>Day 3</span>
+                </div>
+
+                <div class="m-item">
+                  <div class="row">
+                    <strong>09:00 上海博物馆</strong>
+                    <span class="tag">室内</span>
+                  </div>
+                  <span class="meta">景点 · 2 小时 · ¥0</span>
+                </div>
+                <div class="m-item">
+                  <div class="row">
+                    <strong>12:00 人民广场本帮菜</strong>
+                    <span class="tag">¥180</span>
+                  </div>
+                  <span class="meta">餐厅 · 已订位</span>
+                </div>
+                <div class="m-item">
+                  <div class="row">
+                    <strong>14:00 上海科技馆</strong>
+                    <span class="tag">室内</span>
+                  </div>
+                  <span class="meta">景点 · 3 小时 · ¥90</span>
+                </div>
+              </div>
+              <nav class="phone-tabs">
+                <a>首页</a>
+                <a class="on">行程</a>
+                <a>助手</a>
+                <a>我的</a>
+              </nav>
+            </div>
+          </div>
+
+          <div class="phone-wrap">
+            <h3>AI 助手</h3>
+            <div class="phone">
+              <div class="phone-top">
+                <strong>AI 助手</strong>
+                <span class="badge">第 2 天 · 阴雨</span>
+              </div>
+              <div class="phone-body">
+                <div class="m-chat">
+                  <div class="msg user">明天下雨，把户外景点换掉</div>
+                  <div class="msg bot">
+                    <span class="stage">调用工具 query_weather → plan_update</span>
+                    已把 Day 2 的 2 个室外景点换成室内场馆，预算 +¥40。
+                    <div class="diff">
+                      <div>外滩 → 上海博物馆</div>
+                      <div>滨江步道 → 上海科技馆</div>
+                    </div>
+                    <div class="msg-actions">
+                      <button class="btn">确认修改</button>
+                      <button class="btn btn-ghost">取消</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div style="padding: 0 16px 12px">
+                <div class="m-ask" style="margin: 0">
+                  <input placeholder="继续说…" readonly />
+                  <button class="btn">→</button>
+                </div>
+              </div>
+              <nav class="phone-tabs">
+                <a>首页</a>
+                <a>行程</a>
+                <a class="on">助手</a>
+                <a>我的</a>
+              </nav>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 4. 规格说明 ============ -->
+      <section class="pv-section">
+        <div class="spec">
+          <h3>设计说明（评审要点）</h3>
+          <p>
+            这一版的判断标准只有一句话：<strong>能不能每天打开用</strong>。所以去掉了装饰性材质，把预算、待办、行程状态这些「每天要看一眼」的信息提到首屏。
+          </p>
+
+          <div class="spec-grid">
+            <div>
+              <h4>相对现状的改动</h4>
+              <ul>
+                <li>移除极光背景、<code>backdrop-filter</code> 毛玻璃与高光描边</li>
+                <li>圆角从 16–24px 收敛到 6–14px，阴影从多层降到两层极浅阴影</li>
+                <li>新增 KPI 状态条（待办 / 日程 / 支出 / 足迹），首页不再只有入口</li>
+                <li>行程页把「预算 / 已花」提升为常驻状态，Diff 确认留在对话流里</li>
+                <li>补移动端：底部标签栏 + 单列卡片 + 常驻输入条</li>
+                <li>补暗色主题（现状只有足迹地图内部有 dark）</li>
+              </ul>
+            </div>
+
+            <div>
+              <h4>设计令牌</h4>
+              <ul>
+                <li>表面：<code>--bg</code> / <code>--surface</code> / <code>--surface-2</code> / <code>--border</code></li>
+                <li>文字：<code>--text</code> / <code>--text-2</code> / <code>--text-3</code></li>
+                <li>强调：<code>--accent</code>（一组即可，语义色 <code>--ok/--warn/--danger</code>）</li>
+                <li>圆角：<code>--r-sm 6</code> / <code>--r-md 10</code> / <code>--r-lg 14</code></li>
+                <li>间距：4 / 8 / 12 / 16 / 20 / 24 / 32</li>
+                <li>字号：11 / 12 / 13 / 14 / 16 / 20 / 24</li>
+              </ul>
+              <div class="swatches">
+                <span class="swatch"><i style="background: var(--accent)"></i>accent</span>
+                <span class="swatch"><i style="background: var(--ok)"></i>ok</span>
+                <span class="swatch"><i style="background: var(--warn)"></i>warn</span>
+                <span class="swatch"><i style="background: var(--danger)"></i>danger</span>
+                <span class="swatch"><i style="background: var(--surface)"></i>surface</span>
+                <span class="swatch"><i style="background: var(--bg)"></i>bg</span>
+              </div>
+            </div>
+
+            <div>
+              <h4>响应式规则</h4>
+              <ul>
+                <li>≥ 1080px：左侧栏 232px，内容区最大 1180px，首页两栏（主列 + 右栏）</li>
+                <li>720–1080px：侧栏收成 72px 图标栏，首页右栏下沉为第二行</li>
+                <li>&lt; 720px：底部标签栏 4 项，卡片单列贴边，主要操作为常驻输入条</li>
+                <li>行程页在窄屏按「地图 → 时间轴 → 助手」顺序堆叠，助手可全屏</li>
+              </ul>
+            </div>
+
+            <div>
+              <h4>落地顺序建议</h4>
+              <ul>
+                <li>第一步：替换 <code>global.css</code> 的 <code>:root</code> 令牌与外壳（AppShell）</li>
+                <li>第二步：首页、行程页两屏按本稿重排（占日常使用绝大多数时间）</li>
+                <li>第三步：其余 13 页只做「换令牌 + 去装饰 + 补窄屏」，不改信息架构</li>
+                <li>第四步：antd 主题 token 同步成同一套色值，避免两套视觉并存</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      (function () {
+        var root = document.documentElement;
+        var btn = document.getElementById('themeToggle');
+        var label = document.getElementById('themeName');
+
+        function prefersDark() {
+          return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        }
+
+        function apply(theme) {
+          root.setAttribute('data-theme', theme);
+          label.textContent = theme === 'dark' ? '暗色' : '浅色';
+          btn.textContent = theme === 'dark' ? '切换浅色' : '切换暗色';
+        }
+
+        apply(prefersDark() ? 'dark' : 'light');
+        btn.addEventListener('click', function () {
+          apply(root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+        });
+      })();
+    </script>
+  </body>
+</html>

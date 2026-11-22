@@ -1,0 +1,79 @@
+/* 最近会话抽屉（§8.6）：行内只放「标题 + 时间/条数」，不用 antd List，避免与全局列表样式打架 */
+.conv-drawer-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.conv-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.conv-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 10px 12px;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.conv-item:hover:not(:disabled),
+.conv-item:focus-visible {
+  border-color: var(--accent);
+  background: var(--accent-weak);
+}
+
+.conv-item:disabled {
+  cursor: progress;
+  opacity: 0.75;
+}
+
+.conv-item.active {
+  border-color: var(--accent);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.ci-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ci-meta {
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
+.ci-loading {
+  font-size: 11.5px;
+  color: var(--accent-hover);
+}
+
+.conv-drawer-error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--danger);
+  border-radius: var(--r-md);
+  background: var(--danger-weak);
+}
+
+.conv-drawer-error .ce-text {
+  font-size: 12.5px;
+  color: var(--danger);
+}

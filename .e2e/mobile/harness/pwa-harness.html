@@ -1,0 +1,625 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PWA 自测页（.e2e/mobile/harness）</title>
+<style>
+  body { font: 13px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; margin: 0; padding: 12px; background: #0f172a; color: #e2e8f0; }
+  h1 { font-size: 15px; margin: 0 0 8px; color: #7dd3fc; }
+  #phase { color: #fbbf24; margin-bottom: 8px; }
+  #log { white-space: pre-wrap; max-height: 46vh; overflow: auto; background: #111c33; padding: 8px; border-radius: 6px; }
+  #frames { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 10px; }
+  .frame-slot { background: #1e293b; padding: 6px; border-radius: 6px; }
+  .frame-slot > b { display: block; font-size: 11px; color: #94a3b8; margin-bottom: 4px; }
+  iframe { border: 0; background: #fff; display: block; }
+  #jsonFallback { white-space: pre-wrap; max-height: 30vh; overflow: auto; background: #111c33; padding: 8px; border-radius: 6px; font-size: 11px; }
+  .ok { color: #4ade80; } .fail { color: #f87171; } .warn { color: #fbbf24; }
+</style>
+</head>
+<body>
+<h1>PWA 自测页</h1>
+<div id="phase">boot</div>
+<div id="log"></div>
+<div id="frames"></div>
+<pre id="jsonFallback"></pre>
+<script>
+/*
+ * 同源 PWA 自测页（由 serve-dist.mjs --harness-dir 提供，路径 /__e2e/pwa-harness.html）
+ *
+ * 为什么需要它：本机沙箱里 Playwright 起不了浏览器（spawn EPERM / Chromium 命名管道被拒），
+ * 只能用「host 浏览器 + 同源页面内脚本」取证。它做的都是浏览器里真实发生的事：
+ *   - 读 manifest（200/字段/图标）、link[rel=manifest]
+ *   - 读 navigator.serviceWorker.ready / controller（真实 SW 注册与接管）
+ *   - 读 Cache Storage（预缓存 + itinerary-v1 运行时缓存是否命中）
+ *   - 用 390×844 的同源 iframe 真实渲染 /login /travel /trip/<id>，量 scrollWidth 与 innerWidth
+ *   - 把 iframe 的 DOM 通过 SVG foreignObject 光栅化成 PNG（不是截图 API，是真实渲染结果）
+ *   - 轮询 GET /api/trips/<id>/itinerary；源站一停就自动做「离线 reload」探针（iframe 内导航）
+ *
+ * 参数：?trip=12&width=390&height=844&label=run1
+ */
+const qs = new URLSearchParams(location.search);
+const TRIP_ID = Number(qs.get('trip') || 12);
+const W = Number(qs.get('width') || 390);
+const H = Number(qs.get('height') || 844);
+const LABEL = qs.get('label') || 'run';
+const SAVE = (path, kind) => `/__e2e/save?path=${encodeURIComponent(path)}&kind=${kind}`;
+
+const report = {
+  harness: 'pwa-harness/1',
+  label: LABEL,
+  startedAt: new Date().toISOString(),
+  params: { tripId: TRIP_ID, width: W, height: H },
+  env: {
+    ua: navigator.userAgent,
+    platform: navigator.platform,
+    language: navigator.language,
+    onLine: navigator.onLine,
+    secureContext: window.isSecureContext,
+    innerWidth: window.innerWidth,
+    innerHeight: window.innerHeight,
+    dpr: window.devicePixelRatio,
+    origin: location.origin,
+  },
+  login: null,
+  sw: null,
+  manifest: null,
+  caches: null,
+  api: null,
+  mobile: [],
+  screenshots: [],
+  poll: [],
+  offline: null,
+  errors: [],
+};
+
+const $ = (id) => document.getElementById(id);
+function setPhase(text) { report.phase = text; $('phase').textContent = text; }
+function logLine(text, cls) {
+  const line = document.createElement('span');
+  if (cls) line.className = cls;
+  line.textContent = `${new Date().toISOString().slice(11, 19)} ${text}\n`;
+  $('log').appendChild(line);
+  $('log').scrollTop = $('log').scrollHeight;
+}
+function fail(err, where) {
+  const msg = `${where}: ${err && err.message ? err.message : err}`;
+  report.errors.push(msg);
+  logLine('✗ ' + msg, 'fail');
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function postSave(path, kind, data) {
+  try {
+    const res = await fetch(SAVE(path, kind), { method: 'POST', body: data });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json.ok) throw new Error(`save ${path} -> ${res.status} ${JSON.stringify(json)}`);
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+/** 反复重试落盘（源站恢复后能补交离线阶段的结果） */
+async function postSaveRetry(path, kind, data, attempts = 40, gapMs = 4000) {
+  for (let i = 0; i < attempts; i += 1) {
+    if (await postSave(path, kind, data)) {
+      logLine(`saved ${path}`, 'ok');
+      return true;
+    }
+    await sleep(gapMs);
+  }
+  fail(`save ${path} exhausted retries`, 'postSaveRetry');
+  return false;
+}
+
+// ------------------------------------------------------------------ 1. 登录（拿 Cookie，保证 iframe 里有行程数据）
+async function ensureLogin() {
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ username: 'demo', password: 'demo123' }),
+    });
+    const json = await res.json().catch(() => null);
+    report.login = { status: res.status, ok: res.ok, code: json && json.code, nickname: json && json.data && json.data.nickname };
+    logLine(`login -> ${res.status} ${json && json.data ? json.data.nickname : ''}`, res.ok ? 'ok' : 'fail');
+  } catch (err) {
+    fail(err, 'login');
+  }
+}
+
+// ------------------------------------------------------------------ 2. Service Worker
+async function waitController(ms) {
+  const started = Date.now();
+  while (Date.now() - started < ms) {
+    if (navigator.serviceWorker.controller) return true;
+    await sleep(250);
+  }
+  return false;
+}
+
+async function checkServiceWorker() {
+  const out = { supported: 'serviceWorker' in navigator, registration: null, readyActive: null, controller: null, controllerState: null, waitedMs: 0 };
+  if (!out.supported) { report.sw = out; return; }
+  try {
+    const existing = await navigator.serviceWorker.getRegistration();
+    if (!existing) {
+      logLine('registering /sw.js ...');
+      await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+    }
+    const t0 = Date.now();
+    const reg = await navigator.serviceWorker.ready;
+    out.waitedMs = Date.now() - t0;
+    out.readyActive = reg.active ? reg.active.state : null;
+    out.registration = { scope: reg.scope, activeScriptURL: reg.active && reg.active.scriptURL, installing: !!reg.installing, waiting: !!reg.waiting };
+    out.controller = await waitController(15000);
+    out.controllerScriptUrl = navigator.serviceWorker.controller ? navigator.serviceWorker.controller.scriptURL : null;
+    out.controllerState = navigator.serviceWorker.controller ? navigator.serviceWorker.controller.state : null;
+    logLine(`SW ready active=${out.readyActive} controller=${out.controller}`, out.readyActive === 'activated' && out.controller ? 'ok' : 'fail');
+  } catch (err) {
+    fail(err, 'checkServiceWorker');
+  }
+  report.sw = out;
+}
+
+// ------------------------------------------------------------------ 3. manifest + 运行时缓存
+async function checkManifest() {
+  try {
+    const res = await fetch('/manifest.webmanifest', { cache: 'no-store' });
+    const text = await res.text();
+    let json = null;
+    try { json = JSON.parse(text); } catch (e) { json = null; }
+    const htmlRes = await fetch('/index.html', { cache: 'no-store' });
+    const html = await htmlRes.text();
+    const linkMatch = html.match(/<link[^>]+rel=["']?manifest["']?[^>]*>/i);
+    const icons = (json && Array.isArray(json.icons)) ? json.icons : [];
+    const sizes = icons.map((i) => String(i.sizes || ''));
+    const has = (want) => sizes.some((s) => s.split(/\s+/).includes(want));
+    report.manifest = {
+      status: res.status,
+      contentType: res.headers.get('content-type'),
+      name: json && json.name,
+      short_name: json && json.short_name,
+      start_url: json && json.start_url,
+      display: json && json.display,
+      theme_color: json && json.theme_color,
+      icons: icons.map((i) => ({ src: i.src, sizes: i.sizes, type: i.type, purpose: i.purpose })),
+      has192: has('192x192'),
+      has512: has('512x512'),
+      linkRelManifest: linkMatch ? linkMatch[0] : null,
+      linkRelManifestFound: !!linkMatch,
+    };
+    const ok = res.status === 200 && !!json && !!json.name && !!json.short_name && !!json.start_url && json.display === 'standalone' && has('192x192') && has('512x512') && !!linkMatch;
+    logLine(`manifest status=${res.status} name=${json && json.name} display=${json && json.display} 192=${has('192x192')} 512=${has('512x512')} link=${!!linkMatch}`, ok ? 'ok' : 'fail');
+  } catch (err) {
+    fail(err, 'checkManifest');
+  }
+}
+
+async function readCaches() {
+  try {
+    const names = await caches.keys();
+    const out = { names, itineraryV1: null, precacheCount: null };
+    if (names.includes('itinerary-v1')) {
+      const cache = await caches.open('itinerary-v1');
+      const reqs = await cache.keys();
+      out.itineraryV1 = reqs.map((r) => r.url);
+    }
+    const pre = names.find((n) => /precache/i.test(n));
+    if (pre) {
+      const cache = await caches.open(pre);
+      const reqs = await cache.keys();
+      out.precacheCount = reqs.length;
+      out.precacheName = pre;
+    }
+    report.caches = out;
+    const itin = (out.itineraryV1 || []).filter((u) => /\/itinerary/.test(u));
+    const budget = (out.itineraryV1 || []).filter((u) => /\/budget/.test(u));
+    logLine(`caches=${names.join(',')} itinerary=${itin.length} budget=${budget.length} precache=${out.precacheCount}`, itin.length ? 'ok' : 'warn');
+  } catch (err) {
+    fail(err, 'readCaches');
+  }
+}
+
+async function warmApi() {
+  const out = {};
+  for (const [key, path] of [['itinerary', `/api/trips/${TRIP_ID}/itinerary`], ['budget', `/api/trips/${TRIP_ID}/budget`], ['trip', `/api/trips/${TRIP_ID}`]]) {
+    try {
+      const t0 = performance.now();
+      const res = await fetch(path, { credentials: 'include' });
+      const txt = await res.text();
+      out[key] = { status: res.status, ms: Math.round(performance.now() - t0), bytes: txt.length };
+      logLine(`warm ${path} -> ${res.status} ${out[key].ms}ms`, res.ok ? 'ok' : 'fail');
+    } catch (err) {
+      out[key] = { error: String((err && err.message) || err) };
+      logLine(`warm ${path} -> ERR ${(err && err.message) || err}`, 'fail');
+    }
+  }
+  report.api = out;
+}
+
+// ------------------------------------------------------------------ 4. iframe 真实渲染 + 溢出测量 + PNG 光栅化
+function mountFrame(name) {
+  const slot = document.createElement('div');
+  slot.className = 'frame-slot';
+  const label = document.createElement('b');
+  label.textContent = `${name} · ${W}×${H}`;
+  const frame = document.createElement('iframe');
+  frame.width = String(W);
+  frame.height = String(H);
+  slot.appendChild(label);
+  slot.appendChild(frame);
+  $('frames').appendChild(slot);
+  return frame;
+}
+
+function waitFrameLoad(frame) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => { if (!done) { done = true; resolve(); } };
+    frame.addEventListener('load', finish, { once: true });
+    setTimeout(finish, 20000);
+  });
+}
+
+async function measureFrame(frame) {
+  const doc = frame.contentDocument;
+  const win = frame.contentWindow;
+  if (!doc || !win) throw new Error('iframe document 不可访问');
+  const html = doc.documentElement;
+  const body = doc.body;
+  const scrollWidth = Math.max(html ? html.scrollWidth : 0, body ? body.scrollWidth : 0);
+  const innerWidth = win.innerWidth;
+  const main = doc.querySelector('main.app-content') || doc.querySelector('.login-page, .app-shell');
+  let mainVisible = false;
+  if (main) {
+    const rect = main.getBoundingClientRect();
+    mainVisible = rect.width > 0 && rect.height > 0 && rect.top < win.innerHeight + 1;
+  }
+  return {
+    url: win.location.href,
+    pathname: win.location.pathname,
+    title: doc.title,
+    innerWidth,
+    innerHeight: win.innerHeight,
+    scrollWidth,
+    overflowPx: scrollWidth - innerWidth,
+    pass: scrollWidth <= innerWidth + 1,
+    mainVisible,
+    hasLoginForm: !!doc.querySelector('input#username'),
+    hasAppShell: !!doc.querySelector('.app-shell'),
+    hasOfflineBanner: !!doc.querySelector('[data-testid=offline-banner]'),
+    hasSessionRecoveryFailed: !!doc.querySelector('[data-testid=session-recovery-failed]'),
+    tripHeading: (doc.querySelector('.dash-greeting h1') || {}).textContent || '',
+    timelineRows: doc.querySelectorAll('.t-row').length,
+    tripRows: doc.querySelectorAll('.trip-row').length,
+    linkRelManifest: doc.querySelector('link[rel=manifest]') ? doc.querySelector('link[rel=manifest]').getAttribute('href') : null,
+    text: ((body && body.innerText) || '').replace(/\s+/g, ' ').slice(0, 700),
+  };
+}
+
+/**
+ * 光栅化可行性探针：区分「foreignObject 本身能不能导出 canvas」和「应用 CSS/DOM 里的外部引用」。
+ * 结果写进 report.rasterTest，失败就不是猜，而是有原文。
+ */
+async function rasterProbe() {
+  const simpleFo =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="60" height="24">' +
+    '<foreignObject x="0" y="0" width="60" height="24">' +
+    '<div xmlns="http://www.w3.org/1999/xhtml" style="font:14px sans-serif;color:#111">hi 测试</div>' +
+    '</foreignObject></svg>';
+  const plainSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="60" height="24"><rect width="60" height="24" fill="#1677ff"/></svg>';
+  const cases = [
+    ['datauri_foreignObject', `data:image/svg+xml;charset=utf-8,${encodeURIComponent(simpleFo)}`],
+    ['blob_foreignObject', null],
+    ['datauri_plain_svg', `data:image/svg+xml;charset=utf-8,${encodeURIComponent(plainSvg)}`],
+  ];
+  const out = {};
+  for (const [name, src] of cases) {
+    let url = src;
+    let revoked = false;
+    try {
+      if (!url) {
+        url = URL.createObjectURL(new Blob([simpleFo], { type: 'image/svg+xml;charset=utf-8' }));
+        revoked = true;
+      }
+      const img = new Image();
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = () => reject(new Error('img.onerror（SVG 未被解析/渲染）'));
+        img.src = url;
+      });
+      const canvas = document.createElement('canvas');
+      canvas.width = 60;
+      canvas.height = 24;
+      canvas.getContext('2d').drawImage(img, 0, 0);
+      const dataUrl = canvas.toDataURL('image/png');
+      out[name] = { ok: true, bytes: dataUrl.length };
+    } catch (err) {
+      out[name] = { ok: false, error: String((err && err.message) || err) };
+    } finally {
+      if (revoked) URL.revokeObjectURL(url);
+    }
+  }
+  logLine(`rasterProbe: ${JSON.stringify(out)}`, Object.values(out).some((v) => v.ok) ? 'ok' : 'fail');
+  return out;
+}
+
+/**
+ * 用 SVG foreignObject 把 iframe 的真实渲染结果光栅化成 PNG。
+ * 说明：这不是浏览器截图 API（沙箱里拿不到），而是把同一份渲染后的 DOM + 内联 CSS
+ * 交给 Chromium 的 SVG 渲染器重绘；布局/尺寸/CSS 变量都已按 iframe 的 390px 视口算过。
+ *
+ * 关键点：SVG 图片必须能被 XML 解析器接受，所以先用 XMLSerializer 序列化 XHTML 片段，
+ * 再用 DOMParser 校验（parsererror 会被抓出来当证据，而不是笼统的 "渲染失败"）。
+ */
+async function rasterize(frame, name) {
+  const doc = frame.contentDocument;
+  const w = frame.clientWidth || W;
+  const contentH = Math.max(doc.documentElement.scrollHeight || 0, (doc.body && doc.body.scrollHeight) || 0, H);
+  const h = Math.min(contentH, 2400);
+  let css = '';
+  for (const link of doc.querySelectorAll('link[rel=stylesheet]')) {
+    try {
+      const res = await fetch(link.href);
+      css += `\n/* inlined: ${link.getAttribute('href')} */\n` + (await res.text());
+    } catch (err) {
+      css += `\n/* failed: ${link.getAttribute('href')} */\n`;
+    }
+  }
+  for (const style of doc.querySelectorAll('style')) css += '\n' + style.textContent;
+  // :root / html / body 选择器映射到 foreignObject 里的包裹节点（否则 CSS 变量在外层不会生效）。
+  // 用 [^\w-] 边界，避免把 .ant-drawer-body 这类类名里的 body 一起替换掉。
+  const bound = '(^|[^\\w-])';
+  css = css
+    .replace(/:root/g, '.svgroot')
+    .replace(new RegExp(bound + 'html(?=[^\\w-])', 'g'), '$1.svgroot')
+    .replace(new RegExp(bound + 'body(?=[^\\w-])', 'g'), '$1.svgroot');
+  const theme = doc.documentElement.getAttribute('data-theme') || 'light';
+
+  // 0) 去外部引用：SVG 图片里只要引用了外部资源，canvas 就会被 taint（无法 toDataURL）。
+  //    所以把 CSS 里的 url(...) 全部换成 1px 透明 data URI，并剥掉 DOM 上的外链属性。
+  const BLANK = 'data:image/gif;base64,R0lGODlhAQABAAAAACw=';
+  css = css
+    .replace(/@import[^;]+;/gi, '')
+    .replace(/url\(\s*(['"]?)(?![#])([^)'"]*)\1\s*\)/gi, (m, q, ref) => (/^data:/i.test(ref) ? m : `url(${BLANK})`));
+
+  // 1) 组装 DOM 并序列化成 XML 合法的 XHTML 片段
+  const wrapper = document.createElement('div');
+  wrapper.className = 'svgroot';
+  wrapper.setAttribute('data-theme', theme);
+  wrapper.setAttribute('style', `width:${w}px;height:${h}px;overflow:hidden;background:#fff`);
+  const styleEl = document.createElement('style');
+  styleEl.textContent = css;
+  wrapper.appendChild(styleEl);
+  for (const child of Array.from(doc.body.children)) {
+    if (child.tagName === 'SCRIPT') continue;
+    const clone = child.cloneNode(true);
+    // canvas 克隆出来是空白的（maplibre 地图区会变白），这里把已渲染内容转成图片贴回去
+    for (const canvas of Array.from(clone.querySelectorAll ? clone.querySelectorAll('canvas') : [])) {
+      try {
+        const img = document.createElement('img');
+        img.src = canvas.toDataURL('image/png');
+        img.setAttribute('style', canvas.getAttribute('style') || '');
+        canvas.replaceWith(img);
+      } catch (err) {
+        canvas.remove();
+      }
+    }
+    for (const el of Array.from(clone.querySelectorAll ? clone.querySelectorAll('img,image,use,iframe,video,source') : [])) {
+      for (const attr of ['src', 'href', 'xlink:href', 'poster', 'srcset']) {
+        const value = el.getAttribute(attr);
+        if (value && !value.startsWith('data:') && !value.startsWith('#')) el.removeAttribute(attr);
+      }
+    }
+    wrapper.appendChild(clone);
+  }
+  let xhtml = new XMLSerializer().serializeToString(wrapper);
+  // 兜底：把 HTML void 元素补成自闭合（XML 解析器不接受未闭合标签；已自闭合的不要重复加 /）
+  xhtml = xhtml.replace(
+    /<(br|hr|img|input|meta|link|source|area|base|col|embed|param|track|wbr)((?:\s[^<>]*?)?)(\/?)>/gi,
+    (m, tag, attrs, selfClose) => (selfClose ? m : `<${tag}${attrs}/>`),
+  );
+  // 补上 XHTML 命名空间（setAttribute('xmlns') 不会真的声明命名空间）
+  xhtml = xhtml.replace(/^<div\b/, '<div xmlns="http://www.w3.org/1999/xhtml"');
+
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">` +
+    `<foreignObject x="0" y="0" width="${w}" height="${h}">${xhtml}</foreignObject></svg>`;
+
+  // 2) 先用 XML 解析器自检，解析失败就把错误原文带回报告
+  const parsed = new DOMParser().parseFromString(svg, 'image/svg+xml');
+  const parserError = parsed.querySelector('parsererror');
+  if (parserError) {
+    throw new Error(`SVG XML 解析失败(${name}): ${(parserError.textContent || '').replace(/\s+/g, ' ').slice(0, 220)}`);
+  }
+
+  // 3) 光栅化：必须用 data: URI，不能用 blob: —— 本机 Chromium 里 blob: 的 SVG 图片会 taint canvas
+  //    （rasterProbe 里 blob_foreignObject 直接报 "Tainted canvases may not be exported"，datauri 则正常）
+  const dataUri = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  const img = new Image();
+  await new Promise((resolve, reject) => {
+    img.onload = resolve;
+    img.onerror = () => reject(new Error(`SVG 图片加载失败(${name})，svg=${Math.round(svg.length / 1024)}KB xhtml=${Math.round(xhtml.length / 1024)}KB`));
+    img.src = dataUri;
+  });
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, w, h);
+  ctx.drawImage(img, 0, 0);
+  return canvas.toDataURL('image/png');
+}
+
+async function capturePage(path, name, waitMs) {
+  const entry = { name, path, measuredAt: new Date().toISOString() };
+  const frame = mountFrame(name);
+  try {
+    frame.src = path;
+    await waitFrameLoad(frame);
+    await sleep(waitMs);
+    entry.state = await measureFrame(frame);
+    logLine(`${path} innerWidth=${entry.state.innerWidth} scrollWidth=${entry.state.scrollWidth} overflowPx=${entry.state.overflowPx} main=${entry.state.mainVisible}`, entry.state.pass ? 'ok' : 'fail');
+    try {
+      const dataUrl = await rasterize(frame, name);
+      const ok = await postSave(`.evidence/screenshots/mobile-390-${name}.png`, 'png', dataUrl);
+      entry.screenshot = ok ? `.evidence/screenshots/mobile-390-${name}.png` : null;
+      if (ok) report.screenshots.push(entry.screenshot);
+      logLine(`png ${name} ${ok ? 'saved' : 'save-failed'} (${Math.round(dataUrl.length / 1024)}KB base64)`, ok ? 'ok' : 'fail');
+    } catch (err) {
+      fail(err, `rasterize:${name}`);
+    }
+  } catch (err) {
+    fail(err, `capture:${name}`);
+  } finally {
+    frame.parentElement && frame.parentElement.remove();
+  }
+  report.mobile.push(entry);
+  return entry;
+}
+
+// ------------------------------------------------------------------ 5. 轮询（在线 → 断网后的缓存证据）
+let pollTimer = null;
+let offlineProbeStarted = false;
+const pollStartedAt = Date.now();
+
+async function pollOnce() {
+  const t = Math.round((Date.now() - pollStartedAt) / 1000);
+  const entry = { t, at: new Date().toISOString().slice(11, 19) };
+  const t0 = performance.now();
+  try {
+    const res = await fetch(`/api/trips/${TRIP_ID}/itinerary?_t=${t}`, { credentials: 'include', cache: 'no-store' });
+    entry.status = res.status;
+    entry.ms = Math.round(performance.now() - t0);
+    entry.ok = res.ok;
+    const json = await res.json().catch(() => null);
+    entry.items = json && Array.isArray(json.data) ? json.data.length : null;
+    logLine(`poll t+${t}s itinerary -> ${entry.status} ${entry.ms}ms items=${entry.items}`);
+  } catch (err) {
+    entry.error = String((err && err.message) || err);
+    entry.ok = false;
+    logLine(`poll t+${t}s itinerary -> ERR ${entry.error}（源站已停，进入离线探针）`, 'warn');
+    if (!offlineProbeStarted) {
+      offlineProbeStarted = true;
+      runOfflineProbe().catch((e) => fail(e, 'runOfflineProbe'));
+    }
+  }
+  report.poll.push(entry);
+  if (report.poll.length > 120) report.poll.shift();
+  $('jsonFallback').textContent = JSON.stringify({ phase: report.phase, poll: report.poll.slice(-6) });
+}
+
+function startPolling() {
+  pollOnce();
+  pollTimer = setInterval(pollOnce, 2000);
+}
+
+// ------------------------------------------------------------------ 6. 离线探针（源站停掉后，靠 SW 预缓存打开 iframe 里的 app）
+async function runOfflineProbe() {
+  setPhase('offline-probe');
+  logLine('开始离线探针：iframe 导航到 /trip/<id>（源站已停，应由 SW 预缓存回退 index.html）', 'warn');
+  const out = { startedAt: new Date().toISOString(), targetPath: `/trip/${TRIP_ID}` };
+  const frame = mountFrame('offline');
+  try {
+    frame.src = `/trip/${TRIP_ID}`;
+    await waitFrameLoad(frame);
+    await sleep(9000);
+    out.state = await measureFrame(frame);
+    out.state.onLine = navigator.onLine;
+    out.browserErrorPage = /ERR_INTERNET_DISCONNECTED|ERR_CONNECTION_REFUSED|This site can.t be reached|无法访问此网站/.test(`${out.state.title} ${out.state.text}`);
+    logLine(
+      `离线页面: url=${out.state.url} title=${out.state.title} banner=${out.state.hasOfflineBanner} recovery=${out.state.hasSessionRecoveryFailed} login=${out.state.hasLoginForm} rows=${out.state.timelineRows}`,
+      'warn',
+    );
+    try {
+      const dataUrl = await rasterize(frame, 'offline');
+      out.png = `.evidence/screenshots/mobile-390-offline.png`;
+      out.pngSavePending = true;
+      // 源站此时是停的：保存要等恢复后重试补交
+      out.pngSaved = await postSaveRetry(out.png, 'png', dataUrl, 40, 4000);
+      if (out.pngSaved) report.screenshots.push(out.png);
+    } catch (err) {
+      fail(err, 'rasterize:offline');
+    }
+  } catch (err) {
+    fail(err, 'runOfflineProbe');
+  } finally {
+    frame.parentElement && frame.parentElement.remove();
+  }
+  report.offline = out;
+  setPhase('offline-probe-done');
+  // 离线探针里 iframe 的真实 URL/标题/关键文本
+  logLine(`离线探针完成：${JSON.stringify({ url: out.state && out.state.url, title: out.state && out.state.title })}`);
+  afterOfflineProbe().catch((e) => fail(e, 'afterOfflineProbe'));
+}
+
+// ------------------------------------------------------------------ 7. 落盘 + 恢复在线后再复核
+async function saveReport() {
+  report.finishedAt = new Date().toISOString();
+  const json = JSON.stringify(report, null, 2);
+  $('jsonFallback').textContent = json;
+  await postSaveRetry(`.evidence/reports/harness-${LABEL}.json`, 'json', json, 20, 3000);
+}
+
+async function afterOfflineProbe() {
+  // 离线探针结束后继续轮询：等源站恢复后，网络请求应重新拿到 200（恢复在线证据）
+  setPhase('waiting-recovery');
+  for (let i = 0; i < 90; i += 1) {
+    await sleep(2000);
+    const t = Math.round((Date.now() - pollStartedAt) / 1000);
+    try {
+      const res = await fetch(`/api/trips/${TRIP_ID}/itinerary?_t=${t}`, { credentials: 'include', cache: 'no-store' });
+      report.recovery = { at: new Date().toISOString(), status: res.status, ok: res.ok };
+      logLine(`恢复检测：源站已恢复 -> ${res.status}`, res.ok ? 'ok' : 'warn');
+      await saveReport();
+      setPhase('done');
+      return;
+    } catch (err) {
+      // 还没恢复，继续等
+    }
+  }
+  report.recovery = { at: new Date().toISOString(), status: null, ok: false };
+  await saveReport();
+  setPhase('done-timeout');
+}
+
+// ------------------------------------------------------------------ main
+(async () => {
+  try {
+    setPhase('login');
+    await ensureLogin();
+    setPhase('service-worker');
+    await checkServiceWorker();
+    setPhase('manifest');
+    await checkManifest();
+    setPhase('warm-api');
+    await warmApi();
+    setPhase('caches');
+    await readCaches();
+
+    setPhase('online-mobile');
+    report.rasterTest = await rasterProbe();
+    await capturePage('/login', 'login', 2500);
+    await capturePage('/travel', 'travel', 3000);
+    await capturePage(`/trip/${TRIP_ID}`, 'trip', 3500);
+    await readCaches(); // 打开过 iframe 页面后再读一次：应出现 itinerary 运行时缓存
+
+    setPhase('online-done');
+    await saveReport();
+    startPolling();
+    logLine('在线阶段结束，开始轮询 /api/trips/<id>/itinerary；源站一停即自动进入离线探针', 'ok');
+  } catch (err) {
+    fail(err, 'main');
+    setPhase('error');
+    await saveReport();
+  }
+})();
+
+
+</script>
+</body>
+</html>

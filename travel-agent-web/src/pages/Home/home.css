@@ -1,0 +1,220 @@
+/* ============================================================
+   首页（总览 Dashboard）
+   ------------------------------------------------------------
+   首页独占的段落：AI 快捷入口、下一次旅行 / 今天 / 待处理 / 今日概览 /
+   足迹摘要、首页足迹块（浅色卡片）、左列待办与快捷入口，以及 v5 覆盖块
+   与 1080/720px 窄屏里只含首页选择器的分组。
+   由 src/styles/global.css 拆出：随本页路由 chunk 加载，其它页面不再下载这些规则。
+   规则内容与拆分前逐字一致，只调整了归属文件
+   （规则级 diff 与像素级回归见 docs/review 里的阶段 E 第二批验收）。
+   ============================================================ */
+
+.assistant-quick .aq-hint {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.aq-row {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.aq-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.aq-input {
+  flex: 1;
+  background: transparent;
+  font-size: 15px;
+}
+
+.hero-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.85fr) minmax(300px, 1fr);
+  gap: 14px;
+  align-items: stretch;
+  margin-top: 4px;
+}
+
+@media (max-width: 1100px) {
+  .hero-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 900px) {
+  .hero-globe {
+    min-height: 400px;
+  }
+
+  .hero-side-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.assistant-quick {
+  padding: var(--sp-3) var(--sp-4);
+}
+
+.assistant-quick .aq-input {
+  font-size: 14px;
+}
+
+/* ---------- 首页（阶段 B 收敛）：下一次旅行 / 今日 / 待处理 / 概览 ---------- */
+.next-trip {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-1);
+  padding: var(--sp-4);
+}
+
+.next-trip .nt-eyebrow {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--text-3);
+}
+
+.next-trip .nt-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-2);
+}
+
+.next-trip .nt-title {
+  font-size: 20px;
+  font-weight: 680;
+  color: var(--text);
+  overflow-wrap: break-word;
+}
+
+.next-trip .nt-meta {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--text-2);
+  overflow-wrap: break-word;
+}
+
+.next-trip .nt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
+}
+
+.next-trip .nt-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* 今天要做什么：时间 + 标题两列，时间不随标题长度变形 */
+.today-row {
+  display: flex;
+  gap: var(--sp-3);
+  padding: 7px 0;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.today-row:first-of-type {
+  border-top: 0;
+}
+
+.today-row .today-time {
+  flex-shrink: 0;
+  width: 46px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.today-row .today-title {
+  min-width: 0;
+  color: var(--text);
+  overflow-wrap: break-word;
+}
+
+.hero-grid {
+  gap: var(--sp-4);
+  align-items: start;
+}
+
+.todo-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.todo-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 7px 0;
+  font-size: 13px;
+  border-top: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.todo-item:first-child {
+  border-top: 0;
+}
+
+.todo-item input {
+  accent-color: var(--accent);
+}
+
+.quick-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-2);
+}
+
+.quick-btn {
+  padding: var(--sp-3);
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  text-align: left;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+
+.quick-btn:hover {
+  background: var(--surface-3);
+  border-color: var(--border-strong);
+}
+
+/* 原文在共享的 @media (max-width: 1080px) { 里；这里只搬属于本页的选择器分组 ——
+   规则与声明逐字一致（见规则级 diff），只是不再和别的页面共用同一个媒体块 */
+@media (max-width: 1080px) {
+  .hero-grid,
+  .dash-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .hero-side {
+    flex-direction: column;
+  }
+}
+
+/* 原文在共享的 @media (max-width: 720px) { 里；这里只搬属于本页的选择器分组 ——
+   规则与声明逐字一致（见规则级 diff），只是不再和别的页面共用同一个媒体块 */
+@media (max-width: 720px) {
+  .hero-side-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .hero-globe {
+    min-height: 360px;
+  }
+}

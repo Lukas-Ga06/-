@@ -1,0 +1,12 @@
+# 验收专用 compose 覆盖：只改环境变量，不改镜像/端口/卷。
+# 用法：docker compose -f docker-compose.yml -f .e2e/acceptance/docker-compose.acceptance.yml up -d --build
+services:
+  backend:
+    environment:
+      # 验收需要固定账号与可重复的确定性路径
+      DEMO_ACCOUNT: "true"
+      RATE_LIMIT_ENABLED: "false"
+      LLM_ENABLED: "false"
+      WEATHER_REAL: "false"
+      AMAP_KEY: ${AMAP_KEY:-}
+      AMAP_MAPS_API_KEY: ${AMAP_MAPS_API_KEY:-}

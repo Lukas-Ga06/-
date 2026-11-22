@@ -1,0 +1,176 @@
+/* ============================================================
+   行程页（时间轴主栏 + 地图/AI 侧栏）
+   ------------------------------------------------------------
+   行程页独占的段落：行程工作台栅格、移动端分段视图、「下一项」卡片与
+   1080/720px 折叠，以及 v5 覆盖块里的 .mini-tag 阶段徽标。
+   由 src/styles/global.css 拆出：随本页路由 chunk 加载，其它页面不再下载这些规则。
+   （同目录 trip-flow.css 里的 .plan3-* 本来就不在 global，保持原样。）
+   规则内容与拆分前逐字一致，只调整了归属文件
+   （规则级 diff 与像素级回归见 docs/review 里的阶段 E 第二批验收）。
+   ============================================================ */
+
+/* ---------- 行程页：桌面「时间轴主栏 + 地图/AI 侧栏」，移动端「行程/地图/AI」分段 ---------- */
+.trip-workbench {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);
+  gap: var(--sp-4);
+  align-items: start;
+}
+
+.trip-map-card,
+.trip-chat-card,
+.trip-timeline-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.trip-main-col {
+  min-width: 0;
+}
+
+.trip-side-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+}
+
+.trip-side-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 420px;
+}
+
+/* 移动端分段视图：行程 / 地图 / AI 互斥，默认行程（P1-04） */
+.trip-view-switch {
+  margin-bottom: var(--sp-3);
+}
+
+.trip-map-body {
+  position: relative;
+  flex: 1;
+  min-height: 420px;
+  overflow: hidden;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+}
+
+.trip-chat-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 420px;
+}
+
+.trip-chat-body .chat-messages,
+.trip-side-body .chat-messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.trip-timeline-card .tl-scroll {
+  max-height: 62vh;
+  overflow-y: auto;
+  padding-right: var(--sp-1);
+}
+
+/* ---------- 「下一项」卡片：行中第一信息（§7.3） ---------- */
+.next-up {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin: var(--sp-3) var(--sp-3) 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+}
+
+.next-up .nu-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.next-up .nu-main:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+.nu-label {
+  font-size: 11.5px;
+  font-weight: 650;
+  color: var(--accent);
+}
+
+.nu-title {
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nu-sub {
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.mini-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+@media (max-width: 1080px) {
+  .trip-workbench {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .trip-map-body {
+    min-height: 320px;
+  }
+
+  .trip-chat-body,
+  .trip-side-body {
+    min-height: 300px;
+  }
+}
+
+@media (max-width: 720px) {
+  /* 分段视图一次只显示一块：各自占满剩余视口，避免地图/聊天挤成一条缝 */
+  .trip-map-body {
+    min-height: 60vh;
+  }
+
+  .trip-chat-body,
+  .trip-side-body {
+    min-height: 60vh;
+  }
+
+  .trip-timeline-card .tl-scroll {
+    max-height: none;
+  }
+
+  .next-up {
+    margin: var(--sp-2) var(--sp-2) 0;
+  }
+}

@@ -1,0 +1,196 @@
+/* ============================================================
+   登录页
+   ------------------------------------------------------------
+   登录页骨架（左侧品牌 + 右侧表单）、去玻璃化覆盖、720px 窄屏与 AA 对比度修正
+   由 src/styles/global.css 拆出：随本页路由 chunk 加载，
+   其它页面不再下载这些规则。规则内容与拆分前逐字一致，
+   只调整了归属文件，因此视觉上应无差异（见 e2e/visual）。
+   ============================================================ */
+.login-page {
+  position: relative;
+  z-index: 1;
+  min-height: 100%;
+  display: grid;
+  grid-template-columns: minmax(420px, 5fr) 4fr;
+  align-items: center;
+  padding: 48px;
+  gap: 48px;
+  background: transparent;
+}
+
+.login-brand {
+  color: var(--ink);
+  padding: 44px 40px;
+  border-radius: 30px;
+  background: var(--lg-bg);
+  border: 1px solid var(--lg-border);
+  box-shadow: var(--lg-shadow);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 26px;
+  min-height: 520px;
+}
+
+.login-brand h1 {
+  font-size: 34px;
+  margin: 0 0 10px;
+  letter-spacing: -0.6px;
+}
+
+.login-brand .slogan {
+  font-size: 15px;
+  color: var(--ink-2);
+  line-height: 1.85;
+}
+
+.login-brand .feature-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.login-brand .feature-item {
+  display: flex;
+  gap: 13px;
+  align-items: center;
+  padding: 13px 2px;
+  border-bottom: 0.5px solid rgba(60, 60, 67, 0.16);
+}
+
+.login-brand .feature-item:last-child {
+  border-bottom: none;
+}
+
+.login-brand .feature-item .fi-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  font-size: 17px;
+  color: #fff;
+  flex-shrink: 0;
+  box-shadow: 0 4px 14px rgba(0, 122, 255, 0.3);
+}
+
+.fi-icon.blue {
+  background: var(--blue);
+}
+.fi-icon.green {
+  background: var(--green);
+}
+.fi-icon.indigo {
+  background: var(--indigo);
+}
+
+.login-brand .feature-item b {
+  display: block;
+  font-size: 14.5px;
+}
+.login-brand .feature-item span {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.login-brand .foot {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.login-form-panel {
+  display: flex;
+  justify-content: center;
+}
+
+.login-card {
+  width: 400px;
+  background: var(--lg-bg);
+  border: 1px solid var(--lg-border);
+  border-radius: 30px;
+  box-shadow: var(--lg-shadow);
+  padding: 34px 32px;
+}
+
+.login-card .brand-mini {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 22px;
+}
+
+.login-card .brand-mini .logo {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: var(--grad-primary);
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-size: 21px;
+  box-shadow: 0 8px 22px rgba(0, 122, 255, 0.35);
+}
+
+.login-card .brand-mini b {
+  font-size: 18px;
+}
+.login-card .brand-mini span {
+  display: block;
+  font-size: 12px;
+  color: var(--ink-3);
+  font-weight: 400;
+}
+
+.login-tip {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(0, 122, 255, 0.08);
+  border: 1px solid rgba(0, 122, 255, 0.2);
+  color: var(--blue);
+  font-size: 12.5px;
+  text-align: center;
+}
+
+@media (max-width: 900px) {
+  .login-page {
+    grid-template-columns: 1fr;
+    padding: 20px;
+  }
+  .login-brand {
+    display: none;
+  }
+}
+
+/* ---------- 登录页：去掉玻璃卡片 ---------- */
+.login-brand,
+.login-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-2);
+}
+
+.login-card .brand-mini .logo,
+.feature-item .fi-icon {
+  box-shadow: none;
+  border-radius: var(--r-sm);
+}
+
+.login-page {
+  background: var(--bg);
+}
+
+@media (max-width: 720px) {
+  .login-page {
+    grid-template-columns: 1fr;
+    padding: var(--sp-4);
+  }
+
+  .login-card {
+    width: 100%;
+  }
+}
+
+.login-tip {
+  /* #1f6feb on #ebf4ff = 4.17 → #1a5fd0 = 5.27 */
+  color: var(--accent-hover);
+}

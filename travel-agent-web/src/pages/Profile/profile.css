@@ -1,0 +1,52 @@
+/* ============================================================
+   个人中心
+   ------------------------------------------------------------
+   资料卡、头像与统计栅格（共享的 .stat-box 仍留在 global.css）
+   由 src/styles/global.css 拆出：随本页路由 chunk 加载，
+   其它页面不再下载这些规则。规则内容与拆分前逐字一致，
+   只调整了归属文件，因此视觉上应无差异（见 e2e/visual）。
+   ============================================================ */
+/* ============================================================
+   个人中心
+   ============================================================ */
+.profile-page {
+  min-height: 100%;
+  padding: 48px 20px;
+}
+
+.profile-card {
+  max-width: 520px;
+  margin: 0 auto;
+  border-radius: 30px;
+  background: var(--lg-bg);
+  border: 1px solid var(--lg-border);
+  box-shadow: var(--lg-shadow);
+  padding: 28px;
+}
+
+.profile-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 22px;
+}
+
+.profile-avatar {
+  width: 62px;
+  height: 62px;
+  border-radius: 50%;
+  background: var(--grad-primary);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 26px;
+  font-weight: 700;
+  box-shadow: 0 8px 24px rgba(0, 122, 255, 0.35);
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 20px 0;
+}

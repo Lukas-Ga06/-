@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE suppressions PUBLIC
+        "-//Checkstyle//DTD SuppressionFilter 1.2//EN"
+        "https://checkstyle.org/dtds/suppressions_1_2.dtd">
+
+<!--
+    存量债务豁免清单。规则：只减不增（ratchet）。
+      * 每一条都必须在 reason 里写清「为什么现在豁免」和「怎么还债」；
+      * 新增代码不得往这里加条目；修完一处就删一条，并同步 docs/guide/quality-gates.md。
+-->
+<suppressions>
+
+    <!-- ============ AvoidStarImport：存量通配符 import ============ -->
+    <!-- 19 个 JPA 实体的 import jakarta.persistence.* / lombok.*：统一展开属于机械改动，
+         但会与进行中的功能分支冲突，单独排期；展开后删除本条。 -->
+    <suppress checks="AvoidStarImport" files=".*[\\/]entity[\\/][^\\/]*\.java$"/>
+
+    <!-- 9 个控制器使用 import org.springframework.web.bind.annotation.*：
+         展开为具体注解（@GetMapping/@PostMapping/...）后删除本条。 -->
+    <suppress checks="AvoidStarImport"
+              files=".*[\\/](Agent|Expense|Itinerary|Memo|Photo|Reminder|Schedule|TravelKnowledge|Trip)Controller\.java$"/>
+
+    <!-- ============ LineLength：存量超长行（> 160 列） ============ -->
+    <!-- 下列文件的长行主要是 LLM 提示词、中文文案、日志格式串和长 URL。
+         拆分字符串会改变提示词/日志的可读性与 diff 规模，因此暂按文件豁免 LineLength，
+         其余检查仍然生效；后续拆分时逐条删除。 -->
+    <suppress checks="LineLength" files=".*[\\/]IntentAgent\.java$"/>
+    <suppress checks="LineLength" files=".*[\\/]MessageParser\.java$"/>
+    <suppress checks="LineLength" files=".*[\\/]PlanConfirmationService\.java$"/>
+    <suppress checks="LineLength" files=".*[\\/]StructuredPlanner\.java$"/>
+    <suppress checks="LineLength" files=".*[\\/]RagBootstrap\.java$"/>
+    <suppress checks="LineLength" files=".*[\\/]RagService\.java$"/>
+    <suppress checks="LineLength" files=".*[\\/]OnlineCityCatalogReader\.java$"/>
+    <suppress checks="LineLength" files=".*[\\/]PlanNarrationService\.java$"/>
+    <suppress checks="LineLength" files=".*[\\/]ReminderService\.java$"/>
+    <suppress checks="LineLength" files=".*[\\/]RouteService\.java$"/>
+    <suppress checks="LineLength" files=".*[\\/]SafetyInterceptor\.java$"/>
+
+</suppressions>

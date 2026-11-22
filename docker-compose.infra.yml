@@ -1,0 +1,30 @@
+version: "3.8"
+
+# 可选的基础设施：切换 MySQL / Redis 时使用
+#   docker compose up -d
+#   后端启动参数：--spring.profiles.active=mysql
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: travel-agent-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: travel_agent
+    ports:
+      - "3306:3306"
+    volumes:
+      # 不再挂载 sql/init.sql：schema 的唯一权威已改为 Flyway（V1 基线 + V2.. 增量）。
+      # 若仍用它初始化，会建出旧列型（health_record.weight=DECIMAL、operation_history.*=JSON 等），
+      # 与 application-mysql.yml 的 ddl-auto=validate 冲突 → 后端直接启动失败。
+      # 库本身由下面的 MYSQL_DATABASE 创建，表由后端首次启动的 Flyway 建。
+      - mysql-data:/var/lib/mysql
+
+  redis:
+    image: redis:7-alpine
+    container_name: travel-agent-redis
+    ports:
+      - "6379:6379"
+
+volumes:
+  mysql-data:

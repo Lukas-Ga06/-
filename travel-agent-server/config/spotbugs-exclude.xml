@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    SpotBugs 误报豁免（effort=Max / threshold=High，绑定 verify）。
+
+    为什么是 High 而不是文档默认的 Medium：
+      Max/Medium 基线一次报 466 条，其中 440 条是 EI_EXPOSE_REP / EI_EXPOSE_REP2
+      （Lombok DTO、JPA 实体 getter/setter 与 Spring 构造器注入字段）。SpotBugs 看不到
+      Jackson 序列化与 Spring 容器生命周期的语义，这类告警在本项目里没有行动价值。
+      门禁先按 High 落地（只拦真正的高危缺陷），Medium 存量债务与降级路线见
+      docs/guide/quality-gates.md「SpotBugs 债务与 ratchet」。
+
+    原则：
+      1. 只排除「工具无法看到运行时语义」的具体误报，必须精确到 Class + Bug pattern；
+      2. 发现真实缺陷必须修代码，不允许用 exclude 掩盖；
+      3. 每条豁免写 reason，并定期复核。
+-->
+<FindBugsFilter>
+
+    <!-- 误报：String.hashCode() 对单字符/双字符子串恒为非负（单字符 c ∈ [0,65535]；
+         双字符 c1*31+c2 ≤ 2,097,120），Math.abs 不会得到负值，也不存在 Integer.MIN_VALUE。
+         该处 abs 只是防御性写法，下标不可能越界。 -->
+    <Match>
+        <Class name="com.travel.agent.rag.LocalHashEmbeddingService"/>
+        <Bug pattern="RV_ABSOLUTE_VALUE_OF_HASHCODE"/>
+    </Match>
+
+    <!-- 误报：同一表达式 response.getBody() 调用了两次（三元判断 + 取值），
+         SpotBugs 的数据流看不到「第一次为 null 时走 new byte[0]」的等价保证，
+         误判 body 可能为 null。逻辑上 body 恒非 null（见 HttpMcpTransport#request）。 -->
+    <Match>
+        <Class name="com.travel.agent.mcp.HttpMcpTransport"/>
+        <Bug pattern="NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE"/>
+    </Match>
+
+    <!-- 误报：启动时用 SecureRandom 生成一次性 JWT 密钥后即丢弃，正是 DMI_RANDOM 规则
+         想提醒的模式，但这里就是安全随机源的正确用法（不需要复用 Random 实例）。 -->
+    <Match>
+        <Class name="com.travel.agent.security.JwtService"/>
+        <Bug pattern="DMI_RANDOM_USED_ONLY_ONCE"/>
+    </Match>
+
+</FindBugsFilter>

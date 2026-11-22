@@ -1,0 +1,102 @@
+/* ============================================================
+   设置 · 诊断（Workbench）
+   ------------------------------------------------------------
+   Agent 运行列表、摘要、提示与 960px 窄屏
+   由 src/styles/global.css 拆出：随本页路由 chunk 加载，
+   其它页面不再下载这些规则。规则内容与拆分前逐字一致，
+   只调整了归属文件，因此视觉上应无差异（见 e2e/visual）。
+   ============================================================ */
+/* ---------- Workbench：Agent 运行观察 ---------- */
+.workbench-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 390px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.workbench-grid .dc-head {
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.workbench-grid .dc-head .run-sub {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.workbench-list-scroll {
+  max-height: min(62vh, 640px);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.runs-drawer .run-row.selected {
+  border-color: var(--accent);
+  background: var(--accent-weak);
+}
+
+.wb-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  padding: 8px 10px;
+  border: 1px dashed var(--border);
+  border-radius: var(--r-sm);
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.wb-summary b {
+  color: var(--ink-2);
+  font-weight: 600;
+}
+
+.wb-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 10px;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--ink-3);
+}
+
+/* 部分完成的说明条：和「待核实」同色，但把正文提亮到可读的次要文本（P0-07） */
+.wb-note-warn {
+  margin-top: var(--sp-2);
+  padding: 8px 10px;
+  border-left: 3px solid var(--warn);
+  border-radius: var(--r-sm);
+  background: var(--warn-weak);
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.wb-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.wb-tag {
+  font-size: 11px;
+  padding: 0 6px;
+  border-radius: var(--r-full);
+  color: var(--ink-3);
+  background: var(--surface-3);
+}
+
+.wb-tag.warn {
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.14);
+}
+
+@media (max-width: 960px) {
+  .workbench-grid {
+    grid-template-columns: 1fr;
+  }
+  .workbench-list-scroll {
+    max-height: none;
+  }
+}

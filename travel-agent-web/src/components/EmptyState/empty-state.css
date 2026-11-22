@@ -1,0 +1,40 @@
+/* 共享空状态：组件级样式，不新增页面级全局规则 */
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 28px 16px;
+  text-align: center;
+  color: var(--text-2, #4b5563);
+}
+
+.empty-state .es-icon {
+  font-size: 26px;
+  line-height: 1;
+  opacity: 0.9;
+}
+
+.empty-state .es-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text, #111827);
+}
+
+.empty-state .es-hint {
+  font-size: 12.5px;
+  line-height: 1.6;
+  max-width: 34em;
+  color: var(--text-3, #6b7280);
+}
+
+.empty-state .es-action {
+  margin-top: 6px;
+}
+
+/* 紧凑场景（列表内、侧栏内）：不占大块空白 */
+.empty-state--compact {
+  padding: 16px 12px;
+}

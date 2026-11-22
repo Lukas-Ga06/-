@@ -1,0 +1,289 @@
+{
+  "generatedAt": "2026-11-19T06:29:32.656Z",
+  "base": "http://127.0.0.1:18093",
+  "expectAmap": false,
+  "expectLlm": false,
+  "durationMs": 3189,
+  "total": 27,
+  "failed": 0,
+  "byFr": {
+    "PRE": {
+      "pass": 1,
+      "fail": 0,
+      "ids": [
+        "00.1:PASS"
+      ]
+    },
+    "FR-01": {
+      "pass": 4,
+      "fail": 0,
+      "ids": [
+        "01.1:PASS",
+        "01.2:PASS",
+        "01.3:PASS",
+        "01.4:PASS"
+      ]
+    },
+    "FR-08": {
+      "pass": 3,
+      "fail": 0,
+      "ids": [
+        "08.1:PASS",
+        "08.2:PASS",
+        "08.3:PASS"
+      ]
+    },
+    "FR-09": {
+      "pass": 3,
+      "fail": 0,
+      "ids": [
+        "09.1:PASS",
+        "09.2:PASS",
+        "09.3:PASS"
+      ]
+    },
+    "FR-06": {
+      "pass": 3,
+      "fail": 0,
+      "ids": [
+        "06.1:PASS",
+        "06.2:PASS",
+        "06.3:PASS"
+      ]
+    },
+    "FR-10": {
+      "pass": 4,
+      "fail": 0,
+      "ids": [
+        "10.1:PASS",
+        "10.2:PASS",
+        "10.3:PASS",
+        "10.4:PASS"
+      ]
+    },
+    "FR-02": {
+      "pass": 3,
+      "fail": 0,
+      "ids": [
+        "02.1:PASS",
+        "02.2:PASS",
+        "02.3:PASS"
+      ]
+    },
+    "FR-04": {
+      "pass": 2,
+      "fail": 0,
+      "ids": [
+        "04.1:PASS",
+        "04.2:PASS"
+      ]
+    },
+    "FR-07": {
+      "pass": 2,
+      "fail": 0,
+      "ids": [
+        "07.1:PASS",
+        "07.2:PASS"
+      ]
+    },
+    "FR-05": {
+      "pass": 2,
+      "fail": 0,
+      "ids": [
+        "05.1:PASS",
+        "05.2:PASS"
+      ]
+    }
+  },
+  "results": [
+    {
+      "fr": "PRE",
+      "id": "00.1",
+      "name": "健康检查 UP",
+      "ok": true,
+      "detail": "UP"
+    },
+    {
+      "fr": "FR-01",
+      "id": "01.1",
+      "name": "缺目的地/天数/人数 → 合并追问一次，不启动规划",
+      "ok": true,
+      "detail": "missingSlots=[\"destination\",\"days\",\"partySize\"] message=开始规划前，还需要确认：\n· 去哪里？\n· 玩几天？\n· 几个人一起（儿童也算人数）？\n预算和出发日期也可以顺手说；不说"
+    },
+    {
+      "fr": "FR-01",
+      "id": "01.2",
+      "name": "短回答跨轮补槽（上海 → 天数 → 人数）",
+      "ok": true,
+      "detail": "第二轮=[\"partySize\"]"
+    },
+    {
+      "fr": "FR-01",
+      "id": "01.3",
+      "name": "人数补齐后进入规划并明示兜底预算",
+      "ok": true,
+      "detail": "tripId=1"
+    },
+    {
+      "fr": "FR-01",
+      "id": "01.4",
+      "name": "人数落库：trip.partySize=2",
+      "ok": true,
+      "detail": "destination=上海 partySize=2"
+    },
+    {
+      "fr": "FR-08",
+      "id": "08.1",
+      "name": "方案生成带 planId + contentHash（SHA-256 64 位）",
+      "ok": true,
+      "detail": "planId=fe60b5c5-3d09-4c77-8e49-ce54f5c29243 changes=11"
+    },
+    {
+      "fr": "FR-08",
+      "id": "08.2",
+      "name": "内容指纹不符 → 拒绝提交且方案不被消费",
+      "ok": true,
+      "detail": "方案内容与确认请求不一致（内容指纹校验未通过），请刷新后重新查看方案再确认。"
+    },
+    {
+      "fr": "FR-08",
+      "id": "08.3",
+      "name": "正确指纹 → 提交成功",
+      "ok": true,
+      "detail": "tripId=2 execution=f844e5d0-cdce-4fbe-8431-eb27196ba276"
+    },
+    {
+      "fr": "FR-09",
+      "id": "09.1",
+      "name": "确认后三模块幂等同步全部 SUCCEEDED",
+      "ok": true,
+      "detail": "calendar:SUCCEEDED,budget:SUCCEEDED,footprint:SUCCEEDED"
+    },
+    {
+      "fr": "FR-09",
+      "id": "09.2",
+      "name": "执行台账可回查且 planId 一致",
+      "ok": true,
+      "detail": "executionId=f844e5d0-cdce-4fbe-8431-eb27196ba276"
+    },
+    {
+      "fr": "FR-09",
+      "id": "09.3",
+      "name": "重复确认被拦截，只产生一份逻辑执行",
+      "ok": true,
+      "detail": "确认会话不存在或已过期，请重新发起请求。"
+    },
+    {
+      "fr": "FR-06",
+      "id": "06.1",
+      "name": "预算装不下 → 审核 blocked + 要求显式接受风险",
+      "ok": true,
+      "detail": "attempts=1 issues=BUDGET_OVERRUN"
+    },
+    {
+      "fr": "FR-06",
+      "id": "06.2",
+      "name": "未勾选风险 → 拒绝提交且方案仍可取回",
+      "ok": true,
+      "detail": "该方案仍有未解决的高风险问题（预计花费 ¥1776 已超出预算 ¥100，可让我再精简一下），请在确认弹窗中勾选「我已了解风险」后再提交，或调整需求重新规划。"
+    },
+    {
+      "fr": "FR-06",
+      "id": "06.3",
+      "name": "显式接受风险 → 提交成功",
+      "ok": true,
+      "detail": "tripId=3"
+    },
+    {
+      "fr": "FR-10",
+      "id": "10.1",
+      "name": "一次对话落一条 run，可按 runId 回查",
+      "ok": true,
+      "detail": "cf5d987f-a5db-44d1-96ab-94b674bb07e3"
+    },
+    {
+      "fr": "FR-02",
+      "id": "02.1",
+      "name": "任务图依赖边齐全（PLAN→INTENT、PREVIEW/REVIEW→PLAN）",
+      "ok": true,
+      "detail": "INTENT → PLAN → PREVIEW → REVIEW → REPLAN → PREVIEW#1 → COMMIT"
+    },
+    {
+      "fr": "FR-02",
+      "id": "02.2",
+      "name": "PREVIEW ‖ REVIEW 实际并行（时间区间重叠）",
+      "ok": true,
+      "detail": "preview=[2026-11-19T14:29:32..2026-11-19T14:29:32] review=[2026-11-19T14:29:32..2026-11-19T14:29:32]"
+    },
+    {
+      "fr": "FR-02",
+      "id": "02.3",
+      "name": "审核触发 REPLAN，重规划后的 Diff 由 PREVIEW 重派（attempt=1 + replacesTaskId）",
+      "ok": true,
+      "detail": "REPLAN（无可自动修复项）→ 仅重建 PREVIEW#1；replaces=20423901-789e-4ac2-9f43-59dd6665e04e"
+    },
+    {
+      "fr": "FR-04",
+      "id": "04.1",
+      "name": "任务协议字段齐全（receiver/taskType/status/summary）",
+      "ok": true,
+      "detail": "receivers=intent-agent,planner-agent,executor-agent,reflect-agent"
+    },
+    {
+      "fr": "FR-10",
+      "id": "10.2",
+      "name": "工具调用逐条落 trace，且成功率 100%",
+      "ok": true,
+      "detail": "45 次调用，工具=search_hotel,search_attraction,calculate_route,search_restaurant"
+    },
+    {
+      "fr": "FR-04",
+      "id": "04.2",
+      "name": "SSE 事件含 run / delegate / plan_update / complete",
+      "ok": true,
+      "detail": "events=9 [start>run>delegate>intent>planning>delegate>tool_call>tool_result>complete] recover=0"
+    },
+    {
+      "fr": "FR-07",
+      "id": "07.1",
+      "name": "规划并提交一趟两日游（用于路线段）",
+      "ok": true,
+      "detail": "tripId=4"
+    },
+    {
+      "fr": "FR-07",
+      "id": "07.2",
+      "name": "route-legs 返回逐日相邻点路线段，字段完整",
+      "ok": true,
+      "detail": "legs=7 sources={\"estimated\":7}"
+    },
+    {
+      "fr": "FR-05",
+      "id": "05.1",
+      "name": "system/status 如实上报 provider（不泄露密钥）",
+      "ok": true,
+      "detail": "routeProvider=estimated geoProvider=osm amapConfigured=false"
+    },
+    {
+      "fr": "FR-05",
+      "id": "05.2",
+      "name": "无 Key 时明确降级为 estimated（不伪造真实来源）",
+      "ok": true,
+      "detail": "全部 7 段 estimated"
+    },
+    {
+      "fr": "FR-10",
+      "id": "10.3",
+      "name": "未登录访问 runs → 401",
+      "ok": true,
+      "detail": "HTTP 401"
+    },
+    {
+      "fr": "FR-10",
+      "id": "10.4",
+      "name": "他人 run 一律 404（跨用户隔离）",
+      "ok": true,
+      "detail": "user2=acc772558 → 404"
+    }
+  ]
+}

@@ -1,0 +1,60 @@
+/* ============================================================
+   行程页行中执行流程（§7.3）
+   —— 这一段只服务「短时撤销 / 待同步 / 侧栏 keep-alive」，
+      不进 global.css：页面级样式随组件一起演进，避免全局表继续膨胀。
+   ============================================================ */
+
+/* ---------- 桌面侧栏 keep-alive ----------
+   地图与 AI 面板一次挂载、按需显隐：切换侧栏不再卸载地图，
+   因此高德实例、相机位置与缩放全部保留（用户缩放后切走再切回来不该被重置）。
+   用 visibility 而不是 display:none：隐藏时容器仍保有尺寸，
+   地图画布不会因为 0 宽高而需要重新初始化。 */
+.trip-side-body.trip-side-keepalive {
+  position: relative;
+}
+
+.trip-pane {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.trip-pane[data-active='true'] {
+  visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* ---------- 「待同步」标记（§7.3 第 4 条）----------
+   离线记录的状态必须与服务端已确认的状态在视觉上区分开：
+   虚线描边的琥珀色小标签，和「已完成」的实心状态徽标不是同一种东西。 */
+.tc-pending {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px;
+  border: 1px dashed var(--warn);
+  border-radius: var(--r-full);
+  background: var(--warn-weak);
+  color: var(--warn);
+  font-size: 10.5px;
+  font-weight: 650;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+/* 待同步的条目还没被服务端确认：整张卡片的强调色从「完成绿」换成「待同步琥珀」 */
+.t-card[data-pending='true'] {
+  border-left: 2px solid var(--warn);
+}
+
+/* ---------- 页头待同步计数 ---------- */
+.trip-pending-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}

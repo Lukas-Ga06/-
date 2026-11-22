@@ -1,0 +1,96 @@
+/* 结构化结果卡：只作用于聊天结果消息，不新增页面级全局规则 */
+
+.result-card {
+  border: 1px solid var(--line, #e5e7eb);
+  border-left-width: 3px;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--surface, #fff);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.result-card--ok {
+  border-left-color: #52c41a;
+}
+.result-card--warn {
+  border-left-color: #faad14;
+}
+.result-card--bad {
+  border-left-color: #ff4d4f;
+}
+.result-card--muted {
+  border-left-color: #9ca3af;
+}
+
+.rc-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.rc-status {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.result-card--ok .rc-status {
+  color: #389e0d;
+}
+.result-card--warn .rc-status {
+  color: #d48806;
+}
+.result-card--bad .rc-status {
+  color: #cf1322;
+}
+.result-card--muted .rc-status {
+  color: #6b7280;
+}
+
+.rc-hint {
+  font-size: 12px;
+  color: var(--ink-muted, #6b7280);
+}
+
+.rc-message {
+  margin: 0;
+  white-space: pre-wrap;
+  line-height: 1.6;
+}
+
+.rc-section {
+  font-size: 13px;
+}
+
+.rc-section b {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 12px;
+  color: var(--ink-muted, #6b7280);
+}
+
+.rc-section ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.rc-warnings li {
+  color: #ad6800;
+}
+
+.rc-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 480px) {
+  .result-card {
+    padding: 8px 10px;
+  }
+  .rc-actions .ant-btn {
+    flex: 1 1 auto;
+  }
+}

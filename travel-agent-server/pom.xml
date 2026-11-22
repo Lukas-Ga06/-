@@ -1,0 +1,310 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.5.7</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.travel</groupId>
+    <artifactId>travel-agent-server</artifactId>
+    <version>0.1.0</version>
+    <name>travel-agent-server</name>
+    <description>多模态智能旅行 Agent 服务端（Agent Engine + RAG + Tools）</description>
+
+    <properties>
+        <java.version>17</java.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+        <jjwt.version>0.12.6</jjwt.version>
+        <!-- 质量门禁插件版本（升级时同步 docs/guide/quality-gates.md 的元数据） -->
+        <jacoco.version>0.8.12</jacoco.version>
+        <checkstyle.plugin.version>3.6.0</checkstyle.plugin.version>
+        <spotbugs.plugin.version>4.8.6.6</spotbugs.plugin.version>
+        <!-- surefire 的 @{argLine} 由 JaCoCo prepare-agent 在运行时写入；这里留空定义只是防御：
+             万一有人绕过 initialize 阶段直接跑 surefire:test，也不会把字面量 @{argLine} 传给 JVM。 -->
+        <argLine></argLine>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <!-- Flyway：存量库 baseline + 增量脚本管理 schema（版本由 Boot BOM 管理） -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-mysql</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-api</artifactId>
+            <version>${jjwt.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-impl</artifactId>
+            <version>${jjwt.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-jackson</artifactId>
+            <version>${jjwt.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- 发票 PDF 文本提取 -->
+        <dependency>
+            <groupId>org.apache.pdfbox</groupId>
+            <artifactId>pdfbox</artifactId>
+            <version>3.0.3</version>
+        </dependency>
+
+        <!-- 行程路书导出：HTML 模板渲染为 PDF（OpenPDF 内核，中文需系统 CJK 字体或 classpath:fonts/cjk.*）
+             9.13.0 起 flying-saucer-pdf-openpdf 已合并回官方 flying-saucer-pdf（OpenPDF 内核）；
+             旧坐标停在 9.4.0，Maven 会提示 artifact 已迁移（relocated）。 -->
+        <dependency>
+            <groupId>org.xhtmlrenderer</groupId>
+            <artifactId>flying-saucer-pdf</artifactId>
+            <version>9.13.0</version>
+        </dependency>
+
+        <!-- OpenAPI 契约：/v3/api-docs 是机器可校验的事实来源，Swagger UI 仅本地/受控环境使用 -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>2.8.13</version>
+        </dependency>
+
+        <!-- Prometheus 指标导出（SLO 看板与告警的数据源） -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- 多实例限流的 Redis 计数（travel.rate-limit.store=redis 时启用） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+
+        <!-- 多实例照片存储的 S3 兼容对象存储（travel.photos.store=s3 时启用，兼容 MinIO/OSS/COS） -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+            <version>2.25.70</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- 外部依赖降级矩阵：WireMock 模拟高德/LLM/Embedding/S3 的超时、429、5xx、坏响应与恢复 -->
+        <dependency>
+            <groupId>org.wiremock</groupId>
+            <artifactId>wiremock-standalone</artifactId>
+            <version>3.13.1</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                        </exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+
+            <!-- 测试 JVM 统一 UTF-8：Windows 默认 GBK 会把中文日志/断言消息写成乱码。
+                 @{argLine} 是 JaCoCo 的延迟绑定占位符（prepare-agent 注入 -javaagent），
+                 不要改成 ${argLine} 字面量（那样会错过插件在运行期设置的值）。 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!--
+                         时区：显式钉死业务时区（travel.timezone 默认 Asia/Shanghai）。
+                         为什么必须写在这里：TimeZoneConfig 在上下文启动后才 setDefault，
+                         而 JDBC 会话/驱动在建连时就用掉了「启动时」的默认时区；
+                         在 UTC 的 CI runner 上这会让 LocalDate 整体偏一天
+                         （实测：行程 2026-11-20 被读回 2026-11-19，携程链接日期同样偏移）。
+                         生产镜像也必须设 TZ（见 Dockerfile），否则同一台 UTC 主机上会出现同样的偏移。
+                    -->
+                    <argLine>@{argLine} -Duser.timezone=Asia/Shanghai -Dfile.encoding=UTF-8 -Dsun.stdout.encoding=UTF-8 -Dsun.stderr.encoding=UTF-8</argLine>
+                </configuration>
+            </plugin>
+
+            <!-- 覆盖率门禁：prepare-agent 采集 → test 阶段出报告 → verify 阶段 check 失败即阻断发布。
+                 阈值 = 2026-11-19 基线向下取整后再留 3 个百分点余量，只允许 ratchet 上调，
+                 不得为了让构建通过而下调（见 docs/guide/quality-gates.md）。 -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>${jacoco.version}</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>check</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <rules>
+                        <rule>
+                            <element>BUNDLE</element>
+                            <limits>
+                                <!-- 阈值 = 2026-11-19 全量测试基线（jacoco.csv，525 tests，1 skip 为无 Docker 跳过的 MySQL 迁移集成测试）
+                                     向下取整 3 个百分点，只允许 ratchet 上调、不得下调：
+                                     INSTRUCTION 79.73% → 0.76；BRANCH 60.66% → 0.57；LINE 79.20% → 0.76 -->
+                                <limit>
+                                    <counter>INSTRUCTION</counter>
+                                    <value>COVEREDRATIO</value>
+                                    <minimum>0.76</minimum>
+                                </limit>
+                                <limit>
+                                    <counter>BRANCH</counter>
+                                    <value>COVEREDRATIO</value>
+                                    <minimum>0.57</minimum>
+                                </limit>
+                                <limit>
+                                    <counter>LINE</counter>
+                                    <value>COVEREDRATIO</value>
+                                    <minimum>0.76</minimum>
+                                </limit>
+                            </limits>
+                        </rule>
+                    </rules>
+                </configuration>
+            </plugin>
+
+            <!-- Checkstyle：只做低争议的硬规则（star import / 未使用 import / 行尾空白 / 160 列 / Tab）。
+                 存量豁免集中在 config/checkstyle/suppressions.xml，禁止新增违规。 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-checkstyle-plugin</artifactId>
+                <version>${checkstyle.plugin.version}</version>
+                <configuration>
+                    <configLocation>config/checkstyle/checkstyle.xml</configLocation>
+                    <!-- 让配置文件里的 ${config_loc} 解析到模块内的 config/checkstyle（绝对路径，
+                         避免从仓库根目录用 -f 调用时相对路径失效） -->
+                    <propertyExpansion>config_loc=${project.basedir}/config/checkstyle</propertyExpansion>
+                    <consoleOutput>true</consoleOutput>
+                    <failOnViolation>true</failOnViolation>
+                    <violationSeverity>error</violationSeverity>
+                    <includeTestSourceDirectory>false</includeTestSourceDirectory>
+                    <linkXRef>false</linkXRef>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>checkstyle-verify</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- SpotBugs：effort=Max + threshold=Medium，绑定 verify；误报按类别进 exclude 过滤器。
+                 发现真实缺陷优先修代码，不要用 exclude 掩盖。 -->
+            <plugin>
+                <groupId>com.github.spotbugs</groupId>
+                <artifactId>spotbugs-maven-plugin</artifactId>
+                <version>${spotbugs.plugin.version}</version>
+                <configuration>
+                    <effort>Max</effort>
+                    <!-- High 而非 Medium：Medium 基线 466 条里 440 条是 Spring DI / Lombok DTO 的
+                         EI_EXPOSE_REP* 误报，先以 High 建立门禁，Medium 作为存量债务 ratchet。 -->
+                    <threshold>High</threshold>
+                    <excludeFilterFile>config/spotbugs-exclude.xml</excludeFilterFile>
+                    <xmlOutput>true</xmlOutput>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>spotbugs-verify</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

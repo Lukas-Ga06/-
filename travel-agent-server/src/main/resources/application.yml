@@ -1,0 +1,241 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: travel-agent-server
+  config:
+    # 本地密钥文件（KEY=VALUE，已被 .gitignore 忽略）。
+    # 用 [.properties] 强制按 properties 解析，这样 java -jar / mvn spring-boot:run
+    # 也能自动读到 LLM_API_KEY，不必依赖 run-dev.ps1。
+    # 环境变量优先级更高，生产上仍以环境变量为准。
+    import: optional:file:./.env.local[.properties]
+  servlet:
+    multipart:
+      # 行程照片上传上限
+      max-file-size: 10MB
+      max-request-size: 12MB
+  # 默认使用 H2 文件数据库，开箱即用；生产/正式环境切换 MySQL：
+  # 启动参数加 --spring.profiles.active=mysql（配置见 application-mysql.yml）
+  datasource:
+    url: jdbc:h2:file:./data/travel-agent;MODE=MySQL;AUTO_SERVER=TRUE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      # 与生产 MySQL 一致：schema 唯一权威是 Flyway，Hibernate 只校验、绝不改结构。
+      # 启动时缺列/类型不符会直接失败 —— 这是特性，迁移漏掉的列不可能再被 ddl-auto 悄悄补上。
+      #
+      # 方言差异靠「按 profile 各挂一个 V13」解决（Flyway 只对同一 locations 内重复版本报错）：
+      #   MySQL profile：db/migration + db/migration-mysql/V13（information_schema + PREPARE）
+      #   默认 profile：db/migration + db/migration-h2/V13（H2 原生 ADD COLUMN / CREATE INDEX IF NOT EXISTS）
+      # 两者补的是同一份缺口：trip.version/departure_reminder_dismissed_at、schedule_item 的
+      # 重复日程列、trip_photo 表、以及实体 @Index 声明但 V1/V9 未建的索引。
+      # 存量库（本地 H2 文件库 / 生产 MySQL）这些对象早已由 ddl-auto=update 建过 → V13 全部空转。
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
+    # schema 单一权威：全新库只需要 flyway migrate（V1 是 sql/init.sql 的等价基线，
+    # 不再需要手工执行 init.sql；sql/init.sql 已标注弃用）。
+    # 存量库（已有表）自动打 baseline 到 V1，V1 不会重跑，只执行未应用的 V2..V13。
+    # 默认 profile 额外加载 db/migration-h2：H2 方言的 V13 缺口补齐（MySQL 方言脚本 H2 无法解析）。
+    # 今后改 schema 一律新增 V*__ 脚本，不要再改 V1 或已发布脚本。
+    baseline-on-migrate: true
+    baseline-version: 1
+    locations: classpath:db/migration,classpath:db/migration-h2
+  h2:
+    console:
+      # 默认关闭：H2 控制台以 sa 空密码直连数据库，一旦暴露（尤其被 nginx 反代成 127.0.0.1 源地址）
+      # 等于匿名读写全库。本地调试需要时显式设 H2_CONSOLE_ENABLED=true。
+      enabled: ${H2_CONSOLE_ENABLED:false}
+      path: /h2-console
+  jackson:
+    time-zone: Asia/Shanghai
+  data:
+    redis:
+      repositories:
+        # 关闭 Spring Data Redis 的 Repository 自动扫描。
+        # 项目只用 RedisTemplate 做多实例限流计数（travel.rate-limit.store=redis），
+        # 没有任何 Redis Repository；数据访问全部走 JPA。不关的话自动配置会去扫描所有
+        # JPA repository 接口，启动日志刷 266 条 "Could not safely identify store assignment"。
+        # 详见 docs/guide/quality-gates.md。
+        enabled: false
+
+management:
+  endpoints:
+    web:
+      # 只暴露必要端点：health 给探活，metrics 给排障（需登录）
+      exposure:
+        # prometheus 给 SLO 看板/告警抓取（/actuator/prometheus，需登录，见安全白名单）
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: never
+  metrics:
+    distribution:
+      # P95 面板与告警的前提：不生成 histogram bucket，PromQL 里 histogram_quantile 拿不到数据，
+      # 面板会「静默为空」而不是报错（见 docs/guide/observability.md 的 TravelLowHistogramMissing 兜底告警）。
+      percentiles-histogram:
+        http.server.requests: true
+        agent.stage: true
+        llm.latency: true
+  health:
+    redis:
+      # data-redis 引入后 Boot 会自动加 Redis 健康检查；Redis 仅用于限流计数（fail-open），
+      # 不可用不应把整站标为 DOWN。需要 Redis 健康监控时再打开
+      enabled: false
+
+travel:
+  # 应用时区：代码里的“今天/明天”都基于它（默认 Asia/Shanghai，避免容器 UTC 导致日期偏移一天）
+  timezone: ${APP_TIMEZONE:Asia/Shanghai}
+  demo-account:
+    # 演示账号 demo/demo123（README 快速启动用）。生产部署必须设 DEMO_ACCOUNT=false 关闭
+    enabled: ${DEMO_ACCOUNT:true}
+  photos:
+    # 行程照片落盘目录（相对后端模块）
+    dir: data/photos
+    # 照片存储：local（默认，本地磁盘）/ s3（S3 兼容对象存储，连接配置见 travel.photos.s3.*）
+    store: ${PHOTOS_STORE:local}
+    # 单行程照片张数上限
+    max-per-trip: ${PHOTO_MAX_PER_TRIP:200}
+    # 单用户照片总容量上限（字节，默认 500MB）
+    max-bytes-per-user: ${PHOTO_MAX_BYTES_PER_USER:524288000}
+  rate-limit:
+    # 简单限流：登录/注册按 IP，Agent 与上传按用户，窗口内超过阈值返回 429
+    enabled: ${RATE_LIMIT_ENABLED:true}
+    # 计数存储：memory（默认，进程内）/ redis（多实例共享配额，Redis 故障 fail-open）
+    store: ${RATE_LIMIT_STORE:memory}
+    auth-limit: ${RATE_LIMIT_AUTH:10}
+    agent-limit: ${RATE_LIMIT_AGENT:30}
+    upload-limit: ${RATE_LIMIT_UPLOAD:60}
+    default-limit: ${RATE_LIMIT_DEFAULT:600}
+    # 会话恢复专用桶（GET /api/auth/me）：刷新页面/多标签页不该跟登录共用一个配额，
+    # 否则用户 5 分钟内多刷几次就会被 429 踢回登录页（前端只把 401 当登出）。
+    session-limit: ${RATE_LIMIT_SESSION:60}
+    window-seconds: ${RATE_LIMIT_WINDOW_SECONDS:300}
+    # 受信代理（逗号分隔，精确 IP 或 IPv4 CIDR）。默认空 = 不信任任何代理，
+    # 直接用 TCP 源地址（RemoteAddr）计数，完全不读 X-Forwarded-For：
+    # 否则攻击者每次请求换一个伪造 XFF 就能无限绕过登录限流。
+    # 只有在后端"仅能经反代访问"时才配置，例如 docker compose 的 172.16.0.0/12。
+    trusted-proxies: ${RATE_LIMIT_TRUSTED_PROXIES:}
+  # P1「慢依赖无端到端时间预算」：给 Agent 主链路（同步 /api/agent/chat 与 SSE）加总时间预算。
+  # 只靠单次 LLM 读超时挡不住慢依赖——一次规划串行 5 个阶段，验收实测端到端 128.13s。
+  # 这里在请求入口创建不可变 deadline，阶段开始前检查剩余预算，耗尽即按 ADR-002
+  # 「可以什么都不做」降级（intent→规则、research→跳过、结构化规划→规则规划、审核→跳过），
+  # 并在回复、SSE 事件（budget_degraded）、WARN 日志与运行追踪（DEGRADE 任务）里如实标注。
+  agent:
+    budget:
+      # 总开关：false = 不创建 deadline、所有阶段检查放行，行为与升级前完全一致（排障/压测用）
+      enabled: ${AGENT_BUDGET_ENABLED:true}
+      # 端到端总预算（毫秒，默认 30s）。注意：复杂多日行程的合法长规划也可能接近该值，
+      # 预算不够时不会失败，而是降级并明确告知「未经审核，可稍后重试」。
+      total-ms: ${AGENT_BUDGET_TOTAL_MS:30000}
+  conversation:
+    # 会话记忆：按「用户 + conversationId」保留最近 N 条**消息**（不是轮数；一轮问答 = 2 条），
+    # 喂给 LLM 做指代消解（「那把第二天的酒店也换掉」）。历史只参与意图识别，不进入规划产物。
+    history-limit: ${CONVERSATION_HISTORY_LIMIT:10}
+    # 保留天数：写入侧每小时最多清理一次 + 每日 04:30 定时兜底（闲置账号也能被清掉）
+    retention-days: ${CONVERSATION_RETENTION_DAYS:7}
+  amap:
+    # 高德开放平台 Web服务 Key（lbs.amap.com 免费申请，类型选"Web服务"）。
+    # 配置后启用快速路径：大模型精简生成(~2-3s) + 高德批量定位(~1s，国内可达)。
+    # 留空则自动退回兜底路径（大模型直接生成坐标，约 6-15 秒）。也可用环境变量 AMAP_KEY 覆盖。
+    key: ${AMAP_KEY:}
+  weather:
+    # 真实天气（Open-Meteo，免费无需 Key）：设 WEATHER_REAL=true 开启；
+    # 网络失败或超出预报范围（过去 / 16 天外）自动降级为确定性模拟数据
+    real: ${WEATHER_REAL:false}
+  mcp:
+    # MCP（Model Context Protocol）工具生态：启动时把外部 MCP server 的工具注册进 ToolRegistry（只读）。
+    # 默认关闭；接入后模型可经 INVOKE_TOOL 调用 mcp_<server>_<tool>。单个 server 失败只告警、不影响启动。
+    enabled: ${MCP_ENABLED:false}
+    servers:
+      # 高德官方 MCP server（stdio）：真实工具名 maps_geo / maps_direction_driving / maps_text_search … 共 12 个，
+      # 注册后为 mcp_amap_maps_*。Key 用「Web 服务」类型，只放环境变量，绝不写进仓库。
+      # Windows 不用手写 cmd /c：StdioMcpTransport 会自动补（npx 实际是 npx.cmd）。
+      - name: amap
+        command: ["npx", "-y", "@amap/amap-maps-mcp-server"]
+        env:
+          AMAP_MAPS_API_KEY: ${AMAP_MAPS_API_KEY:}
+        read-only: true
+        # npx 首次冷启动要下载包，默认 20s 偏紧
+        timeout-ms: 30000
+  # 知识库版本化（batch10 / C）：见 docs/proposals/batch10-contract.md §3.2
+  rag:
+    # 除 ACTIVE 版本外，额外保留最近 N 个历史版本的 chunk（更老的 INACTIVE 版本块由每日任务清理；
+    # ACTIVE 版本与 version_id 为空的历史块永不清）。0 = 只保留 ACTIVE 版本的块。
+    chunk-version-retention: ${RAG_CHUNK_VERSION_RETENTION:2}
+    # 问答低相似度阈值（P1）：低于该余弦相似度的命中不进入回答上下文，改为如实说「暂无可靠资料」。
+    # 只影响问答；知识库搜索与 Planner 研究仍能看到完整候选与分数。
+    min-score: ${RAG_MIN_SCORE:0.05}
+  channels:
+    # 多渠道入口：同一个 AgentEngine 同时服务网页与外部渠道，数据与账号体系完全一致。
+    telegram:
+      # BotFather 签发的 token（@BotFather /newbot 免费创建）。留空 = 渠道关闭；
+      # 长轮询为纯出站连接，本地/内网可运行，无需公网回调。
+      bot-token: ${TELEGRAM_BOT_TOKEN:}
+      poll-timeout-seconds: ${TELEGRAM_POLL_TIMEOUT:25}
+    webhook:
+      # 通用 Webhook 入口 POST /api/channels/webhook（X-Webhook-Secret 头即凭证，
+      # 恒时比较）：给企业微信/钉钉/自建脚本等桥接用。需显式开启；未配置密钥时端点始终拒绝。
+      enabled: ${CHANNEL_WEBHOOK_ENABLED:false}
+      secret: ${CHANNEL_WEBHOOK_SECRET:}
+    wechat:
+      # 微信公众号渠道（明文模式）：公众号后台「服务器配置」填的 Token，留空 = 渠道关闭。
+      # URL 填 https://<域名>/api/channels/wechat，Message 加解密选"明文模式"。
+      # 被动回复窗口 5s：快路径实时回复；行程规划可能超窗（正式环境建议接客服消息异步回复）
+      token: ${WECHAT_OA_TOKEN:}
+      # 客服消息（可选）：配 appid + secret 后改异步回复，解除被动回复 5s 窗口；需已认证公众号。
+      # 与 token 独立：只配 token 仍走同步被动回复。
+      appid: ${WECHAT_OA_APPID:}
+      secret: ${WECHAT_OA_SECRET:}
+  jwt:
+    # Base64 编码的密钥（解码后长度必须 >= 32 字节）。
+    # 必须通过环境变量注入；未配置时启动会生成一次性随机密钥（仅适合本地开发，重启后已签发 token 全部失效）。
+    # 生成方式：openssl rand -base64 48
+    secret: ${JWT_SECRET:}
+    expire-hours: ${JWT_EXPIRE_HOURS:72}
+    # 短期只读票据有效期（秒）：票据会出现在 SSE/照片 URL 里（进日志、历史、Referer），
+    # 因此默认只有 5 分钟；仅 SSE 与照片原图两个白名单路径接受票据。
+    ticket-ttl-seconds: ${TICKET_TTL_SECONDS:300}
+    # 登录 Cookie 是否带 Secure（https 部署时设 true；本地 http 开发保持 false）
+    cookie-secure: ${COOKIE_SECURE:false}
+  cors:
+    # 本地 dev(5173) 与 preview/e2e(4173) 两套端口都放行；生产用 CORS_ALLOWED_ORIGINS 覆盖为真实域名
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173}
+  llm:
+    # 统一 LLM 接口：走 OpenAI-compatible API（DeepSeek / Qwen / OpenAI 均可）。
+    # API Key 只能通过环境变量 LLM_API_KEY 注入，仓库内不得保留任何真实 Key。
+    # 未配置或调用失败（如余额不足、网络异常）时自动降级为规则引擎，功能不受影响。
+    enabled: ${LLM_ENABLED:true}
+    base-url: ${LLM_BASE_URL:https://api.deepseek.com/v1}
+    api-key: ${LLM_API_KEY:}
+    model: ${LLM_MODEL:deepseek-chat}
+    temperature: ${LLM_TEMPERATURE:0.4}
+    connect-timeout-ms: ${LLM_CONNECT_TIMEOUT_MS:5000}
+    read-timeout-ms: ${LLM_READ_TIMEOUT_MS:30000}
+    # 每用户每日 LLM 调用上限（意图识别/规划/润色/回顾总结等全部计入）；0 = 不限制。
+    # 超限自动降级规则引擎，体验无中断；计数落库（llm_quota_usage），多实例共享
+    quota-daily-limit: ${LLM_DAILY_QUOTA:0}
+  embedding:
+    # 真实 Embedding：enabled=true 时 RAG 用 OpenAI 兼容 /embeddings 端点（SiliconFlow/智谱/OpenAI 等），
+    # 失败进程内锁定降级为本地字符 bigram 哈希。切换模型后需清空 rag_document/rag_chunk 重建知识库
+    enabled: ${EMBEDDING_ENABLED:false}
+    base-url: ${EMBEDDING_BASE_URL:https://api.siliconflow.cn/v1}
+    api-key: ${EMBEDDING_API_KEY:}
+    model: ${EMBEDDING_MODEL:BAAI/bge-m3}
+
+logging:
+  charset:
+    # 控制台与文件日志统一 UTF-8。Windows 默认平台编码是 GBK，不显式指定时中文日志会写成
+    # 乱码字节；Boot 的默认 Logback 配置把这两个值注入 ConsoleAppender/FileAppender 的
+    # encoder charset（application.yml 与 .mvn/jvm.config、surefire argLine 口径一致）。
+    console: UTF-8
+    file: UTF-8
+  level:
+    com.travel.agent: info
+  pattern:
+    # 日志带 traceId，便于把一次请求的多条日志串起来（响应头同名）
+    level: "%5p [%X{traceId:-}]"

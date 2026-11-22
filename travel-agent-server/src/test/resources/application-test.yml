@@ -1,0 +1,43 @@
+# 测试专用配置：内存数据库 + 关闭外部依赖，保证测试不触网、可重复运行
+spring:
+  datasource:
+    url: jdbc:h2:mem:travel-agent-test;MODE=MySQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+  flyway:
+    # 测试库 schema 全由 create-drop 建立（表在 Hibernate 阶段才存在，V* 的 ALTER 会失败）；
+    # 迁移脚本只服务真实库，语法覆盖不在测试范围
+    enabled: false
+  h2:
+    console:
+      enabled: false
+
+travel:
+  photos:
+    # 测试产生的照片单独存放，避免污染本地 data/photos
+    dir: data/test-photos
+    # 测试用小配额：便于覆盖张数与容量两条上限
+    max-per-trip: 10
+    max-bytes-per-user: 4096
+  rate-limit:
+    # 默认关闭：测试里有大量注册/登录，否则会互相触发限流。
+    # 限流自身的行为由 RateLimitTest（单独开启）与 RateLimiterTest（纯单测）覆盖。
+    enabled: false
+  jwt:
+    # 仅用于测试的固定密钥（Base64，解码后 48 字节）；生产密钥一律通过环境变量注入
+    secret: "zH5p+FxWgj8rMvkAbh49f7lG7jON+493C+/qTaxuJ4I92t+NNB0QA+fdyB4VQYf9"
+    expire-hours: 1
+  llm:
+    # 测试中禁止调用真实大模型：走规则引擎兜底路径
+    enabled: false
+    api-key: ""
+  amap:
+    key: ""
+
+logging:
+  level:
+    com.travel.agent: warn

@@ -1,0 +1,63 @@
+{
+  "generatedAt": "2026-11-19T06:20:35.694Z",
+  "base": "http://127.0.0.1:18092",
+  "expectAmap": false,
+  "expectLlm": true,
+  "durationMs": 765,
+  "total": 4,
+  "failed": 0,
+  "byFr": {
+    "PRE": {
+      "pass": 1,
+      "fail": 0,
+      "ids": [
+        "00.1:PASS"
+      ]
+    },
+    "FR-03": {
+      "pass": 1,
+      "fail": 0,
+      "ids": [
+        "03.1:PASS"
+      ]
+    },
+    "FR-10": {
+      "pass": 2,
+      "fail": 0,
+      "ids": [
+        "10.3:PASS",
+        "10.4:PASS"
+      ]
+    }
+  },
+  "results": [
+    {
+      "fr": "PRE",
+      "id": "00.1",
+      "name": "健康检查 UP",
+      "ok": true,
+      "detail": "UP"
+    },
+    {
+      "fr": "FR-03",
+      "id": "03.1",
+      "name": "LLM 可用时 research-agent 自主决策并调用工具",
+      "ok": true,
+      "detail": "RESEARCH 调用 1 次: query_weather；summary=研究完成：1 次工具调用（已确认上海天气与候选景点，可支撑本次行程规划）"
+    },
+    {
+      "fr": "FR-10",
+      "id": "10.3",
+      "name": "未登录访问 runs → 401",
+      "ok": true,
+      "detail": "HTTP 401"
+    },
+    {
+      "fr": "FR-10",
+      "id": "10.4",
+      "name": "他人 run 一律 404（跨用户隔离）",
+      "ok": true,
+      "detail": "user2=acc235600 → 404"
+    }
+  ]
+}

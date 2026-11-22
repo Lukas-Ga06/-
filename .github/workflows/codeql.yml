@@ -1,0 +1,68 @@
+name: CodeQL
+
+# SAST：Java/Kotlin 与 TypeScript/JS 的语义级静态分析。
+# 单独成 workflow 的原因：需要 security-events: write 权限，且扫描时间较长，
+# 不希望它和 PR 的快速门禁耦合（见 docs/guide/ci.md）。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # 每周一 03:17 UTC（避开整点高峰）
+    - cron: '17 3 * * 1'
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [java-kotlin, javascript-typescript]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          # security-and-quality 比默认多查可维护性问题；若噪声过高可退回 security-extended
+          queries: security-and-quality
+
+      - name: Set up JDK 17
+        if: matrix.language == 'java-kotlin'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      # Java 必须真的编译一次，CodeQL 才能建立完整的数据流图；
+      # 跳过测试以免与 backend job 重复消耗时间。
+      - name: Build Java (compile only)
+        if: matrix.language == 'java-kotlin'
+        working-directory: travel-agent-server
+        run: mvn -B -DskipTests compile
+
+      - name: Set up Node 20
+        if: matrix.language == 'javascript-typescript'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install frontend dependencies
+        if: matrix.language == 'javascript-typescript'
+        working-directory: travel-agent-web
+        run: npm ci --ignore-scripts
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: '/language:${{ matrix.language }}'

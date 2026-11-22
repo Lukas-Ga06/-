@@ -1,0 +1,71 @@
+# ---- Java / Maven ----
+target/
+*.class
+*.jar
+!.mvn/wrapper/maven-wrapper.jar
+
+# ---- Node / 前端 ----
+node_modules/
+dist/
+*.local
+
+# ---- IDE ----
+.idea/
+.vscode/
+*.iml
+
+# ---- 运行时数据 ----
+travel-agent-server/data/
+# 从仓库根误启动时 H2 会写到根目录 data/（与后端目录内的 data/ 区分）
+/data/
+*.log
+*.mv.db
+*.trace.db
+
+# ---- 本地工具与草稿 ----
+# .tools 是本地探针/截图/临时脚本；只保留有文档引用的 flyway-repair
+.tools/*
+!.tools/flyway-repair/
+
+# ---- 本地密钥（绝不入库）----
+.env.local
+*.env.local
+
+# ---- 系统 ----
+.DS_Store
+Thumbs.db
+.workbuddy-ai/
+travel-agent-web/tsconfig.tsbuildinfo
+
+# ---- Playwright e2e 产物 ----
+travel-agent-web/test-results/
+travel-agent-web/playwright-report/
+# e2e 登录态（含有效会话 Cookie，绝不能入库）
+travel-agent-web/e2e/.auth/
+
+# ---- 真实 Key 联调证据（.e2e/amap-real-key-probe.ps1 的输出，含临时库与实例日志）----
+.e2e/amap-key-*/
+
+# ---- 导出/打包产物（含密钥快照风险，不入库） ----
+/travel-agent-*.zip
+
+# ---- 本次验收的本地产物（原始库/日志体积大，只保留精编证据到 .e2e/acceptance/evidence）----
+.evidence/
+
+# ---- 本地隔离 worktree（多 Agent 并行构建，不进版本库）----
+.worktrees/
+# ---- 旧库升级验收的临时构建/数据目录（体积大，不入库；证据在 .e2e/acceptance/evidence）----
+.e2e/acceptance/.tmp/
+
+# ---- 前端质量/包体/地图运行时产物 ----
+travel-agent-web/coverage/
+travel-agent-web/public/vendor/
+travel-agent-web/dist/bundle-stats.html
+travel-agent-web/.vite/
+
+# ESLint JSON 报告（临时产物）
+travel-agent-web/eslint-report.json
+
+# 会话内临时目录（CI 日志/PR payload 等，不进仓库）
+.prtmp/
+.tmpci/

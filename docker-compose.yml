@@ -1,0 +1,85 @@
+# AI 个人助理 · 全栈一键部署
+# 用法：JWT_SECRET=$(openssl rand -base64 48) docker compose up -d --build
+# 密钥类变量一律经环境变量注入，仓库内不保存任何真实 Key。
+# 本地开发用 MySQL/Redis 基础设施见 docker-compose.infra.yml。
+
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-travel_root_pw}
+      MYSQL_DATABASE: travel_agent
+      MYSQL_USER: travel
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-travel_pw}
+      TZ: Asia/Shanghai
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-travel_root_pw}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  backend:
+    build: ./travel-agent-server
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: mysql
+      MYSQL_HOST: mysql
+      MYSQL_PORT: "3306"
+      MYSQL_DATABASE: travel_agent
+      MYSQL_USERNAME: travel
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-travel_pw}
+      # 必配：openssl rand -base64 48；不配则每次重启生成一次性密钥，全体用户掉线
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      # 生产建议关闭公开弱密码演示账号
+      DEMO_ACCOUNT: ${DEMO_ACCOUNT:-false}
+      # 可选能力：真实天气 / 高德 / 大模型 / 渠道入口（留空则功能降级，不影响启动）
+      WEATHER_REAL: ${WEATHER_REAL:-false}
+      AMAP_KEY: ${AMAP_KEY:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com/v1}
+      LLM_MODEL: ${LLM_MODEL:-deepseek-chat}
+      MCP_ENABLED: ${MCP_ENABLED:-false}
+      # 高德 MCP server 用的「Web 服务」Key，与上面的 AMAP_KEY 不是同一个变量（见 docs/guide/mcp-amap.md）
+      AMAP_MAPS_API_KEY: ${AMAP_MAPS_API_KEY:-}
+      # 知识库版本化：除 ACTIVE 外额外保留的历史版本块数（默认 2）
+      RAG_CHUNK_VERSION_RETENTION: ${RAG_CHUNK_VERSION_RETENTION:-2}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      CHANNEL_WEBHOOK_ENABLED: ${CHANNEL_WEBHOOK_ENABLED:-false}
+      CHANNEL_WEBHOOK_SECRET: ${CHANNEL_WEBHOOK_SECRET:-}
+      # Cookie 属性：经 https/域名访问时设 true
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      # 限流客户端 IP 只信受信代理：仅当后端只经 nginx 反代可达时才安全（默认未开放 ports）。
+      # 172.16.0.0/12 覆盖 Docker 默认桥接网段；若临时放开 backend 端口直连调试，应设空值，
+      # 否则直连方可用伪造 X-Forwarded-For 绕过限流。
+      RATE_LIMIT_TRUSTED_PROXIES: ${RATE_LIMIT_TRUSTED_PROXIES:-172.16.0.0/12}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:8081}
+      INVOICE_DIR: /app/data/invoices
+    volumes:
+      - backend-data:/app/data
+    # 如需后端直连调试可放开端口；默认只经 web 反代
+    # ports:
+    #   - "8080:8080"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./travel-agent-web
+      args:
+        VITE_AMAP_KEY: ${VITE_AMAP_KEY:-}
+        VITE_AMAP_SECURITY_CODE: ${VITE_AMAP_SECURITY_CODE:-}
+        VITE_FOOTPRINT_BASEMAP: ${VITE_FOOTPRINT_BASEMAP:-amap}
+    depends_on:
+      - backend
+    ports:
+      - "8081:80"
+    restart: unless-stopped
+
+volumes:
+  mysql-data:
+  backend-data:

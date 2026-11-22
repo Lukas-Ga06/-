@@ -1,0 +1,27 @@
+# 统一换行符处理：仓库内以 LF 存储，避免 Windows / Linux 之间反复产生无意义的 diff
+* text=auto
+
+# 前端源码与配置固定 LF：
+# Prettier 配置是 endOfLine=lf，而 Windows 的 core.autocrlf=true 默认会把这些文件写成 CRLF，
+# 结果是「刚提交完 format:check 就红」。这里显式声明 eol=lf，让 checkout 也写 LF，
+# 与 CI（Linux）和本地格式门禁保持一致。二进制规则在文件末尾，会覆盖本行。
+travel-agent-web/** text eol=lf
+
+# Shell 脚本必须保持 LF，否则在 Linux / macOS / CI 中无法执行
+*.sh text eol=lf
+*.mjs text eol=lf
+
+# Windows 脚本保持 CRLF
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 二进制资源不做换行符转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.jar binary

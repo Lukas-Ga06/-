@@ -1,0 +1,152 @@
+﻿[
+    {
+        "id":  "M1:版本=8.4.10",
+        "ok":  true,
+        "detail":  "VERSION()=8.4.10"
+    },
+    {
+        "id":  "M2:端口=3307",
+        "ok":  true,
+        "detail":  "port=3307"
+    },
+    {
+        "id":  "M3:独立datadir",
+        "ok":  true,
+        "detail":  "datadir=D:\\\\travel-agent\\\\.tools\\\\mysql8410-3307\\\\instance\\\\data\\\\"
+    },
+    {
+        "id":  "M4:全新库干净",
+        "ok":  true,
+        "detail":  "tables=0"
+    },
+    {
+        "id":  "F1:后端启动成功",
+        "ok":  true,
+        "detail":  "boot=16.6s"
+    },
+    {
+        "id":  "F2:迁移全部成功",
+        "ok":  true,
+        "detail":  "applied=17 failed=0"
+    },
+    {
+        "id":  "F3:迁移到V18",
+        "ok":  true,
+        "detail":  "latest=18"
+    },
+    {
+        "id":  "F4:validate通过(启动即证明)",
+        "ok":  true,
+        "detail":  "ddl-auto=validate 未报错"
+    },
+    {
+        "id":  "F5:业务表建成",
+        "ok":  true,
+        "detail":  "tables=25"
+    },
+    {
+        "id":  "C1:规划进入待确认",
+        "ok":  true,
+        "detail":  "status=NEED_CONFIRMATION"
+    },
+    {
+        "id":  "C2:带内容指纹",
+        "ok":  true,
+        "detail":  "contentHash=3d1576b847246118994984479aa2e7c86c6c84d12d6cd253eeaf16bc2c6a91d1"
+    },
+    {
+        "id":  "C3:确认落库生成行程",
+        "ok":  true,
+        "detail":  "tripId=1"
+    },
+    {
+        "id":  "C4:三模块同步成功",
+        "ok":  true,
+        "detail":  "calendar:SUCCEEDED,budget:SUCCEEDED,footprint:SUCCEEDED"
+    },
+    {
+        "id":  "C5:run已落库",
+        "ok":  true,
+        "detail":  "runs=1 runId=949b3b7b-d573-424a-9752-6a0197daedc0"
+    },
+    {
+        "id":  "C6:任务链完整",
+        "ok":  true,
+        "detail":  "chain=INTENT → PLAN → PREVIEW → REVIEW → COMMIT"
+    },
+    {
+        "id":  "C7:工具调用有trace",
+        "ok":  true,
+        "detail":  "toolCalls=23"
+    },
+    {
+        "id":  "C8:行程可读",
+        "ok":  true,
+        "detail":  "itineraryItems=15"
+    },
+    {
+        "id":  "C9:路线段可读",
+        "ok":  true,
+        "detail":  "legs=10 sources=estimated"
+    },
+    {
+        "id":  "C10:状态接口如实上报",
+        "ok":  true,
+        "detail":  "routeProvider=estimated"
+    },
+    {
+        "id":  "C11:数据已入MySQL",
+        "ok":  true,
+        "detail":  "db=1/1/23/0.00"
+    },
+    {
+        "id":  "R1:后端重启后数据不丢",
+        "ok":  true,
+        "detail":  "tripIds=1 itinerarySame=True itDb=15/3a166c6fa06957148a7b41e6a8f0cdc8 (was 15/3a166c6fa06957148a7b41e6a8f0cdc8)"
+    },
+    {
+        "id":  "R2:重启未重跑迁移",
+        "ok":  true,
+        "detail":  "history=17 (was 17)"
+    },
+    {
+        "id":  "R3:后端重启后健康",
+        "ok":  true,
+        "detail":  "port=8080"
+    },
+    {
+        "id":  "R4:重启后写链路可用",
+        "ok":  true,
+        "detail":  "status=200/NEED_CONFIRMATION"
+    },
+    {
+        "id":  "R5:MySQL已停止",
+        "ok":  true,
+        "detail":  "port closed"
+    },
+    {
+        "id":  "R6:连接池自动恢复",
+        "ok":  true,
+        "detail":  "recovered=3.1s"
+    },
+    {
+        "id":  "R7:MySQL重启后数据一致",
+        "ok":  true,
+        "detail":  "db=1/2/39/0.00 baseline2=1/2/39/0.00"
+    },
+    {
+        "id":  "R8:MySQL重启后写链路可用",
+        "ok":  true,
+        "detail":  "memoHTTP=200 memos=1"
+    },
+    {
+        "id":  "R9:整栈重启数据不丢",
+        "ok":  true,
+        "detail":  "db=1/2/39/0.00 baseline2=1/2/39/0.00"
+    },
+    {
+        "id":  "R10:整栈重启未重跑迁移",
+        "ok":  true,
+        "detail":  "history=17 (was 17)"
+    }
+]
