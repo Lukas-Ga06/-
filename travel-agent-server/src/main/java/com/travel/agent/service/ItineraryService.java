@@ -71,12 +71,26 @@ public class ItineraryService {
                 .orElseThrow(() -> new BusinessException(404, "行程条目不存在"));
     }
 
+    /**
+     * 条目的「落点日期」由 {@code trip.startDate + dayIndex - 1} 派生（表里只存 dayIndex），
+     * 所以「日期不超出行程跨度」等价于 {@code 1 <= dayIndex <= 行程天数}。
+     * 越界的安排会算出行程之外的日期（路书/日程/天气都按它取数），在写入入口直接拒绝。
+     */
+    private static void requireDayWithinTrip(Trip trip, int dayIndex) {
+        int totalDays = trip.totalDays();
+        if (dayIndex < 1 || dayIndex > totalDays) {
+            throw new BusinessException(400,
+                    "第 " + dayIndex + " 天超出行程范围（当前共 " + totalDays + " 天）");
+        }
+    }
+
     @Transactional
     public ItineraryItem addItem(Trip trip, ItineraryDtos.AddItemRequest req) {
         if (req.getTitle() == null || req.getTitle().isBlank()) {
             throw new BusinessException("标题不能为空");
         }
         int day = req.getDayIndex() == null ? 1 : req.getDayIndex();
+        requireDayWithinTrip(trip, day);
         ItineraryItem item = ItineraryItem.builder()
                 .tripId(trip.getId())
                 .dayIndex(day)
@@ -100,7 +114,10 @@ public class ItineraryService {
                 .orElseThrow(() -> new BusinessException(404, "行程条目不存在"));
         if (req.getTitle() != null) item.setTitle(req.getTitle());
         if (req.getItemType() != null) item.setItemType(req.getItemType());
-        if (req.getDayIndex() != null) item.setDayIndex(req.getDayIndex());
+        if (req.getDayIndex() != null) {
+            requireDayWithinTrip(trip, req.getDayIndex());
+            item.setDayIndex(req.getDayIndex());
+        }
         if (req.getStartTime() != null) item.setStartTime(atTime(trip.getStartDate(), item.getDayIndex(), req.getStartTime(), "09:00"));
         if (req.getEndTime() != null) item.setEndTime(atTime(trip.getStartDate(), item.getDayIndex(), req.getEndTime(), "11:00"));
         if (req.getCost() != null) item.setCost(req.getCost());
