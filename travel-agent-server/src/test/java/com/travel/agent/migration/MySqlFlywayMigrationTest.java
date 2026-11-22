@@ -61,9 +61,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p><b>MySQL 版本链</b>：{@code mysql} profile 的 locations 是
  * {@code classpath:db/migration,classpath:db/migration-mysql}，看到的是
- * V1–V13（V8/V12/V13 为 MySQL 方言版）+ V15–V21，共 20 个迁移；
+ * V1–V13（V8/V12/V13 为 MySQL 方言版）+ V15–V22，共 21 个迁移；
  * <b>没有 V14</b>（{@code V14__llm_quota_unique_h2.sql} 是 H2 专属）。
- * 版本集合从 classpath 动态枚举，避免新增 V21 时维护两份清单。
+ * 实际版本集合从 classpath 动态枚举；{@link #DOCUMENTED_MYSQL_VERSIONS} 记录链尾，
+ * 新增迁移时两处一起改，避免清单与脚本各说各话。
  *
  * <p><b>环境变量</b>：
  * <ul>
@@ -81,7 +82,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @ActiveProfiles("mysql")
 class MySqlFlywayMigrationTest {
 
-    /** MySQL 迁移链的版本集合：V1–V13 + V15–V21（V14 是 H2 专属）。 */
+    /** MySQL 迁移链的版本集合：V1–V13 + V15–V22（V14 是 H2 专属）。 */
     private static final List<String> DOCUMENTED_MYSQL_VERSIONS = documentedMysqlVersions();
 
     /** 20 个 JPA 实体映射的表（@Table(name=...) 逐字摘自 entity/，新增实体时同步维护）。 */
@@ -211,7 +212,7 @@ class MySqlFlywayMigrationTest {
     // ------------------------------------------------------------------
 
     @Test
-    @DisplayName("空库全量 Flyway 迁移（V1..V21 MySQL 链）+ Hibernate validate 20 个实体")
+    @DisplayName("空库全量 Flyway 迁移（V1..V22 MySQL 链）+ Hibernate validate 20 个实体")
     void freshDatabaseAppliesEveryMigrationAndMatchesEntities() throws Exception {
         String schema = jdbc.queryForObject("SELECT DATABASE()", String.class);
         assertThat(schema)
@@ -248,7 +249,7 @@ class MySqlFlywayMigrationTest {
                 .collect(Collectors.toCollection(TreeSet::new));
 
         assertThat(expectedVersions)
-                .as("classpath 上 MySQL 迁移链的版本集合（V1..V13 + V15..V21，V14 仅 H2）")
+                .as("classpath 上 MySQL 迁移链的版本集合（V1..V13 + V15..V22，V14 仅 H2）")
                 .containsAll(DOCUMENTED_MYSQL_VERSIONS);
         assertThat(expectedVersions)
                 .as("V14 是 H2 专属脚本，MySQL locations 不应包含它")
@@ -280,14 +281,14 @@ class MySqlFlywayMigrationTest {
                     .contains(table);
         }
 
-        // 3) 关键列：V13（MySQL 方言补齐）/ V16 / V17 / V18 / V19 / V21 的产物
+        // 3) 关键列：V13（MySQL 方言补齐）/ V16 / V17 / V18 / V19 / V21 的产物（V22 只加唯一索引）
         REQUIRED_COLUMNS.forEach((table, columns) -> {
             for (String column : columns) {
                 assertColumnExists(schema, table, column);
             }
         });
 
-        // 4) 关键索引：V13 的索引补齐 + V15/V19/V21 的新索引 + V8/V11 的唯一键
+        // 4) 关键索引：V13 的索引补齐 + V15/V19/V21/V22 的新索引 + V8/V11 的唯一键
         REQUIRED_INDEXES.forEach((table, indexes) -> {
             for (String index : indexes) {
                 assertIndexExists(schema, table, index);
@@ -412,7 +413,7 @@ class MySqlFlywayMigrationTest {
 
     private static List<String> documentedMysqlVersions() {
         List<String> versions = new ArrayList<>();
-        for (int version = 1; version <= 21; version++) {
+        for (int version = 1; version <= 22; version++) {
             if (version != 14) { // V14 是 H2 专属（llm_quota_usage 唯一键）
                 versions.add(String.valueOf(version));
             }
@@ -486,7 +487,9 @@ class MySqlFlywayMigrationTest {
         // V19 事件流与旅行关联索引
         addRequired(required, "trip_event",
                 "idx_trip_event_trip", "idx_trip_event_item", "idx_trip_event_occurred");
-        addRequired(required, "schedule_item", "idx_schedule_trip", "uk_schedule_source_key");
+        addRequired(required, "schedule_item", "idx_schedule_trip");
+        // V22 同步日程幂等唯一键（建索引前按 source_key 去重历史重复）
+        addRequired(required, "schedule_item", "uk_schedule_source_key");
         addRequired(required, "memo", "idx_memo_trip");
         return required;
     }
