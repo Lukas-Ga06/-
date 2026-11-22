@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { UserInfo } from '../types/trip';
 import { clearAccessTicketCache } from '../api/ticket';
+import { clearClientSession } from './sessionCleanup';
 
 /**
  * 「上次登录用户」的本地缓存键。
@@ -98,6 +99,10 @@ export const useAuthStore = create<AuthState>()((set) => ({
   logout: () => {
     clearAccessTicketCache();
     cacheUser(null);
+    // 对话/行程/选中上下文/规划草稿/离线队列同样是「上一个人的数据」：
+    // 登出后不清，同一标签页换账号登录会直接看到（见 store/sessionCleanup.ts）。
+    // 必须先清理再删 sessionStorage：agentStore 的持久化会在 set() 时把空会话写回去。
+    clearClientSession();
     // 会话记忆属于上一个用户：登出即抹掉，避免换人登录后串上下文
     try {
       sessionStorage.removeItem('travel-agent-conversation');

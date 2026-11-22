@@ -167,8 +167,17 @@ export async function streamAgentChat(
    * 连接层错误：服务端 180s 超时、网络中断等情况下浏览器只会触发 onerror。
    * 旧实现只在 readyState === CLOSED 时才回调，导致既不 complete 也不 error，
    * 调用方的 streaming 状态永远停在 true（输入框被永久禁用）。
+   *
+   * 关键陷阱：服务端的业务错误也用 `event: error` 下发，浏览器会把这条 **带 data 的
+   * MessageEvent** 同样派发给 onerror。那种帧已经由上面的监听器当过程警告处理，
+   * 后面还会跟一条 complete；如果在这里无条件 finish，complete 会被丢掉，
+   * 用户看到「连接已中断」，真实业务文案也随之消失。
    */
-  es.onerror = () => {
+  es.onerror = (event?: Event) => {
+    const data = (event as MessageEvent | undefined)?.data;
+    if (typeof data === 'string' && data.length > 0) {
+      return;
+    }
     finish(() => handlers.onError?.('与 Agent 的连接已中断，请重试'));
   };
 
