@@ -9,9 +9,16 @@ import java.time.LocalTime;
 
 /** 日程条目：办公自动化模块 */
 @Entity
-@Table(name = "schedule_item", indexes = {
-        @Index(name = "idx_schedule_user", columnList = "user_id")
-})
+@Table(name = "schedule_item",
+        indexes = {
+                @Index(name = "idx_schedule_user", columnList = "user_id")
+        },
+        uniqueConstraints = {
+                // V22：同步日程的幂等键。生产库由迁移脚本创建同名唯一索引；
+                // 测试库（ddl-auto=create-drop，Flyway 关闭）由这里创建，两边必须一致。
+                // 手工日程 source_key 为 NULL，唯一索引允许多个 NULL，不受影响。
+                @UniqueConstraint(name = "uk_schedule_source_key", columnNames = "source_key")
+        })
 @Getter
 @Setter
 @NoArgsConstructor

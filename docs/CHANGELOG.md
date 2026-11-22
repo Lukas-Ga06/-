@@ -2,6 +2,36 @@
 
 按主题记录行为变化。**第四节是最需要注意的**：其中几项改变了原有的使用习惯。
 
+## 登出串号 / SSE 错误语义 / 同步日程幂等（2026-11-22）
+
+### 一、行为变化
+
+- **登出会清空上一个用户的界面状态**：同一标签页退出后换账号登录，不再看到上一个人的
+  聊天记录、待确认方案、行程列表与标题、跨页选中上下文；规划草稿（`travel:planner-draft:v1`）
+  与离线待同步队列（`travel:status-queue:v1`）也会被清掉，不再提示「恢复上次未完成规划」。
+  清理入口集中在 `store/sessionCleanup.ts`，登出与 401 强制登出都走它。
+- **SSE 业务错误不再被显示成「连接已中断」**：服务端 `event: error` 的帧会被浏览器同时派发给
+  `onerror`；现在带 data 的 error 帧只当过程警告，随后的 `complete` 仍会到达（结果卡不再丢）。
+- **同步日程的幂等从「先查后插」变成数据库兜底**：`schedule_item.source_key` 补上了唯一索引
+  （V22），插入改到独立事务（`PlanScheduleSyncWriter`），并发重试/多实例不再写出重复的
+  「🧳 行程 · Day N」时间块；撞键也不会再把整个同步事务标成 rollback-only。
+
+### 二、数据与迁移
+
+- **V22 会先清理历史重复**：同一 `source_key` 只保留 id 最小的一条（这些是同步产物，
+  `source='PLAN_SYNC'`）；手工日程 `source_key` 为 NULL，唯一索引允许多个 NULL，不受影响。
+  升级后无需手工 repair，`ddl-auto=validate` 不校验索引，启动不会因索引名不同失败。
+- 实体补了同名 `@UniqueConstraint`：测试 profile 用 `ddl-auto=create-drop` 且关闭 Flyway，
+  没有它测试库就没有这条唯一约束，幂等用例会「测了个寂寞」。
+
+### 三、新增回归用例
+
+- 后端 `PlanScheduleIdempotencyTest`（3）：重复 `source_key` 只落一条、NULL 键可多条并存、
+  撞键不污染外层事务。
+- 后端 `H2FlywayMigrationTest`（1）：默认 profile 的 V1–V22 在全新 H2 库上真实跑完，
+  并断言 `uk_schedule_source_key` 存在（补上「默认 profile 迁移链」此前没有自动覆盖的空白）。
+- 前端 `sessionCleanup.test.ts`（3）+ `authStore` 1 例 + `agent.test.ts` 1 例（SSE 回归）。
+
 ## 安全升级：Spring Boot 3.5.7 → 3.5.12（2026-11-22）
 
 > 由首次跑到真 runner 的 Trivy 扫描暴露，不是本轮功能改动引入的问题。

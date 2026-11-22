@@ -259,7 +259,7 @@ select coalesce(sum(p.sizeBytes), 0) from TripPhoto p where p.userId = :userId
 | `travel_day` | `INT` | 是 | P1：行程第几天（1-based），仅 `trip_id` 非空时有意义 |
 | `created_at` | `TIMESTAMP` | 是 | 创建时间 |
 
-### 3.2 `schedule_item` — 日程条目（索引 `idx_schedule_user (user_id)`）
+### 3.2 `schedule_item` — 日程条目（索引 `idx_schedule_user (user_id)`、唯一键 `uk_schedule_source_key (source_key)`）
 
 | 字段 | DB 类型 | 可空 | 说明 |
 | --- | --- | --- | --- |
@@ -273,7 +273,7 @@ select coalesce(sum(p.sizeBytes), 0) from TripPhoto p where p.userId = :userId
 | `recurrence` | `VARCHAR(10)` | 是 | `NONE` / `DAILY` / `WEEKLY` / `MONTHLY` |
 | `repeat_until` | `DATE` | 是 | 重复结束日（含）；为空表示长期重复 |
 | `reminder_dismissed_at` | `TIMESTAMP` | 是 | 用户忽略该日程提醒的时间 |
-| `source_key` | `VARCHAR(100)` | 是 | V16：确认后同步的幂等键（`plan:<planId>:module:calendar`） |
+| `source_key` | `VARCHAR(100)` | 是 | V16 加列 / V22 建唯一索引：确认后同步的幂等键（`plan-sync:{planId}:day:{n}`）；手工日程为 NULL（H2 与 MySQL 的唯一索引都允许多个 NULL） |
 | `trip_id` | `BIGINT` | 是 | P1：关联行程；可空 |
 | `itinerary_item_id` | `BIGINT` | 是 | P1：关联具体行程项 |
 | `source` | `VARCHAR(30)` | 是 | P1：来源（如 `agent` / `user`） |
@@ -622,13 +622,16 @@ b=<budget>|s=<startDate>|e=<endDate>
 | 17 | `V17__trip_party_size.sql` | `db/migration` | `trip.party_size`（同行人数，FR-01） | `INT NOT NULL DEFAULT 1`：存量行回填 1，与升级前单人成本口径一致 |
 | 18 | `V18__agent_task_dag.sql` | `db/migration` | `agent_task` 补 `depends_on` / `attempt` / `replaces_task_id`（任务图，FR-02/FR-04） | 中性 `ALTER ... ADD COLUMN`；`attempt INT NOT NULL DEFAULT 0` 回填存量行（视为首次尝试） |
 | 19 | `V19__travel_closed_loop.sql` | `db/migration` | `itinerary_item` 补 `status` / `started_at` / `completed_at` / `visited_at`；建 `trip_event`；`schedule_item` / `memo` 补 `trip_id` / `itinerary_item_id` / `source` / `travel_day` | 双方言中性 SQL；`status VARCHAR(20) NOT NULL DEFAULT 'PENDING'` 回填存量行；旧办公/学习/健康表**不删除** |
+| 20 | `V20__agent_command_dedupe.sql` | `db/migration` | 建 `agent_command_dedupe`：写意图（记账 / 备忘 / 日程）的幂等台账，`UNIQUE (user_id, request_id)` | 中性 SQL；`IN_PROGRESS` 抢占、`COMPLETED` 复用结果、异常时删行 fail-open |
+| 21 | `V21__conversation_scope.sql` | `db/migration` | `conversation_message.scope`（`assistant` / `planner` / `trip:<id>`）+ `idx_conv_user_scope` | 存量行 `scope` 一律 NULL（**不猜**归属）；scope 只是提示，不是权限 |
+| 22 | `V22__schedule_source_key_unique.sql` | `db/migration` | 先去重历史重复（同一 `source_key` 只留 id 最小的一条），再建唯一索引 `uk_schedule_source_key` | 补 V16 的欠账：V16 只加列，注释承诺的「唯一索引兜底并发」从未创建；手工日程 `source_key` 为 NULL，不受唯一约束影响 |
 
 **目录与加载**（`application.yml` / `application-mysql.yml` 的 `spring.flyway.locations`）：
 
 | profile | `locations` | 实际看到的版本 |
 | --- | --- | --- |
-| 默认（H2） | `classpath:db/migration,classpath:db/migration-h2` | V1–V11 + V13（H2 版）+ V14 + V15–V19；**没有 V12**，且缺口 V8 是预期 |
-| `mysql` | `classpath:db/migration,classpath:db/migration-mysql` | V1–V13 全链（V8 / V12 / V13 是 MySQL 版）+ V15–V19；没有 V14（H2 专属） |
+| 默认（H2） | `classpath:db/migration,classpath:db/migration-h2` | V1–V11 + V13（H2 版）+ V14 + V15–V22；**没有 V12**，且缺口 V8 是预期 |
+| `mysql` | `classpath:db/migration,classpath:db/migration-mysql` | V1–V13 全链（V8 / V12 / V13 是 MySQL 版）+ V15–V22；没有 V14（H2 专属） |
 
 两个 profile 各自只看到**一个** V13，不会出现「同一 locations 内重复版本号」（`MigrationBaselineTest` 守住这条）。
 `db/migration-mysql/` 与 `db/migration-h2/` 里的脚本含 `information_schema` 探测、会话变量、`PREPARE` 动态语句或方言化
@@ -926,8 +929,8 @@ P0 之后下表涉及的 6 张旧模块表（`daily_report` / `mail_item` / `mee
 | 库内实际表（含 6 张退役旧表） | **25** | `V1`–`V19` 的 `CREATE TABLE` 去重 |
 | `repository/` 下 Repository 接口 | **19** | 与实体一一对应 |
 | 显式 `@Index` 声明 | **29** 条，分布在 18 个实体上 | 源码 `@Index(` 计数（各表索引已在 2–4 节标题中逐条列出） |
-| `@UniqueConstraint` | **4** 条 | `users.username`（未命名）、`uk_llm_quota_user_date`、`uk_rag_document_key`、`uk_rag_version` |
-| Flyway 版本 / 脚本文件 | **19 个版本 / 20 个文件**（V1–V19；V13 双方言两份，V8/V12 仅 MySQL，V14 仅 H2） | `db/migration` 15 个 + `db/migration-mysql` 3 个 + `db/migration-h2` 2 个 |
+| `@UniqueConstraint` | **5** 条 | `users.username`（未命名）、`uk_llm_quota_user_date`、`uk_rag_document_key`、`uk_rag_version`、`uk_schedule_source_key`（V22） |
+| Flyway 版本 / 脚本文件 | **22 个版本 / 23 个文件**（V1–V22；V13 双方言两份，V8/V12 仅 MySQL，V14 仅 H2） | `db/migration` 18 个 + `db/migration-mysql` 3 个 + `db/migration-h2` 2 个 |
 | V1 基线内容 | **15 张表 + 14 个索引** | `V1__baseline.sql` 的 `CREATE TABLE` / `CREATE INDEX` 计数 |
 | V19 增量内容 | **4 列 + 1 张表（3 索引）+ 8 列（schedule/memo 各 4）** | `V19__travel_closed_loop.sql` |
 | 后端测试 | **465** 个 `@Test`（110 个测试文件） | 源码静态计数；实际以 `mvn test` 输出为准 |

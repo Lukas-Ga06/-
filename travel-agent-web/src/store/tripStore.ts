@@ -22,6 +22,8 @@ interface TripState {
   loadItinerary: (id: number) => Promise<void>;
   loadRouteLegs: (id: number) => Promise<void>;
   clearCurrent: () => void;
+  /** 登出 / 换账号：清空列表与详情，并作废在途请求（与 clearCurrent 的区别是连列表一起清） */
+  reset: () => void;
 }
 
 /**
@@ -104,5 +106,21 @@ export const useTripStore = create<TripState>()((set, get) => ({
     tripSeq += 1;
     itinerarySeq += 1;
     set({ currentTrip: null, items: [], routeLegs: [] });
+  },
+
+  reset: () => {
+    // 三个序号都推进：登出时还在飞的列表/详情/路线请求一律丢弃，
+    // 否则上一个用户的响应可能在下一个用户登录后落地。
+    tripsSeq += 1;
+    tripSeq += 1;
+    itinerarySeq += 1;
+    set({
+      trips: [],
+      tripsLoading: false,
+      tripsError: null,
+      currentTrip: null,
+      items: [],
+      routeLegs: [],
+    });
   },
 }));

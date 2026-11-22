@@ -1,6 +1,8 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it } from 'vitest';
 import { USER_CACHE_KEY, useAuthStore } from './authStore';
+import { useAgentStore } from './agentStore';
+import { DRAFT_STORAGE_KEY } from '../pages/Planner/planDraft';
 
 const demo = { id: 1, username: 'demo', nickname: '演示用户' };
 
@@ -54,5 +56,21 @@ describe('authStore · 离线兜底用户缓存（PWA 离线恢复）', () => {
 
     expect(localStorage.getItem(USER_CACHE_KEY)).toBeNull();
     expect(useAuthStore.getState().user).toBeNull();
+  });
+
+  it('logout 同时抹掉上一个人的对话与规划草稿（同标签页换账号不串数据）', () => {
+    useAgentStore.setState({
+      messages: [
+        { id: 'm1', role: 'assistant', content: '上一个人的攻略', time: '2026-11-22T10:00:00Z' },
+      ],
+      conversationId: 'conv-previous',
+    });
+    localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify({ version: 1 }));
+
+    useAuthStore.getState().logout();
+
+    expect(useAgentStore.getState().messages).toEqual([]);
+    expect(useAgentStore.getState().conversationId).toBeNull();
+    expect(localStorage.getItem(DRAFT_STORAGE_KEY)).toBeNull();
   });
 });

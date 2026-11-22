@@ -18,7 +18,7 @@ class FakeEventSource {
 
   readonly url: string;
   readyState = 0;
-  onerror: (() => void) | null = null;
+  onerror: ((e?: Event) => void) | null = null;
 
   private listeners = new Map<string, ((e: MessageEvent) => void)[]>();
 
@@ -156,6 +156,27 @@ describe('streamAgentChat', () => {
     // 连接层失败由 onerror 走终止路径
     es.onerror?.();
     expect(onError).toHaveBeenCalled();
+  });
+
+  it('回归：带 data 的 error 帧派发给 onerror 时不能当成连接中断（否则 complete 被丢弃）', async () => {
+    const onWarning = vi.fn();
+    const onError = vi.fn();
+    const onComplete = vi.fn();
+    await streamAgentChat({ message: '你好' }, { onWarning, onError, onComplete });
+
+    const es = FakeEventSource.last();
+    es.emit('error', { message: '规划失败', code: 'PLANNER_BUDGET' });
+    // 真实浏览器会把同一个 `event: error` 帧再派发给 onerror，且是带 data 的 MessageEvent。
+    // 这里按真实顺序模拟：先监听器、再 onerror。
+    es.onerror?.({ data: '{"message":"规划失败"}' } as unknown as Event);
+
+    expect(onWarning).toHaveBeenCalledWith({ message: '规划失败', code: 'PLANNER_BUDGET' });
+    expect(onError).not.toHaveBeenCalled();
+    expect(es.readyState).not.toBe(FakeEventSource.CLOSED);
+
+    // 服务端在 error 之后仍会下发 complete：它必须还能到达
+    es.emit('complete', { status: 'FAILED', message: '规划失败' });
+    expect(onComplete).toHaveBeenCalledWith({ status: 'FAILED', message: '规划失败' });
   });
 
   it('cancelled 事件终止本次流并回调 onCancelled', async () => {

@@ -486,7 +486,7 @@ class MySqlFlywayMigrationTest {
         // V19 事件流与旅行关联索引
         addRequired(required, "trip_event",
                 "idx_trip_event_trip", "idx_trip_event_item", "idx_trip_event_occurred");
-        addRequired(required, "schedule_item", "idx_schedule_trip");
+        addRequired(required, "schedule_item", "idx_schedule_trip", "uk_schedule_source_key");
         addRequired(required, "memo", "idx_memo_trip");
         return required;
     }
