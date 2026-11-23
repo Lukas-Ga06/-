@@ -10,6 +10,7 @@
 ## 产品与工程总览
 
 - [产品开发文档](../PRODUCT_DEVELOPMENT.md)：产品定位、范围、完成度、路线图和验收标准。
+- [项目后续工作与上线路线图](../PROJECT_ROADMAP.md)：2026-11-22 当前完成度、P0/P1/P2 待办、上线分级和 UI 改造方案。
 - [开发手册](../DEVELOPER_HANDBOOK.md)：环境、代码边界、Agent/工具/RAG/数据库/测试和排障规范。
 - [项目改进审计](../review/2026-11-19-project-improvement-audit.md)：基于当前源码与构建结果整理的 P0/P1/P2 改进项、证据和验收标准。
 
@@ -35,7 +36,7 @@
 | [code-structure.md](code-structure.md) | 代码结构手册：分层与依赖方向、16 个包职责、关键协作类（Agent 引擎 / 联网城市数据拆分）、新增代码落点决策表、命名约定、测试组织、维护红线（单类行数阈值等） | 所有人（写第一行代码前读） |
 | [getting-started.md](getting-started.md) | 环境要求、`run-dev.ps1` 启动、首次启动自动完成的事、前端启动与 `/api` 反代、演示闭环 walkthrough、常见问题排查表、提交前自检清单 | 所有人（第一天读） |
 | [architecture.md](architecture.md) | 分层架构、Agent 状态机、Intent/Planner/Executor/Reflect 四 Agent、AgentPlan 与 PlanOperation、三级风险 Human-in-the-loop、工具层只读闸门与 9 个内置工具、RAG 与 Embedding 降级、规划期知识引用、行中锁定与旅行事件、旅行回顾聚合、SSE 事件协议与 focus、会话记忆、待确认方案落库、MCP 生态、LLM 配额 | 后端 / Agent 能力开发 |
-| [api-reference.md](api-reference.md) | 通用约定（认证、短期票据、统一响应、错误码）、按业务模块逐接口的真实契约（行程状态 / 回顾 / 事件 / 知识库五接口等）、63 个接口总表 | 前端 / 第三方集成 |
+| [api-reference.md](api-reference.md) | 通用约定（认证、短期票据、统一响应、错误码）、按业务模块逐接口的真实契约（含 `DELETE /api/auth/me` 注销账号）、66 个接口总表 | 前端 / 第三方集成 |
 | [data-model.md](data-model.md) | ER 总览、全部实体与表结构（字段 / 类型 / 索引 / 约束）、Flyway 迁移策略、数据一致性不变量、引导数据、常用 SQL 手册 | 后端 / 数据 |
 | [frontend.md](frontend.md) | 技术栈、目录结构、路由表（含 `/review`、`/trip/:id/review`）、页面清单、zustand 状态管理、API 层与 SSE 消费链路、核心组件、高德地图 Provider 抽象、构建与测试 | 前端 |
 | [deployment.md](deployment.md) | 部署拓扑、Docker 全栈部署步骤、**生产必改项清单**、环境变量权威表、H2/MySQL 切换、卷与备份恢复、反代与 HTTPS、监控与排障、CI 与发布 | 运维 |
@@ -55,6 +56,20 @@
 | [external-dependencies.md](external-dependencies.md) | 高德 / LLM / Embedding / Redis / S3 的超时预算、重试（没有就写 0）、降级结果、用户提示、`external.degraded{provider,reason}` 指标与对应测试类 | 后端 / 运维 / 值班 |
 | [observability.md](observability.md) | 指标字典与基数纪律、13 条 SLO、PromQL、Prometheus 抓取与鉴权、日志字段约定、Grafana Dashboard 与告警清单 | 后端 / 运维 / 值班 |
 | [frontend-performance.md](frontend-performance.md) | 地图引擎从 Rollup import 图移出的方案与 before/after 数字（maps chunk 1068 kB → 0，precache 2.99 MiB → 1.97 MiB）、包体预算脚本与 nginx `.mjs` 配置要求 | 前端 / 运维 |
+
+运维与合规（P0 上线阻断项交付）：
+
+| 文档 | 内容概要 | 适合谁 |
+| --- | --- | --- |
+| [../operations/README.md](../operations/README.md) | 运维与合规文档总索引：runbook、告警规则、生产配置、备份恢复、仓库安全设置、脚本 | 运维 / 值班 / 发布负责人 |
+| [../operations/production-config.md](../operations/production-config.md) | 生产环境变量清单：必填/默认/示例/是否密钥、密钥权限与轮换、未配置时的预期行为、`/api/system/status` 判读、compose 透传核对与例外项 | 运维 / 后端 |
+| [../operations/backup-restore.md](../operations/backup-restore.md) | MySQL 8.4 逻辑备份/恢复、Flyway 迁移前快照与 V23 后复跑、照片/S3 备份、校验与 RTO/RPO 记录模板、回滚边界 | 运维 / DBA |
+| [../operations/github-security-settings.md](../operations/github-security-settings.md) | GitHub 依赖图 / Dependabot / Code scanning / Secret scanning / 分支保护的人工清单，`dependency-review` 转硬门禁条件 | 仓库管理员 |
+| [../operations/runbook.md](../operations/runbook.md) | 告警处置手册；新增附录：日志脱敏核对、限流与 LLM 配额验证、告警矩阵补充 | 值班 |
+| [../operations/launch-checklist.md](../operations/launch-checklist.md) | 上线执行清单（Android 真机口径）：12 项阻断差距、阶段 0–3 步骤、Android 真机验收矩阵、风险登记 | 发布负责人 / 前端 / 运维 |
+| [../legal/README.md](../legal/README.md) | 合规文档索引：隐私政策、第三方服务、数据删除、许可证 | 产品 / 法务 / 发布负责人 |
+| [../legal/data-deletion.md](../legal/data-deletion.md) | 账号注销 API（`DELETE /api/auth/me`）的语义、删除范围、运维手工 SQL 与验证清单；含旧 JWT/同名重注册残余风险 | 后端 / 运维 / 法务 |
+| [../legal/licensing.md](../legal/licensing.md) | 专有许可现状与切换开源许可证的流程（业务决策，不擅自改） | 产品 / 法务 |
 
 补充材料：
 

@@ -8,7 +8,7 @@
 所有接口、字段、校验规则和错误码均取自 `travel-agent-server` 源码，未使用推测内容。
 
 - 源码根：`travel-agent-server/src/main/java/com/travel/agent/`
-- 接口总数：**65 个**（12 个业务 Controller 的 62 个 + 渠道包 3 个），清单见第 14、15 章
+- 接口总数：**66 个**（12 个业务 Controller 的 63 个 + 渠道包 3 个），清单见第 14、15 章
 - 已退役：`/api/office/**`、`/api/report/**`、`/api/health/**`、`/api/learning/**`（Controller 与实体已删除，调用 404）
 - 每个接口标注 `类名#方法名:行号`，可直接回源码核对
 
@@ -131,8 +131,8 @@ GET /api/photos/12/raw?ticket=...                    # 只能用 media-read 票�
 
 | code / HTTP | 触发条件 | 典型 message |
 | --- | --- | --- |
-| `400` | `@Valid` 校验失败、请求体不可解析、缺参数、`BusinessException(400)` | `<字段> <校验提示>`；`结束日期不能早于开始日期`；`未知的行程项状态: xxx` |
-| `401` | 未登录 / 登录过期（安全链）、登录失败、用户不存在 | `未登录或登录状态已过期`；`用户名或密码错误` |
+| `400` | `@Valid` 校验失败、请求体不可解析、缺参数、`BusinessException(400)` | `<字段> <校验提示>`；`结束日期不能早于开始日期`；`未知的行程项状态: xxx`；`请输入密码确认注销` |
+| `401` | 未登录 / 登录过期（安全链）、登录失败、用户不存在、密码错误 | `未登录或登录状态已过期`；`用户名或密码错误`；`密码错误` |
 | `403` | `AccessDeniedException` | `没有权限执行该操作` |
 | `404` | 资源不存在或无权访问 | `行程不存在或无权访问`；`照片不存在`；`文档不存在`；`版本不存在` |
 | `409` | 唯一约束/数据冲突、乐观锁冲突 | `数据冲突，请检查是否重复提交或文本过长` |
@@ -191,10 +191,10 @@ GET /api/photos/12/raw?ticket=...                    # 只能用 media-read 票�
 
 ---
 
-## 2. 认证与票据（5 个）
+## 2. 认证与票据（6 个）
 
 ### 2.1 POST /api/auth/register — 注册
-鉴权：免登录 ｜ 源码：`AuthController#register:27` ｜ 成功时响应头带 `Set-Cookie: travel_agent_token=...`
+鉴权：免登录 ｜ 源码：`AuthController#register:32` ｜ 成功时响应头带 `Set-Cookie: travel_agent_token=...`
 | 参数 | 必填 | 说明 |
 | --- | --- | --- |
 | `username` | 是 | 3–32 字符，全局唯一 |
@@ -209,7 +209,7 @@ GET /api/photos/12/raw?ticket=...                    # 只能用 media-read 票�
 错误：`400` 用户名/密码为空或长度不符、`用户名已存在`；`429` 限流
 
 ### 2.2 POST /api/auth/login — 登录
-鉴权：免登录 ｜ 源码：`AuthController#login:35` ｜ 成功时 `Set-Cookie`
+鉴权：免登录 ｜ 源码：`AuthController#login:40` ｜ 成功时 `Set-Cookie`
 | 参数 | 必填 | 说明 |
 | --- | --- | --- |
 | `username` | 是 | 用户名 |
@@ -223,20 +223,37 @@ GET /api/photos/12/raw?ticket=...                    # 只能用 media-read 票�
 错误：`401` `用户名或密码错误`；`429` 限流
 
 ### 2.3 GET /api/auth/me — 恢复登录态
-鉴权：登录 ｜ 源码：`AuthController#me:47` ｜ 无请求体（凭 Cookie/头恢复用户资料，`token` 为 `null`）
+鉴权：登录 ｜ 源码：`AuthController#me:52` ｜ 无请求体（凭 Cookie/头恢复用户资料，`token` 为 `null`）
 ```json
 {"code":0,"message":"success","data":{"token":null,"id":2,"username":"traveler","nickname":"小旅"}}
 ```
 错误：`401` 未登录或登录已过期
 
 ### 2.4 POST /api/auth/logout — 登出
-鉴权：免登录（幂等）｜ 源码：`AuthController#logout:58` ｜ 无参数；清空登录 Cookie
+鉴权：免登录（幂等）｜ 源码：`AuthController#logout:88` ｜ 无参数；清空登录 Cookie
 ```json
 {"code":0,"message":"success","data":null}
 ```
 错误：`500`（极少数 Cookie 写失败场景）
 
-### 2.5 POST /api/access-ticket — 签发短期只读票据
+### 2.5 DELETE /api/auth/me — 注销账号（P0-D）
+鉴权：登录 ｜ 源码：`AuthController#deleteMe:72` ｜ 请求体 `{"password":"<当前密码>"}`
+| 参数 | 必填 | 说明 |
+| --- | --- | --- |
+| `password` | 是 | 当前账号密码；缺失、`{}` 或空白 → `400` |
+```json
+// 请求
+{"password":"secret123"}
+// 成功响应（同时 Set-Cookie: travel_agent_token=; Max-Age=0）
+{"code":0,"message":"success","data":null}
+```
+删除范围（单事务）：`tool_call_trace`、`agent_task`、`agent_run`、`agent_command_dedupe`、`plan_execution`、`pending_plan`、`operation_history`、`expense`、`conversation_message`、`conversation_meta`、`memo`、`schedule_item`、`llm_quota_usage`（按 `user_name`）、本人 `rag_chunk`/`rag_document_version`/`rag_document`（公共知识保留）、`trip_event`、`itinerary_item`、`trip_photo`、`trip`、`users`。照片文件在事务提交后由 `PhotoStore.deleteQuietly` 清理（失败只 WARN）。
+
+错误：`400` `请输入密码确认注销`；`401` `密码错误`（不删除、保持登录）、未登录、用户已不存在/重复注销；`429` 限流。
+
+> 语义与残余风险（旧 JWT、同名重注册、内存 RAG）见 [数据删除流程](../legal/data-deletion.md) §3。OpenAPI 快照目前只声明 `200` 响应，`400/401` 来自代码与 `AccountDeletionApiTest`。
+
+### 2.6 POST /api/access-ticket — 签发短期只读票据
 鉴权：登录 ｜ 源码：`AccessTicketController#issue:21`
 
 | 参数 | 必填 | 说明 |
@@ -1123,71 +1140,72 @@ RAG 文档接口在 P0 从原 `LearningController` 拆出，迁入 `TravelKnowle
 
 | # | 方法 | 路径 | 鉴权 | 说明 | 源码 |
 | --- | --- | --- | --- | --- | --- |
-| 1 | POST | `/api/auth/register` | 免登录 | 注册 | `AuthController#register:27` |
-| 2 | POST | `/api/auth/login` | 免登录 | 登录 | `AuthController#login:35` |
-| 3 | GET | `/api/auth/me` | 登录 | 恢复登录态 | `AuthController#me:47` |
-| 4 | POST | `/api/auth/logout` | 免登录 | 登出 | `AuthController#logout:58` |
-| 5 | POST | `/api/access-ticket` | 登录 | 签发短期只读票据 | `AccessTicketController#issue:21` |
-| 6 | GET | `/api/trips` | 登录 | 行程列表 | `TripController#list` |
-| 7 | GET | `/api/trips/map` | 登录 | 足迹坐标（P1 扩展） | `TripController#map` |
-| 8 | POST | `/api/trips` | 登录 | 创建行程 | `TripController#create` |
-| 9 | GET | `/api/trips/{id}` | 登录 | 行程详情 | `TripController#get` |
-| 10 | PUT | `/api/trips/{id}` | 登录 | 更新行程 | `TripController#update` |
-| 11 | DELETE | `/api/trips/{id}` | 登录 | 删除行程 | `TripController#delete` |
-| 12 | PUT | `/api/trips/{id}/status` | 登录 | 确认/取消/恢复 | `TripController#updateStatus` |
-| 13 | GET | `/api/trips/{id}/itinerary` | 登录 | 行程项列表 | `TripController#itinerary` |
-| 14 | POST | `/api/trips/{id}/itinerary` | 登录 | 新增行程项 | `TripController#addItem` |
-| 15 | GET | `/api/trips/{id}/route-legs` | 登录 | 每日路线段 | `TripController#routeLegs` |
-| 16 | GET | `/api/trips/{id}/budget` | 登录 | 预算执行对账 | `TripController#budget` |
-| 17 | GET | `/api/trips/{id}/review` | 登录 | 旅行回顾（P1） | `TripController#review` |
-| 18 | GET | `/api/trips/{id}/events` | 登录 | 旅行事件流（P1） | `TripController#events` |
-| 19 | GET | `/api/trips/{id}/guidebook.pdf` | 登录 | 路书 PDF 导出 | `TripController#guidebook` |
-| 20 | PUT | `/api/itinerary/{id}` | 登录 | 修改行程项 | `ItineraryController#update` |
-| 21 | DELETE | `/api/itinerary/{id}` | 登录 | 删除行程项 | `ItineraryController#delete` |
-| 22 | PUT | `/api/itinerary/{id}/status` | 登录 | 行程项状态推进（P1） | `ItineraryController#updateStatus` |
-| 23 | POST | `/api/agent/chat` | 登录 | 同步对话 | `AgentController#chat` |
-| 24 | GET | `/api/agent/stream` | 登录/票据 | SSE 流式对话 | `AgentController#stream` |
-| 25 | POST | `/api/agent/stream` | 登录 | SSE 流式对话（表单） | `AgentController#streamPost` |
-| 26 | POST | `/api/agent/confirm` | 登录 | 确认提交方案 | `AgentController#confirm` |
-| 27 | POST | `/api/agent/cancel` | 登录 | 取消方案 | `AgentController#cancel` |
-| 28 | POST | `/api/agent/undo` | 登录 | 撤销上一次修改 | `AgentController#undo` |
-| 29 | GET | `/api/agent/plans/{planId}` | 登录 | 取回待确认方案 | `AgentController#pending` |
-| 30 | GET | `/api/agent/runs` | 登录 | 运行列表 | `AgentController#runs` |
-| 31 | GET | `/api/agent/runs/{runId}` | 登录 | 运行明细（任务图 + 工具调用） | `AgentController#runDetail` |
-| 32 | GET | `/api/agent/executions/{executionId}` | 登录 | 同步台账 | `AgentController#executionDetail` |
-| 33 | POST | `/api/agent/executions/{executionId}/retry` | 登录 | 重试失败模块 | `AgentController#executionRetry` |
-| 34 | POST | `/api/agent/conversation/clear` | 登录 | 清空会话 | `AgentController#clearConversation` |
-| 35 | PATCH | `/api/agent/conversations/{conversationId}` | 登录 | 重命名会话（V23；空标题=恢复自动标题） | `AgentController#renameConversation` |
-| 36 | DELETE | `/api/agent/conversations/{conversationId}` | 登录 | 删除会话（V23，幂等） | `AgentController#deleteConversation` |
-| 37 | GET | `/api/trips/{tripId}/expenses` | 登录 | 支出列表 | `ExpenseController#list:30` |
-| 38 | POST | `/api/trips/{tripId}/expenses` | 登录 | 记一笔 | `ExpenseController#add:41` |
-| 39 | GET | `/api/expenses/overview` | 登录 | 记账总览 | `ExpenseController#overview:55` |
-| 40 | DELETE | `/api/expenses/{id}` | 登录 | 删除支出 | `ExpenseController#delete:61` |
-| 41 | POST | `/api/trips/{tripId}/photos` | 登录 | 上传照片 | `PhotoController#upload:28` |
-| 42 | GET | `/api/trips/{tripId}/photos` | 登录 | 照片列表 | `PhotoController#list:36` |
-| 43 | GET | `/api/photos/{id}/raw` | 登录/票据 | 读取原图 | `PhotoController#raw:52` |
-| 44 | DELETE | `/api/photos/{id}` | 登录 | 删除照片 | `PhotoController#delete:70` |
-| 45 | GET | `/api/reminders` | 登录 | 提醒板 | `ReminderController#board:22` |
-| 46 | POST | `/api/reminders/schedule/{id}/dismiss` | 登录 | 忽略日程提醒 | `ReminderController#dismissSchedule:28` |
-| 47 | POST | `/api/reminders/trip/{id}/dismiss` | 登录 | 忽略出发提醒 | `ReminderController#dismissTrip:35` |
-| 48 | GET | `/api/memos` | 登录 | 备忘列表 | `MemoController#list` |
-| 49 | POST | `/api/memos` | 登录 | 新增备忘 | `MemoController#add` |
-| 50 | POST | `/api/memos/{id}/toggle` | 登录 | 切换完成状态 | `MemoController#toggle` |
-| 51 | DELETE | `/api/memos/{id}` | 登录 | 删除备忘 | `MemoController#delete` |
-| 52 | GET | `/api/memos/open-count` | 登录 | 未完成备忘数量 | `MemoController#openCount` |
-| 53 | GET | `/api/schedule` | 登录 | 日程列表 | `ScheduleController#list` |
-| 54 | POST | `/api/schedule` | 登录 | 新增日程 | `ScheduleController#add` |
-| 55 | POST | `/api/schedule/{id}/toggle` | 登录 | 切换完成状态 | `ScheduleController#toggle` |
-| 56 | DELETE | `/api/schedule/{id}` | 登录 | 删除日程 | `ScheduleController#delete` |
-| 57 | POST | `/api/knowledge/add` | 登录 | 旅行知识库录入 | `TravelKnowledgeController#addKnowledge` |
-| 58 | POST | `/api/knowledge/search` | 登录 | 知识库检索 | `TravelKnowledgeController#searchKnowledge` |
-| 59 | GET | `/api/knowledge/documents/{id}/versions` | 登录 | 版本列表 | `TravelKnowledgeController#versions` |
-| 60 | GET | `/api/knowledge/documents/{id}/versions/{versionNo}` | 登录 | 版本详情 | `TravelKnowledgeController#version` |
-| 61 | POST | `/api/knowledge/documents/{id}/rollback/{versionNo}` | 登录 | 回滚版本 | `TravelKnowledgeController#rollback` |
-| 62 | GET | `/api/system/status` | 登录 | 运行能力自检 | `SystemController#status` |
-| 63 | POST | `/api/channels/webhook` | 渠道密钥 | 通用 Webhook | `WebhookChannelController#handle:43` |
-| 64 | GET | `/api/channels/wechat` | 微信签名 | 公众号接入验证 | `WeChatOfficialAccountController#verify:66` |
-| 65 | POST | `/api/channels/wechat` | 微信平台 | 公众号消息推送 | `WeChatOfficialAccountController#receive:85` |
+| 1 | POST | `/api/auth/register` | 免登录 | 注册 | `AuthController#register:32` |
+| 2 | POST | `/api/auth/login` | 免登录 | 登录 | `AuthController#login:40` |
+| 3 | GET | `/api/auth/me` | 登录 | 恢复登录态 | `AuthController#me:52` |
+| 4 | POST | `/api/auth/logout` | 免登录 | 登出 | `AuthController#logout:88` |
+| 5 | DELETE | `/api/auth/me` | 登录 | 注销账号（密码二次确认，清 Cookie） | `AuthController#deleteMe:72` |
+| 6 | POST | `/api/access-ticket` | 登录 | 签发短期只读票据 | `AccessTicketController#issue:21` |
+| 7 | GET | `/api/trips` | 登录 | 行程列表 | `TripController#list` |
+| 8 | GET | `/api/trips/map` | 登录 | 足迹坐标（P1 扩展） | `TripController#map` |
+| 9 | POST | `/api/trips` | 登录 | 创建行程 | `TripController#create` |
+| 10 | GET | `/api/trips/{id}` | 登录 | 行程详情 | `TripController#get` |
+| 11 | PUT | `/api/trips/{id}` | 登录 | 更新行程 | `TripController#update` |
+| 12 | DELETE | `/api/trips/{id}` | 登录 | 删除行程 | `TripController#delete` |
+| 13 | PUT | `/api/trips/{id}/status` | 登录 | 确认/取消/恢复 | `TripController#updateStatus` |
+| 14 | GET | `/api/trips/{id}/itinerary` | 登录 | 行程项列表 | `TripController#itinerary` |
+| 15 | POST | `/api/trips/{id}/itinerary` | 登录 | 新增行程项 | `TripController#addItem` |
+| 16 | GET | `/api/trips/{id}/route-legs` | 登录 | 每日路线段 | `TripController#routeLegs` |
+| 17 | GET | `/api/trips/{id}/budget` | 登录 | 预算执行对账 | `TripController#budget` |
+| 18 | GET | `/api/trips/{id}/review` | 登录 | 旅行回顾（P1） | `TripController#review` |
+| 19 | GET | `/api/trips/{id}/events` | 登录 | 旅行事件流（P1） | `TripController#events` |
+| 20 | GET | `/api/trips/{id}/guidebook.pdf` | 登录 | 路书 PDF 导出 | `TripController#guidebook` |
+| 21 | PUT | `/api/itinerary/{id}` | 登录 | 修改行程项 | `ItineraryController#update` |
+| 22 | DELETE | `/api/itinerary/{id}` | 登录 | 删除行程项 | `ItineraryController#delete` |
+| 23 | PUT | `/api/itinerary/{id}/status` | 登录 | 行程项状态推进（P1） | `ItineraryController#updateStatus` |
+| 24 | POST | `/api/agent/chat` | 登录 | 同步对话 | `AgentController#chat` |
+| 25 | GET | `/api/agent/stream` | 登录/票据 | SSE 流式对话 | `AgentController#stream` |
+| 26 | POST | `/api/agent/stream` | 登录 | SSE 流式对话（表单） | `AgentController#streamPost` |
+| 27 | POST | `/api/agent/confirm` | 登录 | 确认提交方案 | `AgentController#confirm` |
+| 28 | POST | `/api/agent/cancel` | 登录 | 取消方案 | `AgentController#cancel` |
+| 29 | POST | `/api/agent/undo` | 登录 | 撤销上一次修改 | `AgentController#undo` |
+| 30 | GET | `/api/agent/plans/{planId}` | 登录 | 取回待确认方案 | `AgentController#pending` |
+| 31 | GET | `/api/agent/runs` | 登录 | 运行列表 | `AgentController#runs` |
+| 32 | GET | `/api/agent/runs/{runId}` | 登录 | 运行明细（任务图 + 工具调用） | `AgentController#runDetail` |
+| 33 | GET | `/api/agent/executions/{executionId}` | 登录 | 同步台账 | `AgentController#executionDetail` |
+| 34 | POST | `/api/agent/executions/{executionId}/retry` | 登录 | 重试失败模块 | `AgentController#executionRetry` |
+| 35 | POST | `/api/agent/conversation/clear` | 登录 | 清空会话 | `AgentController#clearConversation` |
+| 36 | PATCH | `/api/agent/conversations/{conversationId}` | 登录 | 重命名会话（V23；空标题=恢复自动标题） | `AgentController#renameConversation` |
+| 37 | DELETE | `/api/agent/conversations/{conversationId}` | 登录 | 删除会话（V23，幂等） | `AgentController#deleteConversation` |
+| 38 | GET | `/api/trips/{tripId}/expenses` | 登录 | 支出列表 | `ExpenseController#list:30` |
+| 39 | POST | `/api/trips/{tripId}/expenses` | 登录 | 记一笔 | `ExpenseController#add:41` |
+| 40 | GET | `/api/expenses/overview` | 登录 | 记账总览 | `ExpenseController#overview:55` |
+| 41 | DELETE | `/api/expenses/{id}` | 登录 | 删除支出 | `ExpenseController#delete:61` |
+| 42 | POST | `/api/trips/{tripId}/photos` | 登录 | 上传照片 | `PhotoController#upload:28` |
+| 43 | GET | `/api/trips/{tripId}/photos` | 登录 | 照片列表 | `PhotoController#list:36` |
+| 44 | GET | `/api/photos/{id}/raw` | 登录/票据 | 读取原图 | `PhotoController#raw:52` |
+| 45 | DELETE | `/api/photos/{id}` | 登录 | 删除照片 | `PhotoController#delete:70` |
+| 46 | GET | `/api/reminders` | 登录 | 提醒板 | `ReminderController#board:22` |
+| 47 | POST | `/api/reminders/schedule/{id}/dismiss` | 登录 | 忽略日程提醒 | `ReminderController#dismissSchedule:28` |
+| 48 | POST | `/api/reminders/trip/{id}/dismiss` | 登录 | 忽略出发提醒 | `ReminderController#dismissTrip:35` |
+| 49 | GET | `/api/memos` | 登录 | 备忘列表 | `MemoController#list` |
+| 50 | POST | `/api/memos` | 登录 | 新增备忘 | `MemoController#add` |
+| 51 | POST | `/api/memos/{id}/toggle` | 登录 | 切换完成状态 | `MemoController#toggle` |
+| 52 | DELETE | `/api/memos/{id}` | 登录 | 删除备忘 | `MemoController#delete` |
+| 53 | GET | `/api/memos/open-count` | 登录 | 未完成备忘数量 | `MemoController#openCount` |
+| 54 | GET | `/api/schedule` | 登录 | 日程列表 | `ScheduleController#list` |
+| 55 | POST | `/api/schedule` | 登录 | 新增日程 | `ScheduleController#add` |
+| 56 | POST | `/api/schedule/{id}/toggle` | 登录 | 切换完成状态 | `ScheduleController#toggle` |
+| 57 | DELETE | `/api/schedule/{id}` | 登录 | 删除日程 | `ScheduleController#delete` |
+| 58 | POST | `/api/knowledge/add` | 登录 | 旅行知识库录入 | `TravelKnowledgeController#addKnowledge` |
+| 59 | POST | `/api/knowledge/search` | 登录 | 知识库检索 | `TravelKnowledgeController#searchKnowledge` |
+| 60 | GET | `/api/knowledge/documents/{id}/versions` | 登录 | 版本列表 | `TravelKnowledgeController#versions` |
+| 61 | GET | `/api/knowledge/documents/{id}/versions/{versionNo}` | 登录 | 版本详情 | `TravelKnowledgeController#version` |
+| 62 | POST | `/api/knowledge/documents/{id}/rollback/{versionNo}` | 登录 | 回滚版本 | `TravelKnowledgeController#rollback` |
+| 63 | GET | `/api/system/status` | 登录 | 运行能力自检 | `SystemController#status` |
+| 64 | POST | `/api/channels/webhook` | 渠道密钥 | 通用 Webhook | `WebhookChannelController#handle:43` |
+| 65 | GET | `/api/channels/wechat` | 微信签名 | 公众号接入验证 | `WeChatOfficialAccountController#verify:66` |
+| 66 | POST | `/api/channels/wechat` | 微信平台 | 公众号消息推送 | `WeChatOfficialAccountController#receive:85` |
 
 ---
 
@@ -1197,7 +1215,7 @@ RAG 文档接口在 P0 从原 `LearningController` 拆出，迁入 `TravelKnowle
 
 | Controller | 接口数 | 源码文件 |
 | --- | --- | --- |
-| `AuthController` | 4 | `controller/AuthController.java` |
+| `AuthController` | 5 | `controller/AuthController.java` |
 | `AccessTicketController` | 1 | `controller/AccessTicketController.java` |
 | `TripController` | 14 | `controller/TripController.java` |
 | `ItineraryController` | 3 | `controller/ItineraryController.java` |
@@ -1211,13 +1229,13 @@ RAG 文档接口在 P0 从原 `LearningController` 拆出，迁入 `TravelKnowle
 | `SystemController` | 1 | `controller/SystemController.java` |
 | `WeChatOfficialAccountController` | 2 | `channel/WeChatOfficialAccountController.java` |
 | `WebhookChannelController` | 1 | `channel/WebhookChannelController.java` |
-| **合计** | **65** | 12 个 controller 包文件（62 个接口）+ 2 个 channel 包文件（3 个接口） |
+| **合计** | **66** | 12 个 controller 包文件（63 个接口）+ 2 个 channel 包文件（3 个接口） |
 
 ### 15.2 按业务模块
 
 | 模块 | 章 | 数量 |
 | --- | --- | --- |
-| 认证与票据 | §2 | 5 |
+| 认证与票据 | §2 | 6 |
 | 行程 | §3 | 14 |
 | 行程项 | §4 | 3 |
 | Agent 对话与方案 | §5 | 14 |
@@ -1229,11 +1247,11 @@ RAG 文档接口在 P0 从原 `LearningController` 拆出，迁入 `TravelKnowle
 | 旅行知识库 | §11 | 5 |
 | 系统 | §12 | 1 |
 | 渠道 | §13 | 3 |
-| **合计** | — | **65** |
+| **合计** | — | **66** |
 
 ### 15.3 自检结论
 
-- 源码映射注解统计：12 个 controller 共 **62** 个 `@*Mapping` + 2 个 channel 文件共 **3** 个 = **65**，与第 14 章逐条一致。
+- 源码映射注解统计：12 个 controller 共 **63** 个 `@*Mapping` + 2 个 channel 文件共 **3** 个 = **66**，与第 14 章逐条一致（新增 `DELETE /api/auth/me`）。
 - **P0 删除的 22 个接口**（Office 8、Report 2、旧 Learning 8、Health 4）不再存在；原 Learning 的 RAG 三接口已迁到
   `/api/knowledge/documents/**`，知识录入/检索改为 `/api/knowledge/add`、`/api/knowledge/search`。
 - **P1 新增 3 个接口**：`PUT /api/itinerary/{id}/status`、`GET /api/trips/{id}/review`、`GET /api/trips/{id}/events`；

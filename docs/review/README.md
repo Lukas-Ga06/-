@@ -44,5 +44,6 @@
 | [2026-11-22-real-model-acceptance.md](2026-11-22-real-model-acceptance.md) | 2026-11-22 | 真实 DeepSeek key 下的规划/意图链路、模型运行态自报 | `llmVerified=true` 链路打通（23s 出规划）；默认模型名 `deepseek-chat` 在售列表里已不存在，需 `deepseek-flash`；余额仅 ¥0.80 只做 2 次调用 |
 | [2026-11-22-remote-ci-first-run.md](2026-11-22-remote-ci-first-run.md) | 2026-11-22 | 远端 CI 首跑、9 类环境漂移的归因与修复 | main 上 7/8 job 绿；剩余 2 项卡在仓库设置开关（Dependency graph / Code scanning）；顺带修掉生产容器的时区隐患 |
 | [2026-11-22-mcp-live-and-fr03.md](2026-11-22-mcp-live-and-fr03.md) | 2026-11-22 | 高德 MCP 12 工具的逐项业务输出核对 + FR-03 真模型复跑 | 12/12 工具真实可用（2 个上游参数被丢弃已定位到源码）；FR-03 真模型打通（mcp_amap_maps_weather 被模型自主选用），暴露 4 个缺口：内置工具缺参数名、研究循环不给 FINAL、MCP 路线分支无 10021 重试、状态页不报 MCP |
+| [2026-11-22-p0-execution.md](2026-11-22-p0-execution.md) | 2026-11-22 | P0-A/P0-B/P0-C/P0-D 与 P1-E/P1-G 的代码、门禁、隔离 E2E、账号注销与 UI 收口 | 隔离 E2E 桌面 14/14、设备 22/22，后端 617 / 前端 532 用例全绿；真实 MySQL 备份演练、真实 iOS、法务与 GitHub 安全设置仍未完成 |
 
 新增快照后请同步本表，并运行 `node scripts/docs-check.mjs` 校验链接。完整文档规则见 [文档生命周期](../guide/documentation.md)。

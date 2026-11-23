@@ -123,12 +123,13 @@ cd travel-agent-server && mvn test
 # 前端：类型检查 + 单元测试 + 生产构建
 cd travel-agent-web && npm run typecheck && npm test && npm run build
 
-# 端到端（需先启动后端，并已 npx playwright install）
-cd travel-agent-web && npm run e2e
+# 端到端（隔离后端：独立 H2，LLM/MCP/AMAP 全关；首次会自动构建后端 jar）
+cd travel-agent-web && npm run build && npm run e2e:isolated
 ```
 
 CI（[.github/workflows/ci.yml](.github/workflows/ci.yml)）在 push / PR 执行 `mvn -B verify`、
-`npm ci && npm run typecheck && npm test && npm run build` 与 Playwright e2e job。
+前端全部门禁，以及基于隔离后端的 Playwright e2e job。隔离后端由
+[`scripts/start-e2e-backend.mjs`](scripts/start-e2e-backend.mjs) 启动，不会读取开发者的 `.env.local`。
 覆盖范围与测试规范见 [开发手册](docs/DEVELOPER_HANDBOOK.md)；用例数以 CI 输出为准，不在 README 里维护静态计数。
 
 ## 项目结构（最小版）
@@ -148,4 +149,5 @@ travel-agent/
 
 - 版本 **0.1.0**（`travel-agent-server` / `travel-agent-web` 同步）。
 - 文档基线 **2026-11-19**；改文档后运行 `node scripts/docs-check.mjs` 校验链接与命令引用。
-- 仓库**未随附 LICENSE 文件**，当前未声明开源许可证；使用或分发前请先与维护者确认授权。
+- 仓库采用**专有许可**（见 [LICENSE](LICENSE)）：`Copyright (c) 2026 Travel Agent contributors. All rights reserved.`。**未授予开源许可**；未经版权持有人书面许可，不得复制、分发、修改或用于商业服务。许可证策略与切换开源许可证的流程见 [许可证说明](docs/legal/licensing.md)。
+- 隐私政策、第三方服务说明、数据删除流程与许可证说明见 [合规文档索引](docs/legal/README.md)。这些文档在发布前需法务确认；其中**账号删除与账号级数据导出尚未实现**，见 [数据删除流程](docs/legal/data-deletion.md)。
