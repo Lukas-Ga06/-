@@ -68,7 +68,7 @@
 | [../operations/runbook.md](../operations/runbook.md) | 告警处置手册；新增附录：日志脱敏核对、限流与 LLM 配额验证、告警矩阵补充 | 值班 |
 | [../operations/launch-checklist.md](../operations/launch-checklist.md) | 上线执行清单（Android 真机口径）：12 项阻断差距、阶段 0–3 步骤、Android 真机验收矩阵、风险登记 | 发布负责人 / 前端 / 运维 |
 | [../legal/README.md](../legal/README.md) | 合规文档索引：隐私政策、第三方服务、数据删除、许可证 | 产品 / 法务 / 发布负责人 |
-| [../legal/data-deletion.md](../legal/data-deletion.md) | 账号注销 API（`DELETE /api/auth/me`）的语义、删除范围、运维手工 SQL 与验证清单；含旧 JWT/同名重注册残余风险 | 后端 / 运维 / 法务 |
+| [../legal/data-deletion.md](../legal/data-deletion.md) | 账号注销 API（`DELETE /api/auth/me`）的语义、删除范围、运维手工 SQL 与验证清单；旧 JWT/同名重注册已由 V24 收口（`uid` + `token_version`） | 后端 / 运维 / 法务 |
 | [../legal/licensing.md](../legal/licensing.md) | 专有许可现状与切换开源许可证的流程（业务决策，不擅自改） | 产品 / 法务 |
 
 补充材料：

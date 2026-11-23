@@ -60,10 +60,27 @@ public class JwtService {
         return Keys.hmacShaKeyFor(decoded);
     }
 
-    public String generate(String username) {
+    /**
+     * 登录 token 携带的身份。
+     *
+     * <p>{@code uid} 是用户主键：注销后同名重新注册会拿到新的主键，旧 token 不会串到新账号。
+     * {@code tokenVersion} 与 {@code users.token_version} 对应，版本 +1 即吊销该用户全部 token。
+     */
+    public record TokenIdentity(String username, Long userId, long tokenVersion) { }
+
+    /**
+     * 签发登录 token。
+     *
+     * @param username     用户名（subject，保留给日志与兼容展示；鉴权以 uid 为准）
+     * @param userId       用户主键（uid）
+     * @param tokenVersion 用户当前 token 版本（ver）
+     */
+    public String generate(String username, Long userId, long tokenVersion) {
         Date now = new Date();
         return Jwts.builder()
                 .subject(username)
+                .claim("uid", userId)
+                .claim("ver", tokenVersion)
                 .issuedAt(now)
                 .expiration(new Date(now.getTime() + expireHours * 3600_000L))
                 .signWith(key)
@@ -75,12 +92,23 @@ public class JwtService {
         return expireHours * 3600L;
     }
 
-    /** 校验并返回用户名；非法或过期返回 null */
-    public String validate(String token) {
+    /**
+     * 校验签名与有效期并返回身份；非法、过期或缺少 {@code uid/ver} 的旧 token 返回 null。
+     *
+     * <p>旧 token 没有 uid/ver 时一律拒绝：部署 V24 后所有在线会话需要重新登录一次，
+     * 以换取「注销即失效、同名重注册不串号」的确定性（见 data-deletion.md §3.1）。
+     */
+    public TokenIdentity validate(String token) {
         try {
             Claims claims = Jwts.parser().verifyWith(key).build()
                     .parseSignedClaims(token).getPayload();
-            return claims.getSubject();
+            String username = claims.getSubject();
+            Number uid = claims.get("uid", Number.class);
+            Number ver = claims.get("ver", Number.class);
+            if (username == null || uid == null || ver == null) {
+                return null;
+            }
+            return new TokenIdentity(username, uid.longValue(), ver.longValue());
         } catch (Exception e) {
             return null;
         }

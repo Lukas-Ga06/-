@@ -23,7 +23,7 @@
 | --- | --- | --- |
 | 旅行核心功能 | 已完成主体 | 登录、规划、确认、行程、地图、记账、备忘、日程、知识库、打卡、回顾、撤销均已落地 |
 | Agent 安全边界 | 已完成主体 | 工具只读、确认门、双指纹、风险审核、有限重规划、行中只改 `PENDING` 已有实现 |
-| 后端自动化质量 | 已通过本地发布门禁（外部服务用例按设计跳过） | 串行 `mvn verify`：**617 tests，0 failures，0 errors，3 skipped**；JaCoCo、Checkstyle、SpotBugs 通过。跳过项为 2 个真实 MCP 用例 + 1 个真实 MySQL 迁移用例 |
+| 后端自动化质量 | 已通过本地发布门禁（外部服务用例按设计跳过） | 串行 `mvn verify`：**623 tests，0 failures，0 errors，3 skipped**；JaCoCo、Checkstyle、SpotBugs 通过。跳过项为 2 个真实 MCP 用例 + 1 个真实 MySQL 迁移用例 |
 | 前端自动化质量 | 已通过主要门禁 | **53 个测试文件 / 532 个测试通过**；typecheck、format、API 漂移检查、build budget、coverage 通过；核心目录 lines **81.61%** / branches **77.95%**；lint 0 error 但有 48 warnings |
 | 浏览器与移动端 | 本地隔离环境已收口，真实 Android 设备仍未验 | 视觉 11/11；隔离后端 E2E 桌面 **14/14**、device（WebKit iPhone 预设 + 弱网 + 多端）**22/22**；`E2E_API_TARGET` 已固化为 `npm run e2e:isolated`。设备模拟仍是 WebKit/iPhone 预设，不等于真实 Android 设备，device job 仍是观察模式 |
 | 真实 LLM / 高德 | 模型探测与失败语义已补齐，真实批量验收未做 | `deepseek-flash` 的 `/models` 探测真实通过；工具 schema、研究收尾、MCP 10021 退避、多意图提示已实现；尚未用真实模型重复跑 20 次规划 |
@@ -45,7 +45,7 @@
 | Agent 确认与撤销 | Preview、Diff、风险分级、`planRevision` + `contentHash`、事务提交、before 快照撤销 | 后端测试覆盖；真实模型下已跑通基本链路 |
 | 研究与证据 | RAG 引用、POI、天气、路线、来源和降级信息进入方案与 SSE | 本地规则链路与真实 MCP/LLM 各有验收证据 |
 | 会话可靠性 | 会话作用域、登出隔离、并发轮次、重命名/删除、SSE 业务错误语义 | V22/V23 已落地并有回归用例 |
-| 数据迁移 | Flyway V1–V23；H2 全新库迁移；MySQL 8.4 已有 V1–V22 证据 | V23 会话迁移已被 H2/应用测试覆盖；MySQL 需在 V23 之后重新跑一次，所有新迁移必须 forward-only |
+| 数据迁移 | Flyway V1–V24；H2 全新库迁移；MySQL 8.4 已在 2026-11-23 验证全量 23 条（含 V24 与 V23→V24 增量升级） | 所有新迁移必须 forward-only；迁移后必须跑 `mysql-it` 并留下证据库 |
 | 前端主要页面 | 首页、行程列表、行程详情、规划器、助手、回顾、攻略库、诊断、个人中心、PWA 离线只读 | 视觉基线和主要 E2E 已通过 |
 | 性能基础线 | 地图引擎按需加载，首屏 JS 约 595 KB，包体预算通过 | 继续保持预算，不要通过放宽阈值掩盖增长 |
 

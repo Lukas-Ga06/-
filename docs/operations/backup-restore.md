@@ -1,6 +1,6 @@
 # 备份、恢复与迁移演练（P0-D）
 
-> 状态：**已在真实 MySQL 8.4 完成一次备份→恢复→校验演练（2026-11-23，单机合成数据，见 §7.2）；生产类环境与照片/S3 仍未演练** | 适用版本：MySQL 8.4 / Flyway V1–V23 / Spring Boot 3.5.12 | 最后核对：2026-11-23 | 事实来源：`docker-compose.yml`、`travel-agent-server/src/main/resources/db/`、`application-mysql.yml`、`docs/guide/mysql-migration.md`、`docs/guide/deployment.md` §10、[路线图](../PROJECT_ROADMAP.md) P0-D
+> 状态：**已在真实 MySQL 8.4 完成一次备份→恢复→校验演练（2026-11-23，单机合成数据，见 §7.2）；生产类环境与照片/S3 仍未演练** | 适用版本：MySQL 8.4 / Flyway V1–V24 / Spring Boot 3.5.12 | 最后核对：2026-11-23 | 事实来源：`docker-compose.yml`、`travel-agent-server/src/main/resources/db/`、`application-mysql.yml`、`docs/guide/mysql-migration.md`、`docs/guide/deployment.md` §10、[路线图](../PROJECT_ROADMAP.md) P0-D
 
 ## 0. 结论与边界（先看这里）
 
@@ -81,7 +81,7 @@ gunzip -c "backups/travel_agent-<时间戳>.sql.gz" | \
 
 > `mysqldump` 默认不带 `CREATE DATABASE`（未使用 `--databases`），因此恢复到指定库时不会覆盖库名；这是有意为之。
 
-## 4. Flyway 迁移前快照与 V23 之后重跑
+## 4. Flyway 迁移前快照与最新版本（V24）之后重跑
 
 ### 4.1 迁移前快照（每次发布必做）
 
@@ -95,13 +95,14 @@ gunzip -c "backups/travel_agent-<时间戳>.sql.gz" | \
 
 | 项 | 事实 | 来源 |
 | --- | --- | --- |
-| 迁移文件 | 23 个版本 / 24 个脚本（V13 双方言两份；V8/V12 仅 MySQL；V14 仅 H2） | [数据模型](../guide/data-model.md) §6 / §9 |
-| MySQL 实际应用 | V1–V13 + V15–V23（**没有 V14**，H2 专属） | `application-mysql.yml` 的 `locations` |
+| 迁移文件 | 24 个版本 / 25 个脚本（V13 双方言两份；V8/V12 仅 MySQL；V14 仅 H2） | [数据模型](../guide/data-model.md) §6 / §9 |
+| MySQL 实际应用 | V1–V13 + V15–V24（**没有 V14**，H2 专属） | `application-mysql.yml` 的 `locations` |
 | 真实 MySQL 8.4 证据 | 仓库内已有 MySQL 8.4 的迁移证据（[MySQL 迁移验证](../guide/mysql-migration.md) §5 记录到 V19；[路线图](../PROJECT_ROADMAP.md) 2026-11-22 记为 V1–V22） | 历史证据，非本次演练 |
-| V23 | 已合入；**2026-11-23 在真实 MySQL 8.4.10 上复跑通过**（22 条迁移 success、Hibernate `validate` 通过，见 §7.2） | 本地演练证据 |
+| V23 | 已合入；**2026-11-23 在真实 MySQL 8.4.10 上复跑通过**（当时 22 条迁移、`validate` 通过；加入 V24 后全量 23 条见下一行） | 本地演练证据 |
+| V24 | **2026-11-23 已在真实 MySQL 8.4.10 验证**：`mysql-it` 全量 23 条 success；演练库由 V23 → V24 升级 1 条（35 ms）后，备份/恢复/校验全部通过 | 本地演练证据 |
 | 回滚脚本 | **没有**（forward-only） | 迁移目录内无 `U*.sql` / `undo` |
 
-### 4.3 V23 之后重跑迁移（发布前必做）
+### 4.3 最新迁移（V24）之后重跑迁移（发布前必做）
 
 用仓库自带的真实 MySQL 测试重跑一次（测试会创建一次性库，不碰生产库）：
 
@@ -119,7 +120,7 @@ MYSQL_IT_USERNAME=root MYSQL_IT_PASSWORD=<口令> \
 mvn -B -Dtest=MySqlFlywayMigrationTest test
 ```
 
-验收：`Tests run: 1, Failures: 0`、`flyway_schema_history` 全 `success=1`、`ddl-auto=validate` 通过。执行后把日期、版本、输出摘要补进 §7 的演练记录；**未执行前本文不声称 V23 已在 MySQL 8.4 通过**。
+验收：`Tests run: 1, Failures: 0`、`flyway_schema_history` 全 `success=1`、`ddl-auto=validate` 通过。执行后把日期、版本、输出摘要补进 §7 的演练记录；**未执行前本文不声称 V24 已在 MySQL 8.4 通过**。
 
 ## 5. 照片 / S3 对象备份
 
@@ -214,10 +215,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\backup-drill.ps1 `
 
 | 日期 | 环境（MySQL 版本/数据量） | 备份耗时 | 恢复耗时 | 实测 RTO | 可接受 RPO | 校验结果 | 执行人 / 复核人 | 证据路径 | 结论 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 2026-11-23 | MySQL 8.4.10 / 48.8 MB（28 表；关键表 142,200 行：users 200 / trip 2,000 / itinerary_item 60,000 / conversation_message 50,000 / tool_call_trace 30,000） | 1.01–1.25 s（dump 27.8 MiB） | 4.06–5.07 s | **≈16 s**（恢复 4.06 s + 应用启动并 `validate` 12.09 s；含行数校验约 20 s） | 未定（每日全量最坏 24 h；dump 仅秒级，可提高频率） | 21 张关键表行数全等；Flyway 22/22 success；应用 `validate` 通过 | lead（AI 执行）/ 待人工复核 | `.evidence/backup-drill/report-20261123-batched.json`、`app-start.log`（本机、不入库） | **PASS（单机合成数据，生产需重演）** |
+| 2026-11-23 | MySQL 8.4.10 / 48.8 MB（28 表；关键表 142,200 行：users 200 / trip 2,000 / itinerary_item 60,000 / conversation_message 50,000 / tool_call_trace 30,000） | 1.02 s（dump 27.8 MiB） | 5.06 s | **≈18 s**（恢复 5.06 s + 应用启动并 `validate` 12.75 s；含行数校验约 22 s） | 未定（每日全量最坏 24 h；dump 仅秒级，可提高频率） | 21 张关键表行数全等；Flyway 23/23 success（maxVersion=24，含 V24 升级路径）；应用 `validate` 通过 | lead（AI 执行）/ 待人工复核 | `.evidence/backup-drill/report-20261123-v24.json`、`app-start-v24.log`、`upgrade-v24.log`（本机、不入库） | **PASS（单机合成数据，生产需重演）** |
 | `[待演练]` | `[8.4.x / xx MB]` | `[ ]` | `[ ]` | `[ ]` | `[ ]` | `[ ]` | `[ ]` | `[ ]` | `[ ]` |
 
-> 目前**没有**已确认的 RTO/RPO 目标值。关键数据只有 **MySQL `travel_agent` + 照片对象**；Redis 限流计数与容器日志不纳入 RTO/RPO。2026-11-23 单机实测：48.8 MB 库恢复 4.06 s、应用启动 12.09 s；RTO 随数据量/磁盘增长，生产类环境必须重演。每日一次全量备份意味着最坏 RPO 约 24 小时（按频率推算，未由业务确认）。目标值必须由业务确认后写进本表，并与隐私政策/对客承诺一致。
+> 目前**没有**已确认的 RTO/RPO 目标值。关键数据只有 **MySQL `travel_agent` + 照片对象**；Redis 限流计数与容器日志不纳入 RTO/RPO。2026-11-23 单机实测：48.8 MB 库恢复 5.06 s、应用启动 12.75 s（V24 架构）；RTO 随数据量/磁盘增长，生产类环境必须重演。每日一次全量备份意味着最坏 RPO 约 24 小时（按频率推算，未由业务确认）。目标值必须由业务确认后写进本表，并与隐私政策/对客承诺一致。
 
 ## 8. 回滚边界
 
@@ -241,7 +242,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\backup-drill.ps1 `
 
 - [ ] 执行人：`[姓名]`；复核人：`[姓名]`；时间：`[ ]`。
 - [ ] 已做迁移前完整备份 + sha256 + 元数据（§2、§4.1）。
-- [ ] 已在真实 MySQL 8.4 复跑 `MySqlFlywayMigrationTest`（V23 及以后所有增量），证据：`[命令输出/CI 链接]`。
+- [ ] 已在真实 MySQL 8.4 复跑 `MySqlFlywayMigrationTest`（V24 及以后所有增量），证据：`[命令输出/CI 链接]`。
 - [ ] 已恢复到临时库并跑完 §6 的 1–8 项；证据：`[报告路径]`。
 - [ ] 照片/对象存储与数据库时间点一致（§5.3）。
 - [ ] 回滚方式已写明（应用回退 / 恢复备份），并在预发验证过。
@@ -259,7 +260,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\backup-drill.ps1 `
 | 项 | 状态 |
 | --- | --- |
 | 真实生产类 MySQL 的备份→恢复→校验全过程 | **单机演练 1 次（2026-11-23）**；生产类环境（真实数据量/磁盘/网络）**未执行** |
-| V23 在真实 MySQL 8.4 复跑 | **已完成**（2026-11-23，22 条迁移 + `validate`，见 §7.2） |
+| V23/V24 在真实 MySQL 8.4 复跑 | **已完成**（2026-11-23，全量 23 条迁移 + `validate`；V23→V24 增量升级 35 ms，见 §7.2） |
 | RTO / RPO 实测 | 有一次单机值（RTO ≈16 s / 48.8 MB）；**目标值未定**，RPO 未由业务确认 |
 | S3 对象备份/恢复 | **未验证** |
 | 备份加密、异地、保留策略 | **未落地**（运维需配置并记录） |

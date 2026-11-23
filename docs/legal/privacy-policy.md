@@ -112,7 +112,7 @@
 | 密钥管理 | 只从环境变量读取；仓库不保存真实 Key；CI 有 gitleaks 密钥扫描 |
 | 传输 | 生产要求 HTTPS 终结；仓库内 compose 只监听 8081，需外层 TLS |
 
-已知缺口（发布前需收口）：nginx 票据日志配置已修正为 `http` 上下文、仍待 `nginx -t` / 真实容器验证；应用侧 Redis fail-open WARN 仍可能带用户名/IP；账号注销的 MySQL/S3/内存 RAG 未实测，旧 JWT 在“注销后同名重注册”场景可能映射到新账号（无 token 版本/jti）；账号级导出未实现；日志保留期未书面化。
+已知缺口（发布前需收口）：nginx 票据日志配置已修正为 `http` 上下文、仍待 `nginx -t` / 真实容器验证；应用侧 Redis fail-open WARN 仍可能带用户名/IP；账号注销的 MySQL/S3 未实测；旧 JWT 已通过 V24（uid + token_version）收口——上线时所有旧会话需要重新登录一次，同名重注册不会复用旧 token；内存 RAG 注销后自动重建；账号级导出未实现；日志保留期未书面化。
 
 ## 8. 未成年人
 

@@ -251,7 +251,7 @@ GET /api/photos/12/raw?ticket=...                    # 只能用 media-read 票�
 
 错误：`400` `请输入密码确认注销`；`401` `密码错误`（不删除、保持登录）、未登录、用户已不存在/重复注销；`429` 限流。
 
-> 语义与残余风险（旧 JWT、同名重注册、内存 RAG）见 [数据删除流程](../legal/data-deletion.md) §3。OpenAPI 快照目前只声明 `200` 响应，`400/401` 来自代码与 `AccountDeletionApiTest`。
+> 语义见 [数据删除流程](../legal/data-deletion.md) §3。V24 起注销会立即吊销旧 token（同名重注册不串号），并在事务提交后重建内存 RAG 索引。OpenAPI 快照目前只声明 `200` 响应，`400/401` 来自代码与 `AccountDeletionApiTest`。
 
 ### 2.6 POST /api/access-ticket — 签发短期只读票据
 鉴权：登录 ｜ 源码：`AccessTicketController#issue:21`

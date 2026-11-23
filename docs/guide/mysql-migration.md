@@ -41,7 +41,7 @@ MYSQL_IT=true mvn -B -Dtest=MySqlFlywayMigrationTest test
 | 关键列 | V13 补的 `trip.version` / `trip_photo` 列；V16 `pending_plan.content_hash`；V17 `trip.party_size`；V18 `agent_task.depends_on/attempt/replaces_task_id`；V19 `itinerary_item.status`、`trip_event.*`、`schedule_item/memo` 的旅行关联列 | `表.列` |
 | 关键索引 | V13 补齐的 8 个索引、V8/V11 唯一键、V9 复合索引、V15/V16/V19 新表索引 | `索引名（表）` |
 | 实体校验 | 上下文启动时 `ddl-auto=validate` 逐列校验；并断言 Hibernate 元模型恰好 21 个实体 | Hibernate 的 `Schema-validation` 原文 |
-| 证据输出 | schema、MySQL 版本、Flyway 版本、22 条迁移耗时、表数、实体数、证据库名 | 控制台 `[mysql-it]` 行 |
+| 证据输出 | schema、MySQL 版本、Flyway 版本、23 条迁移耗时、表数、实体数、证据库名 | 控制台 `[mysql-it]` 行 |
 
 ### 1.2 不验证（避免误读）
 
@@ -173,21 +173,21 @@ CI 会起 `mysql:8.4` service container。建议的 job（**本次任务不改 `
 
 ## 4. 断言清单（跑完看什么）
 
-### 4.1 为什么是 22 条迁移，不是 23 条
+### 4.1 为什么是 23 条迁移，不是 24 条
 
 `mysql` profile 只加载 `db/migration` + `db/migration-mysql`：
 
 | 目录 | 版本 |
 | --- | --- |
-| `db/migration` | V1–V7、V9–V11、V15–V23（19 个） |
+| `db/migration` | V1–V7、V9–V11、V15–V24（20 个） |
 | `db/migration-mysql` | V8、V12、V13（3 个） |
-| **MySQL 合计** | **22 条**（V1–V13 + V15–V23） |
+| **MySQL 合计** | **23 条**（V1–V13 + V15–V24） |
 
-`V14__llm_quota_unique_h2.sql` 在 `db/migration-h2/`，是 H2 专属（MySQL 侧同一约束由 V8 负责），因此 MySQL 迁移链**没有 V14**。测试从 classpath 动态枚举版本集合，并显式断言「不包含 V14」；新增 V24 会被自动纳入版本集合，但 `DOCUMENTED_MYSQL_VERSIONS`（链尾清单）与本文仍需同步更新。
+`V14__llm_quota_unique_h2.sql` 在 `db/migration-h2/`，是 H2 专属（MySQL 侧同一约束由 V8 负责），因此 MySQL 迁移链**没有 V14**。测试从 classpath 动态枚举版本集合，并显式断言「不包含 V14」；新增 V25 会被自动纳入版本集合，但 `DOCUMENTED_MYSQL_VERSIONS`（链尾清单）与本文仍需同步更新。
 
 ### 4.2 `flyway_schema_history` 断言
 
-- 行数 = classpath 上 MySQL 迁移脚本数（当前 22）；
+- 行数 = classpath 上 MySQL 迁移脚本数（当前 23）；
 - 每行 `success=1`，`success=0` 计数为 0；
 - 已应用版本集合与 classpath 版本集合**完全相等**（多一条少一条都失败）。
 

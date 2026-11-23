@@ -32,9 +32,9 @@
 | --- | --- | --- |
 | A 内部演示 | **具备** | 无；构建必须串行，不要并发共享 `target` |
 | B 受控灰度 | **未具备** | 真实 MySQL、容器冷启动、GitHub 安全开关、真实 provider 压测、告警值班 |
-| C 公网 v1 | **未具备** | B 全部 + Android 真机、Linux 视觉基线、法务/许可证、数据导出、JWT 复用、回滚演练 |
+| C 公网 v1 | **未具备** | B 全部 + Android 真机、Linux 视觉基线、法务/许可证、数据导出、回滚演练 |
 
-代码侧完成度不低：617 个后端用例、532 个前端用例、隔离 E2E 桌面 14/14、设备 22/22（依据见 [执行快照](../review/2026-11-22-p0-execution.md)）。真正的距离是**这些绿灯全部来自 Windows 本机**，而生产是 Linux 容器 + 真实 MySQL + 真机 + 真实外部服务。
+代码侧完成度不低：623 个后端用例、532 个前端用例、隔离 E2E 桌面 14/14、设备 22/22（依据见 [执行快照](../review/2026-11-22-p0-execution.md)）。真正的距离是**这些绿灯全部来自 Windows 本机**，而生产是 Linux 容器 + 真实 MySQL + 真机 + 真实外部服务。
 
 ## 2. 离上线差什么（12 项，按阻断性排序）
 
@@ -50,7 +50,7 @@
 | 8 | Linux 视觉基线 | 只有 win32 快照 | 跑 `visual-baseline.yml`，提交 linux 基线 | 我（需 Actions） | 2h |
 | 9 | 法务与许可证 | 5 处占位 + 留存期待确认 + LICENSE 专有 | 法务替换、生效日期、隐私页上线 | 你 | 外部 |
 | 10 | 账号级数据导出 | README 明说未实现 | `GET /api/auth/me/export` + Profile 入口 | 我 | 1–2d |
-| 11 | JWT 注销复用 | [JwtService](../../travel-agent-server/src/main/java/com/travel/agent/security/JwtService.java#L66-L69) 只有 subject，无 `uid`/版本 | V24 `token_version` + 过滤器校验 + 禁用近期注销名 | 我 | 0.5d |
+| 11 | JWT 注销复用 | **已完成（V24）**：JWT 带 `uid` + `token_version`，注销先版本 +1 再删用户 | 上线后旧 token 整体失效一次，需在发布记录/公告写明；无需禁用近期注销名 | 我 | ✅ |
 | 12 | 回滚与告警 | runbook 有，从未演练 | 真回滚一次 + 告警触发一次 + 灰度值班表 | 我 / 你 | 1d |
 
 首屏 JS 只剩 2,032 B 余量（597,968 / 600,000）。v1 前任何新增首屏依赖都会撞预算，这是约束，不是任务。
@@ -101,7 +101,7 @@ node scripts/docs-check.mjs
 
 | 门禁 | 通过标准 |
 | --- | --- |
-| 后端 | 617 用例，0 failures，0 errors，3 skipped（2 个真实 MCP + 1 个真实 MySQL） |
+| 后端 | 623 用例，0 failures，0 errors，3 skipped（2 个真实 MCP + 1 个真实 MySQL） |
 | 前端单测 | 532 用例通过；核心目录覆盖率达标 |
 | E2E | 隔离后端 14/14；设备套件 22/22 |
 | 视觉 | 11/11（Windows 基线） |
@@ -130,7 +130,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .tools/mysql8410-3307/setup.
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/mysql-it.ps1
 ```
 
-通过标准：`flyway_schema_history` 有 V1–V23 共 23 行；Hibernate `validate` 通过。详见 [MySQL 迁移验证](../guide/mysql-migration.md)。
+通过标准：`flyway_schema_history` 有 V1–V24 共 23 条（V14 为 H2 专属，MySQL 链没有）；Hibernate `validate` 通过。详见 [MySQL 迁移验证](../guide/mysql-migration.md)。
 
 顺带记一笔：`docker-compose.infra.yml` 用的镜像 tag 是 `mysql:8.0`，生产 compose 是 `8.4`；建议对齐，或在文档里写清"开发用 8.0 / 验收用 8.4"。
 
@@ -198,7 +198,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/mysql-it.ps1
 
 ### 5.4 安全残余（代码项，可并行）
 
-V24 加 `token_version` 并让 JWT 带 `uid`，注销后旧 token 立即失效、同名重注册不串号；注销时刷新内存向量索引；旧业务表给 forward-only 清理策略。
+V24 已实现：`users.token_version` + JWT `uid`/`ver`，注销后旧 token 立即失效、同名重注册不串号；注销提交后 `vectorStore.reload()`。旧业务表清理策略见 [数据删除流程](../legal/data-deletion.md) §4（运维手工 SQL，API 不覆盖）。上线时所有旧会话需重新登录一次。
 
 ### 5.5 回滚演练与发布记录
 

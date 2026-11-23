@@ -8,7 +8,7 @@
 
 | 门禁 | 绑定阶段 | 本地命令 | 当前数字 / 阈值 |
 | --- | --- | --- | --- |
-| 单元/集成测试（H2） | test | `mvn -B test` | **617 tests，0 failures，0 errors，3 skipped**（MCP/MySQL 两个真实服务用例按环境变量跳过；2026-11-22 账号注销与 Agent 可靠性用例加入后从 570 增加） |
+| 单元/集成测试（H2） | test | `mvn -B test` | **623 tests，0 failures，0 errors，3 skipped**（MCP/MySQL 两个真实服务用例按环境变量跳过；2026-11-23 V24 安全用例加入后从 617 增加） |
 | JaCoCo INSTRUCTION | verify（check） | `mvn -B verify` | 实测 **79.73%**（38038/47707），阈值 **≥ 0.76** |
 | JaCoCo BRANCH | verify（check） | `mvn -B verify` | 实测 **60.81%**（3105/5106），阈值 **≥ 0.57** |
 | JaCoCo LINE | verify（check） | `mvn -B verify` | 实测 **79.15%**（7252/9162），阈值 **≥ 0.76** |

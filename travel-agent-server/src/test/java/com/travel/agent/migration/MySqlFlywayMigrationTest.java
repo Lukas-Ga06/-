@@ -61,7 +61,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p><b>MySQL 版本链</b>：{@code mysql} profile 的 locations 是
  * {@code classpath:db/migration,classpath:db/migration-mysql}，看到的是
- * V1–V13（V8/V12/V13 为 MySQL 方言版）+ V15–V23，共 22 个迁移；
+ * V1–V13（V8/V12/V13 为 MySQL 方言版）+ V15–V24，共 23 个迁移；
  * <b>没有 V14</b>（{@code V14__llm_quota_unique_h2.sql} 是 H2 专属）。
  * 实际版本集合从 classpath 动态枚举；{@link #DOCUMENTED_MYSQL_VERSIONS} 记录链尾，
  * 新增迁移时两处一起改，避免清单与脚本各说各话。
@@ -82,7 +82,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @ActiveProfiles("mysql")
 class MySqlFlywayMigrationTest {
 
-    /** MySQL 迁移链的版本集合：V1–V13 + V15–V23（V14 是 H2 专属）。 */
+    /** MySQL 迁移链的版本集合：V1–V13 + V15–V24（V14 是 H2 专属）。 */
     private static final List<String> DOCUMENTED_MYSQL_VERSIONS = documentedMysqlVersions();
 
     /** 21 个 JPA 实体映射的表（@Table(name=...) 逐字摘自 entity/，新增实体时同步维护）。 */
@@ -212,7 +212,7 @@ class MySqlFlywayMigrationTest {
     // ------------------------------------------------------------------
 
     @Test
-    @DisplayName("空库全量 Flyway 迁移（V1..V23 MySQL 链）+ Hibernate validate 21 个实体")
+    @DisplayName("空库全量 Flyway 迁移（V1..V24 MySQL 链）+ Hibernate validate 21 个实体")
     void freshDatabaseAppliesEveryMigrationAndMatchesEntities() throws Exception {
         String schema = jdbc.queryForObject("SELECT DATABASE()", String.class);
         assertThat(schema)
@@ -249,7 +249,7 @@ class MySqlFlywayMigrationTest {
                 .collect(Collectors.toCollection(TreeSet::new));
 
         assertThat(expectedVersions)
-                .as("classpath 上 MySQL 迁移链的版本集合（V1..V13 + V15..V23，V14 仅 H2）")
+                .as("classpath 上 MySQL 迁移链的版本集合（V1..V13 + V15..V24，V14 仅 H2）")
                 .containsAll(DOCUMENTED_MYSQL_VERSIONS);
         assertThat(expectedVersions)
                 .as("V14 是 H2 专属脚本，MySQL locations 不应包含它")
@@ -281,7 +281,7 @@ class MySqlFlywayMigrationTest {
                     .contains(table);
         }
 
-        // 3) 关键列：V13（MySQL 方言补齐）/ V16 / V17 / V18 / V19 / V21 / V23 的产物（V22 只加唯一索引）
+        // 3) 关键列：V13（MySQL 方言补齐）/ V16 / V17 / V18 / V19 / V21 / V23 / V24 的产物（V22 只加唯一索引）
         REQUIRED_COLUMNS.forEach((table, columns) -> {
             for (String column : columns) {
                 assertColumnExists(schema, table, column);
@@ -413,7 +413,7 @@ class MySqlFlywayMigrationTest {
 
     private static List<String> documentedMysqlVersions() {
         List<String> versions = new ArrayList<>();
-        for (int version = 1; version <= 23; version++) {
+        for (int version = 1; version <= 24; version++) {
             if (version != 14) { // V14 是 H2 专属（llm_quota_usage 唯一键）
                 versions.add(String.valueOf(version));
             }
@@ -452,6 +452,8 @@ class MySqlFlywayMigrationTest {
         addRequired(required, "memo", "trip_id", "itinerary_item_id", "source", "travel_day");
         // V21 会话作用域
         addRequired(required, "conversation_message", "scope");
+        // V24 注销后 token 吊销（JWT uid + token_version）
+        addRequired(required, "users", "token_version");
         // V23 会话轮次序号（并发成组）与会话元数据
         addRequired(required, "conversation_message", "turn_seq");
         addRequired(required, "conversation_meta", "user_id", "conversation_id", "title", "updated_at");

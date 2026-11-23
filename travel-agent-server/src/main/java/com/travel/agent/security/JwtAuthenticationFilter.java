@@ -1,5 +1,7 @@
 package com.travel.agent.security;
 
+import com.travel.agent.entity.User;
+import com.travel.agent.repository.UserRepository;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -26,6 +28,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final JwtService jwtService;
     private final AccessTicketService accessTicketService;
     private final AuthCookieService authCookieService;
+    private final UserRepository userRepository;
 
     /** 认证结果：用户名 + 是否"仅凭查询参数票据"完成认证 */
     private record Identity(String username, boolean ticketOnly) {
@@ -60,15 +63,42 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         // 1. Authorization 头：非浏览器客户端（e2e 脚本、curl）与历史兼容
         String header = request.getHeader("Authorization");
         if (header != null && header.startsWith("Bearer ")) {
-            return identity(jwtService.validate(header.substring(7)), false);
+            return jwtIdentity(header.substring(7));
         }
         // 2. httpOnly Cookie：浏览器主路径（前端不再把 token 写 localStorage）
         String cookieToken = authCookieService.extract(request);
         if (cookieToken != null) {
-            return identity(jwtService.validate(cookieToken), false);
+            return jwtIdentity(cookieToken);
         }
         // 3. 查询参数票据：只有它作为唯一凭证时才是只读会话
         return identity(ticketUsername(request), true);
+    }
+
+    /**
+     * 登录 JWT 的身份解析：签名与有效期之外，还要求 uid 对应的用户仍存在、
+     * token 内的用户名未被替换、且库里的 {@code token_version} 与 token 的 {@code ver} 一致。
+     *
+     * <p>因此注销（先版本 +1 再删用户）或改密（版本 +1）后，旧 token 立即失效；
+     * 同名重新注册会拿到新的 uid，旧 token 同样匹配不上。没有 uid/ver 的历史 token
+     * 由 {@link JwtService#validate(String)} 直接判为非法——部署 V24 后在线会话需要重新登录一次。
+     *
+     * <p>代价是每个带登录态的请求多一次用户主键查询；业务接口本来就要按用户做归属校验，
+     * 这里不做缓存，避免在「注销/吊销」路径上引入缓存不一致。
+     */
+    private Identity jwtIdentity(String token) {
+        JwtService.TokenIdentity tokenIdentity = jwtService.validate(token);
+        if (tokenIdentity == null) {
+            return null;
+        }
+        User user = userRepository.findById(tokenIdentity.userId()).orElse(null);
+        if (user == null || !user.getUsername().equals(tokenIdentity.username())) {
+            return null;
+        }
+        long currentVersion = user.getTokenVersion() == null ? 0L : user.getTokenVersion();
+        if (currentVersion != tokenIdentity.tokenVersion()) {
+            return null;
+        }
+        return new Identity(user.getUsername(), false);
     }
 
     private static Identity identity(String username, boolean ticketOnly) {

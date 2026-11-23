@@ -151,4 +151,57 @@ class AccountDeletionApiTest extends IntegrationTestSupport {
                         .content(passwordBody(PASSWORD)))
                 .andExpect(status().isUnauthorized());
     }
+
+    @Test
+    @DisplayName("V24：同名重注册拿到新 uid，旧 token 仍然 401，也不会读到新账号数据")
+    void oldTokenDoesNotResolveToReRegisteredAccount() throws Exception {
+        Account victim = registerNew();
+        createTrip(victim.id(), "注销前的行程");
+
+        mockMvc.perform(delete("/api/auth/me")
+                        .header("Authorization", victim.bearer())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(passwordBody(PASSWORD)))
+                .andExpect(status().isOk());
+
+        // 同名重注册：自增主键给了新的 uid，旧 token 的 uid 已不存在
+        Account reborn = register(victim.username());
+        assertThat(reborn.id()).isNotEqualTo(victim.id());
+
+        mockMvc.perform(get("/api/auth/me").header("Authorization", victim.bearer()))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/trips").header("Authorization", victim.bearer()))
+                .andExpect(status().isUnauthorized());
+
+        // 新账号自己的 token 正常，且看不到注销前的数据
+        mockMvc.perform(get("/api/auth/me").header("Authorization", reborn.bearer()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.username").value(victim.username()));
+        assertThat(count("SELECT COUNT(*) FROM trip WHERE user_id = ?", reborn.id())).isZero();
+    }
+
+    @Test
+    @DisplayName("V24：token_version +1 后旧 token 立即失效，重新登录签发的新 token 可用")
+    void bumpingTokenVersionRevokesExistingTokens() throws Exception {
+        Account account = registerNew();
+        mockMvc.perform(get("/api/auth/me").header("Authorization", account.bearer()))
+                .andExpect(status().isOk());
+
+        jdbcTemplate.update("UPDATE users SET token_version = token_version + 1 WHERE id = ?", account.id());
+
+        mockMvc.perform(get("/api/auth/me").header("Authorization", account.bearer()))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/trips").header("Authorization", account.bearer()))
+                .andExpect(status().isUnauthorized());
+
+        MvcResult relogin = mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"%s\",\"password\":\"%s\"}"
+                                .formatted(account.username(), PASSWORD)))
+                .andExpect(status().isOk())
+                .andReturn();
+        String freshToken = body(relogin).path("data").path("token").asText();
+        mockMvc.perform(get("/api/auth/me").header("Authorization", "Bearer " + freshToken))
+                .andExpect(status().isOk());
+    }
 }

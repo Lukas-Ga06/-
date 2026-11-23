@@ -501,16 +501,14 @@ UNION ALL SELECT 'rag_document', COUNT(*) FROM rag_document WHERE user_id=<userI
 ### D.3 照片 / S3 / 内存 RAG / Redis
 
 - **照片**：日志有 `账号注销照片文件清理失败` 时，数据库已无 `stored_name` 可反查；用对象存储清单做孤儿扫描（与 `trip_photo` 全集比对），按运维策略删除。S3 的**版本控制/生命周期/备份中的历史对象**不会自动消失，需按存储策略处理。
-- **内存 RAG**：注销不调用 `RagService.reload()`；重启 backend（或版本切换）后再确认检索不到该用户文档。这是已知待修项（见 data-deletion §2.1），不是“删库失败”。
+- **内存 RAG**：V24 起注销事务提交后会自动 `vectorStore.reload()`；若日志出现 `账号注销后重建内存向量索引失败`，重启 backend 即自愈（启动会全量重建）。这不是“删库失败”。
 - **Redis**：`SCAN 0 MATCH ratelimit:user:<username>* COUNT 100`；有残留可 `DEL`，或等 300 秒 TTL 自然过期。
 
 ### D.4 旧 JWT / 同名重注册
 
-- 旧 JWT 在过期前仍能通过签名认证，但 `/api/auth/me`、`/api/trips` 等因用户不存在应返回 `401`；若某个接口仍返回 200，按安全缺陷升级，不要当普通残留。
-- **同名重新注册后旧 token 可能映射到新账号**（当前无 token 版本/jti）。若发生，立即：
-  1. 记录时间线（旧 token 过期时间、重注册时间、请求 traceId）；
-  2. 升级安全/产品负责人，按 [数据删除流程](../legal/data-deletion.md) §3.1 的决策项处理；
-  3. 不要删除新账号数据或泄露旧 token 内容。
+- 旧 JWT 携带 `uid` + `ver`，过滤器会校验用户存在与 `token_version`；注销后旧 token 应一律 `401`。若某个接口仍返回 200，按安全缺陷升级，不要当普通残留。
+- **同名重新注册不会再复用旧 token**：新账号得到新的自增 uid，旧 token 的 uid 查不到用户。不需要墓碑或禁用用户名。
+- 需要吊销某用户全部 token 时：`UPDATE users SET token_version = token_version + 1 WHERE id = ?`（注销路径已自动执行）。操作前确认影响面、备份并留记录。
 
 ### D.5 日志 / 备份
 

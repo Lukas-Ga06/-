@@ -1,6 +1,7 @@
 package com.travel.agent.service;
 
 import com.travel.agent.exception.BusinessException;
+import com.travel.agent.rag.VectorStore;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -36,6 +37,7 @@ public class AccountDeletionService {
 
     private final JdbcTemplate jdbcTemplate;
     private final PhotoStore photoStore;
+    private final VectorStore vectorStore;
 
     /**
      * 删除一个账号及其全部归属数据（幂等失败语义：用户已不存在 → 401，与控制器的 requireUser 一致）。
@@ -58,6 +60,10 @@ public class AccountDeletionService {
         // 文件删除在事务提交后执行，名字必须先收集（随后 trip_photo 行会被删掉）
         List<String> storedNames = new ArrayList<>(jdbcTemplate.queryForList(
                 "SELECT stored_name FROM trip_photo WHERE user_id = ?", String.class, userId));
+
+        // V24：先让该用户已签发的 token 全部失效（版本+1），再删行。
+        // 提交后旧 token 的 uid 查不到用户、ver 也对不上，双保险；回滚时版本一起回滚，不留半状态。
+        jdbcTemplate.update("UPDATE users SET token_version = token_version + 1 WHERE id = ?", userId);
 
         Map<String, Integer> rows = new LinkedHashMap<>();
         // ---- Agent 追踪/执行派生数据（子表先删） ----
@@ -109,7 +115,7 @@ public class AccountDeletionService {
             throw new BusinessException(401, "用户不存在");
         }
 
-        schedulePhotoCleanupAfterCommit(userId, storedNames);
+        schedulePostCommitCleanup(userId, storedNames);
 
         DeletionResult result = new DeletionResult(Collections.unmodifiableMap(rows), storedNames.size());
         log.info("账号删除完成: userId={}, 删除行数={}, 照片文件数={}",
@@ -124,25 +130,41 @@ public class AccountDeletionService {
     }
 
     /**
-     * 事务提交后再删文件。注册失败（没有活动事务，理论上不会发生）时直接清理：
-     * 此时前面的 DELETE 已各自提交，文件留着只会变成无人引用的残留对象。
+     * 事务提交后做两件不可回滚的事：删照片文件、重建内存向量索引。
+     *
+     * <p>向量索引必须等提交后再重建：在事务内重建会读到尚未提交的删除，一旦事务回滚，
+     * 内存索引就会缺块（库里有、检索没有）。没有活动事务时（理论上不会发生）直接执行。
      */
-    private void schedulePhotoCleanupAfterCommit(Long userId, List<String> storedNames) {
-        if (storedNames.isEmpty()) {
-            return;
-        }
+    private void schedulePostCommitCleanup(Long userId, List<String> storedNames) {
         List<String> pending = List.copyOf(storedNames);
         if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-            log.warn("账号注销未处于事务中，照片文件在删除后立即清理: userId={}, 文件数={}", userId, pending.size());
+            log.warn("账号注销未处于事务中，照片与向量索引在删除后立即清理: userId={}, 文件数={}",
+                    userId, pending.size());
             cleanUpPhotoFiles(userId, pending);
+            reloadVectorStore(userId);
             return;
         }
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
                 cleanUpPhotoFiles(userId, pending);
+                reloadVectorStore(userId);
             }
         });
+    }
+
+    /**
+     * 重建内存向量索引，去掉已删用户的个人知识块。
+     * 失败只 WARN：账号删除已经提交，不能让索引故障把成功响应变成 500；重启会全量重建。
+     */
+    private void reloadVectorStore(Long userId) {
+        try {
+            vectorStore.reload();
+            log.info("账号注销后已重建内存向量索引: userId={}", userId);
+        } catch (RuntimeException e) {
+            log.warn("账号注销后重建内存向量索引失败（重启后自愈）: userId={}, error={}",
+                    userId, e.getClass().getSimpleName());
+        }
     }
 
     /** 逐个删除文件；单个失败只 WARN（日志不写文件名），不影响其余文件与已提交的数据删除 */
