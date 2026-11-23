@@ -23,7 +23,9 @@
     "test:e2e:multi": "node e2e/run-suite.mjs multi",
     "test:e2e:device": "node e2e/run-suite.mjs device",
     "test:visual": "playwright test -c playwright.visual.config.ts",
-    "test:visual:update": "playwright test -c playwright.visual.config.ts --update-snapshots"
+    "test:visual:update": "playwright test -c playwright.visual.config.ts --update-snapshots",
+    "e2e:isolated": "node e2e/run-isolated.mjs",
+    "e2e:device:isolated": "node e2e/run-isolated.mjs --suite device"
   },
   "dependencies": {
     "@ant-design/icons": "^5.5.1",

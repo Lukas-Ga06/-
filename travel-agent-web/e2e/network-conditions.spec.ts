@@ -74,6 +74,14 @@ test.describe('弱网与离线（Chromium + CDP）', () => {
     // 在线时不应有离线横幅
     await expect(page.getByTestId('offline-banner')).toHaveCount(0);
 
+    // 预热目标路由：P1-G 把 global.css 拆成按页面懒加载的 CSS 分块，只有在线访问过
+    // 才会进 HTTP 缓存。本用例验证的是「已加载过的路由离线仍可用」，
+    // 「从没打开过的懒加载页」属于下方「已知边界」用例记录的范围。
+    await page.locator('aside.app-sidebar nav.sb-modules button', { hasText: '我的行程' }).click();
+    await expect(page.getByRole('heading', { level: 1, name: /我的行程/ })).toBeVisible({ timeout: 15_000 });
+    await page.locator('aside.app-sidebar nav.sb-modules button', { hasText: '首页' }).click();
+    await expect(page.locator('.dash-greeting')).toBeVisible({ timeout: 15_000 });
+
     const session = await context.newCDPSession(page);
     await session.send('Network.enable');
 
