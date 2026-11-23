@@ -250,7 +250,7 @@ public IntentResult detect(AgentContext ctx, Trip trip) {
 
 ### 3.4 ReflectAgent：冲突与预算校验
 
-`reviewVerdict(plan, trip)` 返回结构化判定：**预算**、**转场时间**、**天气**（HIGH 硬约束）与**时间冲突**（MEDIUM 软提醒）；`review` 是返回警告文案列表的旧契约，内部委托给 `reviewVerdict`。`PlanInspector.effectiveItemsByDay`（`:63-110`）是关键设计：原条目去掉被 `REMOVE` 的、被 `MODIFY` 的用 `merge` 换新时间、再叠加 `ADD` 条目；`merge` 以原条目为底只用非空字段覆盖，`endOf` 对缺失结束时间按 **1 小时**估算，否则「只有开始时间」的条目永不参与判断。警告与结构化结论由 `AgentEngine.applyReview` 拼到用户文案与 `AgentResult.review`（`AgentEngine.java:588-605`）。
+`reviewVerdict(plan, trip)` 返回结构化判定：**预算**、**转场时间**、**天气**（HIGH 硬约束）与**时间冲突**（MEDIUM 软提醒）；`review` 是返回警告文案列表的旧契约，内部委托给 `reviewVerdict`。**天气硬约束只对真实预报生效**：拿不到真实天气时 `PlanInspector.weatherByDay` 返回「不可用 + 原因」，审核只加「未做雨天/户外校验」的 warning，不凭不存在的事实判 HIGH（2026-11-23 起；模拟天气仅在测试开关下存在且只算 MEDIUM）。`PlanInspector.effectiveItemsByDay`（`:63-110`）是关键设计：原条目去掉被 `REMOVE` 的、被 `MODIFY` 的用 `merge` 换新时间、再叠加 `ADD` 条目；`merge` 以原条目为底只用非空字段覆盖，`endOf` 对缺失结束时间按 **1 小时**估算，否则「只有开始时间」的条目永不参与判断。警告与结构化结论由 `AgentEngine.applyReview` 拼到用户文案与 `AgentResult.review`（`AgentEngine.java:588-605`）。
 
 ---
 
@@ -385,7 +385,7 @@ public interface AgentTool {
 | `search_attraction` | `SearchAttractionTool` | `city`、`venue`(indoor/outdoor)、`nearLat`/`nearLng`、`exclude`(逗号分隔) | `List<Attraction>`（上限 6） | 内置目录 `data/travel-catalog.json` 或联网生成目录；**静态数据** |
 | `search_hotel` | `SearchHotelTool` | `city`、`preferSubway`、`maxPrice` | `List<Hotel>`（上限 5） | 同上；**静态数据** |
 | `search_restaurant` | `SearchRestaurantTool` | `city`、`nearLat`、`nearLng` | `List<Restaurant>`（上限 5） | 同上；**静态数据** |
-| `query_weather` | `QueryWeatherTool` | `city`、`date`(默认明天)、`mentionRain` | `WeatherInfo` | `WeatherService.forecast`：`travel.weather.real=true` 走 Open-Meteo，失败/超范围降级**确定性模拟** |
+| `query_weather` | `QueryWeatherTool` | `city`、`date`(默认明天) | `WeatherLookup`（可用预报或「不可用 + 原因」） | `WeatherService.forecast`：产品路径只走 Open-Meteo 真实预报，失败/超窗/定位失败返回 `available=false`，**不降级模拟**；模拟只在 `WEATHER_SIMULATION=true`（测试/离线演示）下出现 |
 | `calculate_route` | `CalculateRouteTool` | `fromLat`/`fromLng`/`toLat`/`toLng` | `RouteInfo` | `RouteService.route`，**按坐标估算或真实路径** |
 | `calculate_budget` | `CalculateBudgetTool` | `tripId` | `BudgetSummary` | `BudgetService.summarize` 实时计算，**非模拟** |
 | `get_itinerary` | `GetItineraryTool` | `tripId` | `List<ItineraryItemDTO>` | `ItineraryService.listByTrip`，**真实落库数据（含状态）** |

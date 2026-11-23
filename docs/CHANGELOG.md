@@ -2,6 +2,56 @@
 
 按主题记录行为变化。**第四节是最需要注意的**：其中几项改变了原有的使用习惯。
 
+## 天气「不可降级地真实」+ 前端收口 + 默认口径（2026-11-23）
+
+### 一、行为变化
+
+- **天气不再有模拟兜底**：产品路径只走 Open-Meteo 真实预报。拿不到真实天气时，
+  **依赖天气的行程修改会被明确拒绝**（`status=FAILED`，业务码 503，文案含城市/日期/原因，
+  不生成待确认方案、不出 Diff）；普通规划照常出方案，但审核只写「未获取真实天气（原因），本次未做雨天/户外校验」，
+  回复不再出现「因为下雨」这类没有事实依据的句子。
+- **删除「提到雨就模拟降雨」开关**（`mentionRain`）：它曾让演示永远能演「下雨换室内」，
+  也让审核可能拿假数据做判断。模拟天气只保留在 `WEATHER_SIMULATION=true`（仅测试/离线演示），
+  且 `/api/system/status` 会自报 `weatherProvider=simulated`。
+- **`WEATHER_REAL` 环境变量被 `WEATHER_SIMULATION` 取代**（默认 `false`）。语义反转：
+  不再是「要不要真实天气」，而是「只给测试开模拟」。生产保持 `false`。
+- **下线 `/ui-demo` 组件厨房**，删除仅它使用的 `DraggableList` / `Collapse` 及其孤儿样式。
+  自研基础组件改由单测 + 页面 e2e 覆盖；路由从 20 条降到 19 条。
+- **样式按职责收敛**：`global.css` 从「一个大文件」拆成固定 `@import` 顺序的
+  `tokens / shell / buttons / cards / status / shared / components / animations` + 页面私有 CSS。
+  页面私有大段（足迹、时间轴、地图控制条、首页列表等）迁回各自 `pages/<Page>/<page>.css`；
+  删掉死规则与和 `tokens.css` 重复的 antd 覆盖。首屏源 CSS 95,980 → 78,219 B（−18.5%）。
+- **规划页 / 行程页拆分**：`pages/Planner/index.tsx` 935 → 359 行、`pages/Trip/index.tsx` 669 → 421 行；
+  步骤视图、工作区、页脚、抽屉、撤销条拆到各自 `components/` 子目录。行为与 DOM 契约不变
+  （测试零改动，视觉基线 11/11 像素一致）。
+
+### 二、接口与配置
+
+- `GET /api/system/status` 新增 `weatherProvider`（`open-meteo|simulated|unavailable`）、
+  `weatherLastError`、`weatherHint`；`llmModel` 示例默认值同步为 `deepseek-flash`。
+- 新增指标 `external.degraded{provider="weather",reason=...}`；「超出 16 天窗口」「城市无法定位」
+  属输入边界，不计降级指标。
+- 新环境变量：`WEATHER_SIMULATION`、`WEATHER_FAILURE_CACHE_SECONDS`（默认 60）、
+  `WEATHER_GEOCODE_BASE_URL`、`WEATHER_FORECAST_BASE_URL`（后两者供测试指向 WireMock）。
+- `WeatherService.forecast(city, date)` 返回 `WeatherLookup`（可用 / 不可用 + 原因），不再返回猜出来的天气。
+- 无数据库迁移。
+
+### 三、文档
+
+- 新增 [能力边界与默认口径](guide/capability-boundaries.md)：明确「默认 = 规则规划器 + 目录 + 估算」，
+  模型 / 语义 Embedding / 真实 POI·路线均为可选增强，并列出「CI 已门禁」与「仅手工验收」的边界。
+- README 重写「核心能力」为「默认具备 / 显式开启的增强」，演示闭环标注「本地 H2，非生产数据」，
+  天气步骤写明失败会拒绝；`docs/guide/{deployment,external-dependencies,api-reference,frontend,getting-started}.md`、
+  `docs/DEVELOPMENT.md`、法务文档与 `.env.production.example` / `docker-compose.yml` 同步新口径。
+
+### 四、为什么
+
+「看起来像高德、其实是直线距离」「提到下雨就一定能演」这类不诚实，比少一个枚举更伤用户信任。
+本次只选**天气**一个数据源做到「失败就明确说排不了」，其余数据源继续如实标注来源（`estimated` / `reference-estimate`），
+不假装成实时库存或实时路况。发布级别仍是「内部演示」；灰度/公网门槛见 [P0 执行快照](review/2026-11-22-p0-execution.md) §5。
+
+---
+
 ## 会话并发控制 + 会话重命名/删除（V23，2026-11-22）
 
 ### 一、行为变化

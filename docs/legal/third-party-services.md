@@ -15,7 +15,7 @@
 | 高德 Web 服务（REST） | 地理编码、POI 搜索、路线规划 | 城市/地址文本、POI 关键词、起终点坐标 | 运营方「Web 服务」Key | `AMAP_KEY` | 定位退 OSM；路线 `estimated`；`amapConfigured=false` | <https://restapi.amap.com> / <https://console.amap.com> |
 | 高德 MCP server（本机 npx 子进程） | 把 12 个 `maps_*` 工具注册给模型 | 与 REST 相同的地址/坐标/关键词 | 运营方「Web 服务」Key | `MCP_ENABLED=true` + `AMAP_MAPS_API_KEY` | 单个 server 接入失败只 WARN 跳过；无 `mcp_amap_*` 工具 | 包名 `@amap/amap-maps-mcp-server` |
 | 高德 Web 端 JS API（浏览器） | 行程/足迹地图渲染与瓦片 | 浏览器 IP、视野范围、标记坐标；前端 Key 随产物公开 | 运营方「Web 端(JS API)」Key | `VITE_AMAP_KEY`、`VITE_AMAP_SECURITY_CODE`、`VITE_FOOTPRINT_BASEMAP` | 地图不渲染/回退 OSM 底图（足迹）；行程时间轴仍可用 | <https://console.amap.com> |
-| Open-Meteo | 真实天气预报 | 城市名或坐标 | 无 Key（免费） | `WEATHER_REAL=true`（默认 false） | 确定性模拟天气 | <https://open-meteo.com> |
+| Open-Meteo | 真实天气预报 | 城市名或坐标 | 无 Key（免费） | 默认启用（`WEATHER_SIMULATION=false`）；模拟开关仅测试/离线演示 | 不可用即明确拒绝依赖天气的修改（不降级模拟） | <https://open-meteo.com> |
 | S3 兼容对象存储（可选） | 照片多实例共享存储 | 照片文件与对象键 | 运营方对象存储密钥 | `PHOTOS_STORE=s3` + `.env` 的 `S3_*`（compose 映射为 `TRAVEL_PHOTOS_S3_*`） | 配置不全**启动失败**；运行期 500/404 按错误语义返回 | 以所选供应商为准（AWS S3 / MinIO / 阿里 OSS / 腾讯 COS） |
 | Redis（compose 内置，或外部托管） | 多实例共享限流计数 | 限流键（含用户名或 IP）、窗口 TTL | 运营方自己的实例 | `RATE_LIMIT_STORE=redis`（compose 默认）+ `SPRING_DATA_REDIS_*` | **fail-open 放行**并告警；限流暂时失效；启动期 Redis healthcheck 失败会阻止 backend 启动 | <https://redis.io> |
 | Telegram（可选） | 渠道入口 | 聊天消息文本、Telegram 用户标识 | 运营方 Bot Token | `TELEGRAM_BOT_TOKEN` | 渠道关闭 | <https://telegram.org> |
@@ -52,8 +52,9 @@
 ## 5. Open-Meteo
 
 - **出站内容**：城市名（地理编码）与坐标（预报）。
-- **开关**：`WEATHER_REAL=true`；默认 false 使用确定性模拟数据（便于测试）。
-- **降级**：网络失败或超出 16 天预报窗口自动回退模拟数据，不向用户伪装成实时。
+- **开关**：默认启用（免费、无需 Key）；`WEATHER_SIMULATION=true` 只在测试/离线演示时阻断外呼并返回模拟数据。
+- **失败语义**：网络失败或超出 16 天预报窗口即「不可用」——依赖天气的修改被明确拒绝，
+  普通规划如实标注「未做天气校验」，**不降级模拟**（不把假天气当事实）。
 - **待确认**：免费服务的非商用条款与调用频率限制；商用部署前确认许可。
 
 ## 6. S3 兼容对象存储（可选）

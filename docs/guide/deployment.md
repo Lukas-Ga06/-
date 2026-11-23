@@ -123,7 +123,9 @@ VITE_AMAP_SECURITY_CODE=
 # 配了它并且 MCP_ENABLED=true 才会拉起 npx 子进程；缺 Key 时 MCP 段只降级、不影响启动
 AMAP_MAPS_API_KEY=
 MCP_ENABLED=false
-WEATHER_REAL=false
+# 天气默认走 Open-Meteo 真实预报（免费、无需 Key）；拿不到即「不可用」，不会降级模拟。
+# WEATHER_SIMULATION 仅测试/离线演示使用，生产保持 false（状态接口会自报 simulated）。
+WEATHER_SIMULATION=false
 # 限流计数：compose 已内置 redis 服务，默认 redis（多实例共享）；单实例可改 memory
 RATE_LIMIT_STORE=redis
 # 照片存储：local（backend-data 卷）/ s3（对象存储）；s3 时填下面 S3_*（compose 会映射为 TRAVEL_PHOTOS_S3_*）
@@ -324,7 +326,7 @@ docker compose down -v                # ⚠️ 连卷一起删：MySQL 数据与
 | 变量 | 默认值 | 是否必需 | 作用 | 未配置时的降级行为 |
 | --- | --- | --- | --- | --- |
 | `LLM_ENABLED` | `true` | 可选 | LLM 总开关；`false` 强制关闭模型调用 | 保持启用（但无 Key 时等同不可用） |
-| `LLM_API_KEY` | 空 | 可选（**强烈建议**） | OpenAI-compatible API Key | 全链路走规则引擎：功能完整，超纲目的地与生僻说法识别较弱；`llm.calls{result=skipped}` 增长 |
+| `LLM_API_KEY` | 空 | 可选（**强烈建议**） | OpenAI-compatible API Key | 全链路走规则规划器 + 模板回复：主流程可跑，但意图/结构化规划能力弱于模型；`llm.calls{result=skipped}` 增长 |
 | `LLM_BASE_URL` | `https://api.deepseek.com/v1` | 可选 | 任意 OpenAI-compatible 端点（DeepSeek/Qwen/OpenAI） | 用 DeepSeek 默认端点 |
 | `LLM_MODEL` | `deepseek-flash` | 可选 | 模型名（如 `qwen-plus`、`gpt-4o-mini`）；默认值按当前 Key 的 `/models` 核对 | `deepseek-flash`；模型不存在时启动 WARN，`/api/system/status` 显示 `llmModelAvailable=false` |
 | `LLM_MODEL_PROBE_ENABLED` | `true` | 可选 | 启动后异步探测 `GET {base-url}/models`（≤3s），结论进 `llmModelAvailable` | `true`；关闭后 `llmModelAvailable=null`（未校验） |
@@ -359,7 +361,8 @@ docker compose down -v                # ⚠️ 连卷一起删：MySQL 数据与
 | `VITE_AMAP_KEY` | 空 | 行程地图必需 | 前端高德「Web 端(JS API)」Key；作为 Docker 构建参数注入 | 行程地图不渲染，并显示配置提示 |
 | `VITE_AMAP_SECURITY_CODE` | 空 | 行程地图必需 | 与 Web 端 Key 配套的安全密钥；作为 Docker 构建参数注入 | 高德脚本可能校验失败，页面显示加载提示 |
 | `VITE_FOOTPRINT_BASEMAP` | `amap` | 可选 | 足迹地图底图：`amap`（高德栅格 + MapLibre 球体）或 `osm`（原 OSM/OpenFreeMap） | 默认高德；高德瓦片不可达时运行时回退 OSM。商用前确认高德瓦片授权 |
-| `WEATHER_REAL` | `false` | 可选 | `true` 时天气走 Open-Meteo 真实预报（免费无 Key，窗口为今天起 16 天） | 确定性模拟数据；真实模式下网络失败或超范围也自动降级模拟 |
+| `WEATHER_SIMULATION` | `false` | 可选 | **仅测试/离线演示**：`true` 时返回确定性模拟天气 | 默认走 Open-Meteo 真实预报（免费无 Key，窗口今天起 16 天）；拿不到即不可用——依赖天气的修改返回 `status=FAILED`（业务码 503）并说明原因，普通规划如实标注「未做天气校验」 |
+| `WEATHER_FAILURE_CACHE_SECONDS` | `60` | 可选 | 天气失败负缓存秒数，避免离线时一次规划反复等连接超时 | `0` = 不缓存失败；负缓存只影响重试频率，不影响正确性 |
 
 ### 5.5 渠道入口
 
@@ -434,7 +437,7 @@ docker compose down -v                # ⚠️ 连卷一起删：MySQL 数据与
 | --- | --- | --- |
 | 认证与安全 | 8 | `JWT_SECRET` `JWT_EXPIRE_HOURS` `COOKIE_SECURE` `CORS_ALLOWED_ORIGINS` `DEMO_ACCOUNT` `APP_TIMEZONE` `MYSQL_ROOT_PASSWORD` `TICKET_TTL_SECONDS` |
 | LLM 与 Embedding | 14 | `LLM_ENABLED` `LLM_API_KEY` `LLM_BASE_URL` `LLM_MODEL` `LLM_MODEL_PROBE_ENABLED` `LLM_TEMPERATURE` `LLM_CONNECT_TIMEOUT_MS` `LLM_READ_TIMEOUT_MS` `LLM_DAILY_QUOTA` `EMBEDDING_ENABLED` `EMBEDDING_BASE_URL` `EMBEDDING_API_KEY` `EMBEDDING_MODEL` `RAG_MIN_SCORE` |
-| 地图与天气 | 6 | `AMAP_KEY` `AMAP_MAPS_API_KEY` `VITE_AMAP_KEY` `VITE_AMAP_SECURITY_CODE` `VITE_FOOTPRINT_BASEMAP` `WEATHER_REAL` |
+| 地图与天气 | 7 | `AMAP_KEY` `AMAP_MAPS_API_KEY` `VITE_AMAP_KEY` `VITE_AMAP_SECURITY_CODE` `VITE_FOOTPRINT_BASEMAP` `WEATHER_SIMULATION` `WEATHER_FAILURE_CACHE_SECONDS` |
 | 渠道入口 | 7 | `TELEGRAM_BOT_TOKEN` `TELEGRAM_POLL_TIMEOUT` `CHANNEL_WEBHOOK_ENABLED` `CHANNEL_WEBHOOK_SECRET` `WECHAT_OA_TOKEN` `WECHAT_OA_APPID` `WECHAT_OA_SECRET` |
 | 存储与限流 | 12 | `PHOTO_MAX_PER_TRIP` `PHOTO_MAX_BYTES_PER_USER` `RATE_LIMIT_ENABLED` `RATE_LIMIT_AUTH` `RATE_LIMIT_AGENT` `RATE_LIMIT_UPLOAD` `RATE_LIMIT_DEFAULT` `RATE_LIMIT_SESSION` `RATE_LIMIT_WINDOW_SECONDS` `RATE_LIMIT_STORE` `RATE_LIMIT_TRUSTED_PROXIES` `PHOTOS_STORE` |
 | S3 映射（compose 转 `TRAVEL_PHOTOS_S3_*`） | 5 | `S3_ENDPOINT` `S3_REGION` `S3_BUCKET` `S3_ACCESS_KEY` `S3_SECRET_KEY` |
@@ -719,14 +722,16 @@ server {
 
 | 字段 | 类型 | 含义 / 运维用途 |
 | --- | --- | --- |
-| `llmConfigured` | boolean | `LLM_ENABLED=true` **且** `LLM_API_KEY` 非空 → `true`。`false` 说明整站走规则引擎 |
+| `llmConfigured` | boolean | `LLM_ENABLED=true` **且** `LLM_API_KEY` 非空 → `true`。`false` 说明整站走规则规划器 |
 | `llmVerified` | boolean | 最近一次真实 LLM 调用是否成功（未调用过 = `false`） |
 | `llmModel` | string/null | 生效的模型名（未接入时为 `null`） |
-| `llmHint` / `geoHint` / `routeHint` / `priceHint` | string | 中文说明，可直接转给用户 |
+| `llmHint` / `geoHint` / `routeHint` / `weatherHint` / `priceHint` | string | 中文说明，可直接转给用户 |
 | `amapConfigured` | boolean | `AMAP_KEY` 是否配置 |
 | `geoProvider` | string | `amap` 或 `osm`（兜底路径） |
 | `timezone` | string | 实际生效时区（应等于 `APP_TIMEZONE`）；**排查「日期差一天」先看它** |
 | `routeProvider` / `routeConfigured` / `amapVerified` / `routeLastError` | string/boolean | 路线来源与「配置 vs 验证」分离；`routeProvider` 取值域 `amap`\|`estimated` |
+| `weatherProvider` | string | `open-meteo` \| `simulated` \| `unavailable`。生产应为 `open-meteo`；出现 `simulated` 说明误开了 `WEATHER_SIMULATION` |
+| `weatherLastError` | string/null | 最近一次真实天气失败原因（不含密钥）；成功/未调用为 `null` |
 | `priceProvider` | string | 恒为 `reference-estimate`：价格只有本地参考估算，未接实时房态/库存 |
 | `pendingPlanStore` | string | 恒为 `database`（待确认方案落库，多实例可用） |
 | `rateLimitEnabled` | boolean | 限流是否开启 |

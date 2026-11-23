@@ -7,7 +7,7 @@
 | 变量 | 是否必需 | 未配置时的行为 |
 | --- | --- | --- |
 | `JWT_SECRET` | 生产必需 | 启动时生成一次性随机密钥并打印 WARN：本地开箱即用，但**服务重启后所有已签发 token 失效**；生产不配置则每次发布都会强制全体用户重新登录 |
-| `LLM_API_KEY` | 可选 | Agent 全部走规则引擎：意图识别、方案生成、文案润色使用内置模板与规则，功能完整但效果弱于模型 |
+| `LLM_API_KEY` | 可选 | Agent 全部走规则规划器：意图识别、方案生成、文案润色使用内置模板与规则，主流程可跑，效果弱于模型 |
 | `AMAP_KEY` | 可选 | 后端城市 POI 走「大模型生成坐标 + OSM Nominatim」兜底路径，速度较慢；类型为高德「Web 服务」Key |
 | `VITE_AMAP_KEY` / `VITE_AMAP_SECURITY_CODE` | 行程地图必需 | 高德「Web 端(JS API)」Key 与配套安全密钥，写入 `travel-agent-web/.env.local`；未配置时行程地图显示配置提示 |
 | `APP_TIMEZONE` | 可选（已设默认） | 默认 `Asia/Shanghai`；若部署在其他时区需显式覆盖，否则「今天/明天」会按上海时间计算 |
@@ -215,9 +215,12 @@ RAG 引用在 `plan.extras.citations`、`AgentResult.citations`、SSE `rag_resul
 Authorization 头继续保留给非浏览器客户端；新增接口不需要关心凭证来源。
 UI 登出必须走 `api/auth.ts` 的 `signOut()`（先清服务端 Cookie 再清本地状态），不要直接调 store 的 `logout()`。
 
-**天气数据源**：`WeatherService.forecast` 是唯一入口。`WEATHER_REAL=true` 时先走 Open-Meteo
-（内置城市用目录坐标均值，目录外走其地理编码），失败或超出预报窗口（过去 / 16 天外）降级模拟。
-模拟路径的 `mentionRain` 演示行为仅存在于降级路径。新增天气相关功能不要绕过该入口。
+**天气数据源**：`WeatherService.forecast(city, date)` 是唯一入口，返回 `WeatherLookup`——要么可用真实预报，
+要么「不可用 + 原因」，**没有第三种猜出来的天气**。产品路径不提供模拟兜底：默认走 Open-Meteo
+（内置城市用目录坐标均值，目录外走其地理编码），网络失败 / 超出 16 天窗口 / 城市无法定位即不可用。
+依赖天气的修改（消息含雨/天气等）在不可用时抛 `BusinessException(503)` 并明确拒绝；普通规划只写「未做天气校验」。
+模拟天气只在 `WEATHER_SIMULATION=true`（仅测试 / 离线演示）下出现，且状态接口自报 `simulated`；
+旧的 `mentionRain`「提到雨就模拟降雨」行为已删除。新增天气相关功能不要绕过该入口。
 
 **Flyway**：`db/migration/V*__*.sql` 是 schema 变更的唯一通道（存量库已 baseline 在版本 1）。
 `CREATE INDEX IF NOT EXISTS` 在 MySQL 不可用，索引交给实体 `@Index` + ddl-auto 补齐；
@@ -273,7 +276,7 @@ claim（PENDING→CONFIRMING）语义与 TTL 30 分钟都不许动。
 
 ## 设计系统（方向 B：内容优先）
 
-**令牌**：`travel-agent-web/src/styles/global.css` 顶部的 `:root` 是唯一来源。
+**令牌**：`travel-agent-web/src/styles/tokens.css` 顶部的 `:root` 是唯一来源。
 新名字（`--bg` / `--surface` / `--border` / `--text` / `--text-2` / `--text-3` / `--accent` /
 `--ok` / `--warn` / `--danger` / `--r-*` / `--sp-*`）是主用名；
 旧名字（`--ink` / `--line` / `--blue` / `--lg-bg` / `--lg-border` / `--lg-blur` / `--lg-shadow` /

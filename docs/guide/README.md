@@ -33,6 +33,7 @@
 
 | 文档 | 内容概要 | 适合谁 |
 | --- | --- | --- |
+| [capability-boundaries.md](capability-boundaries.md) | **默认口径与能力边界**：无 Key 时的规则规划器 / 目录 / 估算、可选增强项、天气硬契约、RAG 哈希基线、发布门槛现状与对外表述守则 | 所有人（介绍或验收本项目前读） |
 | [code-structure.md](code-structure.md) | 代码结构手册：分层与依赖方向、16 个包职责、关键协作类（Agent 引擎 / 联网城市数据拆分）、新增代码落点决策表、命名约定、测试组织、维护红线（单类行数阈值等） | 所有人（写第一行代码前读） |
 | [getting-started.md](getting-started.md) | 环境要求、`run-dev.ps1` 启动、首次启动自动完成的事、前端启动与 `/api` 反代、演示闭环 walkthrough、常见问题排查表、提交前自检清单 | 所有人（第一天读） |
 | [architecture.md](architecture.md) | 分层架构、Agent 状态机、Intent/Planner/Executor/Reflect 四 Agent、AgentPlan 与 PlanOperation、三级风险 Human-in-the-loop、工具层只读闸门与 9 个内置工具、RAG 与 Embedding 降级、规划期知识引用、行中锁定与旅行事件、旅行回顾聚合、SSE 事件协议与 focus、会话记忆、待确认方案落库、MCP 生态、LLM 配额 | 后端 / Agent 能力开发 |
@@ -53,7 +54,7 @@
 | [ci.md](ci.md) | GitHub Actions 每个 job 的职责、本地等价命令、失败处置、破坏性 API 变更（oasdiff）、gitleaks/Trivy/dependency-review、豁免流程与 Dependabot 策略 | 所有人（提 PR 前读） |
 | [mysql-migration.md](mysql-migration.md) | 真实 MySQL 8.4 上的 Flyway 全量迁移 + Hibernate `validate` 验证：本地一键脚本、CI service container、断言清单、排障（含 8.4 版本警告） | 后端 / 运维 |
 | [api-contract.md](api-contract.md) | OpenAPI 作为机器契约：`/v3/api-docs` → `docs/api/openapi.json` → 前端生成类型的链路、漂移检查、`oasdiff breaking` 破坏性变更流程 | 后端 / 前端 / 集成方 |
-| [external-dependencies.md](external-dependencies.md) | 高德 / LLM / Embedding / Redis / S3 的超时预算、重试（没有就写 0）、降级结果、用户提示、`external.degraded{provider,reason}` 指标与对应测试类 | 后端 / 运维 / 值班 |
+| [external-dependencies.md](external-dependencies.md) | 高德 / LLM / Embedding / 天气 / Redis / S3 的超时预算、重试（没有就写 0）、失败语义（天气不降级、明确拒绝）、用户提示、`external.degraded{provider,reason}` 指标与对应测试类 | 后端 / 运维 / 值班 |
 | [observability.md](observability.md) | 指标字典与基数纪律、13 条 SLO、PromQL、Prometheus 抓取与鉴权、日志字段约定、Grafana Dashboard 与告警清单 | 后端 / 运维 / 值班 |
 | [frontend-performance.md](frontend-performance.md) | 地图引擎从 Rollup import 图移出的方案与 before/after 数字（maps chunk 1068 kB → 0，precache 2.99 MiB → 1.97 MiB）、包体预算脚本与 nginx `.mjs` 配置要求 | 前端 / 运维 |
 
@@ -124,11 +125,11 @@
 
 | 目录 | 文件数 | 职责 |
 | --- | --- | --- |
-| `pages` | 21 | 16 个页面目录（各含 `index.tsx`，含 Reviews/TripReview）+ 规划表单逻辑 `planForm.ts` 与其测试 |
-| `components` | 48 | ChatPanel / MapView(高德 2D/3D) / Timeline / ItineraryCard / PlanDiff / BudgetChart / FootprintMap / ReminderBell … |
-| `api` | 15 | axios 封装、SSE 客户端、票据、行程/回顾/知识库等业务接口（含测试） |
-| `store` | 11 | zustand：auth / trip / agent / ui / theme（含测试） |
-| `types` / `lib` / `hooks` / `styles` / `test` | 7 / 8 / 2 / 1 / 1 | 与后端对齐的 TS 类型（含 review / knowledge）、图表与通知工具、`useIntersection` / `useOnlineStatus`、`global.css` 样式令牌、vitest 环境 `setup.ts` |
+| `pages` | 54 | 15 个页面目录（各含 `index.tsx`，含 Reviews/TripReview）；Planner/Trip 的视图拆在各自 `components/`；规划表单逻辑 `planForm.ts` 与其测试 |
+| `components` | 64 | ChatPanel / MapView(高德 2D/3D) / Timeline / ItineraryCard / PlanDiff / BudgetChart / FootprintMap / ReminderBell … |
+| `api` | 18 | axios 封装、SSE 客户端、票据、行程/回顾/知识库等业务接口（含测试） |
+| `store` | 15 | zustand：auth / trip / agent / ui / theme（含测试） |
+| `types` / `lib` / `hooks` / `styles` / `test` | 7 / 8 / 2 / 11 / 1 | 与后端对齐的 TS 类型（含 review / knowledge）、图表与通知工具、`useIntersection` / `useOnlineStatus`、固定 `@import` 顺序的样式层（`tokens` 令牌 + `shared`/`components`/`animations` + 页面 CSS）、vitest 环境 `setup.ts` |
 
 ---
 

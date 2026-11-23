@@ -75,7 +75,7 @@
 | DeepSeek 或其它 OpenAI-compatible LLM | 对话文本、行程摘要、提示词、工具观察摘要 | 配置了 `LLM_API_KEY` 且 `LLM_ENABLED=true` | [第三方服务说明](third-party-services.md) |
 | Embedding 供应商（默认未启用） | 知识库正文、检索查询文本 | `EMBEDDING_ENABLED=true` | 同上 |
 | 高德（REST / MCP / JS API） | 地址、城市、POI 关键词、坐标；前端地图请求 | 配置 `AMAP_KEY` / `AMAP_MAPS_API_KEY` / `VITE_AMAP_KEY` | 同上 |
-| Open-Meteo | 城市名或坐标 | `WEATHER_REAL=true` | 同上 |
+| Open-Meteo | 城市名或坐标 | 默认启用（真实天气预报；`WEATHER_SIMULATION=true` 时不外呼） | 同上 |
 | S3 兼容对象存储（可选） | 照片文件与元数据 | `PHOTOS_STORE=s3` | 同上 |
 | Redis（可选，通常为自建） | 限流计数键（含用户名或 IP、300 秒过期） | `RATE_LIMIT_STORE=redis` | 同上 |
 | GitHub（代码托管与 CI） | 源代码、CI 构建日志；CI 当前未引用生产密钥 | 使用仓库 CI | 同上 |

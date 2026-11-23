@@ -67,12 +67,31 @@ travel-agent-web/
     ├── components/            # 48 个文件（27 个目录，含组件测试），见第 7 节
     ├── hooks/                 # useIntersection（CountUp 入视口才动画）、useOnlineStatus（离线提示条）
     ├── lib/                   # reminderNotify.ts、coords.ts、echarts.ts、chartTheme.ts 及其测试
-    ├── pages/                 # 16 个页面目录（21 个文件），见第 4 节
+    ├── pages/                 # 15 个页面目录（较重的 Planner/Trip 已拆出 components/ 子目录），见第 4 节
     ├── store/                 # 11 个文件（5 个 store + 测试）
-    ├── styles/global.css      # 5585 行设计系统：:root 令牌 + 暗色覆盖 + 页面样式
+    ├── styles/                # 固定 @import 顺序的样式入口（见 §2.1）
     ├── test/setup.ts          # node 环境补内存 Storage，供 zustand persist 使用
     └── types/                 # 7 个类型文件：trip / agent / expense / memo / assistant / knowledge / review
 ```
+
+### 2.1 样式结构（2026-11-23 收敛）
+
+`styles/global.css` 只做入口与 reset，按**固定顺序**导入（改顺序等于改级联）：
+
+| 层 | 文件 | 内容 |
+| --- | --- | --- |
+| 基础 | `tokens.css` | `:root` 令牌、暗色覆盖、antd 令牌对齐 |
+| 外壳 | `shell.css` | 侧栏 / 底部标签栏 / 页面框架 |
+| 原子 | `buttons.css`、`cards.css`、`status.css` | 按钮、卡片、状态徽标 |
+| 共享布局 | `shared.css` | 跨页页头、390px 防溢出契约、antd 覆盖 |
+| 跨页组件 | `components.css` | ChatPanel / PlanDiff / AgentActivityPanel / FootprintMap / Skeleton / Toast / Citation / SwipeRow / ReminderBell / memo |
+| 动效 | `animations.css` | PageTransition、通用入场、`prefers-reduced-motion` |
+| 无独立 CSS 的页面 | `pages-travel.css`、`pages-expenses.css` | Travel / Expenses 私有规则 |
+
+页面级规则放在 `src/pages/<Page>/<page>.css`，由页面组件自己 import（随路由 chunk 懒加载）：
+Home / Planner / Trip / Footprint / Reviews / Knowledge / Login / Profile / Workbench / Assistant。
+组件级规则放在 `src/components/<Name>/*.css`。三处都不再回写 `global.css`；新增窄屏规则要写进 `shared.css` 的 390px 段
+（否则会被更早的 `@media (max-width: 900px)` 块抢先覆盖）。
 
 ---
 
@@ -95,14 +114,15 @@ travel-agent-web/
 | 11 | `/travel` | `pages/Travel` | ✅ | 旅行规划主页（Tab：行程/日程/足迹） |
 | 12 | `/footprint` | `<Navigate to="/travel?tab=footprint" replace />` | — | 旧链接兼容重定向，无独立页面 |
 | 13 | `/knowledge` | `pages/Knowledge` | ✅ | 旅行知识库：录入 / 检索 / 版本 / 回滚 |
-| 14 | `/workbench` | `pages/Workbench` | ✅ | Agent 运行观察：run / 任务 DAG / 工具调用 |
+| 14 | `/settings/diagnostics` | `pages/Workbench` | ✅ | Agent 运行观察：run / 任务 DAG / 工具调用（运行诊断已迁入「设置 > 诊断」） |
 | 15 | `/profile` | `pages/Profile` | ✅ | 个人中心、系统状态、退出登录 |
 | 16 | `*` | `<Navigate to="/" replace />` | — | 通配兜底，未知路径回首页 |
-| 17 | `/ui-demo` | `pages/UIDemo` | ✅ | 组件厨房（SwipeRow/DraggableList/Collapse/CountUp…） |
 
 > **退役模块重定向（保留但不入上表）**：`/office`、`/learning`、`/health` 均指向 `/`，避免旧书签 404。
-> 它们不是功能入口；对应页面目录、API client、类型与首页请求已删除。`*` 在源码里排在 `/ui-demo` 之前，
-> react-router v7 按“评分最优”匹配，`/ui-demo` 仍能命中；新增路由建议统一放到 `*` 之前。
+> `/workbench` 旧链接重定向到 `/settings/diagnostics`。
+> 它们不是功能入口；对应页面目录、API client、类型与首页请求已删除。
+> 新增路由要放在 `*` 之前——react-router v7 按「评分最优」匹配，放后面可能永远命中不到。
+> `/ui-demo` 组件预览页已在 2026-11-23 下线（评审要求收缩与旅行无关的复杂度）；自研基础组件改由单测与页面 e2e 覆盖。
 
 **重定向的意义**：日程与足迹曾是两个独立侧栏入口，现分别并入 `/travel?tab=schedule` 与
 `/travel?tab=footprint`（`pages/Travel/index.tsx` 用 `useSearchParams` 读 `tab`，非法值回落 `trips`）。
@@ -127,8 +147,8 @@ travel-agent-web/
 
 ## 4. 页面清单
 
-`src/pages/` 共 **16 个页面目录**；`App.tsx` 有 **20 条 `<Route>`**，其中 **14 条渲染页面组件**
-（`/login` + 13 个受保护页：Home、Planner、Trip、TripReview、Reviews、Expenses、Memos、Assistant、Travel、Knowledge、Workbench、Profile、UIDemo）、
+`src/pages/` 共 **15 个页面目录**；`App.tsx` 有 **19 条 `<Route>`**，其中 **13 条渲染页面组件**
+（`/login` + 12 个受保护页：Home、Planner、Trip、TripReview、Reviews、Expenses、Memos、Assistant、Travel、Knowledge、Workbench、Profile）、
 2 条有效重定向（`/schedule`、`/footprint`）、3 条退役重定向（`/office`、`/learning`、`/health`）与 1 条通配兜底。
 `Schedule` / `Footprint` 仍有目录与组件，但只作为 `Travel` 的 Tab 内容渲染，不再有独立路由。
 
@@ -164,7 +184,10 @@ key `travel:planner-draft:v1` 带版本号；空白表单不产生草稿；进�
 
 组件：`ChatPanel`、`PlanDiff`；纯逻辑在同目录 `planForm.ts` —— `compilePlanPrompt`（表单 → 中文需求文本）、
 `compilePlanSummary`（聊天气泡短摘要）、`describeRequirementRows`（第 3 步摘要与右侧摘要同一口径）、
-`clampPlanMessage`（兜底截断）。样式在 `Planner/planner.css`（`plan3-` 前缀，**不进 global.css**）。
+`clampPlanMessage`（兜底截断）。页面主体为 `index.tsx`（状态、副作用、提交门禁），
+步骤视图与页脚拆在 `Planner/components/`：`PlanStepShell`、`PlanStepBasics`、`PlanStepPreferences`、
+`PlanReview`、`PlannerFooter`、`WorkspacePane`、`types.ts`。
+样式在 `Planner/planner.css`（`plan3-` 前缀，**不进 global.css**）。
 
 ### 4.4 Trip（`/trip/:id`）
 
@@ -258,11 +281,6 @@ API：`getRuns`、`getRunDetail`；组件：`AppShell` + 列表/详情布局，�
 用户信息、行程统计、系统状态（模型/数据源可用性）、退出登录。
 API：`systemStatus`、`signOut`、`useTripStore.loadTrips`。组件：antd `Tag`；
 退出必须走 `signOut()`，不要直接调 store 的 `logout()`。
-
-### 4.16 UIDemo（`/ui-demo`）
-
-自研基础组件的可视化验收台，改 `SwipeRow/DraggableList/Collapse/CountUp/Skeleton/Toast` 后先在这里肉眼回归。
-组件：`SwipeRow`、`DraggableList`、`Collapse`、`CountUp`、`Skeleton`、`Toast`、`useIntersection`。
 
 ---
 
@@ -684,14 +702,14 @@ return undefined;
 | **鉴权** | 不存 token；新接口无需关心凭证来源（Cookie 自动带）。登出只能 `signOut()` |
 | **URL 凭证** | 只能用 `api/ticket.ts` 的票据，**禁止把登录 JWT 拼进 URL** |
 | **懒加载** | 新页面一律 `React.lazy` + `Suspense`；页面内重型组件（echarts/地图）再 `lazy` 一层，别回到单包 3MB |
-| **样式令牌** | `styles/global.css` 顶部 `:root` 是唯一来源。主用名 `--bg/--surface/--border/--text/--text-2/--text-3/--accent/--ok/--warn/--danger/--r-*/--sp-*`，旧名（`--ink/--line/--blue/--lg-*`）是别名 |
-| **色板与暗色** | `main.tsx` 的 `PALETTE` 与 `global.css` 是同一套值（主色 `#1f6feb`、圆角 8、边框 `#e4e6eb`），**改色板两处一起改**；`[data-theme='dark']` 只覆盖令牌层，`index.html` 首帧前预设属性避免闪白；canvas 图表（echarts）读不到 CSS 变量，**必须按主题给两套色值**。完整机制（含 `localStorage` 键、三处入口）见 **11.1** |
-| **响应式** | ≥1080px 侧栏 232px；720–1080px 收成 76px 图标栏；<720px 换底部标签栏 `.app-tabbar`。**新增窄屏规则写在 `global.css` 末尾**，否则会被旧的 `@media (max-width: 900px)` 抢先覆盖；390px 实测场景与溢出修复清单见 **11.2** |
+| **样式令牌** | `styles/tokens.css` 的 `:root` 是唯一来源。主用名 `--bg/--surface/--border/--text/--text-2/--text-3/--accent/--ok/--warn/--danger/--r-*/--sp-*`，旧名（`--ink/--line/--blue/--lg-*`）是别名 |
+| **色板与暗色** | `main.tsx` 的 `PALETTE` 与 `tokens.css` 是同一套值（主色 `#1f6feb`、圆角 8、边框 `#e4e6eb`），**改色板两处一起改**；`[data-theme='dark']` 只覆盖令牌层，`index.html` 首帧前预设属性避免闪白；canvas 图表（echarts）读不到 CSS 变量，**必须按主题给两套色值**。完整机制（含 `localStorage` 键、三处入口）见 **11.1** |
+| **响应式** | ≥1080px 侧栏 232px；720–1080px 收成 76px 图标栏；<720px 换底部标签栏 `.app-tabbar`。**新增窄屏规则写在 `shared.css` 的 390px 段**，否则会被旧的 `@media (max-width: 900px)` 抢先覆盖；390px 实测场景与溢出修复清单见 **11.2** |
 | **外壳复用** | 子页面（`Schedule`/`Footprint`）自带 `AppShell`，被嵌套复用时靠 `InsideShell` context 退化为纯内容，不必删壳 |
 | **纯逻辑抽离** | 复杂计算抽成同目录 `.ts`（`planForm.ts`、`footprintData.ts`、`reminderNotify.ts`、`markerElement.ts`），组件只做渲染 —— 这些也是单测的主要目标 |
 
 **设计预览**：`docs/design/preview/index.html` + `preview.css` 是「方向 B：内容优先」改版的**静态视觉稿**
-（纯 HTML/CSS，不含 React），用于动代码前对齐版式与信息密度；`global.css` 的令牌层是它的落地实现。
+（纯 HTML/CSS，不含 React），用于动代码前对齐版式与信息密度；`styles/tokens.css` 的令牌层是它的落地实现。
 它不参与构建，只在改界面时作为参照。
 
 ---
@@ -704,7 +722,7 @@ return undefined;
 
 | 项 | 实现 | 位置 |
 | --- | --- | --- |
-| 颜色令牌 | 浅色在 `:root` 定义，暗色由 `[data-theme='dark']` **只覆盖令牌层**（组件样式一律引用变量） | `src/styles/global.css` |
+| 颜色令牌 | 浅色在 `:root` 定义，暗色由 `[data-theme='dark']` **只覆盖令牌层**（组件样式一律引用变量） | `src/styles/tokens.css` |
 | antd 组件 | `ConfigProvider` 在 `darkAlgorithm` / `defaultAlgorithm` 间切换，同时切一套 `PALETTE` token | `src/main.tsx` |
 | 持久化 | zustand `persist`，key **`localStorage['travel-agent-theme']`**，值形如 `{"state":{"mode":"dark"}}` | `src/store/themeStore.ts` |
 | 无存值 | 跟随系统 `prefers-color-scheme`（没有 `matchMedia` 时按浅色） | `themeStore.systemPrefersDark` |
@@ -724,7 +742,7 @@ return undefined;
   顶部栏用 `env(safe-area-inset-top)` 吃掉刘海，底栏/抽屉底部用 `env(safe-area-inset-bottom)` 避开 home 指示条。
 - **实测口径**：390×844 视口下 **7 个场景** `document.documentElement.scrollWidth == clientWidth == 390`
   （规划页、行程页、账单抽屉、预算抽屉、备忘页、账单总览、暗色行程页）。
-- **修掉的溢出点**（都在 `global.css` 末尾的窄屏 `@media` 块里）：
+- **修掉的溢出点**（都在 `styles/shared.css` 的 390px `@media` 块里）：
 
 | 溢出源 | 修法 |
 | --- | --- |
@@ -734,7 +752,7 @@ return undefined;
 | 表单页脚/页头操作区放不下 | `.plan-footer`、`.page-actions { flex-wrap: wrap }` |
 | 抽屉底部被 home 指示条压住 | `.ant-drawer-body { padding-bottom: calc(16px + env(safe-area-inset-bottom)) }` |
 
-> **新窄屏规则必须写在 `global.css` 末尾**：否则会被更早的 `@media (max-width: 900px)` 块抢先覆盖（同优先级后写胜出）。
+> **新窄屏规则必须写在 `styles/shared.css` 的 390px 段**：否则会被更早的 `@media (max-width: 900px)` 块抢先覆盖（同优先级后写胜出）。
 
 ### 11.3 PWA 离线：只缓存 3 条只读 GET
 
@@ -792,10 +810,11 @@ const ITINERARY_API_PATTERN =
 | 改列表分页 | `api/client.ts` 的 `getPage` / `DEFAULT_PAGE_SIZE` + `components/PaginationBar` |
 | 换行程地图服务商 | `components/MapView/` 下的 `MapProvider`；当前高德实现见 `AMapProvider` 与 `amapLoader` |
 | 改登录态逻辑 | `App.tsx` 的 `Protected` + `api/auth.ts` + `api/client.ts` 的 401 分流 |
-| 改配色 | `styles/global.css` 的 `:root` + `main.tsx` 的 `PALETTE`（两处一起） |
+| 改配色 | `styles/tokens.css` 的 `:root` + `main.tsx` 的 `PALETTE`（两处一起） |
 
-**组件统计**：`src/components/` 共 **48 个文件 / 27 个目录**，含地图、足迹、预算、聊天与基础组件及其测试；
+**组件统计**：`src/components/` 共 **29 个目录**（含组件测试），含地图、足迹、预算、聊天与基础组件；
 核心组件见 7.1，辅助文件见 7.2。
 
-**页面统计**：`src/pages/` 共 **16 个目录**；`App.tsx` 共 **20 条 `<Route>`** —— 14 条渲染页面组件
-（13 个受保护页 + `/login`）、5 条重定向（`/office`、`/learning`、`/health`、`/schedule`、`/footprint`）、1 条通配兜底 `*`。
+**页面统计**：`src/pages/` 共 **15 个目录**；`App.tsx` 共 **20 条 `<Route>`** —— 13 条渲染页面组件
+（12 个受保护页 + `/login`）、6 条重定向（`/office`、`/learning`、`/health`、`/schedule`、`/footprint`、`/workbench`）、1 条通配兜底 `*`。
+较重的 Planner / Trip 已把步骤视图与工作区拆到各自的 `components/` 子目录（`index.tsx` 只留状态、副作用与提交门禁）。

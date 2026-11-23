@@ -410,7 +410,7 @@ powershell -ExecutionPolicy Bypass -File .e2e\amap-real-key-probe.ps1 -AmapKey "
 脚本给**子进程**设置的环境变量（均以代码实际读取的为准）：
 `AMAP_KEY`、`AMAP_MAPS_API_KEY`（同一 Key；因 `MCP_ENABLED=false` 本次不生效，只保持变量口径一致）、
 `JWT_SECRET`（每次随机生成，不读 `.env.local`）、`RATE_LIMIT_ENABLED=false`、`LLM_ENABLED=false`、
-`WEATHER_REAL=false`、`MCP_ENABLED=false`、`DEMO_ACCOUNT=true`、`SERVER_PORT`、`SPRING_DATASOURCE_URL`（指向证据目录下的独立 H2）、
+`WEATHER_SIMULATION=true`（避免外呼天气；产品路径默认走真实天气，模拟只给探针用）、`MCP_ENABLED=false`、`DEMO_ACCOUNT=true`、`SERVER_PORT`、`SPRING_DATASOURCE_URL`（指向证据目录下的独立 H2）、
 `PHOTOS_DIR`；另有已退役模块的历史变量 `INVOICE_DIR`（代码已不再读取，脚本保留只为复用旧证据目录）。
 关掉 LLM 是为了让规划走规则引擎（不需要 LLM Key）；`/api/system/status` 不在 `SecurityConfig` 的 publicPaths 里，
 所以脚本**先登录再自检**（第 2 步先于第 1 步执行，汇总表仍按 0/1/2/3/4a/4b 排列）。

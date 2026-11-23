@@ -111,7 +111,7 @@ curl -sS -H "Authorization: Bearer $LLM_API_KEY" "$LLM_BASE_URL/models"
 | `VITE_AMAP_KEY` | 行程地图是 | 空 | `<Web 端 JS API Key>` | 否（公开标识） | 构建期注入，出现在前端产物里；与后端 Key 不同 |
 | `VITE_AMAP_SECURITY_CODE` | 行程地图是 | 空 | `<安全密钥>` | 否（公开标识） | 与 JS API Key 配套 |
 | `VITE_FOOTPRINT_BASEMAP` | 否 | `amap` | `amap` | 否 | 足迹底图；商用前确认高德瓦片授权 |
-| `WEATHER_REAL` | 否 | `false` | `true` | 否 | `true` 走 Open-Meteo（免费无 Key）；失败或超 16 天自动降级模拟 |
+| `WEATHER_SIMULATION` | 否 | `false` | `false` | 否 | **生产必须 false**：天气默认走 Open-Meteo 真实预报（免费无 Key）；拿不到即不可用，依赖天气的修改会被明确拒绝，不会用模拟数据改行程 |
 
 ### 2.6 存储、时区、Agent 与日志
 

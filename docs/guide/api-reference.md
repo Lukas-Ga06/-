@@ -573,8 +573,16 @@ P1 新增字段（口径见 `TripDtos.TripMapPoint`）：
 | `execution` | `Object` | 仅 `confirm` 成功路径：`{executionId, planId, tripId, status:SUCCEEDED\|PARTIAL_FAILED\|FAILED, modules:[...]}`（V2.2 FR-09，见 §5.12） |
 | `citations` | `Object[]` | **P1 知识依据**：`[{documentId, version, chunkId, score, source, title, snippet, label}]`；规划/修改路径可能为空数组，前端不得编造。与 `/api/knowledge/search` 同构 |
 
+**`status=FAILED` 的语义**：`code` 仍为 `0`（HTTP 200），失败原因在 `data.message`，不产生 `planId` / `diff`。
+一类典型场景是**依赖天气的修改拿不到真实预报**：返回 `status=FAILED`（内部业务码 503），
+消息形如「没拿到 上海 11月24日 的真实天气（网络不可达）……本次没有生成修改方案」，
+不会用模拟天气改行程，也不会写待确认方案。
+
 `review.issues[].type`：`BUDGET_OVERRUN`（预算超限）/ `TRANSFER_TIME`（转场时间不够）/ `WEATHER_OUTDOOR`（雨天排户外）为
-`HIGH`（硬约束，触发重规划）；`TIME_CONFLICT`（时间重叠）与**模拟天气**下的 `WEATHER_OUTDOOR` 为 `MEDIUM`（提示，不阻断）。
+`HIGH`（硬约束，触发重规划）；`TIME_CONFLICT`（时间重叠）为 `MEDIUM`。
+`WEATHER_OUTDOOR` 只在拿到真实预报且大概率下雨时产生；模拟天气（仅 `WEATHER_SIMULATION=true` 的测试/离线演示）下为 `MEDIUM`。
+拿不到真实天气时**不会产生该 issue**，而是在 `warnings` 里写「未获取真实天气（原因），本次未做雨天/户外校验」——
+不凭不存在的事实判 HIGH，也不假装校验过。
 
 ### 5.2 POST /api/agent/chat — 同步对话
 鉴权：登录 ｜ 源码：`AgentController#chat:39`
@@ -1079,7 +1087,7 @@ RAG 文档接口在 P0 从原 `LearningController` 拆出，迁入 `TravelKnowle
 ### 12.1 GET /api/system/status — 运行能力自检
 鉴权：登录 ｜ 源码：`SystemController#status` ｜ 参数：无（不返回任何密钥）
 ```json
-{"code":0,"message":"success","data":{"llmConfigured":true,"llmVerified":false,"llmModel":"deepseek-chat","llmHint":"已接入大模型：意图识别、方案生成与文案润色走模型","amapConfigured":false,"geoProvider":"osm","geoHint":"未配置 AMAP_KEY：城市定位退回 OSM Nominatim，国内网络可能较慢或失败","timezone":"Asia/Shanghai","routeProvider":"estimated","routeConfigured":false,"amapVerified":false,"routeLastError":null,"routeHint":"路线为本地距离估算（未配置 AMAP_KEY / 高德 MCP）：距离与耗时为近似值","priceProvider":"reference-estimate","priceHint":"价格均为本地参考估算，未接入实时房态/库存","pendingPlanStore":"database","rateLimitEnabled":true,"llmQuotaUsed":3,"llmQuotaLimit":50}}
+{"code":0,"message":"success","data":{"llmConfigured":true,"llmVerified":false,"llmModel":"deepseek-flash","llmHint":"已接入大模型：意图识别、方案生成与文案润色走模型","amapConfigured":false,"geoProvider":"osm","geoHint":"未配置 AMAP_KEY：城市定位退回 OSM Nominatim，国内网络可能较慢或失败","timezone":"Asia/Shanghai","routeProvider":"estimated","routeConfigured":false,"amapVerified":false,"routeLastError":null,"routeHint":"路线为本地距离估算（未配置 AMAP_KEY / 高德 MCP）：距离与耗时为近似值","weatherProvider":"open-meteo","weatherLastError":null,"weatherHint":"真实天气：Open-Meteo（免费）","priceProvider":"reference-estimate","priceHint":"价格均为本地参考估算，未接入实时房态/库存","pendingPlanStore":"database","rateLimitEnabled":true,"llmQuotaUsed":3,"llmQuotaLimit":50}}
 ```
 错误：`401`。`llmQuotaUsed` / `llmQuotaLimit` 仅在 `travel.llm.quota-daily-limit > 0` 且已登录时出现。
 **P0 起不再返回 `ocrConfigured` / `ocrHint`**（发票/OCR 能力已退役）。
@@ -1094,6 +1102,8 @@ RAG 文档接口在 P0 从原 `LearningController` 拆出，迁入 `TravelKnowle
 | `routeConfigured` | 配了 `AMAP_KEY` 或检测到高德 MCP 工具 |
 | `amapVerified` | 最近一次真实路径调用是否成功（MCP 或 REST 任一成功） |
 | `routeLastError` | 最近一次失败原因，形如 `infocode=10001, info=INVALID_USER_KEY`；含 infocode、**不含 Key**；成功/未调用为 `null` |
+| `weatherProvider` | 天气来源，取值域严格 `open-meteo` \| `simulated` \| `unavailable`；生产应为 `open-meteo`，出现 `simulated` 说明误开了 `WEATHER_SIMULATION` |
+| `weatherLastError` | 最近一次真实天气失败原因（`timeout` / `connection_error` 等）；成功或未调用为 `null` |
 | `priceProvider` | 价格能力：恒为 `reference-estimate`（只有本地参考估算，没有实时房态/库存） |
 
 `routeHint` 四态：已验证 amap / 未配置 / 已配置但最近失败（带 infocode）/ 已配置但尚未验证。
