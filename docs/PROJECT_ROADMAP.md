@@ -23,8 +23,8 @@
 | --- | --- | --- |
 | 旅行核心功能 | 已完成主体 | 登录、规划、确认、行程、地图、记账、备忘、日程、知识库、打卡、回顾、撤销均已落地 |
 | Agent 安全边界 | 已完成主体 | 工具只读、确认门、双指纹、风险审核、有限重规划、行中只改 `PENDING` 已有实现 |
-| 后端自动化质量 | 已通过本地发布门禁（外部服务用例按设计跳过） | 串行 `mvn verify`：**635 tests，0 failures，0 errors，3 skipped**；JaCoCo、Checkstyle、SpotBugs 通过。跳过项为 2 个真实 MCP 用例 + 1 个真实 MySQL 迁移用例 |
-| 前端自动化质量 | 已通过主要门禁 | **53 个测试文件 / 532 个测试通过**；typecheck、format、API 漂移检查、build budget、coverage 通过；核心目录 lines **81.61%** / branches **77.95%**；lint 0 error 但有 47 warnings |
+| 后端自动化质量 | 已通过本地发布门禁（外部服务用例按设计跳过） | 串行 `mvn verify`：**639 tests，0 failures，0 errors，3 skipped**；JaCoCo、Checkstyle、SpotBugs 通过。跳过项为 2 个真实 MCP 用例 + 1 个真实 MySQL 迁移用例 |
+| 前端自动化质量 | 已通过主要门禁 | **53 个测试文件 / 537 个测试通过**；typecheck、format、API 漂移检查、build budget、coverage 通过；核心目录 lines **81.64%** / branches **77.95%**；lint 0 error 但有 47 warnings |
 | 浏览器与移动端 | 本地隔离环境已收口，真实 Android 设备仍未验 | 视觉 11/11；隔离后端 E2E 桌面 **14/14**、device（WebKit iPhone 预设 + 弱网 + 多端）**22/22**；`E2E_API_TARGET` 已固化为 `npm run e2e:isolated`。设备模拟仍是 WebKit/iPhone 预设，不等于真实 Android 设备，device job 仍是观察模式 |
 | 真实 LLM / 高德 | 模型探测与失败语义已补齐，真实批量验收未做 | `deepseek-flash` 的 `/models` 探测真实通过；工具 schema、研究收尾、MCP 10021 退避、多意图提示已实现；尚未用真实模型重复跑 20 次规划 |
 | 生产运维与合规 | 部分完成 | 生产配置清单/模板、账号注销（API+UI）、备份恢复 runbook+脚本、隐私/第三方/删除/许可证文档、日志去票据、compose Redis/S3 透传已落地；真实 MySQL 备份恢复演练、法务确认、GitHub 安全设置仍未完成 |

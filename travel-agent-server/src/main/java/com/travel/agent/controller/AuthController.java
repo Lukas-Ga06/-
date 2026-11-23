@@ -2,10 +2,12 @@ package com.travel.agent.controller;
 
 import com.travel.agent.dto.ApiResponse;
 import com.travel.agent.dto.AuthDtos;
+import com.travel.agent.dto.ExportDtos;
 import com.travel.agent.entity.User;
 import com.travel.agent.exception.BusinessException;
 import com.travel.agent.security.AuthCookieService;
 import com.travel.agent.service.AccountDeletionService;
+import com.travel.agent.service.AccountExportService;
 import com.travel.agent.service.AuthService;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
@@ -27,6 +29,7 @@ public class AuthController {
     private final AuthService authService;
     private final AuthCookieService authCookieService;
     private final AccountDeletionService accountDeletionService;
+    private final AccountExportService accountExportService;
     private final PasswordEncoder passwordEncoder;
 
     @PostMapping("/register")
@@ -57,6 +60,22 @@ public class AuthController {
                 .username(user.getUsername())
                 .nickname(user.getNickname())
                 .build());
+    }
+
+    /**
+     * 账号级数据导出（数据可携带）：本人全部可见数据的 JSON 快照。
+     *
+     * <p>身份只从已认证的 {@link Authentication} 解析，不接受用户 id 之类的入参，
+     * 因此不存在「传别人 id 导出别人数据」的越权路径。
+     *
+     * <p>照片只给清单与访问地址（原图仍需本人凭证访问），不含二进制；内部执行追踪
+     * （agent_run / agent_task / tool_call_trace）不在导出范围，理由见 {@link ExportDtos.AccountExport}。
+     * 这是一个较重的读操作，由限流器的 export 桶单独计数（默认 5 分钟 3 次）。
+     */
+    @GetMapping("/me/export")
+    public ApiResponse<ExportDtos.AccountExport> exportMe(Authentication authentication) {
+        User user = authService.requireUser(authentication.getName());
+        return ApiResponse.ok(accountExportService.export(user.getId()));
     }
 
     /**

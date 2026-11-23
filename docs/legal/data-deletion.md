@@ -7,7 +7,7 @@
 - **后端已实现账号注销**：`DELETE /api/auth/me`，请求体 `{"password":"..."}`；前端在个人中心（`/profile`）的「危险区 · 注销账号」入口，要求输入当前密码并勾选“不可恢复”确认。
 - **删除不可恢复**：账号、全部行程、照片、会话、Agent 追踪、个人知识库、LLM 用量计数等在**一个数据库事务**内删除；照片文件在事务提交后通过 `PhotoStore.deleteQuietly` 清理。
 - **照片清理失败只 WARN**：不重试、不阻断已提交的账号删除；失败会留下不可再通过接口访问的孤儿对象，需要运维孤儿扫描兜底。
-- 用户仍**可以**删除自己的行程、单张照片、单个会话；**账号级数据导出仍未实现**（仅单行程 PDF 路书）。
+- 用户仍**可以**删除自己的行程、单张照片、单个会话；**账号级数据导出已实现**（`GET /api/auth/me/export`，JSON 快照；照片只给清单与访问地址，不含二进制）。
 - 手工 SQL 已降级为**运维兜底**：API 可用时必须用 API，不得用手工 SQL 替代产品能力。
 
 ### 0.1 已实现语义（来自 `AuthController#deleteMe` + 测试）
@@ -42,7 +42,7 @@
 | 删除会话 | `DELETE /api/agent/conversations/{conversationId}` | 删除该会话消息与标题覆盖 | `ConversationService#delete` |
 | 清空当前会话 | `POST /api/agent/conversation/clear` | 按会话 ID 清理 | `AgentController` |
 | 重命名会话 | `PATCH /api/agent/conversations/{conversationId}`（V23 起） | 只写标题覆盖 | `AgentController` / `ConversationService#rename` |
-| **账号级数据导出** | **不存在** | 仅单行程 PDF 路书 | `TripController#guidebook` |
+| **账号级数据导出** | `GET /api/auth/me/export` | 本人全部可见数据的 JSON 快照（账号资料、行程、行程项、记账、备忘、日程、会话与消息、知识库文档、照片清单，不含二进制） | `AuthController#exportMe` |
 
 ## 2. 删除范围（按表，与 `AccountDeletionService` 一致）
 
@@ -245,7 +245,7 @@ COMMIT;
 | 项 | 状态 |
 | --- | --- |
 | 账号删除 API | **已实现并通过 H2 测试**（MySQL/S3 未实测） |
-| 账号级数据导出 | **未实现**（仅单行程 PDF） |
+| 账号级数据导出 | **已实现**（H2 契约测试；MySQL 实机未验） |
 | MySQL 8 实机注销 | **未验证** |
 | S3 对象删除与版本控制 | **未验证** |
 | 退役旧表（`daily_report` 等） | API **不覆盖**；历史库需运维手工处理 |

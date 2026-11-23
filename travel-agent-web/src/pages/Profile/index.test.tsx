@@ -11,12 +11,14 @@ import { ApiError } from '../../api/client';
 const api = vi.hoisted(() => ({
   systemStatus: vi.fn(),
   deleteAccountApi: vi.fn(),
+  exportAccountDataApi: vi.fn(),
   signOut: vi.fn(),
 }));
 
 vi.mock('../../api/assistant', () => ({ systemStatus: api.systemStatus }));
 vi.mock('../../api/auth', () => ({
   deleteAccountApi: api.deleteAccountApi,
+  exportAccountDataApi: api.exportAccountDataApi,
   signOut: api.signOut,
 }));
 
@@ -64,6 +66,17 @@ beforeEach(() => {
   });
   Object.values(api).forEach((fn) => fn.mockReset());
   navigateMock.mockReset();
+  // happy-dom 没有 Blob URL 实现：导出流程只关心是否触发下载与释放
+  Object.defineProperty(globalThis.URL, 'createObjectURL', {
+    value: vi.fn(() => 'blob:mock'),
+    writable: true,
+    configurable: true,
+  });
+  Object.defineProperty(globalThis.URL, 'revokeObjectURL', {
+    value: vi.fn(),
+    writable: true,
+    configurable: true,
+  });
   api.systemStatus.mockResolvedValue({
     llmConfigured: true,
     llmModel: 'deepseek-chat',
@@ -76,6 +89,53 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+});
+
+describe('Profile · 导出数据（数据可携带）', () => {
+  it('点击导出拉取本人数据并触发文件下载，登录态不变', async () => {
+    api.exportAccountDataApi.mockResolvedValue({ formatVersion: '1', counts: { trips: 1 } });
+    renderPage();
+
+    fireEvent.click(screen.getByTestId('export-account-data'));
+
+    await waitFor(() => expect(api.exportAccountDataApi).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(globalThis.URL.createObjectURL).toHaveBeenCalledTimes(1));
+    expect(globalThis.URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock');
+    // 导出是只读动作：不清登录态、不跳转
+    expect(useAuthStore.getState().user).toEqual(USER);
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  it('限流 429 只提示稍后再试，不清登录态也不跳转', async () => {
+    api.exportAccountDataApi.mockRejectedValue(new ApiError('操作过于频繁，请 30 秒后再试', 429));
+    renderPage();
+
+    fireEvent.click(screen.getByTestId('export-account-data'));
+
+    await waitFor(() => expect(api.exportAccountDataApi).toHaveBeenCalledTimes(1));
+    expect(useAuthStore.getState().user).toEqual(USER);
+    expect(useAuthStore.getState().token).toBe('token-1');
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  it('导出进行中按钮进入 loading，避免重复点击放大服务端压力', async () => {
+    let resolveExport: (value: unknown) => void = () => undefined;
+    api.exportAccountDataApi.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveExport = resolve;
+        }),
+    );
+    renderPage();
+
+    fireEvent.click(screen.getByTestId('export-account-data'));
+
+    const button = screen.getByTestId('export-account-data');
+    await waitFor(() => expect(button.className).toContain('ant-btn-loading'));
+
+    resolveExport({ formatVersion: '1', counts: {} });
+    await waitFor(() => expect(button.className).not.toContain('ant-btn-loading'));
+  });
 });
 
 describe('Profile · 注销账号（P0-D）', () => {

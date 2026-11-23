@@ -114,6 +114,9 @@ travel:
     # 会话恢复专用桶（GET /api/auth/me）：刷新页面/多标签页不该跟登录共用一个配额，
     # 否则用户 5 分钟内多刷几次就会被 429 踢回登录页（前端只把 401 当登出）。
     session-limit: ${RATE_LIMIT_SESSION:60}
+    # 账号级数据导出专用桶（GET /api/auth/me/export）：一次读全部归属数据，
+    # 正常用户不会连续导出，默认 3 次/窗口；不能并进 auth 桶（那里默认只有 10 且按 IP 计）。
+    export-limit: ${RATE_LIMIT_EXPORT:3}
     window-seconds: ${RATE_LIMIT_WINDOW_SECONDS:300}
     # 受信代理（逗号分隔，精确 IP 或 IPv4 CIDR）。默认空 = 不信任任何代理，
     # 直接用 TCP 源地址（RemoteAddr）计数，完全不读 X-Forwarded-For：

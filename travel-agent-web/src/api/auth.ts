@@ -1,6 +1,10 @@
 import { request } from './client';
+import type { components } from './generated/schema';
 import { useAuthStore } from '../store/authStore';
 import type { AuthResp } from '../types/trip';
+
+/** 账号级数据导出的响应体（字段由后端契约生成，见 docs/api/openapi.json） */
+export type AccountExport = components['schemas']['AccountExport'];
 
 export function loginApi(username: string, password: string): Promise<AuthResp> {
   return request<AuthResp>({ url: '/auth/login', method: 'post', data: { username, password } });
@@ -42,6 +46,16 @@ export function deleteAccountApi(password: string): Promise<void> {
 /** 服务端登出：清掉浏览器里的登录 Cookie */
 export function logoutApi(): Promise<void> {
   return request<void>({ url: '/auth/logout', method: 'post' });
+}
+
+/**
+ * 导出本人全部可见数据（GET /auth/me/export）。
+ *
+ * 只读操作：不会删除或修改任何数据，也不改变登录态。后端有独立且较严的限流桶
+ * （默认 5 分钟 3 次），429 时提示稍后再试即可，不能当成登录失效。
+ */
+export function exportAccountDataApi(): Promise<AccountExport> {
+  return request<AccountExport>({ url: '/auth/me/export' });
 }
 
 /** UI 登出：先清本地登录态，再把服务端注销当作 best-effort；导航由调用方处理 */

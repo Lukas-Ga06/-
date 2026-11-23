@@ -17,7 +17,7 @@
 | Rollup 地图 chunk | `maps-*.js` **1,068.35 kB**（gzip 292.76 kB），触发 Vite >800 kB 告警 | **不存在**；地图引擎移出 import 图 |
 | 地图引擎传输 | 随 `maps` chunk 进入首屏/预缓存 | 运行时按需：主模块 **1,106,041 B / gzip9 299,604 B**；worker **550,754 B / gzip9 158,020 B** |
 | PWA precache | 66 entries，**3,062.74 KiB（≈2.99 MiB）**，含整个 maps chunk | 2.20 MiB（82 项），不含 `vendor/maplibre/**`（2026-11-23 复测；此后新增的懒加载页面 chunk 计入总数） |
-| 首屏 JS（index.html 直接加载） | 入口 `index-*.js` 563.95 kB（gzip 183.87 kB） | 596,977 B + `registerSW.js` 134 B = **597,111 B**（gzip9 193,787 B） |
+| 首屏 JS（index.html 直接加载） | 入口 `index-*.js` 597,035 B（gzip9 193,793 B） | 597,035 B + `registerSW.js` 134 B = **597,169 B**（gzip9 193,918 B） |
 | 首屏 CSS（index.html 直接加载） | 单文件 `pages.css` 合计 **95,980 B** | **57,156 B**（gzip9 11,671 B），页面私有规则随路由 chunk 加载（2026-11-23 拆分后复测） |
 | ECharts chunk | `echarts-*.js` 550.48 kB | 550,477 B，仍独立分块、只被图表页懒加载 |
 | 地图样式 | `maps-*.css` 71,505 B 随 maps chunk | 懒加载 CSS chunk 71,505 B，不进 `index.html` |
@@ -98,8 +98,8 @@
 
 | 预算项 | 阈值 | 当前实测 | 说明 |
 | --- | --- | --- | --- |
-| `assets/*.js` 单文件 | ≤ 800,000 B | 最大 596,977 B | 与 Vite `chunkSizeWarningLimit: 800` 对齐；vendor 不算在内 |
-| index.html 首屏 JS | ≤ 600,000 B | 597,111 B | module script + modulepreload，去重后求和 |
+| `assets/*.js` 单文件 | ≤ 800,000 B | 最大 597,035 B | 与 Vite `chunkSizeWarningLimit: 800` 对齐；vendor 不算在内 |
+| index.html 首屏 JS | ≤ 600,000 B | 597,169 B | module script + modulepreload，去重后求和 |
 | index.html 首屏 CSS | ≤ 65,536 B | 57,156 B | `rel=stylesheet` 去重求和；守住「页面私有规则随路由 chunk 加载」，拆分前单文件口径为 95,980 B |
 | ECharts chunk | ≤ 600,000 B | 550,477 B | 图表必须保持独立分块，否则无法单独设预算 |
 | 地图主模块 gzip | ≤ 300,000 B | 299,604 B | gzip **level 9** 口径 |

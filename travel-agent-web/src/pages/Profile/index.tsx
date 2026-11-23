@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { App, Button, Checkbox, Input, Modal, Tag } from 'antd';
 import {
   DeleteOutlined,
+  DownloadOutlined,
   ExclamationCircleOutlined,
   LogoutOutlined,
   MoonOutlined,
@@ -9,7 +10,7 @@ import {
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { systemStatus, type SystemStatus } from '../../api/assistant';
-import { deleteAccountApi, signOut } from '../../api/auth';
+import { deleteAccountApi, exportAccountDataApi, signOut } from '../../api/auth';
 import { getErrorStatus } from '../../api/client';
 import { useAuthStore } from '../../store/authStore';
 import { useThemeStore } from '../../store/themeStore';
@@ -33,6 +34,9 @@ export default function Profile() {
   const [deleteConfirmed, setDeleteConfirmed] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // 导出数据：只读动作，与注销各自维护 busy/错误，互不禁用
+  const [exportBusy, setExportBusy] = useState(false);
 
   useEffect(() => {
     loadTrips().catch(() => undefined);
@@ -83,6 +87,36 @@ export default function Profile() {
       );
     } finally {
       setDeleteBusy(false);
+    }
+  };
+
+  /**
+   * 导出本人数据：拿到 JSON 后在浏览器侧生成文件下载，服务端不落盘。
+   * 失败只提示、不改变登录态——尤其是 429（限流桶，默认 5 分钟 3 次）不能当成登录失效。
+   */
+  const exportData = async () => {
+    setExportBusy(true);
+    try {
+      const data = await exportAccountDataApi();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `travel-agent-${user?.username ?? 'account'}-${new Date()
+        .toISOString()
+        .slice(0, 10)}.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      message.success('数据已导出');
+    } catch (error: any) {
+      const status = getErrorStatus(error);
+      message.error(
+        status === 429 ? '导出太频繁，请稍后再试。' : error?.message || '导出失败，请稍后重试。',
+      );
+    } finally {
+      setExportBusy(false);
     }
   };
 
@@ -251,6 +285,46 @@ export default function Profile() {
             <br />
             · 一期工具：天气 / 路线 / 景点 / 酒店 / 餐厅 / 预算 / 行程读写 / 撤销 等 10 个
             <br />· RAG 知识库：旅游攻略向量化检索；LLM 可在配置中接入 OpenAI-compatible 模型
+          </div>
+
+          {/* 数据可携带：只读导出，刻意与「危险区」分开，避免被误读成删除类操作 */}
+          <div
+            style={{
+              background: 'var(--grad-card)',
+              border: '1px solid var(--line)',
+              borderRadius: 'var(--radius-md)',
+              padding: 16,
+              marginBottom: 16,
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+              }}
+            >
+              <div style={{ minWidth: 0 }}>
+                <b style={{ color: 'var(--ink)', fontSize: 12.5 }}>
+                  <DownloadOutlined aria-hidden="true" /> 导出我的数据
+                </b>
+                <div
+                  style={{ marginTop: 4, fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.6 }}
+                >
+                  下载一份 JSON：账号资料、行程、记账、备忘、日程、会话与你上传的知识库文档；
+                  照片只给清单与访问地址，不含图片文件。
+                </div>
+              </div>
+              <Button
+                icon={<DownloadOutlined />}
+                loading={exportBusy}
+                onClick={exportData}
+                data-testid="export-account-data"
+              >
+                导出数据
+              </Button>
+            </div>
           </div>
 
           {/* 危险区：低频、不可恢复的动作单独成块，与日常设置用留白隔开 */}

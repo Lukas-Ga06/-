@@ -74,6 +74,11 @@ public class RateLimitFilter extends OncePerRequestFilter {
         if ("GET".equals(method) && "/api/auth/me".equals(path)) {
             return new Rule("session", "user", properties.getSessionLimit());
         }
+        // 账号级数据导出（GET /api/auth/me/export）必须排在下面的 /api/auth/ 兜底之前：
+        // 它已登录、按用户计，且一次读全部归属数据，比 /me 重得多，需要独立且更严的配额。
+        if ("GET".equals(method) && "/api/auth/me/export".equals(path)) {
+            return new Rule("export", "user", properties.getExportLimit());
+        }
         if (path.startsWith("/api/auth/")) {
             return new Rule("auth", "ip", properties.getAuthLimit());
         }

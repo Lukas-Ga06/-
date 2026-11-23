@@ -37,7 +37,7 @@
 | [code-structure.md](code-structure.md) | 代码结构手册：分层与依赖方向、16 个包职责、关键协作类（Agent 引擎 / 联网城市数据拆分）、新增代码落点决策表、命名约定、测试组织、维护红线（单类行数阈值等） | 所有人（写第一行代码前读） |
 | [getting-started.md](getting-started.md) | 环境要求、`run-dev.ps1` 启动、首次启动自动完成的事、前端启动与 `/api` 反代、演示闭环 walkthrough、常见问题排查表、提交前自检清单 | 所有人（第一天读） |
 | [architecture.md](architecture.md) | 分层架构、Agent 状态机、Intent/Planner/Executor/Reflect 四 Agent、AgentPlan 与 PlanOperation、三级风险 Human-in-the-loop、工具层只读闸门与 9 个内置工具、RAG 与 Embedding 降级、规划期知识引用、行中锁定与旅行事件、旅行回顾聚合、SSE 事件协议与 focus、会话记忆、待确认方案落库、MCP 生态、LLM 配额 | 后端 / Agent 能力开发 |
-| [api-reference.md](api-reference.md) | 通用约定（认证、短期票据、统一响应、错误码）、按业务模块逐接口的真实契约（含 `DELETE /api/auth/me` 注销账号）、66 个接口总表 | 前端 / 第三方集成 |
+| [api-reference.md](api-reference.md) | 通用约定（认证、短期票据、统一响应、错误码）、按业务模块逐接口的真实契约（含 `DELETE /api/auth/me` 注销账号与 `GET /api/auth/me/export` 数据导出）、67 个接口总表 | 前端 / 第三方集成 |
 | [data-model.md](data-model.md) | ER 总览、全部实体与表结构（字段 / 类型 / 索引 / 约束）、Flyway 迁移策略、数据一致性不变量、引导数据、常用 SQL 手册 | 后端 / 数据 |
 | [frontend.md](frontend.md) | 技术栈、目录结构、路由表（含 `/review`、`/trip/:id/review`）、页面清单、zustand 状态管理、API 层与 SSE 消费链路、核心组件、高德地图 Provider 抽象、构建与测试 | 前端 |
 | [deployment.md](deployment.md) | 部署拓扑、Docker 全栈部署步骤、**生产必改项清单**、环境变量权威表、H2/MySQL 切换、卷与备份恢复、反代与 HTTPS、监控与排障、CI 与发布 | 运维 |

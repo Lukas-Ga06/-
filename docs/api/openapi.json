@@ -1,6 +1,95 @@
 {
   "components" : {
     "schemas" : {
+      "Account" : {
+        "properties" : {
+          "createdAt" : {
+            "type" : "string"
+          },
+          "id" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "nickname" : {
+            "type" : "string"
+          },
+          "username" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "AccountExport" : {
+        "properties" : {
+          "account" : {
+            "$ref" : "#/components/schemas/Account"
+          },
+          "conversations" : {
+            "items" : {
+              "$ref" : "#/components/schemas/Conversation"
+            },
+            "type" : "array"
+          },
+          "counts" : {
+            "$ref" : "#/components/schemas/Counts"
+          },
+          "expenses" : {
+            "items" : {
+              "additionalProperties" : { },
+              "type" : "object"
+            },
+            "type" : "array"
+          },
+          "exportedAt" : {
+            "type" : "string"
+          },
+          "formatVersion" : {
+            "type" : "string"
+          },
+          "itineraryItems" : {
+            "items" : {
+              "additionalProperties" : { },
+              "type" : "object"
+            },
+            "type" : "array"
+          },
+          "knowledgeDocuments" : {
+            "items" : {
+              "additionalProperties" : { },
+              "type" : "object"
+            },
+            "type" : "array"
+          },
+          "memos" : {
+            "items" : {
+              "additionalProperties" : { },
+              "type" : "object"
+            },
+            "type" : "array"
+          },
+          "photos" : {
+            "items" : {
+              "$ref" : "#/components/schemas/Photo"
+            },
+            "type" : "array"
+          },
+          "schedules" : {
+            "items" : {
+              "additionalProperties" : { },
+              "type" : "object"
+            },
+            "type" : "array"
+          },
+          "trips" : {
+            "items" : {
+              "additionalProperties" : { },
+              "type" : "object"
+            },
+            "type" : "array"
+          }
+        },
+        "type" : "object"
+      },
       "AddExpenseRequest" : {
         "properties" : {
           "amount" : {
@@ -199,6 +288,24 @@
               "type" : "string"
             },
             "type" : "array"
+          }
+        },
+        "type" : "object"
+      },
+      "ApiResponseAccountExport" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/AccountExport"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "pagination" : {
+            "$ref" : "#/components/schemas/Pagination"
           }
         },
         "type" : "object"
@@ -1122,6 +1229,29 @@
         },
         "type" : "object"
       },
+      "Conversation" : {
+        "properties" : {
+          "conversationId" : {
+            "type" : "string"
+          },
+          "createdAt" : {
+            "type" : "string"
+          },
+          "messages" : {
+            "items" : {
+              "$ref" : "#/components/schemas/Message"
+            },
+            "type" : "array"
+          },
+          "title" : {
+            "type" : "string"
+          },
+          "updatedAt" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "ConversationMessageView" : {
         "properties" : {
           "content" : {
@@ -1181,6 +1311,47 @@
           },
           "title" : {
             "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "Counts" : {
+        "properties" : {
+          "conversations" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "expenses" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "itineraryItems" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "knowledgeDocuments" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "memos" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "messages" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "photos" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "schedules" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "trips" : {
+            "format" : "int32",
+            "type" : "integer"
           }
         },
         "type" : "object"
@@ -1556,6 +1727,30 @@
             "type" : "integer"
           },
           "userId" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "Message" : {
+        "properties" : {
+          "content" : {
+            "type" : "string"
+          },
+          "createdAt" : {
+            "type" : "string"
+          },
+          "intent" : {
+            "type" : "string"
+          },
+          "role" : {
+            "type" : "string"
+          },
+          "scope" : {
+            "type" : "string"
+          },
+          "turnSeq" : {
             "format" : "int64",
             "type" : "integer"
           }
@@ -3288,6 +3483,24 @@
               "*/*" : {
                 "schema" : {
                   "$ref" : "#/components/schemas/ApiResponseAuthResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "auth-controller" ]
+      }
+    },
+    "/api/auth/me/export" : {
+      "get" : {
+        "operationId" : "exportMe",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseAccountExport"
                 }
               }
             },
