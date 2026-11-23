@@ -230,6 +230,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\backup-drill.ps1 `
 | 迁移执行到一半失败 | 视情况 | 先确认无半完成 DDL，再走 repair/恢复（见 [部署与运维 §6.3.3](../guide/deployment.md)） |
 | 数据库损坏/误删 | 可 | 恢复到临时库 → 校验 → 切换（§3） |
 
+2026-11-23 演练结论（[证据](../review/2026-11-23-monitoring-and-rollback-drill.md) §2）：
+
+- V24 这类**加列**迁移：回退到 N-1 jar 后，Flyway 把 V24 视为 future（`Successfully validated 23 migrations`），Hibernate `validate` 忽略多余列，注册/建行程/列表冒烟全 200；**只回退代码，不恢复数据库，RTO ≈15 s**。
+- 删列/改类型/回填错误的破坏性迁移仍必须恢复发布前备份（RTO 取 §7.2 的 ≈18 s + 丢数窗口）。
+- 回滚后若再次前滚到 V24，N-1 期间签发的 token 会失效一次，需在发布公告里写明。
+
 纪律：
 
 - **不要**为了回滚去改已发布迁移或删 `flyway_schema_history`。

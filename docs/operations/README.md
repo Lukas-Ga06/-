@@ -12,9 +12,10 @@
 | [alerts.yml](alerts.yml) | Prometheus 告警规则（PrometheusRule / rule_files） | P0-D |
 | [grafana-travel-agent.json](grafana-travel-agent.json) | Grafana Dashboard（指标面板） | P0-D |
 | [production-config.md](production-config.md) | 生产环境变量清单、密钥权限/配额/轮换、未配置时的预期行为、compose 透传核对（含仍不可用 `.env` 覆盖的项）、上线自检 | P0-A |
-| [backup-restore.md](backup-restore.md) | MySQL 8.4 备份/恢复、Flyway 迁移前快照与 V23 后复跑、照片/S3 对象备份、RTO/RPO 记录模板、回滚边界 | P0-D |
+| [backup-restore.md](backup-restore.md) | MySQL 8.4 备份/恢复、Flyway 迁移前快照与 V24 后复跑、照片/S3 对象备份、RTO/RPO 记录模板、回滚边界 | P0-D |
 | [github-security-settings.md](github-security-settings.md) | GitHub 依赖图/Dependabot/Code scanning/Secret scanning/分支保护的人工操作清单，以及 `dependency-review` 转硬门禁的判定 | P0-C / P0-D |
 | [launch-checklist.md](launch-checklist.md) | 上线执行清单（Android 真机口径）：12 项阻断差距、阶段 0–3 步骤、Android 真机验收矩阵、风险登记 | P0-A～P0-D / P1-F |
+| [release-record.md](release-record.md) | 发布记录模板与 2026-11-23 灰度前检查点（commit / 迁移版本 / 门禁 / 真实验收 / RTO / 回滚） | 发布负责人 |
 
 配套脚本与模板：
 
