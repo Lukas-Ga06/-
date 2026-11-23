@@ -171,6 +171,6 @@ travel-agent/
 
 - 版本 **0.1.0**（`travel-agent-server` / `travel-agent-web` 同步）。
 - 文档基线 **2026-11-23**；改文档后运行 `node scripts/docs-check.mjs` 校验链接与命令引用。
-- **可发布级别**：当前具备「内部演示」；受控灰度 / 公网 v1 仍缺真实 MySQL、真机 iOS、正式许可与安全门禁等，见 [P0 执行快照](docs/review/2026-11-22-p0-execution.md) §5。
+- **可发布级别**：当前具备「内部演示」；受控灰度 / 公网 v1 仍缺**真机验收（Android / iOS）**、正式许可与 GitHub 安全门禁等。真实 MySQL 8.4 的全量迁移与备份恢复已于 2026-11-23 实测通过（见 [MySQL 迁移验证](docs/guide/mysql-migration.md)、[备份恢复](docs/operations/backup-restore.md)）。总体口径见 [P0 执行快照](docs/review/2026-11-22-p0-execution.md) §5。
 - 仓库采用**专有许可**（见 [LICENSE](LICENSE)）：`Copyright (c) 2026 Travel Agent contributors. All rights reserved.`。**未授予开源许可**；未经版权持有人书面许可，不得复制、分发、修改或用于商业服务。许可证策略与切换开源许可证的流程见 [许可证说明](docs/legal/licensing.md)。
-- 隐私政策、第三方服务说明、数据删除流程与许可证说明见 [合规文档索引](docs/legal/README.md)。这些文档在发布前需法务确认；其中**账号删除与账号级数据导出尚未实现**，见 [数据删除流程](docs/legal/data-deletion.md)。
+- 隐私政策、第三方服务说明、数据删除流程与许可证说明见 [合规文档索引](docs/legal/README.md)。这些文档在发布前需法务确认；其中**账号注销已实现**（`DELETE /api/auth/me`，需密码二次确认），**账号级数据导出尚未实现**（`GET /api/auth/me/export`），见 [数据删除流程](docs/legal/data-deletion.md)。
