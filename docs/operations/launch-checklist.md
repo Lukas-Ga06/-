@@ -194,7 +194,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/mysql-it.ps1
 
 ### 5.3 法务、许可与数据导出
 
-- 替换 [隐私政策](../legal/privacy-policy.md#L13) 的运营主体、注册地址、隐私邮箱、生效日期、版本号；确认留存期。
+- 替换 [隐私政策](../legal/privacy-policy.md) §1 的运营主体、注册地址、隐私邮箱、生效日期、版本号；确认留存期。
 - ~~实现账号级数据导出~~ **已完成**：`GET /api/auth/me/export`（JSON，照片只给清单），入口在个人中心「导出我的数据」；上线前补一次 MySQL 实机复核。
 - 第三方服务清单与实际 provider 对齐；LICENSE 专有/开源是业务决策，需法务书面确认。
 
