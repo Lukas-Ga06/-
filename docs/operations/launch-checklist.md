@@ -20,7 +20,7 @@
 | 项 | 实测结果 | 对计划的影响 |
 | --- | --- | --- |
 | 工作区 | 复核时**工作区干净**（0 个未提交路径）；分支 `feat/weather-strict-ui-closeout` 领先 `origin/main` **24 个提交**，其中 **1 个（`9c52251`）未 push**；本地 `main` 落后 `origin/main` 6 个提交 | 阶段 0 的「提交 / 拆分」已完成，只剩 push → PR → CI → 合 main → tag |
-| Docker | **已安装**（Docker 29.9.3），但守护进程未运行（`docker info` 连不上 `dockerDesktopLinuxEngine`） | 阶段 1.3 只需启动 Docker Desktop，不必再装 |
+| Docker | Docker Desktop **已安装**（29.9.3，per-user 于 `AppData\Local\Programs\DockerDesktop`），但引擎起不来：**WSL 未安装**（`wsl --version` 报「未安装用于 Linux 的 Windows 子系统」，引擎停机原因 `wsl is not installed`） | 阶段 1.3 需**管理员**执行 `wsl --install` 并重启，再启动 Docker Desktop；不是「装 Docker」 |
 | MySQL | 3306 有 MySQL80 服务在跑；便携 8.4.10 在 `.tools/mysql8410-3307`，当前未启动 | 阶段 1.1/1.2 本机即可做，不必等 Docker |
 | Node / Maven | Node 20.17；Maven 3.9.16（不在 bash PATH，用 PowerShell 或 `cmd //c`） | 门禁命令在 PowerShell 里跑 |
 | 前端依赖 | `travel-agent-web/node_modules` 已安装 | 门禁不用重新 `npm ci` |
@@ -42,7 +42,7 @@
 | --- | --- | --- | --- | --- | --- |
 | 1 | 成果未落地 | 工作区已干净、改动已切成 24 个提交；但 **1 个提交（`9c52251`）未 push**，24 个提交都还没进 `main` | push → PR → 远端 CI → 合 main → tag | 我 | 0.5h + CI |
 | 2 | 真实 MySQL 8.4 | **已完成（2026-11-23）**：全量 23 条迁移 + 备份恢复演练实测（48.8 MB 恢复 5.06 s）；RTO/RPO 目标值仍待业务确认 | — | ✅ | — |
-| 3 | 容器冷启动 | Docker 已装但守护进程未启动；compose/Redis/S3/nginx 未实测 | 启动 Docker Desktop → 生产 `.env` → 全栈起 → 对 status 字段 | 你启动 / 我跑 | 1d |
+| 3 | 容器冷启动 | Docker Desktop 已装，但 **WSL2 未安装** → 引擎无法启动；compose/Redis/S3/nginx 未实测 | 管理员 `wsl --install` + 重启 → 起 Docker Desktop → 生产 `.env` → 全栈起 → 对 status 字段 | 你装 WSL / 我跑 | 1d |
 | 4 | GitHub 安全开关 | `dependency-review` 仍 `continue-on-error` | 开 4 个开关 → 删标记 → 分支保护 | 你 | 10min |
 | 5 | 真实 LLM 压测 | 只跑过 2 次，余额 **¥0.66** | 20 次规划约 ¥0.3，记录终态/partial/schema 自纠；**需先充值** | 我 / 你 | 0.5d |
 | 6 | 高德真实边界 | **REST 已实测**：20 并发复现 9 次 `10021`，跨城同名 POI 与 polyline 正常；MCP Key 未验 | 生产 Web 服务 Key + MCP `AMAP_MAPS_API_KEY` 复验 | 我 / 你 | 0.5d |
@@ -230,7 +230,7 @@ P2 的 OTA 实时库存、真实 Embedding 调优、照片轨迹、继续 UI 打
 | 编号 | 风险 | 影响 | 处置 |
 | --- | --- | --- | --- |
 | R1 | 模拟套件仍是 WebKit/iPhone 预设，真机口径已改 Android | 模拟通过不代表 Android 通过 | 真机验收必须人工做；长期需单独的 Chromium Android 仿真代码批次 |
-| R2 | Docker 已安装但守护进程未启动 | 容器冷启动做不了 | 启动 Docker Desktop；WSL/Hyper-V 不可用时换机器 |
+| R2 | Docker Desktop 已装但 WSL2 未安装，引擎起不来 | 容器冷启动做不了（灰度最大未知数） | 管理员 `wsl --install` 并重启；无虚拟化权限时换机器 |
 | R3 | infra 用 mysql:8.0，生产用 8.4 | 开发与生产版本漂移 | 对齐镜像，或在文档写明版本口径 |
 | R4 | 首屏 JS 余量 2,889 B / CSS 余量 8,380 B | 新依赖直接撞预算 | v1 前只做分割，不调阈值 |
 | R5 | 法务排期不可控 | 公网发布日期不可控 | 尽早送审，法务确认前不发布 |
