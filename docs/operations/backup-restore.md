@@ -1,12 +1,12 @@
 # 备份、恢复与迁移演练（P0-D）
 
-> 状态：**流程与脚本已就绪，尚未在真实生产类环境演练** | 适用版本：MySQL 8.4 / Flyway V1–V23 / Spring Boot 3.5.12 | 最后核对：2026-11-22 | 事实来源：`docker-compose.yml`、`travel-agent-server/src/main/resources/db/`、`application-mysql.yml`、`docs/guide/mysql-migration.md`、`docs/guide/deployment.md` §10、[路线图](../PROJECT_ROADMAP.md) P0-D
+> 状态：**已在真实 MySQL 8.4 完成一次备份→恢复→校验演练（2026-11-23，单机合成数据，见 §7.2）；生产类环境与照片/S3 仍未演练** | 适用版本：MySQL 8.4 / Flyway V1–V23 / Spring Boot 3.5.12 | 最后核对：2026-11-23 | 事实来源：`docker-compose.yml`、`travel-agent-server/src/main/resources/db/`、`application-mysql.yml`、`docs/guide/mysql-migration.md`、`docs/guide/deployment.md` §10、[路线图](../PROJECT_ROADMAP.md) P0-D
 
 ## 0. 结论与边界（先看这里）
 
 - 本文给出 MySQL 8.4 逻辑备份、恢复、迁移前快照、迁移后复跑、照片/对象存储备份、校验与 RTO/RPO 记录模板。
 - 可执行脚本：[`scripts/backup-drill.ps1`](../../scripts/backup-drill.ps1)（PowerShell 7 / Windows，参数化；默认只 dump，不执行破坏性操作）。
-- **没有任何一次真实演练结果被记录**：RTO/RPO 表是模板，必须由执行人填写并附证据。**不得**把本文当作“已演练通过”。
+- **已有一次真实演练结果（2026-11-23，MySQL 8.4.10 / 48.8 MB 合成数据）**：PASS，21 张关键表行数全等、Flyway 22/22、应用 `validate` 通过；照片/S3、生产类网络与磁盘仍未演练。§7.2 中未填的行不得当作已通过。
 - 迁移是 **forward-only**：仓库不提供 `down` 脚本，回滚数据库只能靠“恢复备份”或“旧版本代码仍能读新结构”。发布前必须确认这一点（见 §8）。
 - 备份不包括对象存储里的照片原文件；本地照片在 `backend-data` 卷，S3 照片需对象存储自身的备份/版本控制。
 
@@ -98,7 +98,7 @@ gunzip -c "backups/travel_agent-<时间戳>.sql.gz" | \
 | 迁移文件 | 23 个版本 / 24 个脚本（V13 双方言两份；V8/V12 仅 MySQL；V14 仅 H2） | [数据模型](../guide/data-model.md) §6 / §9 |
 | MySQL 实际应用 | V1–V13 + V15–V23（**没有 V14**，H2 专属） | `application-mysql.yml` 的 `locations` |
 | 真实 MySQL 8.4 证据 | 仓库内已有 MySQL 8.4 的迁移证据（[MySQL 迁移验证](../guide/mysql-migration.md) §5 记录到 V19；[路线图](../PROJECT_ROADMAP.md) 2026-11-22 记为 V1–V22） | 历史证据，非本次演练 |
-| V23 | 已合入，H2/应用测试覆盖；**尚未在真实 MySQL 8.4 上复跑** | [路线图](../PROJECT_ROADMAP.md) §2 |
+| V23 | 已合入；**2026-11-23 在真实 MySQL 8.4.10 上复跑通过**（22 条迁移 success、Hibernate `validate` 通过，见 §7.2） | 本地演练证据 |
 | 回滚脚本 | **没有**（forward-only） | 迁移目录内无 `U*.sql` / `undo` |
 
 ### 4.3 V23 之后重跑迁移（发布前必做）
@@ -208,14 +208,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\backup-drill.ps1 `
 - 密码通过临时 `defaults-extra-file` 传递，**不写命令行、不写日志**；脚本结束删除临时文件。
 - 默认**不删除**临时库（避免破坏性操作）；确认后手工 `DROP DATABASE`，或加 `-CleanupRestoreDb` 让脚本在 PASS/FAIL 后清理。
 - 输出 PASS/FAIL、备份/恢复耗时、每张关键表两侧行数、Flyway 行数与最大版本；报告可另存。
+- 行数校验走合批查询（21 张表 2 次 `mysql` 调用，约 4 s）；2026-11-23 首跑用逐表查询时为 63 次调用、约 70 s，已改掉。
 
 ### 7.2 RTO / RPO 记录模板（每次演练复制一行填写）
 
 | 日期 | 环境（MySQL 版本/数据量） | 备份耗时 | 恢复耗时 | 实测 RTO | 可接受 RPO | 校验结果 | 执行人 / 复核人 | 证据路径 | 结论 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 2026-11-23 | MySQL 8.4.10 / 48.8 MB（28 表；关键表 142,200 行：users 200 / trip 2,000 / itinerary_item 60,000 / conversation_message 50,000 / tool_call_trace 30,000） | 1.01–1.25 s（dump 27.8 MiB） | 4.06–5.07 s | **≈16 s**（恢复 4.06 s + 应用启动并 `validate` 12.09 s；含行数校验约 20 s） | 未定（每日全量最坏 24 h；dump 仅秒级，可提高频率） | 21 张关键表行数全等；Flyway 22/22 success；应用 `validate` 通过 | lead（AI 执行）/ 待人工复核 | `.evidence/backup-drill/report-20261123-batched.json`、`app-start.log`（本机、不入库） | **PASS（单机合成数据，生产需重演）** |
 | `[待演练]` | `[8.4.x / xx MB]` | `[ ]` | `[ ]` | `[ ]` | `[ ]` | `[ ]` | `[ ]` | `[ ]` | `[ ]` |
 
-> 目前**没有**已确认的 RTO/RPO 目标值。关键数据只有 **MySQL `travel_agent` + 照片对象**；Redis 限流计数与容器日志不纳入 RTO/RPO。技术上：每日一次逻辑备份意味着最坏 RPO 约 24 小时（按备份频率推算，未验证）；RTO 取决于数据量、恢复方式与磁盘，**未测**。目标值必须由业务确认后写进本表，并与隐私政策/对客承诺一致。
+> 目前**没有**已确认的 RTO/RPO 目标值。关键数据只有 **MySQL `travel_agent` + 照片对象**；Redis 限流计数与容器日志不纳入 RTO/RPO。2026-11-23 单机实测：48.8 MB 库恢复 4.06 s、应用启动 12.09 s；RTO 随数据量/磁盘增长，生产类环境必须重演。每日一次全量备份意味着最坏 RPO 约 24 小时（按频率推算，未由业务确认）。目标值必须由业务确认后写进本表，并与隐私政策/对客承诺一致。
 
 ## 8. 回滚边界
 
@@ -256,9 +258,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\backup-drill.ps1 `
 
 | 项 | 状态 |
 | --- | --- |
-| 真实生产类 MySQL 的备份→恢复→校验全过程 | **未执行**（本文只有流程与脚本） |
-| V23 在真实 MySQL 8.4 复跑 | **未执行**（路线图要求的待办） |
-| RTO / RPO 实测 | **没有数值** |
+| 真实生产类 MySQL 的备份→恢复→校验全过程 | **单机演练 1 次（2026-11-23）**；生产类环境（真实数据量/磁盘/网络）**未执行** |
+| V23 在真实 MySQL 8.4 复跑 | **已完成**（2026-11-23，22 条迁移 + `validate`，见 §7.2） |
+| RTO / RPO 实测 | 有一次单机值（RTO ≈16 s / 48.8 MB）；**目标值未定**，RPO 未由业务确认 |
 | S3 对象备份/恢复 | **未验证** |
 | 备份加密、异地、保留策略 | **未落地**（运维需配置并记录） |
 | 定时备份任务 | **仓库未提供**（部署文档有 cron 示例，需按环境落地） |

@@ -50,6 +50,14 @@ param(
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
+try {
+    $utf8Out = New-Object System.Text.UTF8Encoding($false)
+    [Console]::OutputEncoding = $utf8Out
+    $OutputEncoding = $utf8Out
+} catch {
+    # 无控制台句柄的宿主可能拒绝；不影响演练结果
+}
+
 $script:TempFiles = New-Object System.Collections.ArrayList
 $script:Failures = New-Object System.Collections.ArrayList
 $script:Evidence = New-Object System.Collections.ArrayList
@@ -180,22 +188,36 @@ function Invoke-MysqlScalar {
     return $value.Trim()
 }
 
-function Test-TableExists {
-    param([string]$Mysql, [string]$DefaultsFile, [string]$DbName, [string]$TableName)
-    $sql = ("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='{0}' AND table_name='{1}';" -f $DbName, $TableName)
-    $value = Invoke-MysqlScalar -Mysql $Mysql -DefaultsFile $DefaultsFile -Sql $sql
-    return ([int]$value -gt 0)
-}
+function Get-KeyTableCounts {
+    param([string]$Mysql, [string]$DefaultsFile, [string]$DbName)
+    # 一次连接拿回「存在哪些表」+「所有关键表行数」。
+    # 2026-11-23 实测：逐表两次调用会为 21 张表启动 63 次 mysql.exe（每次约 1.1s），
+    # 单这一步就占掉约 70s，把演练耗时抬成工具开销而不是恢复本身。
+    $existingRaw = Invoke-MysqlScalar -Mysql $Mysql -DefaultsFile $DefaultsFile -Sql (
+        "SELECT table_name FROM information_schema.tables WHERE table_schema='{0}';" -f $DbName)
+    $existing = @()
+    if (-not [string]::IsNullOrWhiteSpace($existingRaw)) {
+        $existing = $existingRaw -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }
+    }
+    $counts = @{}
+    $wanted = @($script:KeyTables | Where-Object { $existing -contains $_ })
+    if ($wanted.Count -eq 0) { return $counts }
 
-function Get-TableCount {
-    param([string]$Mysql, [string]$DefaultsFile, [string]$DbName, [string]$TableName)
-    $sql = ('SELECT COUNT(*) FROM `{0}`.`{1}`;' -f $DbName, $TableName)
-    return [int](Invoke-MysqlScalar -Mysql $Mysql -DefaultsFile $DefaultsFile -Sql $sql)
+    $queries = $wanted | ForEach-Object {
+        'SELECT ''{0}'' AS t, COUNT(*) AS c FROM `{1}`.`{0}`' -f $_, $DbName
+    }
+    $raw = Invoke-MysqlScalar -Mysql $Mysql -DefaultsFile $DefaultsFile -Sql (($queries -join ' UNION ALL ') + ';')
+    foreach ($line in ($raw -split "`n")) {
+        $parts = $line.Trim() -split "`t"
+        if ($parts.Count -ge 2 -and $parts[0] -ne '') { $counts[$parts[0]] = [int]$parts[1] }
+    }
+    return $counts
 }
 
 function Get-FlywaySummary {
     param([string]$Mysql, [string]$DefaultsFile, [string]$DbName)
-    $sql = ('SELECT CONCAT(COALESCE(SUM(CASE WHEN success=1 THEN 1 ELSE 0 END), 0), ''|'', COALESCE(MAX(CASE WHEN success=1 THEN version END), ''none''), ''|'', COALESCE(SUM(CASE WHEN success=0 THEN 1 ELSE 0 END), 0)) FROM `{0}`.`flyway_schema_history`;' -f $DbName)
+    # version 是 varchar：MAX() 会按字符串比较（'9' > '23'），必须按 installed_rank 取最后一条
+    $sql = ('SELECT CONCAT(COALESCE(SUM(CASE WHEN success=1 THEN 1 ELSE 0 END), 0), ''|'', COALESCE((SELECT version FROM `{0}`.`flyway_schema_history` WHERE success=1 ORDER BY installed_rank DESC LIMIT 1), ''none''), ''|'', COALESCE(SUM(CASE WHEN success=0 THEN 1 ELSE 0 END), 0)) FROM `{0}`.`flyway_schema_history`;' -f $DbName)
     $raw = Invoke-MysqlScalar -Mysql $Mysql -DefaultsFile $DefaultsFile -Sql $sql
     $parts = $raw.Split('|')
     if ($parts.Count -lt 3) {
@@ -365,20 +387,27 @@ try {
         }
 
         $rows = New-Object System.Collections.ArrayList
+        $countWatch = [System.Diagnostics.Stopwatch]::StartNew()
+        $sourceCounts = Get-KeyTableCounts -Mysql $mysql -DefaultsFile $defaultsFile -DbName $Database
+        $restoreCounts = Get-KeyTableCounts -Mysql $mysql -DefaultsFile $defaultsFile -DbName $RestoreDb
         foreach ($table in $script:KeyTables) {
-            $exists = Test-TableExists -Mysql $mysql -DefaultsFile $defaultsFile -DbName $Database -TableName $table
-            if (-not $exists) {
+            if (-not $sourceCounts.ContainsKey($table)) {
                 Write-Step ("SKIP 表 {0}：源库不存在" -f $table)
                 continue
             }
-            $sourceCount = Get-TableCount -Mysql $mysql -DefaultsFile $defaultsFile -DbName $Database -TableName $table
-            $restoredCount = Get-TableCount -Mysql $mysql -DefaultsFile $defaultsFile -DbName $RestoreDb -TableName $table
+            $sourceCount = [int]$sourceCounts[$table]
+            $restoredCount = if ($restoreCounts.ContainsKey($table)) { [int]$restoreCounts[$table] } else { 0 }
             $match = ($sourceCount -eq $restoredCount)
             $null = $rows.Add([pscustomobject]@{ Table = $table; Source = $sourceCount; Restored = $restoredCount; Match = $match })
             if (-not $match) {
                 $null = $script:Failures.Add("表 $table 行数不一致：源 $sourceCount / 恢复 $restoredCount")
             }
         }
+        $countWatch.Stop()
+        $null = $script:Evidence.Add([pscustomobject]@{
+            Kind = 'verify'; Seconds = [math]::Round($countWatch.Elapsed.TotalSeconds, 2)
+        })
+        Write-Step ("行数校验完成，耗时 {0:N2}s" -f $countWatch.Elapsed.TotalSeconds)
         $null = $script:Evidence.Add([pscustomobject]@{ Kind = 'counts'; Rows = $rows })
 
         Write-Host ''
