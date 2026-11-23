@@ -38,6 +38,7 @@
 | [2026-11-21-stage-e-css-split-visual.md](2026-11-21-stage-e-css-split-visual.md) | 2026-11-21 | global.css 页面级拆分、11 张关键页面截图基线 | 拆分逐像素等价（11/11）、482 用例全绿；剩余共享层分批、基线未进 CI |
 | [2026-11-21-stage-d-conflict.md](2026-11-21-stage-d-conflict.md) | 2026-11-21 | 冲突提示「此行程已在其他位置更新」：版本字段、409 处理、版本主动对齐 | 冲突可识别/提示/刷新，后端 verify 与前端 482 用例全绿；真实双端并发未验 |
 | [2026-11-21-recent-conversations.md](2026-11-21-recent-conversations.md) | 2026-11-21 | §8.6 最近会话列表与继续对话（两个只读接口 + 助手抽屉） | 列表/回填可用（547 后端 + 490 前端用例全绿）；会话 scope 与会话管理未做 |
+| [2026-11-23-first-screen-budget.md](2026-11-23-first-screen-budget.md) | 2026-11-23 | 首屏单 chunk 依赖归因、表单栈分割实验 | 首屏 597,968/600,000 B（余 2,032 B）；manualChunks 拆表单栈反而涨到 684 KB，已回退；v1 不得新增首屏依赖 |
 | [2026-11-21-conversation-scope.md](2026-11-21-conversation-scope.md) | 2026-11-21 | 会话 scope（V21 迁移 + scope 字段 + 回填带作用域 + 前端恢复行程绑定） | scope 端到端打通、跨页面续聊恢复 tripId；真实 MySQL V1..V21 全绿（550 后端用例）；会话管理与同会话并发控制未做 |
 | [2026-11-21-stage-e-css-split-batch2.md](2026-11-21-stage-e-css-split-batch2.md) | 2026-11-21 | global.css 第二批拆分（首页 / 行程 / 足迹）+ 视觉基线复核 | 逐规则等价（0 丢失 / 0 声明变化）、11/11 基线 0 像素差、入口 CSS −13.5%；7 类必须留在 global 的规则已列明 |
 | [2026-11-21-device-network-acceptance.md](2026-11-21-device-network-acceptance.md) | 2026-11-21 | WebKit/iPhone 预设移动端、CDP 弱网与离线、同账号多端并发 | 8 条新增用例全过（21/21）；iOS 真机不可验；顺带把 a11y 门禁从「数据依赖」修成确定性并修掉一处真实对比度缺陷 |
