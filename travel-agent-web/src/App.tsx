@@ -38,7 +38,6 @@ const Knowledge = lazy(() => import('./pages/Knowledge'));
 const Reviews = lazy(() => import('./pages/Reviews'));
 const TripReview = lazy(() => import('./pages/TripReview'));
 const Workbench = lazy(() => import('./pages/Workbench'));
-const UIDemo = lazy(() => import('./pages/UIDemo'));
 
 /**
  * 登录态恢复「暂时失败」时的兜底页：429 限流 / 5xx / 断网都不代表用户没登录，
@@ -207,17 +206,6 @@ function AnimatedRoutes() {
                 </Protected>
               }
             />
-            {/* 组件预览只在开发环境注册，生产构建不暴露（P2-05） */}
-            {import.meta.env.DEV && (
-              <Route
-                path="/ui-demo"
-                element={
-                  <Protected>
-                    <UIDemo />
-                  </Protected>
-                }
-              />
-            )}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </PageTransition>

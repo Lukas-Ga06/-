@@ -1,13 +1,21 @@
 /* ============================================================
    AI 智能旅行助手 · 全局样式入口
    ------------------------------------------------------------
-   P1-G：global.css 只保留入口与 reset，不再堆叠页面规则。
-   加载顺序：tokens → shell → buttons → cards → status → pages。
-   页面级规则继续由各自的页面 CSS 承担。
+   global.css 只保留入口与 reset，不再堆叠页面或组件规则。
+   固定加载顺序（不要调整；改顺序等于改级联）：
+     基础令牌 → 外壳 → 按钮 → 卡片 → 状态 → 共享布局
+     → 跨页组件 → 动效 → 无页面 CSS 的页面私有样式
+   其它页面级规则由各自的 src/pages/<Page>/<page>.css 在该页 chunk 里导入。
    ============================================================ */
 @import './tokens.css';
 @import './shell.css';
 @import './buttons.css';
 @import './cards.css';
 @import './status.css';
-@import './pages.css';
+@import './shared.css';
+@import './components.css';
+@import './animations.css';
+
+/* Expenses / Travel 页面组件没有自己的 .css，私有规则在此按固定顺序导入 */
+@import './pages-travel.css';
+@import './pages-expenses.css';
