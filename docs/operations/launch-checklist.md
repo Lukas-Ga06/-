@@ -44,8 +44,8 @@
 | 2 | 真实 MySQL 8.4 | V23 后未跑；备份恢复只验过 fake client | 便携 8.4 起库 → 迁移 → 备份恢复 → 写 RTO/RPO | 我 | 0.5–1d |
 | 3 | 容器冷启动 | 本机无 Docker；compose/Redis/S3/nginx 未实测 | 装 Docker → 生产 `.env` → 全栈起 → 对 status 字段 | 你装 / 我跑 | 1d |
 | 4 | GitHub 安全开关 | `dependency-review` 仍 `continue-on-error` | 开 4 个开关 → 删标记 → 分支保护 | 你 | 10min |
-| 5 | 真实 LLM 压测 | 只跑过 2 次，余额 ¥0.73 | 20 次规划约 ¥0.3，记录终态/partial/schema 自纠 | 我 | 0.5d |
-| 6 | 高德真实边界 | 10021 只在单测和一次真跑里 | 并发触发限流、跨城同名 POI、polyline、GCJ-02 | 我 | 0.5d |
+| 5 | 真实 LLM 压测 | 只跑过 2 次，余额 **¥0.66** | 20 次规划约 ¥0.3，记录终态/partial/schema 自纠；**需先充值** | 我 / 你 | 0.5d |
+| 6 | 高德真实边界 | **REST 已实测**：20 并发复现 9 次 `10021`，跨城同名 POI 与 polyline 正常；MCP Key 未验 | 生产 Web 服务 Key + MCP `AMAP_MAPS_API_KEY` 复验 | 我 / 你 | 0.5d |
 | 7 | **Android 真机**（原 iPhone） | 只有 WebKit 模拟 | 两台真机跑 §5.1 矩阵并留证 | 你 | 0.5d |
 | 8 | Linux 视觉基线 | 只有 win32 快照 | 跑 `visual-baseline.yml`，提交 linux 基线 | 我（需 Actions） | 2h |
 | 9 | 法务与许可证 | 5 处占位 + 留存期待确认 + LICENSE 专有 | 法务替换、生效日期、隐私页上线 | 你 | 外部 |

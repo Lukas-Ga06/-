@@ -26,7 +26,7 @@
 | 环境变量版本 | 新增 `LLM_MODEL=deepseek-flash`、模型探测开关、`users.token_version`（V24）；compose 增加 Redis/S3/限流/时区变量。模板见 `.env.production.example`，无密钥入库 |
 | 迁移版本 | MySQL 8.4.10：**23 条 success，maxVersion=24**（V1–V13 + V15–V24；V14 为 H2 专属）；Hibernate `validate` 通过。V23→V24 增量 35 ms |
 | 门禁 | 后端 **623 tests / 0 failures / 3 skipped**（JaCoCo/Checkstyle/SpotBugs 通过）；前端 typecheck/lint/format/532 tests/核心覆盖/包体预算/契约通过；E2E 桌面 14/14、设备 22/22、视觉 11/11；docs-check 0 断链。**远端 CI 因本机 GitHub 出口被阻断未跑** |
-| 真实 provider 验收 | 未完成：高德仍为 JS Key（后端拒绝），LLM 余额未充值；模型探测 `/models` 通过（`deepseek-flash`）。真实 iOS/Android 未验 |
+| 真实 provider 验收 | 高德 REST 已实测：地理编码/POI/驾车路线 `10000`，跨城同名 POI 正常，20 并发复现 9 次 `10021`；MCP `AMAP_MAPS_API_KEY` 未验。LLM 余额 ¥0.66，20 次压测未跑（需充值）。真实 iOS/Android 未验 |
 | 备份恢复 | 48.8 MB / 28 表 / 142,200 行：dump 1.02 s、restore 5.06 s、校验 4.17 s、应用启动 validate 12.75 s，**RTO ≈18 s**；证据 `docs/operations/backup-restore.md` §7.2 |
 | 监控告警 | Prometheus 8 组/18 条规则；停后端 3 分钟 `TravelAgentServerDown` 真实 firing 并恢复；Grafana 数据源与仪表盘可用；高德降级告警未实跑。见 [演练快照](../review/2026-11-23-monitoring-and-rollback-drill.md) |
 | 回滚 | V24 加列型迁移：回退 N-1 jar 直接启动（Flyway 将 V24 视为 future、validate 通过、业务冒烟 200），**RTO ≈15 s，无需恢复数据库**；破坏性迁移仍需恢复备份 |
