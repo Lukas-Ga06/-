@@ -23,6 +23,22 @@ export function meApi(): Promise<AuthResp> {
   return request<AuthResp>({ url: '/auth/me' });
 }
 
+/**
+ * 注销账号：DELETE /auth/me，body 需要当前密码二次确认。
+ *
+ * 密码错误时后端返回 401。这不是「登录态失效」，必须标记 skipAuthRedirect，
+ * 否则 401 拦截器会把正在注销的用户直接踢下线、跳登录页。
+ * 删除成功由后端级联清理行程/照片/会话与派生数据并清 Cookie。
+ */
+export function deleteAccountApi(password: string): Promise<void> {
+  return request<void>({
+    url: '/auth/me',
+    method: 'delete',
+    data: { password },
+    skipAuthRedirect: true,
+  });
+}
+
 /** 服务端登出：清掉浏览器里的登录 Cookie */
 export function logoutApi(): Promise<void> {
   return request<void>({ url: '/auth/logout', method: 'post' });

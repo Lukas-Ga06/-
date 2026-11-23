@@ -174,3 +174,22 @@
     margin: var(--sp-2) var(--sp-2) 0;
   }
 }
+
+/* 「更多」菜单：没有可撤销动作时写明原因，而不是让用户点了才知道 */
+.menu-with-hint {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.menu-with-hint .menu-hint {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+/* 移动端时间轴底部的安全区：分页/撤销条不压住 home 指示条 */
+@media (max-width: 720px) {
+  .trip-timeline-card {
+    padding-bottom: calc(12px + var(--safe-bottom));
+  }
+}

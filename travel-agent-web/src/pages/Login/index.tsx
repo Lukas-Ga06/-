@@ -5,6 +5,7 @@ import {
   GlobalOutlined,
   RobotOutlined,
   ThunderboltOutlined,
+  UserOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { loginApi, registerApi } from '../../api/auth';
@@ -66,7 +67,7 @@ export default function Login() {
         <Input
           size="large"
           placeholder="用户名"
-          prefix={<span style={{ color: '#94a3b8' }}>👤</span>}
+          prefix={<UserOutlined style={{ color: 'var(--text-3)' }} />}
         />
       </Form.Item>
       <Form.Item name="password" label="密码" rules={[{ required: true, message: '请输入密码' }]}>
@@ -140,7 +141,9 @@ export default function Login() {
       <div className="login-form-panel">
         <div className="login-card fade-up">
           <div className="brand-mini">
-            <div className="logo">🧭</div>
+            <div className="logo" aria-hidden="true">
+              <CompassOutlined />
+            </div>
             <div>
               <b>AI Travel Agent</b>
               <span>多模态智能旅行助手</span>

@@ -1,4 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Tooltip } from 'antd';
+import {
+  AimOutlined,
+  BorderOutlined,
+  DeploymentUnitOutlined,
+  GlobalOutlined,
+  PauseCircleOutlined,
+  PlayCircleOutlined,
+  ReloadOutlined,
+  SyncOutlined,
+} from '@ant-design/icons';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { GeoJSONSource, Map, Marker, Popup } from 'maplibre-gl';
 import { loadMaplibre, type MapLibre } from './maplibreLoader';
@@ -67,6 +78,11 @@ interface Props {
   bearing?: number;
   /** 初始缩放：调小一点能看到球体边缘，"球"的感觉更明确 */
   zoom?: number;
+  /**
+   * 地图引擎不可用（加载失败 / 无网络）时通知父级。
+   * 父级据此渲染与「没有足迹」不同的紧凑错误态，而不是把错误伪装成空数据。
+   */
+  onErrorChange?: (unavailable: boolean) => void;
 }
 
 /**
@@ -90,6 +106,7 @@ export default function FootprintMap({
   pitch: initialPitch = 0,
   bearing: initialBearing = 0,
   zoom: initialZoom = 2.4,
+  onErrorChange,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   /** 运行时按需加载的 maplibre 模块；加载完成前所有地图操作都是 no-op */
@@ -126,6 +143,11 @@ export default function FootprintMap({
   useEffect(() => {
     setActiveBasemap(basemap);
   }, [basemap]);
+
+  // 把「地图不可用」上报给父级：父级用它区分「没有足迹」与「地图加载失败」
+  useEffect(() => {
+    onErrorChange?.(Boolean(engineError));
+  }, [engineError, onErrorChange]);
 
   const [engine, setEngine] = useState<'3d' | '2d'>('3d');
   const [spinning, setSpinning] = useState(false);
@@ -174,9 +196,9 @@ export default function FootprintMap({
       color,
     );
     meta.append(
-      metaLine(`📍 ${point.destination ?? '未设置目的地'}`),
-      metaLine(`🗓 ${tripRangeLabel(point)} · ${tripDays(point)} 天`),
-      metaLine(`💰 预算 ¥${(point.budget ?? 0).toFixed(0)}`),
+      metaLine(`目的地：${point.destination ?? '未设置'}`),
+      metaLine(`日期：${tripRangeLabel(point)} · ${tripDays(point)} 天`),
+      metaLine(`预算：¥${(point.budget ?? 0).toFixed(0)}`),
     );
     const hint = document.createElement('div');
     hint.className = 'fp-popup-hint';
@@ -192,10 +214,10 @@ export default function FootprintMap({
       const budget = trips.reduce((sum, point) => sum + (point.budget ?? 0), 0);
       const { root, meta } = popupShell(city, `${visits} 次到访`, color);
       meta.append(
-        metaLine(`🗓 累计 ${days} 天`),
-        metaLine(`💰 预算合计 ¥${budget.toFixed(0)}`),
+        metaLine(`累计 ${days} 天`),
+        metaLine(`预算合计 ¥${budget.toFixed(0)}`),
         metaLine(
-          `🕒 最近 ${
+          `最近 ${
             trips
               .map((t) => t.startDate)
               .filter(Boolean)
@@ -697,84 +719,90 @@ export default function FootprintMap({
         </div>
       )}
       {engineError && (
-        <div
-          className="fp-engine-error"
-          role="alert"
-          style={{
-            position: 'absolute',
-            inset: 0,
-            zIndex: 2,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 12,
-            padding: 24,
-            textAlign: 'center',
-            color: theme === 'dark' ? '#e6e9ef' : '#333',
-            background: theme === 'dark' ? 'rgba(18, 21, 27, 0.92)' : 'rgba(255, 255, 255, 0.92)',
-          }}
-        >
-          <b>地图引擎加载失败</b>
-          <span
-            style={{
-              maxWidth: 520,
-              fontSize: 12,
-              lineHeight: 1.6,
-              wordBreak: 'break-all',
-              opacity: 0.85,
-            }}
-          >
-            {engineError}
-          </span>
+        <div className="fp-engine-error" role="alert">
+          <b>地图暂时不可用</b>
+          <span className="fp-engine-hint">足迹列表与行程时间轴仍可正常查看。</span>
           <button
             type="button"
             className="fp-ctl"
             onClick={() => setLoadAttempt((value) => value + 1)}
+            aria-label="重试加载地图"
           >
-            🔄 重试
+            <ReloadOutlined aria-hidden="true" /> 重试地图
           </button>
         </div>
       )}
-      {globe && <div className="fp-globe-hint">🌐 球体视角</div>}
+      {globe && (
+        <div className="fp-globe-hint">
+          <GlobalOutlined aria-hidden="true" /> 球体视角
+        </div>
+      )}
       {showControls && !engineError && (
         <div className="fp-controls">
           <div className="fp-ctl-group">
-            <button
-              type="button"
-              className={`fp-ctl ${engine === '3d' ? 'active' : ''}`}
-              onClick={() => setPitched(true)}
-              title="倾斜透视视角"
-            >
-              🏔 3D
-            </button>
-            <button
-              type="button"
-              className={`fp-ctl ${engine === '2d' ? 'active' : ''}`}
-              onClick={() => setPitched(false)}
-              title="平面俯视视角"
-            >
-              🗺 2D
-            </button>
+            <Tooltip title="倾斜透视视角">
+              <button
+                type="button"
+                className={`fp-ctl ${engine === '3d' ? 'active' : ''}`}
+                onClick={() => setPitched(true)}
+                aria-label="倾斜透视视角"
+                aria-pressed={engine === '3d'}
+              >
+                <DeploymentUnitOutlined aria-hidden="true" /> 3D
+              </button>
+            </Tooltip>
+            <Tooltip title="平面俯视视角">
+              <button
+                type="button"
+                className={`fp-ctl ${engine === '2d' ? 'active' : ''}`}
+                onClick={() => setPitched(false)}
+                aria-label="平面俯视视角"
+                aria-pressed={engine === '2d'}
+              >
+                <BorderOutlined aria-hidden="true" /> 2D
+              </button>
+            </Tooltip>
           </div>
-          <button type="button" className="fp-ctl" onClick={() => fitAll()} title="回到全部足迹">
-            🧭 复位
-          </button>
-          <button
-            type="button"
-            className={`fp-ctl ${spinning ? 'active' : ''}`}
-            onClick={() => (spinning ? stopSpin() : startSpin())}
-            title="环绕地球"
-          >
-            🌀 环绕
-          </button>
-          <button
-            type="button"
-            className={`fp-ctl tour ${touring ? 'active' : ''}`}
-            onClick={() => (touring ? stopTour() : startTour())}
-          >
-            {touring ? `⏹ 回放中 ${tourIndex + 1}/${tourTotal}` : '▶ 回放足迹'}
-          </button>
+          <Tooltip title="回到全部足迹">
+            <button
+              type="button"
+              className="fp-ctl"
+              onClick={() => fitAll()}
+              aria-label="回到全部足迹"
+            >
+              <AimOutlined aria-hidden="true" /> 复位
+            </button>
+          </Tooltip>
+          <Tooltip title={spinning ? '停止环绕' : '环绕地球'}>
+            <button
+              type="button"
+              className={`fp-ctl ${spinning ? 'active' : ''}`}
+              onClick={() => (spinning ? stopSpin() : startSpin())}
+              aria-label={spinning ? '停止环绕地球' : '环绕地球'}
+              aria-pressed={spinning}
+            >
+              <SyncOutlined spin={spinning} aria-hidden="true" /> 环绕
+            </button>
+          </Tooltip>
+          <Tooltip title={touring ? '停止回放' : '按时间顺序回放足迹'}>
+            <button
+              type="button"
+              className={`fp-ctl tour ${touring ? 'active' : ''}`}
+              onClick={() => (touring ? stopTour() : startTour())}
+              aria-label={touring ? '停止回放足迹' : '回放足迹'}
+              aria-pressed={touring}
+            >
+              {touring ? (
+                <>
+                  <PauseCircleOutlined aria-hidden="true" /> 回放中 {tourIndex + 1}/{tourTotal}
+                </>
+              ) : (
+                <>
+                  <PlayCircleOutlined aria-hidden="true" /> 回放足迹
+                </>
+              )}
+            </button>
+          </Tooltip>
         </div>
       )}
     </div>

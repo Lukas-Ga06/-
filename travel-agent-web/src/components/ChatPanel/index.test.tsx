@@ -218,19 +218,25 @@ describe('ChatPanel · 停止生成与过程警告（阶段 A）', () => {
 });
 
 describe('ChatPanel · 空对话示例可点击（§8.6）', () => {
-  it('示例是可点击按钮，点一下按当前上下文直接发送', () => {
+  it('空态是 4 个明确任务入口，点一下按对应任务发送', () => {
     const send = vi.fn();
     useAgentStore.setState({ send, messages: [] });
     renderPanel();
 
     const list = screen.getByTestId('chat-suggestions');
     const buttons = list.querySelectorAll('button');
-    expect(buttons.length).toBeGreaterThanOrEqual(3);
+    expect(buttons.length).toBe(4);
+    expect(list.textContent).toContain('规划旅行');
+    expect(list.textContent).toContain('根据天气调整');
+    expect(list.textContent).toContain('记一笔消费');
+    expect(list.textContent).toContain('查询攻略');
 
     fireEvent.click(buttons[0]);
 
     expect(send).toHaveBeenCalledTimes(1);
-    expect(send).toHaveBeenCalledWith(expect.objectContaining({ message: buttons[0].textContent }));
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ message: buttons[0].getAttribute('data-prompt') }),
+    );
   });
 
   it('生成中示例按钮禁用，避免并发发请求', () => {

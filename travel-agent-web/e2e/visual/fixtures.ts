@@ -201,8 +201,9 @@ export async function installApiMocks(page: Page): Promise<void> {
             lng: [120.15, 121.47, 104.06][index],
             phase: trip.phase,
             plannedPlaces: 4,
-            visitedPlaces: index === 2 ? 2 : 0,
-            visited: index === 2,
+            // 新用户基线：有行程计划、还没有实际打卡足迹
+            visitedPlaces: 0,
+            visited: false,
             actualRoute: [],
           })),
         ),
@@ -290,7 +291,7 @@ export async function installApiMocks(page: Page): Promise<void> {
         ok({
           llmConfigured: true,
           llmVerified: true,
-          llmModel: 'deepseek-chat',
+          llmModel: 'deepseek-flash',
           llmHint: '已配置真实模型',
           amapConfigured: false,
           geoProvider: 'estimated',

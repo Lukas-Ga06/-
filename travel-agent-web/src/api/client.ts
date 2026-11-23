@@ -10,6 +10,11 @@ declare module 'axios' {
      * 走这个标记的请求由 getPage 自己解包，避免分页元数据在响应拦截器里被丢掉。
      */
     keepEnvelope?: boolean;
+    /**
+     * 401 不触发全局登出/跳转，作为普通错误抛给调用方。
+     * 用于「接口本身会返回 401 表示业务失败」的场景，例如注销账号时密码错误。
+     */
+    skipAuthRedirect?: boolean;
   }
 }
 
@@ -194,7 +199,9 @@ export function handleResponseError(error: any): Promise<never> {
     url.includes('/auth/login') || url.includes('/auth/register') || url.includes('/auth/me');
   // 已在登录页时也不跳转：避免 401 → 跳 /login → 又一次 401 的循环刷新
   const alreadyOnLogin = typeof window !== 'undefined' && window.location?.pathname === '/login';
-  if (isAuthExpired(status) && !isAuthRequest && !alreadyOnLogin) {
+  // 调用方显式声明「这个接口的 401 是业务错误」时，不能据此把用户踢下线
+  const skipAuthRedirect = error?.config?.skipAuthRedirect === true;
+  if (isAuthExpired(status) && !isAuthRequest && !alreadyOnLogin && !skipAuthRedirect) {
     useAuthStore.getState().logout();
     window.location.href = '/login';
   }

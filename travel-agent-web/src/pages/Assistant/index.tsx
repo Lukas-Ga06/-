@@ -1,11 +1,13 @@
 import { useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { RobotOutlined } from '@ant-design/icons';
 import AppShell from '../../components/AppShell';
 import ChatPanel from '../../components/ChatPanel';
 import PlanDiff from '../../components/PlanDiff';
 import { getPendingPlan } from '../../api/agent';
 import { useAgentStore } from '../../store/agentStore';
 import { useAgentScope } from '../../hooks/useAgentScope';
+import './assistant.css';
 
 /** AI 助手：旅行场景统一对话入口（行程规划 / 记账 / 备忘 / 日程 / 旅行知识库） */
 export default function Assistant() {
@@ -102,24 +104,18 @@ export default function Assistant() {
 
   return (
     <AppShell active="assistant">
-      <div className="dash-wrap">
+      <div className="dash-wrap assistant-page">
         <div className="dash-greeting">
           <div>
-            <h1>🤖 AI 助手</h1>
+            <h1>
+              <RobotOutlined aria-hidden="true" className="page-title-icon" /> AI 助手
+            </h1>
             <div className="dg-date">
-              旅行场景统一对话入口：行程规划 · 记账 · 备忘 · 日程 · 旅行知识库（意图自动路由）
+              旅行场景统一对话入口：行程规划 · 记账 · 备忘 · 日程 · 攻略库（意图自动路由）
             </div>
           </div>
         </div>
-        <div
-          className="dash-card fade-up"
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            minHeight: 'calc(100vh - 230px)',
-            padding: 0,
-          }}
-        >
+        <div className="dash-card fade-up assistant-panel">
           <ChatPanel placeholder="告诉我你想完成什么……（如：记一下明天办签证）" />
         </div>
         <PlanDiff

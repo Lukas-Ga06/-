@@ -1,0 +1,411 @@
+/* ============================================================
+   应用外壳：侧栏 / 底部标签栏 / 离线提示条
+   由 global.css 拆出（P1-G）。旧悬浮玻璃外壳定义已与后置规则合并。
+   ============================================================ */
+
+/* 深色地图适配：标签、光点与说明文字改用浅色描边 */
+
+/* ============================================================
+   重设计（方向 B：内容优先的工具型）
+   ------------------------------------------------------------
+   本段位于文件末尾，用同名选择器覆盖前面的"液态玻璃"样式。
+   配色/圆角/阴影已通过 :root 令牌替换；这里处理布局、材质收敛与响应式。
+   ============================================================ */
+
+/* ---------- 外壳：悬浮玻璃边栏 → 常规固定侧栏 ---------- */
+
+.app-shell {
+  display: flex;
+  min-height: 100vh;
+  background: var(--bg);
+}
+
+.app-sidebar {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  z-index: 30;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--sidebar);
+  padding: var(--sp-4) var(--sp-3);
+  background: var(--surface);
+  border: 0;
+  border-right: 1px solid var(--border);
+  border-radius: 0;
+  box-shadow: none;
+  gap: var(--sp-3);
+}
+
+.app-sidebar .sb-brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 2px var(--sp-2) var(--sp-3);
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.1px;
+  /* 品牌是按钮：清掉 UA 样式，保持和原 div 一致的外观，同时可聚焦 */
+  width: 100%;
+  font-family: inherit;
+  text-align: left;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.app-sidebar .sb-brand:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+.app-sidebar .sb-brand .hn-logo {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-sm);
+  background: var(--accent-weak);
+  color: var(--accent);
+  font-size: 14px;
+  box-shadow: none;
+}
+
+.sb-modules {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  gap: 2px;
+  margin-top: 0;
+}
+
+.sb-section {
+  color: var(--ink-3);
+  padding: var(--sp-3) var(--sp-2) var(--sp-1);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.sb-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink-2);
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  text-align: left;
+  width: 100%;
+  padding: 7px var(--sp-2);
+  border-radius: var(--r-sm);
+  font-size: 13px;
+  font-weight: 500;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.sb-link:hover {
+  color: var(--ink);
+  background: var(--surface-2);
+  transform: none;
+}
+
+/* 导航图标：统一 Ant Design 图标后，尺寸与基线不再受操作系统 Emoji 字体影响 */
+
+.sb-link .sb-icon,
+.sb-link .anticon {
+  font-size: 16px;
+  width: 18px;
+  display: inline-flex;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* 固定主动作：新建行程 */
+
+.sb-new-trip {
+  margin: 0 0 var(--sp-2);
+  width: 100%;
+}
+
+.sb-footer {
+  border-top: 1px solid var(--border);
+  padding-top: var(--sp-2);
+  margin-top: var(--sp-2);
+}
+
+.sb-user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  padding: 6px var(--sp-2);
+}
+
+/* 用户名独占剩余宽度并省略，避免长昵称把登出/主题按钮挤出侧栏 */
+
+.sb-user .sb-user-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sb-user .sb-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 700;
+  background: var(--accent);
+  box-shadow: none;
+}
+
+.app-content {
+  flex: 1;
+  min-width: 0;
+  margin-left: var(--sidebar);
+  padding: var(--sp-6);
+}
+
+.app-content > .dash-wrap,
+.app-content > .trip-page,
+.app-content > .fp-page {
+  max-width: var(--content-max);
+  margin: 0 auto;
+}
+
+/* 移动端底部标签栏：桌面隐藏 */
+
+.app-tabbar {
+  display: none;
+}
+
+/* 底栏入口是真按钮（P0-05）：可 Tab、可回车；触控目标不小于 44px */
+
+.app-tabbar .tb-item {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 44px;
+  padding: 6px 0 4px;
+  font: inherit;
+  font-size: 10.5px;
+  color: var(--text-3);
+  background: transparent;
+  border: 0;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.app-tabbar .tb-item.on {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.app-tabbar .tb-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: var(--r-sm);
+}
+
+.app-tabbar .tb-icon {
+  font-size: 17px;
+  line-height: 1;
+}
+
+/* ---------- 离线提示条（PWA 离线查看缓存数据） ----------
+   固定在视口顶部、不占文档流：离线时出现，恢复在线自动消失，可手动关闭。
+   顶部内边距吃掉 iOS 刘海（viewport-fit=cover 之后才拿得到 safe-area-inset-top）。 */
+
+.offline-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: calc(6px + env(safe-area-inset-top)) 12px 6px;
+  font-size: 12.5px;
+  color: var(--warn);
+  background: var(--warn-weak);
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow-1);
+}
+
+.offline-banner .ob-dot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--warn);
+}
+
+.offline-banner .ob-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.offline-banner .ob-close {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.offline-banner .ob-close:hover {
+  background: var(--surface-3);
+}
+
+/* ---------- 窄屏：≤1080 收成图标栏，≤720 换底部标签栏 ---------- */
+
+@media (max-width: 1080px) {
+  .app-sidebar {
+    /* 覆盖旧版 ≤900px 的"横向顶栏"规则：统一成竖向图标栏 */
+    position: fixed;
+    left: 0;
+    right: auto;
+    top: 0;
+    bottom: 0;
+    width: var(--sidebar-rail);
+    flex-direction: column;
+    align-items: stretch;
+    padding: var(--sp-4) var(--sp-2);
+  }
+}
+
+@media (max-width: 1080px) {
+  .sb-modules {
+    flex-direction: column;
+    margin: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+}
+
+@media (max-width: 1080px) {
+  .sb-footer {
+    border-top: 1px solid var(--border);
+    padding-top: var(--sp-2);
+    margin-top: var(--sp-2);
+  }
+}
+
+@media (max-width: 1080px) {
+  .app-sidebar .sb-brand {
+    justify-content: center;
+    padding: 2px 0 var(--sp-3);
+  }
+}
+
+@media (max-width: 1080px) {
+  .app-sidebar .sb-brand .sb-brand-text,
+  .sb-label {
+    display: none;
+  }
+}
+
+@media (max-width: 1080px) {
+  .sb-section {
+    display: none;
+  }
+}
+
+@media (max-width: 1080px) {
+  .sb-link {
+    justify-content: center;
+    padding: 9px 0;
+    font-size: 16px;
+  }
+}
+
+@media (max-width: 1080px) {
+  .sb-user {
+    display: flex;
+    justify-content: center;
+    padding: 6px 0;
+  }
+}
+
+@media (max-width: 1080px) {
+  .sb-user .sb-user-name {
+    display: none;
+  }
+}
+
+@media (max-width: 1080px) {
+  .app-content {
+    margin-left: var(--sidebar-rail);
+    padding: var(--sp-5);
+  }
+}
+
+@media (max-width: 720px) {
+  .app-sidebar {
+    display: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .app-content {
+    margin-left: 0;
+    /* 92px 让出底部标签栏；再叠加 iOS home 指示条的安全区 */
+    padding: var(--sp-4) var(--sp-4) calc(92px + env(safe-area-inset-bottom));
+  }
+}
+
+@media (max-width: 720px) {
+  .app-tabbar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 40;
+    display: flex;
+    padding: 4px var(--sp-2) calc(4px + env(safe-area-inset-bottom));
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+  }
+}
+
+/* ============================================================
+   无障碍对比度（WCAG 2.1 AA）修正 —— 2026-11-21 axe 扫描
+   ------------------------------------------------------------
+   只调「文字色」，不改背景与色相：同一色系取更深一档，保证
+   正常字号文本 ≥ 4.5:1。每一条都对应 e2e/a11y.spec.ts 的一个失败节点，
+   修完应保持该 spec 的 critical/serious 为 0。
+   ============================================================ */
+
+/* 侧栏选中项：accent on accent-weak 4.08 → accent-hover 5.15（两处定义都覆盖，按后者生效） */
+
+.sb-link.active {
+  background: var(--accent-weak);
+  font-weight: 600;
+  box-shadow: none;
+  color: var(--accent-hover);
+}

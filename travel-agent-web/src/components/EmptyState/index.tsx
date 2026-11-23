@@ -23,13 +23,26 @@ interface EmptyStateProps {
     onClick: () => void;
     testId?: string;
   };
+  /** 紧凑场景：只占 80–96px，用于首页足迹这类「没有数据也不该撑满屏幕」的区块 */
+  compact?: boolean;
   /** 外层 testid，便于页面断言「这是空态而不是错误态」 */
   testId?: string;
 }
 
-export default function EmptyState({ icon, title, hint, action, testId }: EmptyStateProps) {
+export default function EmptyState({
+  icon,
+  title,
+  hint,
+  action,
+  compact = false,
+  testId,
+}: EmptyStateProps) {
   return (
-    <div className="empty-state" data-testid={testId} role="status">
+    <div
+      className={`empty-state ${compact ? 'empty-state--compact' : ''}`}
+      data-testid={testId}
+      role="status"
+    >
       {icon && (
         <span className="es-icon" aria-hidden="true">
           {icon}

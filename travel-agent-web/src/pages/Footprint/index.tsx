@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { App, Button, Empty, Spin } from 'antd';
+import { App, Button, Empty, Spin, Tooltip } from 'antd';
 import {
   ArrowLeftOutlined,
   EnvironmentOutlined,
+  GlobalOutlined,
   PlayCircleOutlined,
   ReloadOutlined,
 } from '@ant-design/icons';
@@ -76,9 +77,18 @@ export default function FootprintPage() {
     <AppShell active="footprint">
       <div className="fp-page">
         <div className="fp-head">
-          <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/')} />
+          <Tooltip title="回到首页">
+            <Button
+              type="text"
+              icon={<ArrowLeftOutlined />}
+              onClick={() => navigate('/')}
+              aria-label="回到首页"
+            />
+          </Tooltip>
           <div className="fp-title">
-            <b>🌍 我的足迹</b>
+            <b>
+              <GlobalOutlined aria-hidden="true" /> 我的足迹
+            </b>
             <span>
               {stats.trips === 0
                 ? hasPlannedOnly
@@ -138,7 +148,7 @@ export default function FootprintPage() {
               <div className="fp-aside-empty">
                 <EmptyState
                   testId="footprint-empty"
-                  icon="🌍"
+                  icon={<GlobalOutlined aria-hidden="true" />}
                   title={hasPlannedOnly ? '还没有实际打卡的足迹' : '还没有足迹'}
                   hint={
                     hasPlannedOnly
@@ -208,7 +218,7 @@ export default function FootprintPage() {
               <div className="fp-state">
                 <EmptyState
                   testId="footprint-map-empty"
-                  icon="📍"
+                  icon={<EnvironmentOutlined aria-hidden="true" />}
                   title={hasPlannedOnly ? '还没有实际打卡的足迹' : '行程目的地还没定位到坐标'}
                   hint={
                     hasPlannedOnly

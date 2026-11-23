@@ -1,0 +1,599 @@
+/* ============================================================
+   状态语义：success / warning / danger / degraded / partial
+   颜色只做辅助，所有状态同时有文字或图标。
+   ============================================================ */
+
+.chip-row {
+  margin-top: 12px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  position: relative;
+  z-index: 1;
+}
+
+.chip-row .chip-label {
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+
+/* 列表加载失败：占位在原列表位置，明确「失败」并给重试，不伪装成空列表（P0-04） */
+
+.load-error {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--danger);
+  border-radius: var(--radius-lg);
+  padding: 16px 18px;
+}
+
+.load-error .le-title {
+  font-weight: 650;
+  font-size: 14px;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.load-error .le-detail {
+  font-size: 12.5px;
+  color: var(--text-2);
+  overflow-wrap: break-word;
+}
+
+.load-error .le-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.load-error .le-note {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.empty-trips {
+  background: var(--lg-bg);
+  border: 1.5px dashed var(--line-strong);
+  border-radius: var(--radius-lg);
+  padding: 44px 20px;
+  text-align: center;
+  color: var(--ink-3);
+}
+
+/* 来源徽标：实测（蓝，可复核）/ 估算（灰，不得暗示实时） */
+
+.mini-tag.leg-amap {
+  background: rgba(0, 122, 255, 0.12);
+  color: #0a63c9;
+  border-color: rgba(0, 122, 255, 0.26);
+}
+
+.mini-tag.leg-estimated {
+  background: rgba(142, 142, 147, 0.14);
+  color: #636366;
+  border-color: rgba(142, 142, 147, 0.26);
+}
+
+.mini-tag.price-kind {
+  flex-shrink: 1;
+  min-width: 0;
+  background: var(--accent-weak);
+  color: var(--accent);
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.mini-tag.indoor {
+  background: rgba(90, 200, 250, 0.16);
+  color: #0a7ea4;
+  border-color: rgba(90, 200, 250, 0.3);
+}
+
+.mini-tag.outdoor {
+  background: rgba(52, 199, 89, 0.14);
+  color: #1e9e47;
+  border-color: rgba(52, 199, 89, 0.3);
+}
+
+/* 行程阶段徽标：进行中=绿、待出发=蓝、已结束=灰、已取消=红 */
+
+.mini-tag.upcoming {
+  background: rgba(0, 122, 255, 0.12);
+  color: #0a63c9;
+  border-color: rgba(0, 122, 255, 0.26);
+}
+
+.mini-tag.past {
+  background: rgba(142, 142, 147, 0.14);
+  color: #636366;
+  border-color: rgba(142, 142, 147, 0.26);
+}
+
+.mini-tag.cancelled {
+  background: rgba(255, 59, 48, 0.12);
+  color: #c22a21;
+  border-color: rgba(255, 59, 48, 0.24);
+}
+
+/* 指标加载失败：显示破折号而不是 0，视觉上也区别于真实数值 */
+
+.sc-failed {
+  color: var(--text-3);
+}
+
+.mini-tag {
+  font-size: 11px;
+  padding: 1.5px 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  border-radius: var(--r-sm);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px var(--sp-3);
+  font-size: 12.5px;
+  color: var(--text-2);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-full);
+}
+
+.chip-ok {
+  color: var(--ok);
+  background: var(--ok-weak);
+  border-color: transparent;
+}
+
+.chip-warn {
+  color: var(--warn);
+  background: var(--warn-weak);
+  border-color: transparent;
+}
+
+/* ---------- ExecutionResultPanel：确认后的同步结果（消息区下方） ---------- */
+
+.exec-panel {
+  flex-shrink: 0;
+  border-top: 1px solid var(--line);
+  background: var(--surface-2);
+  padding: 10px 14px;
+  min-width: 0;
+}
+
+.exec-panel .exec-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  min-width: 0;
+}
+
+.exec-panel .exec-status {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.exec-panel .exec-status.ok {
+  color: var(--ok);
+}
+
+.exec-panel .exec-status.fail {
+  color: var(--danger);
+}
+
+.exec-panel .exec-modules {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.exec-module-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  min-width: 0;
+}
+
+.exec-module-row.fail {
+  border-color: var(--danger);
+}
+
+.exec-module-row .em-icon {
+  flex-shrink: 0;
+}
+
+.exec-module-row .em-name {
+  flex-shrink: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.exec-module-row .em-status {
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: var(--r-full);
+  border: 1px solid transparent;
+}
+
+.exec-module-row .em-status.ok {
+  color: var(--ok);
+  background: var(--ok-weak);
+}
+
+.exec-module-row .em-status.fail {
+  color: var(--danger);
+  background: var(--danger-weak);
+}
+
+.exec-module-row .em-body {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.exec-module-row .em-detail {
+  color: var(--ink-3);
+  overflow-wrap: anywhere;
+}
+
+.exec-module-row .em-error {
+  color: var(--danger);
+  overflow-wrap: anywhere;
+}
+
+.exec-module-row .em-retry-count {
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+.exec-module-row .em-retry-btn {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.exec-panel .exec-note {
+  margin-top: 8px;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--ink-3);
+  overflow-wrap: anywhere;
+}
+
+.exec-panel .exec-extra {
+  display: block;
+}
+
+/* ---------- AgentRunsDrawer：运行记录抽屉 ---------- */
+
+.runs-drawer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.runs-drawer .run-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  cursor: pointer;
+  text-align: left;
+  min-width: 0;
+  font: inherit;
+  color: inherit;
+}
+
+.runs-drawer .run-row:hover {
+  border-color: var(--accent);
+  background: var(--accent-weak);
+}
+
+.run-badge {
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: var(--r-full);
+  border: 1px solid transparent;
+}
+
+.run-badge.ok {
+  color: var(--ok);
+  background: var(--ok-weak);
+}
+
+.run-badge.fail {
+  color: var(--danger);
+  background: var(--danger-weak);
+}
+
+/* 部分完成：橙而不是绿。工具失败后降级成功、预算降级都走这一档（P0-07） */
+
+.run-badge.warn {
+  color: var(--warn);
+  background: var(--warn-weak);
+}
+
+.run-badge.run {
+  color: var(--accent);
+  background: var(--accent-weak);
+}
+
+.run-badge.muted {
+  color: var(--text-3);
+  background: var(--surface-3);
+}
+
+.runs-drawer .run-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.runs-drawer .run-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.runs-drawer .run-sub {
+  font-size: 11.5px;
+  color: var(--ink-3);
+  overflow-wrap: anywhere;
+}
+
+.runs-drawer .run-error {
+  font-size: 12px;
+  color: var(--danger);
+  overflow-wrap: anywhere;
+}
+
+.runs-drawer .task-row,
+.runs-drawer .tool-row {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  min-width: 0;
+}
+
+.runs-drawer .task-chain {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.runs-drawer .task-body,
+.runs-drawer .tool-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 160px;
+}
+
+.runs-drawer .task-summary {
+  font-size: 12.5px;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.runs-drawer .tool-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.runs-drawer .tool-digest {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--ink-3);
+  overflow-wrap: anywhere;
+}
+
+.runs-drawer .runs-section-title {
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.runs-drawer .runs-empty-line {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.runs-drawer .run-error-box {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--danger);
+  border-radius: var(--r-sm);
+  background: var(--danger-weak);
+}
+
+@media (max-width: 720px) {
+  .exec-panel .exec-modules,
+  .exec-module-row,
+  .exec-module-row .em-body,
+  .runs-drawer .run-row,
+  .runs-drawer .task-row,
+  .runs-drawer .tool-row {
+    min-width: 0;
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 720px) {
+  .exec-module-row .em-retry-btn {
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 720px) {
+  .runs-drawer .task-body,
+  .runs-drawer .tool-body {
+    min-width: 0;
+  }
+}
+
+/* ---------- P1 旅行闭环：行程项状态操作 ---------- */
+
+.tc-status {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 18px;
+  padding: 0 7px;
+  border-radius: var(--r-full);
+  border: 1px solid transparent;
+}
+
+.tc-status.pending {
+  color: var(--ink-3);
+  background: var(--surface-3);
+}
+
+.tc-status.in-progress {
+  color: #0a63c9;
+  background: rgba(0, 122, 255, 0.12);
+}
+
+.tc-status.completed {
+  color: var(--success);
+  background: rgba(52, 199, 89, 0.14);
+}
+
+.tc-status.skipped {
+  color: var(--ink-3);
+  background: rgba(142, 142, 147, 0.16);
+}
+
+.tc-status-busy {
+  margin-left: 4px;
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+/* 「进行中」徽标：accent-green on 淡绿底 3.89 → 深一档 5.83 */
+
+.mini-tag.ongoing {
+  background: rgba(52, 199, 89, 0.16);
+  border-color: rgba(52, 199, 89, 0.32);
+  color: #0f6b2f;
+}
+
+/* ---------- 共享运行状态（P1-E）：图标 + 文字 + 可选操作 ---------- */
+.run-status {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.run-status--sm {
+  font-size: 11.5px;
+}
+
+.run-status--md {
+  font-size: 13px;
+}
+
+.run-status .rs-icon {
+  display: inline-flex;
+  font-size: 1em;
+  flex-shrink: 0;
+}
+
+.run-status--ok {
+  color: var(--success);
+}
+
+.run-status--warn {
+  color: var(--warning);
+}
+
+.run-status--danger {
+  color: var(--danger);
+}
+
+.run-status--muted {
+  color: var(--text-3);
+}
+
+.run-status--info {
+  color: var(--accent-text);
+}
+
+.run-status .rs-detail {
+  font-weight: 400;
+  color: var(--text-3);
+}
+
+.run-status .rs-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 2px;
+}
+
+.run-status .rs-action.ant-btn {
+  height: auto;
+  min-height: 0;
+  padding: 0 2px;
+  font-size: inherit;
+}
+
+/* 同步结果：失败行的下一步说明与批量重试入口 */
+.exec-module-row .em-next {
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
+.exec-panel .exec-retry-all {
+  height: auto;
+  min-height: 0;
+  padding: 0 4px;
+  margin: 0 4px;
+  font-size: 11.5px;
+}

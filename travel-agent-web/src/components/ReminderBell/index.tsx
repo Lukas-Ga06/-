@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { App, Badge, Button, Drawer, Empty, Tag } from 'antd';
-import { BellOutlined } from '@ant-design/icons';
+import { BellOutlined, CalendarOutlined, CarryOutOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import {
   dismissReminder,
@@ -141,7 +141,9 @@ export default function ReminderBell() {
           <div className="notify-row">
             {permission === 'granted' ? (
               <>
-                <span>🔔 浏览器通知已开启（页面在后台时提醒）</span>
+                <span>
+                  <BellOutlined aria-hidden="true" /> 浏览器通知已开启（页面在后台时提醒）
+                </span>
                 <Button size="small" type="text" onClick={sendTestNotification}>
                   测试
                 </Button>
@@ -167,7 +169,9 @@ export default function ReminderBell() {
                 className={`reminder-item ${item.overdue ? 'overdue' : ''}`}
                 key={`${item.type}-${item.refId}`}
               >
-                <div className="ri-icon">{item.type === 'TRIP' ? '🧳' : '📅'}</div>
+                <div className="ri-icon" aria-hidden="true">
+                  {item.type === 'TRIP' ? <CarryOutOutlined /> : <CalendarOutlined />}
+                </div>
                 <div className="ri-main">
                   <div className="ri-title">
                     {item.title}

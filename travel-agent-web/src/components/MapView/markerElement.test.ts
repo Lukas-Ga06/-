@@ -28,18 +28,24 @@ describe('buildMarkerElement', () => {
     expect(el.querySelector('.m3d-label')?.innerHTML).not.toContain('<img');
   });
 
-  it('保留类型图标、主题色与 tooltip', () => {
+  it('类型图标用 Ant Design SVG，而不是 Emoji 字体', () => {
     const el = buildMarkerElement(item('外滩', 'attraction'), '#34c759');
 
     expect(el.className).toBe('m3d-marker');
     expect(el.style.getPropertyValue('--mc')).toBe('#34c759');
-    expect(el.querySelector('.m3d-dot')?.textContent).toBe('📍');
+    const dot = el.querySelector('.m3d-dot') as HTMLElement;
+    expect(dot.querySelector('svg')).toBeTruthy();
+    expect(dot.textContent).toBe('');
+    expect(dot.getAttribute('aria-hidden')).toBe('true');
+    expect(dot.dataset.icon).toBe('attraction');
     expect(el.querySelector('.m3d-label')?.textContent).toBe('外滩');
     expect(el.title).toBe('外滩');
   });
 
-  it('未知类型回退到默认图标', () => {
+  it('未知类型回退到默认的定位图标', () => {
     const el = buildMarkerElement(item('某地', 'unknown-type'), '#ff9500');
-    expect(el.querySelector('.m3d-dot')?.textContent).toBe('📍');
+    const dot = el.querySelector('.m3d-dot') as HTMLElement;
+    expect(dot.dataset.icon).toBe('attraction');
+    expect(dot.querySelector('svg')).toBeTruthy();
   });
 });

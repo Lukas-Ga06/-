@@ -85,6 +85,36 @@ describe('Home · 首屏收敛（阶段 B）', () => {
     expect(screen.queryByText(/运行观察/)).toBeNull();
   });
 
+  it('没有已打卡足迹时不渲染地图，只给紧凑空状态与一个主按钮', async () => {
+    api.getTripsMap.mockResolvedValue([point({ visited: false })]);
+
+    renderPage();
+
+    expect(await screen.findByTestId('home-footprint-empty')).toBeTruthy();
+    expect(screen.getByText('还没有已打卡的足迹')).toBeTruthy();
+    expect(screen.getByTestId('home-footprint-empty-plan')).toBeTruthy();
+    expect(screen.queryByTestId('fp-map')).toBeNull();
+  });
+
+  it('有已打卡足迹时才渲染地图', async () => {
+    api.getTripsMap.mockResolvedValue([point({ visited: true })]);
+
+    renderPage();
+
+    expect(await screen.findByTestId('fp-map')).toBeTruthy();
+    expect(screen.queryByTestId('home-footprint-empty')).toBeNull();
+  });
+
+  it('四次常用入口直接表达任务，不只是一句示例', async () => {
+    renderPage();
+
+    const plan = await screen.findByTestId('home-quick-plan');
+    expect(plan.textContent).toContain('规划旅行');
+    expect(screen.getByTestId('home-quick-weather').textContent).toContain('根据天气调整');
+    expect(screen.getByTestId('home-quick-expense').textContent).toContain('记一笔消费');
+    expect(screen.getByTestId('home-quick-guide').textContent).toContain('查询攻略');
+  });
+
   it('进行中的行程优先于未来行程', async () => {
     const today = new Date().toISOString().slice(0, 10);
     api.getTripsMap.mockResolvedValue([

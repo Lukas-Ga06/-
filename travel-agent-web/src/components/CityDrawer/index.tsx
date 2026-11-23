@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { App, Button, Drawer, Empty, Spin } from 'antd';
-import { CameraOutlined, CloseOutlined, RobotOutlined } from '@ant-design/icons';
+import {
+  CameraOutlined,
+  CloseOutlined,
+  EnvironmentOutlined,
+  RobotOutlined,
+} from '@ant-design/icons';
 import type { TripMapPoint } from '../../types/trip';
 import { tripDays, tripRangeLabel } from '../FootprintMap/footprintData';
 import { deletePhoto, listPhotos, photoSrc, uploadPhoto, type TripPhoto } from '../../api/photo';
@@ -139,7 +144,15 @@ export default function CityDrawer({
 
   return (
     <Drawer
-      title={city ? `🌍 ${city}` : ''}
+      title={
+        city ? (
+          <span>
+            <EnvironmentOutlined aria-hidden="true" /> {city}
+          </span>
+        ) : (
+          ''
+        )
+      }
       open={!!city}
       onClose={onClose}
       width={420}
@@ -171,7 +184,9 @@ export default function CityDrawer({
           </div>
 
           <div className="city-summary">
-            <div className="cs-title">✦ 足迹小结</div>
+            <div className="cs-title">
+              <EnvironmentOutlined aria-hidden="true" /> 足迹小结
+            </div>
             <p>{summary.join('')}</p>
             <Button
               size="small"

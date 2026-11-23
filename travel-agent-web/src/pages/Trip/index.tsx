@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { App, Button, Drawer, Dropdown, Segmented } from 'antd';
+import { App, Button, Drawer, Dropdown, Segmented, Tooltip } from 'antd';
+import type { MenuProps } from 'antd';
 import {
   ArrowLeftOutlined,
   BarChartOutlined,
@@ -8,7 +9,9 @@ import {
   EnvironmentOutlined,
   MoreOutlined,
   ReadOutlined,
+  RobotOutlined,
   UndoOutlined,
+  UnorderedListOutlined,
   WalletOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -377,12 +380,73 @@ export default function TripPage() {
     window.open(`/api/trips/${tripId}/guidebook.pdf`, '_blank');
   };
 
+  /**
+   * 更多菜单：低频与危险动作收在这里。
+   * 撤销在没有可撤销动作时保持可见但禁用，并写明原因 —— 用户不用点一下才知道。
+   */
+  const tripMenuItems: MenuProps['items'] = [
+    {
+      key: 'undo-step',
+      icon: <UndoOutlined />,
+      label: undo ? (
+        `撤销上一步：${undo.message}`
+      ) : (
+        <span className="menu-with-hint">
+          撤销上一步
+          <span className="menu-hint">当前没有可撤销操作</span>
+        </span>
+      ),
+      disabled: !undo || undoing,
+      onClick: onUndoStatus,
+    },
+    {
+      key: 'undo',
+      icon: <UndoOutlined />,
+      label: '撤销上一次 AI 修改',
+      disabled: undoing,
+      onClick: onUndo,
+    },
+    {
+      key: 'review',
+      icon: <ReadOutlined />,
+      label: '旅行回顾',
+      disabled: !tripId || Number.isNaN(tripId),
+      onClick: () => navigate(`/trip/${tripId}/review`),
+    },
+    {
+      key: 'guidebook',
+      icon: <BookOutlined />,
+      label: '导出路书 PDF',
+      onClick: onExportGuidebook,
+    },
+    ongoing
+      ? {
+          key: 'budget',
+          icon: <BarChartOutlined />,
+          label: '预算分析',
+          onClick: () => setBudgetOpen(true),
+        }
+      : {
+          key: 'expense',
+          icon: <WalletOutlined />,
+          label: '记账',
+          onClick: () => setExpenseOpen(true),
+        },
+  ];
+
   return (
     <AppShell active="travel">
       <div className="dash-wrap">
         <div className="dash-greeting">
           <div className="dg-left">
-            <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/travel')} />
+            <Tooltip title="返回我的行程">
+              <Button
+                type="text"
+                icon={<ArrowLeftOutlined />}
+                onClick={() => navigate('/travel')}
+                aria-label="返回我的行程"
+              />
+            </Tooltip>
             <div>
               <h1>{currentTrip?.name ?? '行程'}</h1>
               <div className="dg-date">
@@ -410,48 +474,11 @@ export default function TripPage() {
             >
               {ongoing ? '记账' : '预算分析'}
             </Button>
-            <Dropdown
-              trigger={['click']}
-              menu={{
-                items: [
-                  {
-                    key: 'undo',
-                    icon: <UndoOutlined />,
-                    label: '撤销上一次 AI 修改',
-                    disabled: undoing,
-                    onClick: onUndo,
-                  },
-                  {
-                    key: 'review',
-                    icon: <ReadOutlined />,
-                    label: '旅行回顾',
-                    disabled: !tripId || Number.isNaN(tripId),
-                    onClick: () => navigate(`/trip/${tripId}/review`),
-                  },
-                  {
-                    key: 'guidebook',
-                    icon: <BookOutlined />,
-                    label: '导出路书 PDF',
-                    onClick: onExportGuidebook,
-                  },
-                  ongoing
-                    ? {
-                        key: 'budget',
-                        icon: <BarChartOutlined />,
-                        label: '预算分析',
-                        onClick: () => setBudgetOpen(true),
-                      }
-                    : {
-                        key: 'expense',
-                        icon: <WalletOutlined />,
-                        label: '记账',
-                        onClick: () => setExpenseOpen(true),
-                      },
-                ],
-              }}
-            >
-              <Button icon={<MoreOutlined />} aria-label="更多行程操作" />
-            </Dropdown>
+            <Tooltip title="更多行程操作">
+              <Dropdown trigger={['click']} menu={{ items: tripMenuItems }}>
+                <Button icon={<MoreOutlined />} aria-label="更多行程操作" />
+              </Dropdown>
+            </Tooltip>
           </div>
         </div>
 
@@ -465,9 +492,30 @@ export default function TripPage() {
               value={mobileView}
               onChange={(v) => setMobileView(v as MobileView)}
               options={[
-                { value: 'itinerary', label: '行程' },
-                { value: 'map', label: '地图' },
-                { value: 'ai', label: 'AI' },
+                {
+                  value: 'itinerary',
+                  label: (
+                    <span>
+                      <UnorderedListOutlined aria-hidden="true" /> 行程
+                    </span>
+                  ),
+                },
+                {
+                  value: 'map',
+                  label: (
+                    <span>
+                      <EnvironmentOutlined aria-hidden="true" /> 地图
+                    </span>
+                  ),
+                },
+                {
+                  value: 'ai',
+                  label: (
+                    <span>
+                      <RobotOutlined aria-hidden="true" /> AI
+                    </span>
+                  ),
+                },
               ]}
             />
             {mobileView === 'itinerary' && (
@@ -497,6 +545,8 @@ export default function TripPage() {
                     focus={lastFocus}
                     focusDay={selectedDay}
                     routeLegs={routeLegs}
+                    onViewTimeline={() => setMobileView('itinerary')}
+                    onOpenDiagnostics={() => navigate('/settings/diagnostics')}
                   />
                 </div>
               </section>
@@ -558,6 +608,12 @@ export default function TripPage() {
                       focusDay={selectedDay}
                       routeLegs={routeLegs}
                       active={sideView === 'map'}
+                      onViewTimeline={() => {
+                        document
+                          .querySelector('.trip-timeline-card')
+                          ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      }}
+                      onOpenDiagnostics={() => navigate('/settings/diagnostics')}
                     />
                   </div>
                 </div>

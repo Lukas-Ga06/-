@@ -1,5 +1,11 @@
-import { Button, Dropdown } from 'antd';
-import { MoreOutlined } from '@ant-design/icons';
+import { Button, Dropdown, Tooltip } from 'antd';
+import {
+  CheckCircleOutlined,
+  ClockCircleOutlined,
+  MinusCircleOutlined,
+  MoreOutlined,
+  SyncOutlined,
+} from '@ant-design/icons';
 import dayjs from 'dayjs';
 import {
   ITINERARY_STATUS_LABELS,
@@ -29,6 +35,14 @@ const STATUS_CLASS: Record<ItineraryStatus, string> = {
   IN_PROGRESS: 'in-progress',
   COMPLETED: 'completed',
   SKIPPED: 'skipped',
+};
+
+/** 状态图标：不只靠颜色区分，读屏时图标为装饰，语义由文字承担 */
+const STATUS_ICON: Record<ItineraryStatus, React.ReactNode> = {
+  PENDING: <ClockCircleOutlined aria-hidden="true" />,
+  IN_PROGRESS: <SyncOutlined spin aria-hidden="true" />,
+  COMPLETED: <CheckCircleOutlined aria-hidden="true" />,
+  SKIPPED: <MinusCircleOutlined aria-hidden="true" />,
 };
 
 interface Props {
@@ -149,7 +163,8 @@ export default function ItineraryCard({
           </span>
           <span className="tt">{item.title}</span>
           <span className={`tc-status ${statusClass}`} data-testid="item-status">
-            {statusLabel}
+            {STATUS_ICON[status]}
+            <span className="tc-status-text">{statusLabel}</span>
           </span>
           {pendingSync && (
             <span
@@ -247,25 +262,27 @@ export default function ItineraryCard({
             </Button>
           )}
           {menu.length > 0 && (
-            <Dropdown
-              trigger={['click']}
-              menu={{
-                items: menu.map((action) => ({
-                  key: action.key,
-                  label: action.label,
-                  disabled: statusBusy,
-                  onClick: () => onStatusChange(action.key),
-                })),
-              }}
-            >
-              <Button
-                size="small"
-                type="text"
-                icon={<MoreOutlined />}
-                aria-label="更多安排操作"
-                disabled={statusBusy}
-              />
-            </Dropdown>
+            <Tooltip title="更多安排操作">
+              <Dropdown
+                trigger={['click']}
+                menu={{
+                  items: menu.map((action) => ({
+                    key: action.key,
+                    label: action.label,
+                    disabled: statusBusy,
+                    onClick: () => onStatusChange(action.key),
+                  })),
+                }}
+              >
+                <Button
+                  size="small"
+                  type="text"
+                  icon={<MoreOutlined />}
+                  aria-label="更多安排操作"
+                  disabled={statusBusy}
+                />
+              </Dropdown>
+            </Tooltip>
           )}
           {statusBusy && <span className="tc-status-busy">处理中…</span>}
         </div>

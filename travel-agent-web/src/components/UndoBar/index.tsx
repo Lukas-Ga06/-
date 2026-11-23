@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { CloseOutlined } from '@ant-design/icons';
+import { Tooltip } from 'antd';
 import './undo-bar.css';
 
 interface Props {
@@ -92,9 +94,16 @@ export default function UndoBar({
       <button type="button" className="ub-action" data-testid="undo-action" onClick={handleAction}>
         {actionLabel}（{seconds}s）
       </button>
-      <button type="button" className="ub-close" aria-label="关闭撤销提示" onClick={handleDismiss}>
-        ✕
-      </button>
+      <Tooltip title="关闭撤销提示">
+        <button
+          type="button"
+          className="ub-close"
+          aria-label="关闭撤销提示"
+          onClick={handleDismiss}
+        >
+          <CloseOutlined aria-hidden="true" />
+        </button>
+      </Tooltip>
       <span className="ub-progress" aria-hidden="true">
         <span className="ub-progress-bar" style={{ width: `${ratio * 100}%` }} />
       </span>

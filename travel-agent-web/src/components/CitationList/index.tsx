@@ -1,4 +1,5 @@
 import { Tag } from 'antd';
+import { BookOutlined } from '@ant-design/icons';
 import type { AgentCitation } from '../../types/agent';
 
 interface Props {
@@ -31,7 +32,8 @@ export default function CitationList({ citations, compact, testId = 'citation-li
     <div className={`citation-list ${compact ? 'compact' : ''}`} data-testid={testId}>
       {!compact && (
         <div className="citation-head">
-          📚 知识依据 <span className="citation-count">{list.length} 条</span>
+          <BookOutlined aria-hidden="true" /> 知识依据{' '}
+          <span className="citation-count">{list.length} 条</span>
         </div>
       )}
       {list.map((citation, index) => {

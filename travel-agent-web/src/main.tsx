@@ -51,12 +51,15 @@ function Root() {
           ...PALETTE[mode],
           colorInfo: PALETTE[mode].colorPrimary,
           // AA：Tag/成功文本用 colorSuccess，原 #16a34a 在 #f6ffed 上只有 3.3:1
-          colorSuccess: dark ? '#4ade80' : '#15803d',
-          colorWarning: dark ? '#fbbf24' : '#d97706',
-          colorError: dark ? '#f87171' : '#dc2626',
-          borderRadius: 8,
+          colorSuccess: dark ? '#4ade80' : '#16803c',
+          colorWarning: dark ? '#fbbf24' : '#b45309',
+          colorError: dark ? '#f87171' : '#c62828',
+          // 控件圆角 6px（P1-G 令牌）；卡片 8、弹窗/抽屉 10 在 components 里单独给
+          borderRadius: 6,
           fontSize: 14,
-          controlHeight: 34,
+          controlHeight: 36,
+          controlHeightSM: 32,
+          controlHeightLG: 40,
           fontFamily:
             '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif',
           boxShadowSecondary: dark
@@ -65,9 +68,9 @@ function Root() {
         },
         components: {
           Button: { fontWeight: 600, primaryShadow: 'none', defaultShadow: 'none' },
-          Card: { borderRadiusLG: 12 },
-          Modal: { borderRadiusLG: 12 },
-          Drawer: { borderRadiusLG: 12 },
+          Card: { borderRadiusLG: 8 },
+          Modal: { borderRadiusLG: 10 },
+          Drawer: { borderRadiusLG: 10 },
           Segmented: { itemSelectedBg: PALETTE[mode].colorBgContainer },
           Progress: { defaultColor: PALETTE[mode].colorPrimary },
           Tooltip: {

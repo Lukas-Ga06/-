@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { App, Button, Drawer, Input, Popconfirm, Skeleton } from 'antd';
-import { DeleteOutlined, EditOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
+import {
+  DeleteOutlined,
+  EditOutlined,
+  MessageOutlined,
+  PlusOutlined,
+  ReloadOutlined,
+} from '@ant-design/icons';
 import dayjs from 'dayjs';
 import EmptyState from '../EmptyState';
 import {
@@ -192,7 +198,7 @@ export default function ConversationDrawer({ open, onClose }: Props) {
 
       {!loading && !error && items && items.length === 0 && (
         <EmptyState
-          icon="💬"
+          icon={<MessageOutlined aria-hidden="true" />}
           title="还没有历史会话"
           hint="发出第一条消息后，会话会自动保存（保留 7 天），之后可以在这里接着聊。"
           testId="conversation-empty"

@@ -4,6 +4,7 @@ import {
   ArrowLeftOutlined,
   DeleteOutlined,
   PlusOutlined,
+  RobotOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -338,7 +339,9 @@ export default function Planner() {
         {inWorkspace ? (
           <div className="planner-card fade-up">
             <div className="chat-head">
-              <div className="ch-avatar">🤖</div>
+              <div className="ch-avatar" aria-hidden="true">
+                <RobotOutlined />
+              </div>
               <div>
                 <b>AI 旅行规划师</b>
                 <span>正在按你提交的需求生成方案，可继续对话局部调整</span>

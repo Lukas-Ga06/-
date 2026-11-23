@@ -1,8 +1,27 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { Button } from 'antd';
-import { DownOutlined, UpOutlined } from '@ant-design/icons';
+import {
+  AimOutlined,
+  ApiOutlined,
+  BookOutlined,
+  CheckCircleOutlined,
+  CompassOutlined,
+  DiffOutlined,
+  DownOutlined,
+  ExportOutlined,
+  FlagOutlined,
+  PauseCircleOutlined,
+  RedoOutlined,
+  RocketOutlined,
+  StopOutlined,
+  SyncOutlined,
+  ToolOutlined,
+  UpOutlined,
+  WarningOutlined,
+} from '@ant-design/icons';
 import { stageText, shortRunId, type ActivityEvent } from '../../store/stageText';
 import CitationList from '../CitationList';
+import RunStatus, { type RunState } from '../RunStatus';
 import type { AgentCitation } from '../../types/agent';
 
 interface Props {
@@ -10,23 +29,23 @@ interface Props {
 }
 
 /** 每类事件的小图标（纯装饰，状态语义由文字与配色承载） */
-const EVENT_ICON: Record<string, string> = {
-  run: '🚀',
-  start: '🔌',
-  intent: '🎯',
-  planning: '🧭',
-  replan: '🔁',
-  tool_call: '🛠',
-  tool_result: '✅',
-  rag_result: '📚',
-  plan_update: '🆚',
-  confirmation: '⏸',
-  complete: '🏁',
-  error: '⚠️',
+const EVENT_ICON: Record<string, React.ReactNode> = {
+  run: <RocketOutlined aria-hidden="true" />,
+  start: <ApiOutlined aria-hidden="true" />,
+  intent: <AimOutlined aria-hidden="true" />,
+  planning: <CompassOutlined aria-hidden="true" />,
+  replan: <SyncOutlined aria-hidden="true" />,
+  tool_call: <ToolOutlined aria-hidden="true" />,
+  tool_result: <CheckCircleOutlined aria-hidden="true" />,
+  rag_result: <BookOutlined aria-hidden="true" />,
+  plan_update: <DiffOutlined aria-hidden="true" />,
+  confirmation: <PauseCircleOutlined aria-hidden="true" />,
+  complete: <FlagOutlined aria-hidden="true" />,
+  error: <WarningOutlined aria-hidden="true" />,
   // Batch 15：任务 DAG 的委派 / 重派 / 冲突
-  delegate: '📤',
-  recover: '♻️',
-  conflict: '🚫',
+  delegate: <ExportOutlined aria-hidden="true" />,
+  recover: <RedoOutlined aria-hidden="true" />,
+  conflict: <StopOutlined aria-hidden="true" />,
 };
 
 /** 事件字段取文案：非空字符串才采用（缺失时由 stageText 的占位文案兜底） */
@@ -123,6 +142,14 @@ export default function AgentActivityPanel({ activity }: Props) {
     .map((ev) => ({ ev, text: eventText(ev) }))
     .filter((r): r is { ev: ActivityEvent; text: string } => r.text != null);
 
+  // 过程状态：有 error/conflict 就是「有问题」，收到 complete 才是完成，否则仍在进行。
+  // 用共享 RunStatus 输出图标 + 文字，不靠颜色单独表达。
+  const runState: RunState = rows.some((r) => r.ev.event === 'error' || r.ev.event === 'conflict')
+    ? 'degraded'
+    : rows.some((r) => r.ev.event === 'complete')
+      ? 'complete'
+      : 'loading';
+
   // 事件密集时保持时间线滚到最新一行
   useEffect(() => {
     if (open) {
@@ -138,6 +165,7 @@ export default function AgentActivityPanel({ activity }: Props) {
     <div className="agent-activity" data-testid="agent-activity-panel">
       <div className="aa-head">
         <span className="aa-title">Agent 过程</span>
+        <RunStatus status={runState} size="sm" testId="agent-activity-status" />
         <span className="aa-count">{rows.length} 条</span>
         {/* 折叠时展示最新一条用户语言进度，避免「收起来就什么都看不见」 */}
         {!open && (

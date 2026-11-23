@@ -2,8 +2,14 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import { App, Button, Input, Tag } from 'antd';
 import {
   CalendarOutlined,
+  CloudOutlined,
   CompassOutlined,
+  GlobalOutlined,
   PlusOutlined,
+  PlayCircleOutlined,
+  ReadOutlined,
+  ReloadOutlined,
+  RobotOutlined,
   SendOutlined,
   WalletOutlined,
 } from '@ant-design/icons';
@@ -15,12 +21,14 @@ import { getMemos, toggleMemo } from '../../api/memo';
 import { listSchedule, type ScheduleItem } from '../../api/assistant';
 import { getReminders, type ReminderBoard } from '../../api/reminder';
 import { useAuthStore } from '../../store/authStore';
+import { useThemeStore } from '../../store/themeStore';
 import { useUIStore } from '../../store/uiStore';
 import AppShell from '../../components/AppShell';
 import CityDrawer from '../../components/CityDrawer';
 import VoiceButton from '../../components/VoiceButton';
 import CountUp from '../../components/CountUp';
 import Skeleton from '../../components/Skeleton';
+import EmptyState from '../../components/EmptyState';
 import {
   footprintStats,
   tripDays,
@@ -34,8 +42,6 @@ import './home.css';
 // 首页足迹地图依赖 maplibre-gl（约 1MB），懒加载避免拖慢首屏
 const FootprintMap = lazy(() => import('../../components/FootprintMap'));
 
-const EXAMPLE_PROMPT = '帮我规划周末上海两日游，2人';
-
 /**
  * 首页（方案 §8.2）：只回答三个问题 ——
  * 1) 我下一次旅行是什么；2) 我今天需要做什么；3) 我现在能让 AI 帮我做什么。
@@ -45,6 +51,7 @@ export default function Home() {
   const { message } = App.useApp();
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
+  const themeMode = useThemeStore((s) => s.mode);
 
   const [prompt, setPrompt] = useState('');
   const [mapPoints, setMapPoints] = useState<TripMapPoint[] | null>(null);
@@ -58,6 +65,9 @@ export default function Home() {
   const [reloadKey, setReloadKey] = useState(0);
   const [selectedCity, setSelectedCity] = useState<string | null>(null);
   const [playSignal, setPlaySignal] = useState(0);
+  /** 地图引擎失败与「没有足迹」是两种状态：前者可重试，后者只给一个主按钮 */
+  const [mapUnavailable, setMapUnavailable] = useState(false);
+  const [mapRetryKey, setMapRetryKey] = useState(0);
   const setRemindersOpen = useUIStore((s) => s.setRemindersOpen);
   const reminderCount = reminderBoard?.count ?? 0;
   const failedModule = (key: string) => failed.includes(key);
@@ -179,7 +189,7 @@ export default function Home() {
           <div>
             <h1>
               {dayjs().hour() < 12 ? '早上好' : dayjs().hour() < 18 ? '下午好' : '晚上好'}，
-              {user?.nickname ?? user?.username ?? '朋友'} 👋
+              {user?.nickname ?? user?.username ?? '朋友'}
             </h1>
             <div className="dg-date">告诉我你想完成什么？</div>
           </div>
@@ -197,7 +207,7 @@ export default function Home() {
         <div className="assistant-quick fade-up">
           <div className="aq-row">
             <span className="aq-icon" aria-hidden="true">
-              ✨
+              <RobotOutlined />
             </span>
             <Input
               size="large"
@@ -220,19 +230,40 @@ export default function Home() {
               aria-label="发送给 AI 助手"
             />
           </div>
-          <div className="aq-hint">
+          <div className="aq-hint" role="group" aria-label="常用旅行任务">
             <button
               type="button"
               className="suggest-chip"
-              onClick={() => setPrompt(EXAMPLE_PROMPT)}
+              onClick={() => navigate('/planner')}
+              data-testid="home-quick-plan"
             >
-              {EXAMPLE_PROMPT}
+              <CompassOutlined aria-hidden="true" /> 规划旅行
             </button>
-            <button type="button" className="suggest-chip" onClick={() => navigate('/memos')}>
-              记一笔备忘
+            <button
+              type="button"
+              className="suggest-chip"
+              onClick={() =>
+                navigate(`/assistant?q=${encodeURIComponent('明天下雨，帮我根据天气调整行程安排')}`)
+              }
+              data-testid="home-quick-weather"
+            >
+              <CloudOutlined aria-hidden="true" /> 根据天气调整
             </button>
-            <button type="button" className="suggest-chip" onClick={() => navigate('/knowledge')}>
-              查攻略库
+            <button
+              type="button"
+              className="suggest-chip"
+              onClick={() => navigate('/expenses')}
+              data-testid="home-quick-expense"
+            >
+              <WalletOutlined aria-hidden="true" /> 记一笔消费
+            </button>
+            <button
+              type="button"
+              className="suggest-chip"
+              onClick={() => navigate('/knowledge')}
+              data-testid="home-quick-guide"
+            >
+              <ReadOutlined aria-hidden="true" /> 查询攻略
             </button>
           </div>
         </div>
@@ -290,7 +321,6 @@ export default function Home() {
                 >
                   查看行程
                 </Button>
-                <Button onClick={() => navigate('/travel?tab=schedule')}>准备清单与日程</Button>
               </div>
             </div>
           ) : failedModule('footprint') ? (
@@ -463,26 +493,90 @@ export default function Home() {
         </section>
 
         {/* ⑤ 足迹摘要：没有足迹时只占一行引导，不再用空地图占据首屏 */}
-        <section className="dash-card fade-up">
+        <section className="dash-card fade-up" data-testid="home-footprint">
           <div className="dc-head">
-            <b>🌍 我的足迹</b>
+            <b>
+              <GlobalOutlined aria-hidden="true" /> 我的足迹
+            </b>
             <button
               type="button"
               className="dc-link"
               onClick={() => navigate('/travel?tab=footprint')}
             >
-              全屏 →
+              查看全部
             </button>
           </div>
           {failedModule('footprint') ? (
-            <div className="hss-note">足迹数据加载失败，重试后再看</div>
+            <div className="footprint-compact-state" role="alert">
+              <span>足迹数据暂时没加载出来。</span>
+              <div className="fcs-actions">
+                <Button
+                  size="small"
+                  icon={<ReloadOutlined />}
+                  onClick={() => setReloadKey((v) => v + 1)}
+                >
+                  重试
+                </Button>
+                <Button size="small" type="link" onClick={() => navigate('/travel')}>
+                  查看行程
+                </Button>
+              </div>
+            </div>
           ) : mapPoints === null ? (
-            <div className="hss-note">正在定位目的地…</div>
+            <div className="footprint-compact-state">
+              <Skeleton.Text width={180} height={14} />
+              <span className="fcs-hint">正在定位目的地…</span>
+            </div>
+          ) : visitedMapPoints.length === 0 ? (
+            <EmptyState
+              testId="home-footprint-empty"
+              compact
+              title="还没有已打卡的足迹"
+              action={{
+                label: '规划一次旅行',
+                onClick: () => navigate('/planner'),
+                testId: 'home-footprint-empty-plan',
+              }}
+            />
           ) : stats.located === 0 ? (
-            <div className="hss-note">
-              {visitedMapPoints.length > 0
-                ? '已打卡的地点还没定位到坐标，打开行程补充地点位置吧'
-                : '还没有实际打卡的足迹，完成行程项后这里才会亮起'}
+            <div className="footprint-compact-state">
+              <span>已打卡的地点还没定位到坐标。</span>
+              <div className="fcs-actions">
+                <Button
+                  size="small"
+                  type="primary"
+                  onClick={() =>
+                    navigate(`/trip/${visitedMapPoints[0]?.tripId ?? nextTrip?.tripId ?? ''}`)
+                  }
+                >
+                  补全地点
+                </Button>
+              </div>
+            </div>
+          ) : mapUnavailable ? (
+            <div className="footprint-compact-state" role="alert" data-testid="home-map-error">
+              <span>地图暂时不可用，行程时间轴仍可正常使用。</span>
+              <div className="fcs-actions">
+                <Button
+                  size="small"
+                  icon={<ReloadOutlined />}
+                  onClick={() => {
+                    setMapUnavailable(false);
+                    setMapRetryKey((v) => v + 1);
+                  }}
+                >
+                  重试地图
+                </Button>
+                <Button
+                  size="small"
+                  type="link"
+                  onClick={() =>
+                    navigate(nextTrip ? `/trip/${nextTrip.tripId}` : '/travel?tab=schedule')
+                  }
+                >
+                  查看时间轴
+                </Button>
+              </div>
             </div>
           ) : (
             <>
@@ -493,15 +587,16 @@ export default function Home() {
                   className="dc-link"
                   onClick={() => setPlaySignal((v) => v + 1)}
                 >
-                  ▶ 回放足迹
+                  <PlayCircleOutlined aria-hidden="true" /> 回放足迹
                 </button>
               </div>
               <div className="hg-map footprint-slim-map">
                 <Suspense fallback={<div className="footprint-loading">地图加载中…</div>}>
                   <FootprintMap
+                    key={mapRetryKey}
                     points={visitedMapPoints}
                     mode="city"
-                    theme="light"
+                    theme={themeMode}
                     pitch={60}
                     bearing={-18}
                     zoom={2.3}
@@ -509,6 +604,7 @@ export default function Home() {
                     showControls={false}
                     playSignal={playSignal}
                     onCityClick={setSelectedCity}
+                    onErrorChange={setMapUnavailable}
                   />
                 </Suspense>
               </div>

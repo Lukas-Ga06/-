@@ -42,7 +42,7 @@ const INTENT_LABELS: Record<string, string> = {
   QUERY_MEMO: '查备忘',
   ADD_SCHEDULE: '加日程',
   QUERY_SCHEDULE: '查日程',
-  QUERY_KNOWLEDGE: '旅行知识',
+  QUERY_KNOWLEDGE: '攻略查询',
   QUERY_BUDGET: '预算查询',
   CHITCHAT: '闲聊',
   CANCELLED: '已取消',

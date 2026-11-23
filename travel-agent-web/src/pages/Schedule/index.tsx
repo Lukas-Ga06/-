@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { App, Button, DatePicker, Input, Select, Spin, TimePicker } from 'antd';
-import { CheckOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
+import { CalendarOutlined, CheckOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import AppShell from '../../components/AppShell';
 import EmptyState from '../../components/EmptyState';
@@ -158,7 +158,9 @@ export default function Schedule() {
       <div className="dash-wrap">
         <div className="dash-greeting">
           <div>
-            <h1>📅 日程</h1>
+            <h1>
+              <CalendarOutlined aria-hidden="true" className="page-title-icon" /> 日程
+            </h1>
             <div className="dg-date">
               {openCount} 项待完成 · 也可以对助理说「明天下午3点开评审会」自动加入日程
             </div>
@@ -251,7 +253,7 @@ export default function Schedule() {
               {upcoming.length === 0 && todayItems.length === 0 ? (
                 <EmptyState
                   testId="schedule-empty"
-                  icon="📅"
+                  icon={<CalendarOutlined aria-hidden="true" />}
                   title="日程是空的，添加第一项吧"
                   hint="用上方输入框添加，或对助理说「明天下午3点开评审会」，到点会提醒你。"
                 />

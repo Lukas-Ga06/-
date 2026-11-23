@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { CloseOutlined } from '@ant-design/icons';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { usePendingSync, useStatusQueueStore } from '../../store/statusQueueStore';
 import type { SyncResult } from '../../store/statusQueueStore';
@@ -71,9 +72,10 @@ export default function OfflineBanner() {
           type="button"
           className="ob-close"
           aria-label="关闭离线提示"
+          title="关闭离线提示"
           onClick={() => setDismissed(true)}
         >
-          ✕
+          <CloseOutlined aria-hidden="true" />
         </button>
       </div>
     );
@@ -107,9 +109,10 @@ export default function OfflineBanner() {
           type="button"
           className="ob-close"
           aria-label="关闭同步提示"
+          title="关闭同步提示"
           onClick={() => clearResults()}
         >
-          ✕
+          <CloseOutlined aria-hidden="true" />
         </button>
       </div>
     );
@@ -142,9 +145,10 @@ export default function OfflineBanner() {
           type="button"
           className="ob-close"
           aria-label="关闭同步提示"
+          title="关闭同步提示"
           onClick={() => clearResults()}
         >
-          ✕
+          <CloseOutlined aria-hidden="true" />
         </button>
       </div>
     );

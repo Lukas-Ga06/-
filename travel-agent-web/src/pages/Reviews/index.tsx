@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Button, Empty, Spin, Tag } from 'antd';
-import { ArrowRightOutlined, ReloadOutlined } from '@ant-design/icons';
+import {
+  ArrowRightOutlined,
+  BookOutlined,
+  CompassOutlined,
+  ReloadOutlined,
+} from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import AppShell from '../../components/AppShell';
 import EmptyState from '../../components/EmptyState';
@@ -63,7 +68,9 @@ export default function Reviews() {
       <div className="dash-wrap">
         <div className="dash-greeting">
           <div>
-            <h1>📖 旅行回顾</h1>
+            <h1>
+              <BookOutlined aria-hidden="true" className="page-title-icon" /> 旅行回顾
+            </h1>
             <div className="dg-date">
               行后复盘：完成率、计划与实际花费、真实到访、实际路线、照片与事件
             </div>
@@ -95,7 +102,7 @@ export default function Reviews() {
           <div className="dash-card review-state">
             <EmptyState
               testId="reviews-empty"
-              icon="🧳"
+              icon={<CompassOutlined aria-hidden="true" />}
               title="还没有可回顾的行程"
               hint="完成一次旅行后，这里会聚合完成率、计划与实际花费、真实到访和照片。"
               action={{ label: '去规划一次旅行', onClick: () => navigate('/travel') }}

@@ -1,8 +1,13 @@
 import { useEffect, useState } from 'react';
-import { App, Button, Empty, Input, Popconfirm, Tabs } from 'antd';
+import { App, Button, Dropdown, Empty, Input, Popconfirm, Tabs, Tooltip } from 'antd';
 import {
+  CalendarOutlined,
+  CarryOutOutlined,
   CheckOutlined,
+  CompassOutlined,
   DeleteOutlined,
+  GlobalOutlined,
+  MoreOutlined,
   RobotOutlined,
   StopOutlined,
   UndoOutlined,
@@ -91,7 +96,7 @@ function matchesFilter(t: Trip, filter: StatusFilter): boolean {
  * 待确认/即将出发/进行中/已结束/已取消靠筛选区分，而不是全塞进同一列表。
  */
 export default function Travel() {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const navigate = useNavigate();
   const trips = useTripStore((s) => s.trips);
   const tripsLoading = useTripStore((s) => s.tripsLoading);
@@ -168,6 +173,18 @@ export default function Travel() {
     }
   };
 
+  /** 移动端「更多」里的删除：二次确认带行程名，避免误触 */
+  const confirmRemove = (trip: Trip) => {
+    modal.confirm({
+      title: '确定删除该行程？',
+      content: `「${trip.name}」删除后无法恢复。`,
+      okText: '删除',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: () => remove(trip.id),
+    });
+  };
+
   const changeStatus = async (id: number, status: string) => {
     setStatusBusy(id);
     try {
@@ -192,7 +209,9 @@ export default function Travel() {
       <div className="dash-wrap">
         <div className="dash-greeting">
           <div>
-            <h1>🧭 我的行程</h1>
+            <h1>
+              <CompassOutlined aria-hidden="true" className="page-title-icon" /> 我的行程
+            </h1>
             <div className="dg-date">
               {user ? `${user.nickname ?? user.username} 的旅行空间 · ` : ''}
               待确认、即将出发、进行中与已结束都在这里，用筛选切换
@@ -209,7 +228,11 @@ export default function Travel() {
           items={[
             {
               key: 'trips',
-              label: '🧳 行程',
+              label: (
+                <span>
+                  <CarryOutOutlined aria-hidden="true" /> 行程
+                </span>
+              ),
               children: (
                 <>
                   <div className="search-card fade-up">
@@ -323,7 +346,7 @@ export default function Travel() {
                     <div className="empty-trips">
                       <EmptyState
                         testId="trips-empty"
-                        icon="🗺️"
+                        icon={<CompassOutlined aria-hidden="true" />}
                         title="还没有行程，输入一个旅行想法让 AI 帮你规划吧"
                         hint="点右上角「新建行程」，或用一句话描述你想去哪、几天、几个人。"
                       />
@@ -418,23 +441,52 @@ export default function Travel() {
                                   {action.label}
                                 </Button>
                               )}
-                              {/* 删除是低频危险操作：放进行尾菜单，二次确认带行程名 */}
-                              <Popconfirm
-                                title="确定删除该行程？"
-                                description={`「${t.name}」删除后无法恢复`}
-                                okText="删除"
-                                okButtonProps={{ danger: true }}
-                                cancelText="取消"
-                                onConfirm={() => remove(t.id)}
-                              >
-                                <Button
-                                  type="text"
-                                  danger
-                                  size="small"
-                                  icon={<DeleteOutlined />}
-                                  aria-label={`删除行程 ${t.name}`}
-                                />
-                              </Popconfirm>
+                              {/* 桌面：删除保持低频图标按钮；移动端收进「更多」，不与状态/预算抢一行 */}
+                              <span className="tr-delete-desktop">
+                                <Tooltip title="删除行程">
+                                  <Popconfirm
+                                    title="确定删除该行程？"
+                                    description={`「${t.name}」删除后无法恢复`}
+                                    okText="删除"
+                                    okButtonProps={{ danger: true }}
+                                    cancelText="取消"
+                                    onConfirm={() => remove(t.id)}
+                                  >
+                                    <Button
+                                      type="text"
+                                      danger
+                                      size="small"
+                                      icon={<DeleteOutlined />}
+                                      aria-label={`删除行程 ${t.name}`}
+                                    />
+                                  </Popconfirm>
+                                </Tooltip>
+                              </span>
+                              <span className="tr-more-mobile">
+                                <Tooltip title="更多操作">
+                                  <Dropdown
+                                    trigger={['click']}
+                                    menu={{
+                                      items: [
+                                        {
+                                          key: 'delete',
+                                          danger: true,
+                                          icon: <DeleteOutlined />,
+                                          label: '删除行程',
+                                          onClick: () => confirmRemove(t),
+                                        },
+                                      ],
+                                    }}
+                                  >
+                                    <Button
+                                      type="text"
+                                      size="small"
+                                      icon={<MoreOutlined />}
+                                      aria-label={`更多操作：${t.name}`}
+                                    />
+                                  </Dropdown>
+                                </Tooltip>
+                              </span>
                             </div>
                           </div>
                         );
@@ -457,8 +509,24 @@ export default function Travel() {
                 </>
               ),
             },
-            { key: 'schedule', label: '📅 日程', children: <Schedule /> },
-            { key: 'footprint', label: '🌍 足迹', children: <Footprint /> },
+            {
+              key: 'schedule',
+              label: (
+                <span>
+                  <CalendarOutlined aria-hidden="true" /> 日程
+                </span>
+              ),
+              children: <Schedule />,
+            },
+            {
+              key: 'footprint',
+              label: (
+                <span>
+                  <GlobalOutlined aria-hidden="true" /> 足迹
+                </span>
+              ),
+              children: <Footprint />,
+            },
           ]}
         />
       </div>

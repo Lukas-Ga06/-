@@ -1,5 +1,15 @@
 import { useState } from 'react';
 import { Button } from 'antd';
+import {
+  AimOutlined,
+  AppstoreOutlined,
+  BarChartOutlined,
+  CheckCircleOutlined,
+  ClockCircleOutlined,
+  CompassOutlined,
+  LineChartOutlined,
+  WalletOutlined,
+} from '@ant-design/icons';
 import AppShell from '../../components/AppShell';
 import CountUp from '../../components/CountUp';
 import Skeleton from '../../components/Skeleton';
@@ -51,7 +61,9 @@ export default function UIDemo() {
       <div className="dash-wrap">
         <div className="dash-greeting">
           <div>
-            <h1>✨ UI 组件演示</h1>
+            <h1>
+              <AppstoreOutlined aria-hidden="true" /> UI 组件演示
+            </h1>
             <div className="dg-date">
               CountUp · Skeleton · SwipeRow · DraggableList · Collapse · Toast · Intersection
             </div>
@@ -74,28 +86,36 @@ export default function UIDemo() {
           </div>
           <div className="stat-row" style={{ marginTop: 12 }}>
             <div className="stat-card">
-              <div className="sc-icon blue">📊</div>
+              <div className="sc-icon blue" aria-hidden="true">
+                <BarChartOutlined />
+              </div>
               <div className="sc-num">
                 <CountUp value={count} duration={800} />
               </div>
               <div className="sc-label">整数</div>
             </div>
             <div className="stat-card">
-              <div className="sc-icon green">💰</div>
+              <div className="sc-icon green" aria-hidden="true">
+                <WalletOutlined />
+              </div>
               <div className="sc-num">
                 <CountUp value={money} prefix="¥" thousandSeparator duration={1000} />
               </div>
               <div className="sc-label">金额（千分位）</div>
             </div>
             <div className="stat-card">
-              <div className="sc-icon orange">📈</div>
+              <div className="sc-icon orange" aria-hidden="true">
+                <LineChartOutlined />
+              </div>
               <div className="sc-num">
                 <CountUp value={Math.PI * 100} decimals={2} suffix="%" duration={700} />
               </div>
               <div className="sc-label">小数百分比</div>
             </div>
             <div className="stat-card">
-              <div className="sc-icon purple">🎯</div>
+              <div className="sc-icon purple" aria-hidden="true">
+                <AimOutlined />
+              </div>
               <div className="sc-num">
                 <CountUp value={3650} prefix="¥" suffix="k" decimals={1} duration={600} />
               </div>
@@ -176,7 +196,9 @@ export default function UIDemo() {
                 <div
                   style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px' }}
                 >
-                  <span style={{ fontSize: 22 }}>🧭</span>
+                  <span style={{ fontSize: 22 }} aria-hidden="true">
+                    <CompassOutlined />
+                  </span>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 600, fontSize: 14 }}>{item.label}</div>
                     <div style={{ fontSize: 12, color: 'var(--text-3)' }}>¥{item.value}</div>
@@ -271,7 +293,15 @@ export default function UIDemo() {
               <b>useIntersection · 视口触发</b>
             </div>
             <div style={{ padding: 12, color: 'var(--text-2)', fontSize: 14 }}>
-              {inView ? '✅ 元素已进入视口，触发了 in-view 动画' : '⏳ 等待进入视口…'}
+              {inView ? (
+                <>
+                  <CheckCircleOutlined aria-hidden="true" /> 元素已进入视口，触发了 in-view 动画
+                </>
+              ) : (
+                <>
+                  <ClockCircleOutlined aria-hidden="true" /> 等待进入视口…
+                </>
+              )}
             </div>
           </section>
         </div>

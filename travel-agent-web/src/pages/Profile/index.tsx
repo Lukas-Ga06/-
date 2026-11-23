@@ -1,9 +1,16 @@
 import { useEffect, useState } from 'react';
-import { App, Button, Tag } from 'antd';
-import { LogoutOutlined } from '@ant-design/icons';
+import { App, Button, Checkbox, Input, Modal, Tag } from 'antd';
+import {
+  DeleteOutlined,
+  ExclamationCircleOutlined,
+  LogoutOutlined,
+  MoonOutlined,
+  SunOutlined,
+} from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { systemStatus, type SystemStatus } from '../../api/assistant';
-import { signOut } from '../../api/auth';
+import { deleteAccountApi, signOut } from '../../api/auth';
+import { getErrorStatus } from '../../api/client';
 import { useAuthStore } from '../../store/authStore';
 import { useThemeStore } from '../../store/themeStore';
 import { useTripStore } from '../../store/tripStore';
@@ -20,12 +27,64 @@ export default function Profile() {
   const toggleTheme = useThemeStore((s) => s.toggle);
   const [status, setStatus] = useState<SystemStatus | null>(null);
 
+  // 注销账号：密码二次确认；任何情况下都不能因为 401 误触全局登出
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [deleteConfirmed, setDeleteConfirmed] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
   useEffect(() => {
     loadTrips().catch(() => undefined);
     systemStatus()
       .then(setStatus)
       .catch(() => undefined);
   }, []);
+
+  const openDelete = () => {
+    setDeletePassword('');
+    setDeleteConfirmed(false);
+    setDeleteError(null);
+    setDeleteOpen(true);
+  };
+
+  const closeDelete = () => {
+    if (deleteBusy) return;
+    setDeleteOpen(false);
+    setDeleteError(null);
+    setDeletePassword('');
+    setDeleteConfirmed(false);
+  };
+
+  const canDelete = deletePassword.trim().length > 0 && deleteConfirmed && !deleteBusy;
+
+  const submitDelete = async () => {
+    if (!deletePassword.trim()) {
+      setDeleteError('请输入当前密码');
+      return;
+    }
+    if (!deleteConfirmed) {
+      setDeleteError('请先勾选确认，注销后无法恢复');
+      return;
+    }
+    setDeleteBusy(true);
+    setDeleteError(null);
+    try {
+      await deleteAccountApi(deletePassword);
+      // Cookie 已由后端清掉，这里主动清本地登录态，不能只依赖服务端登出调用
+      useAuthStore.getState().logout();
+      message.success('账号已注销');
+      navigate('/login', { replace: true });
+    } catch (error: any) {
+      const status = getErrorStatus(error);
+      // 密码错误也是 401，但它只表示本次确认失败：保持登录态，表单内联提示
+      setDeleteError(
+        status === 401 ? '密码错误，请重新输入。' : error?.message || '注销失败，请稍后重试。',
+      );
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
 
   const confirmed = trips.filter((t) => t.status === 'CONFIRMED').length;
 
@@ -135,7 +194,8 @@ export default function Profile() {
                 data-testid="theme-toggle-profile"
                 onClick={toggleTheme}
               >
-                {themeMode === 'dark' ? '☀️ 浅色' : '🌙 暗色'}
+                {themeMode === 'dark' ? <SunOutlined /> : <MoonOutlined />}{' '}
+                {themeMode === 'dark' ? '浅色' : '暗色'}
               </Button>
             </div>
           </div>
@@ -193,6 +253,27 @@ export default function Profile() {
             <br />· RAG 知识库：旅游攻略向量化检索；LLM 可在配置中接入 OpenAI-compatible 模型
           </div>
 
+          {/* 危险区：低频、不可恢复的动作单独成块，与日常设置用留白隔开 */}
+          <section className="profile-danger" aria-labelledby="profile-danger-title">
+            <div className="profile-danger-copy">
+              <b id="profile-danger-title">
+                <ExclamationCircleOutlined aria-hidden="true" /> 危险区 · 注销账号
+              </b>
+              <p>
+                注销后会永久删除你的账号、全部行程、照片、会话以及由它们派生的数据，且不可恢复。
+              </p>
+            </div>
+            <Button
+              danger
+              icon={<DeleteOutlined />}
+              onClick={openDelete}
+              aria-label="注销账号"
+              data-testid="open-delete-account"
+            >
+              注销账号
+            </Button>
+          </section>
+
           <div style={{ marginTop: 22, display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <Button onClick={() => navigate('/')}>返回首页</Button>
             <Button
@@ -210,6 +291,68 @@ export default function Profile() {
           </div>
         </div>
       </div>
+
+      <Modal
+        title="注销账号"
+        open={deleteOpen}
+        onCancel={closeDelete}
+        width={460}
+        maskClosable={!deleteBusy}
+        keyboard={!deleteBusy}
+        destroyOnHidden
+        footer={[
+          <Button key="cancel" onClick={closeDelete} disabled={deleteBusy}>
+            取消
+          </Button>,
+          <Button
+            key="delete"
+            type="primary"
+            danger
+            loading={deleteBusy}
+            disabled={!canDelete}
+            onClick={submitDelete}
+            data-testid="confirm-delete-account"
+          >
+            永久注销
+          </Button>,
+        ]}
+      >
+        <div className="profile-delete-form">
+          <p className="profile-delete-warning">
+            当前账号 <b>@{user?.username}</b>{' '}
+            将被永久删除，包括行程、照片、会话与派生数据。此操作不可恢复。
+          </p>
+          <div className="profile-delete-field">
+            <label htmlFor="delete-account-password">当前密码</label>
+            <Input.Password
+              id="delete-account-password"
+              value={deletePassword}
+              onChange={(event) => {
+                setDeletePassword(event.target.value);
+                setDeleteError(null);
+              }}
+              placeholder="输入当前密码确认身份"
+              autoComplete="current-password"
+              status={deleteError ? 'error' : undefined}
+              aria-label="当前密码"
+            />
+          </div>
+          <Checkbox
+            checked={deleteConfirmed}
+            onChange={(event) => {
+              setDeleteConfirmed(event.target.checked);
+              setDeleteError(null);
+            }}
+          >
+            我已了解：注销后账号与全部数据不可恢复
+          </Checkbox>
+          {deleteError && (
+            <div className="profile-delete-error" role="alert" data-testid="delete-account-error">
+              {deleteError}
+            </div>
+          )}
+        </div>
+      </Modal>
     </AppShell>
   );
 }

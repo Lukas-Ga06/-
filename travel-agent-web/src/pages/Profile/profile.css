@@ -11,16 +11,16 @@
    ============================================================ */
 .profile-page {
   min-height: 100%;
-  padding: 48px 20px;
+  padding: 40px 20px;
 }
 
 .profile-card {
   max-width: 520px;
   margin: 0 auto;
-  border-radius: 30px;
-  background: var(--lg-bg);
-  border: 1px solid var(--lg-border);
-  box-shadow: var(--lg-shadow);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-1);
   padding: 28px;
 }
 
@@ -35,13 +35,13 @@
   width: 62px;
   height: 62px;
   border-radius: 50%;
-  background: var(--grad-primary);
+  background: var(--accent);
   color: #fff;
   display: grid;
   place-items: center;
   font-size: 26px;
   font-weight: 700;
-  box-shadow: 0 8px 24px rgba(0, 122, 255, 0.35);
+  box-shadow: none;
 }
 
 .stat-grid {
@@ -49,4 +49,101 @@
   grid-template-columns: 1fr 1fr;
   gap: 12px;
   margin: 20px 0;
+}
+
+/* ---------- 危险区：注销账号 ---------- */
+.profile-danger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 20px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--danger);
+  border-radius: var(--radius-card);
+  background: var(--surface-2);
+}
+
+.profile-danger-copy {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.profile-danger-copy b {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--danger);
+}
+
+.profile-danger-copy p {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+
+.profile-danger .ant-btn {
+  flex-shrink: 0;
+}
+
+/* 注销弹窗：密码、二次确认与内联错误 */
+.profile-delete-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.profile-delete-warning {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  background: var(--danger-weak);
+  color: var(--text-2);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.profile-delete-warning b {
+  color: var(--danger);
+  overflow-wrap: anywhere;
+}
+
+.profile-delete-field label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.profile-delete-error {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--danger);
+}
+
+/* 移动端：危险区上下排列，按钮独占一行；不压住底部标签栏 */
+@media (max-width: 720px) {
+  .profile-page {
+    padding: 20px 12px calc(16px + var(--safe-bottom));
+  }
+
+  .profile-card {
+    border-radius: var(--radius-card);
+    padding: 18px;
+  }
+
+  .profile-danger {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .profile-danger .ant-btn {
+    width: 100%;
+  }
 }

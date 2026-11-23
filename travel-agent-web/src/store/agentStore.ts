@@ -363,7 +363,7 @@ export const useAgentStore = create<AgentState>()(
         const stopMsg: ChatMessage = {
           id: nextId(),
           role: 'assistant',
-          content: '⏹ 已停止生成。已获得的过程记录保留在运行详情里，你可以补充需求后重新发送。',
+          content: '已停止生成。已获得的过程记录保留在运行详情里，你可以补充需求后重新发送。',
           time: new Date().toISOString(),
           // 合成结果：界面用「已停止」结果卡与普通回答区分（§10.1 cancelled 语义）
           result: {

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Empty } from 'antd';
+import { WalletOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import AppShell from '../../components/AppShell';
 import CountUp from '../../components/CountUp';
@@ -34,7 +35,9 @@ export default function Expenses() {
       <div className="dash-wrap">
         <div className="dash-greeting">
           <div>
-            <h1>💰 记账</h1>
+            <h1>
+              <WalletOutlined aria-hidden="true" className="page-title-icon" /> 记账
+            </h1>
             <div className="dg-date">
               跨行程实际支出与支付渠道统计 ·
               进入行程可在「记账」面板记录明细，也可以对助理说「记一笔午餐 45 元」

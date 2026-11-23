@@ -1,6 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Alert, Checkbox, Modal, Tag } from 'antd';
-import { ArrowRightOutlined } from '@ant-design/icons';
+import {
+  ArrowRightOutlined,
+  CloseOutlined,
+  DiffOutlined,
+  EditOutlined,
+  PlusOutlined,
+  StopOutlined,
+} from '@ant-design/icons';
 import type { AgentResult, DiffChange } from '../../types/agent';
 import CitationList from '../CitationList';
 
@@ -26,7 +33,9 @@ function renderChange(c: DiffChange, key: number) {
   const isModify = c.type === 'MODIFY';
   return (
     <div key={key} className={`diff-row ${isRemove ? 'remove' : 'add'}`}>
-      <span className="dr-icon">{isRemove ? '✕' : isModify ? '✎' : '＋'}</span>
+      <span className="dr-icon" aria-hidden="true">
+        {isRemove ? <CloseOutlined /> : isModify ? <EditOutlined /> : <PlusOutlined />}
+      </span>
       <span className="dr-title">{c.title}</span>
       {c.detail && !isRemove && (
         <span style={{ color: 'var(--ink-3)', fontSize: 12 }}>{c.detail}</span>
@@ -72,7 +81,11 @@ export default function PlanDiff({ open, result, onConfirm, onCancel, loading }:
   return (
     <Modal
       open={open}
-      title="🆚 方案确认 · 原方案 → 新方案"
+      title={
+        <span>
+          <DiffOutlined aria-hidden="true" /> 方案确认 · 原方案 → 新方案
+        </span>
+      }
       okText="确认修改"
       cancelText="取消"
       onOk={handleOk}
@@ -128,7 +141,9 @@ export default function PlanDiff({ open, result, onConfirm, onCancel, loading }:
                     key={`${issue.type}-${i}`}
                     className={`plan-warning-row ${issue.severity === 'HIGH' ? 'high' : 'medium'}`}
                   >
-                    <span className="pw-icon">{issue.severity === 'HIGH' ? '⛔' : '⚠'}</span>
+                    <span className="pw-icon">
+                      {issue.severity === 'HIGH' ? <StopOutlined aria-hidden="true" /> : '⚠'}
+                    </span>
                     <span className="pw-text">{issue.message}</span>
                   </div>
                 ))}

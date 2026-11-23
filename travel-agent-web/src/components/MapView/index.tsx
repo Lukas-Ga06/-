@@ -1,4 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
+import { Tooltip } from 'antd';
+import {
+  AimOutlined,
+  BorderOutlined,
+  DeploymentUnitOutlined,
+  PauseCircleOutlined,
+  PlayCircleOutlined,
+  ReloadOutlined,
+} from '@ant-design/icons';
 import type { ItineraryItem, RouteLeg } from '../../types/trip';
 import type { AgentFocus } from '../../types/agent';
 import type { MapProvider } from './MapProvider';
@@ -17,6 +26,10 @@ interface Props {
    * 重新可见时补一次 resize，保住相机与缩放。
    */
   active?: boolean;
+  /** 地图不可用时，给用户一个不依赖地图的出口（切到时间轴） */
+  onViewTimeline?: () => void;
+  /** 技术排查入口：只在用户主动点击时打开诊断页，不在主界面暴露配置 */
+  onOpenDiagnostics?: () => void;
 }
 
 type Engine = '3d' | '2d';
@@ -25,12 +38,21 @@ type Engine = '3d' | '2d';
  * 地图组件：统一使用高德 JS API，支持 3D/2D、辉光路线与沿行程巡航；
  * Agent Focus 事件驱动自动飞行定位。
  */
-export default function MapView({ items, focus, focusDay, routeLegs, active = true }: Props) {
+export default function MapView({
+  items,
+  focus,
+  focusDay,
+  routeLegs,
+  active = true,
+  onViewTimeline,
+  onOpenDiagnostics,
+}: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const providerRef = useRef<MapProvider | null>(null);
   const [engine, setEngine] = useState<Engine>('3d');
   const [touring, setTouring] = useState(false);
   const [mapLoadFailed, setMapLoadFailed] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
   const themeMode = useThemeStore((s) => s.mode);
 
   // 初始化 / 视角切换。高德 SDK 只加载一次，Provider 负责挂起异步加载期间的渲染请求。
@@ -52,7 +74,7 @@ export default function MapView({ items, focus, focusDay, routeLegs, active = tr
       providerRef.current = null;
       setTouring(false);
     };
-  }, [engine]);
+  }, [engine, retryKey]);
 
   // 主题切换：只让 Provider 换底图样式（SDK 未就绪时它会把请求挂起）。
   useEffect(() => {
@@ -128,42 +150,94 @@ export default function MapView({ items, focus, focusDay, routeLegs, active = tr
     <>
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
       {mapLoadFailed && (
-        <div className="map-tile-hint" role="alert">
-          高德地图加载失败，请检查 VITE_AMAP_KEY、VITE_AMAP_SECURITY_CODE 和网络连接
+        <div className="map-unavailable" role="alert" data-testid="map-unavailable">
+          <b>地图暂时不可用</b>
+          <span className="mu-hint">行程时间轴与 AI 助手仍可正常使用。</span>
+          <div className="mu-actions">
+            <button
+              type="button"
+              className="map-ctl-btn"
+              onClick={() => {
+                setMapLoadFailed(false);
+                setRetryKey((v) => v + 1);
+              }}
+            >
+              <ReloadOutlined aria-hidden="true" /> 重试地图
+            </button>
+            {onViewTimeline && (
+              <button type="button" className="map-ctl-btn" onClick={onViewTimeline}>
+                查看时间轴
+              </button>
+            )}
+            {onOpenDiagnostics && (
+              <button type="button" className="map-ctl-btn" onClick={onOpenDiagnostics}>
+                打开诊断
+              </button>
+            )}
+          </div>
         </div>
       )}
-      <div className="map-controls">
-        <div className="map-ctl-group">
-          <button
-            className={`map-ctl-btn ${engine === '3d' ? 'active' : ''}`}
-            onClick={() => setEngine('3d')}
-            title="3D 倾斜透视地图"
-          >
-            🏔 3D
-          </button>
-          <button
-            className={`map-ctl-btn ${engine === '2d' ? 'active' : ''}`}
-            onClick={() => setEngine('2d')}
-            title="2D 平面地图"
-          >
-            🗺 2D
-          </button>
+      {!mapLoadFailed && (
+        <div className="map-controls" role="toolbar" aria-label="地图控制">
+          <div className="map-ctl-group">
+            <Tooltip title="3D 倾斜透视地图">
+              <button
+                type="button"
+                className={`map-ctl-btn ${engine === '3d' ? 'active' : ''}`}
+                onClick={() => setEngine('3d')}
+                aria-label="3D 倾斜透视地图"
+                aria-pressed={engine === '3d'}
+              >
+                <DeploymentUnitOutlined aria-hidden="true" /> 3D
+              </button>
+            </Tooltip>
+            <Tooltip title="2D 平面地图">
+              <button
+                type="button"
+                className={`map-ctl-btn ${engine === '2d' ? 'active' : ''}`}
+                onClick={() => setEngine('2d')}
+                aria-label="2D 平面地图"
+                aria-pressed={engine === '2d'}
+              >
+                <BorderOutlined aria-hidden="true" /> 2D
+              </button>
+            </Tooltip>
+          </div>
+          {engine === '3d' && (
+            <>
+              <Tooltip title={touring ? '停止巡航' : '沿当天路线自动巡航'}>
+                <button
+                  type="button"
+                  className={`map-ctl-btn tour ${touring ? 'active' : ''}`}
+                  onClick={toggleTour}
+                  aria-label={touring ? '停止巡航' : '沿路线巡航'}
+                  aria-pressed={touring}
+                >
+                  {touring ? (
+                    <>
+                      <PauseCircleOutlined aria-hidden="true" /> 停止巡航
+                    </>
+                  ) : (
+                    <>
+                      <PlayCircleOutlined aria-hidden="true" /> 沿路线巡航
+                    </>
+                  )}
+                </button>
+              </Tooltip>
+              <Tooltip title="切换为俯视角度">
+                <button
+                  type="button"
+                  className="map-ctl-btn"
+                  onClick={() => setPitched(false)}
+                  aria-label="切换为俯视角度"
+                >
+                  <AimOutlined aria-hidden="true" /> 俯视
+                </button>
+              </Tooltip>
+            </>
+          )}
         </div>
-        {engine === '3d' && (
-          <>
-            <button className={`map-ctl-btn tour ${touring ? 'active' : ''}`} onClick={toggleTour}>
-              {touring ? '⏹ 停止巡航' : '▶ 沿路线巡航'}
-            </button>
-            <button
-              className="map-ctl-btn"
-              onClick={() => setPitched(false)}
-              title="切换为俯视角度"
-            >
-              ⬛ 俯视
-            </button>
-          </>
-        )}
-      </div>
+      )}
     </>
   );
 }

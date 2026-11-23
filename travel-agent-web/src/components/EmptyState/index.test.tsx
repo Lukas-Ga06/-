@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { App } from 'antd';
+import { EnvironmentOutlined, CompassOutlined } from '@ant-design/icons';
 import EmptyState from './index';
 
 afterEach(cleanup);
@@ -19,7 +20,7 @@ describe('EmptyState · 统一空状态（阶段 E）', () => {
     const onClick = vi.fn();
     renderState({
       testId: 'x-empty',
-      icon: '🧳',
+      icon: <CompassOutlined aria-hidden="true" />,
       title: '还没有行程',
       hint: '点右上角新建行程',
       action: { label: '去规划', onClick },
@@ -41,7 +42,7 @@ describe('EmptyState · 统一空状态（阶段 E）', () => {
   });
 
   it('图标是装饰性的，不进可访问名称', () => {
-    renderState({ icon: '📍', title: '还没有足迹' });
+    renderState({ icon: <EnvironmentOutlined aria-hidden="true" />, title: '还没有足迹' });
 
     const icon = document.querySelector('.es-icon');
     expect(icon?.getAttribute('aria-hidden')).toBe('true');
