@@ -18,6 +18,28 @@ const previewPort = Number(new URL(baseURL).port || 4173);
 const configDir = path.dirname(fileURLToPath(import.meta.url));
 
 /**
+ * 隔离后端（发布门禁口径）：`npm run e2e:isolated` / `e2e:device:isolated` 会设置
+ * E2E_START_BACKEND=1，Playwright 先拉起 scripts/start-e2e-backend.mjs：
+ * 独立 H2 内存库 + LLM/Embedding/MCP/AMAP 全关 + 限流关闭，绝不读开发者 .env.local。
+ *
+ * 默认的 `npx playwright test` 保持旧行为（连 8080），方便本地快速迭代；
+ * 但它不能作为发布证据，isolation.spec.ts 只在 E2E_ASSERT_ISOLATION=1 时运行。
+ */
+const ISOLATED_BACKEND = process.env.E2E_START_BACKEND === '1';
+const API_PORT = Number(process.env.E2E_API_PORT ?? 18081);
+if (ISOLATED_BACKEND) {
+  // 隔离模式下必须让 vite preview 的 /api 反代指向隔离实例：
+  // 显式设置一次，避免调用方漏传 E2E_API_TARGET 时悄悄打回 8080 的开发者后端。
+  process.env.E2E_API_TARGET = `http://127.0.0.1:${API_PORT}`;
+} else {
+  console.warn(
+    '[e2e] 未启用隔离后端：本次结果不是发布门禁口径（可能连到带真实 LLM/MCP Key 的 8080 实例）。' +
+      '请用 `npm run e2e:isolated` 重新执行。',
+  );
+}
+const BACKEND_SCRIPT = path.resolve(configDir, '../scripts/start-e2e-backend.mjs');
+
+/**
  * 按 `E2E_SUITE` 选择要跑哪一套（默认 = 默认套件，行为与历史版本完全一致）。
  *
  * - `default`：桌面 Chromium 冒烟/规划/无障碍，跑在默认 `npm run e2e` 上（CI 门禁）；
@@ -56,6 +78,7 @@ const ALWAYS_IGNORED = ['**/visual/**'];
  */
 const DEFAULT_SPECS = [
   'a11y.spec.ts',
+  'isolation.spec.ts',
   'maplibre-vendor.spec.ts',
   'planner-form.spec.ts',
   'smoke.spec.ts',
@@ -136,10 +159,24 @@ export default defineConfig({
         ]
       : []),
   ],
-  webServer: {
-    command: `npm run preview -- --port ${previewPort} --strictPort`,
-    url: baseURL,
-    reuseExistingServer: !process.env.CI,
-    timeout: 60_000,
-  },
+  webServer: [
+    // 隔离后端先起：timeout 覆盖 mvn package（首次）+ Spring 启动 + Flyway。
+    // reuseExistingServer=false：宁可报“端口被占”，也不复用可能是开发者实例的后端。
+    ...(ISOLATED_BACKEND
+      ? [
+          {
+            command: `node "${BACKEND_SCRIPT}" --port ${API_PORT}`,
+            url: `http://127.0.0.1:${API_PORT}/actuator/health`,
+            timeout: 300_000,
+            reuseExistingServer: false,
+          },
+        ]
+      : []),
+    {
+      command: `npm run preview -- --port ${previewPort} --strictPort`,
+      url: baseURL,
+      reuseExistingServer: !process.env.CI,
+      timeout: 60_000,
+    },
+  ],
 });

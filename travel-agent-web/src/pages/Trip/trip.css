@@ -9,6 +9,579 @@
    （规则级 diff 与像素级回归见 docs/review 里的阶段 E 第二批验收）。
    ============================================================ */
 
+/* ============================================================
+   以下段落由原 src/styles/pages.css 迁入（只换归属，不改声明）
+   Trip 独占：地图控制条 / 3D 标记 / 时间轴行 / 预算执行 / 完成态
+   ============================================================ */
+
+/* ---------- 地图控制条与 3D 标记 ---------- */
+
+.map-controls {
+  position: absolute;
+  top: 54px;
+  left: 12px;
+  z-index: 500;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* 地图不可用：明确「时间轴仍可用」并给出两个出口，不暴露 Key / 环境变量 */
+.map-unavailable {
+  position: absolute;
+  inset: 0;
+  z-index: 520;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 20px;
+  text-align: center;
+  background: var(--surface);
+  color: var(--text-2);
+}
+
+.map-unavailable b {
+  font-size: 15px;
+  color: var(--text);
+}
+
+.map-unavailable .mu-hint {
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+
+.map-unavailable .mu-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.map-unavailable .mu-actions .map-ctl-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+}
+
+.map-ctl-group {
+  display: flex;
+  border-radius: var(--radius-control);
+  overflow: hidden;
+  border: 1px solid var(--lg-border);
+  background: var(--surface);
+  box-shadow: 0 4px 14px rgba(31, 41, 92, 0.1);
+}
+
+.map-ctl-group .map-ctl-btn + .map-ctl-btn {
+  border-left: 1px solid rgba(60, 60, 67, 0.12);
+}
+
+@keyframes tourGlow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 149, 0, 0.45);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(255, 149, 0, 0);
+  }
+}
+
+.m3d-marker {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  cursor: pointer;
+}
+
+.m3d-marker .m3d-dot {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--mc, #007aff);
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+  z-index: 1;
+}
+
+.m3d-marker .m3d-ring {
+  position: absolute;
+  inset: -5px;
+  border-radius: 50%;
+  border: 2px solid var(--mc, #007aff);
+  opacity: 0.55;
+  animation: markerPulse 2s ease-out infinite;
+}
+
+@keyframes markerPulse {
+  0% {
+    transform: scale(0.7);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(1.7);
+    opacity: 0;
+  }
+}
+
+.m3d-marker .m3d-label {
+  position: absolute;
+  left: 30px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--lg-border);
+  color: var(--ink);
+  font-size: 11px;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgba(31, 41, 92, 0.08);
+}
+
+/* ============================================================
+   时间轴
+   ============================================================ */
+
+.day-tabs {
+  padding: 12px 18px 6px;
+}
+
+.t-row {
+  display: flex;
+  gap: 12px;
+  padding: 6px 0;
+}
+
+.t-row .t-rail {
+  width: 88px;
+  flex-shrink: 0;
+  text-align: right;
+  padding-top: 16px;
+}
+
+.t-row .t-rail .t-time {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.t-row .t-rail .t-end {
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+.t-row .t-line {
+  width: 14px;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.t-row .t-line::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: -12px;
+  width: 1.5px;
+  transform: translateX(-50%);
+  background: var(--line);
+}
+
+.t-row:last-child .t-line::before {
+  display: none;
+}
+
+.t-row .t-dot {
+  position: absolute;
+  left: 50%;
+  top: 18px;
+  transform: translateX(-50%);
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2.5px solid #ffffff;
+  box-shadow: 0 0 0 1.5px var(--line-strong);
+  z-index: 1;
+}
+
+.t-dot.hotel {
+  background: var(--purple);
+  box-shadow: 0 0 0 1.5px var(--purple);
+}
+
+.t-dot.attraction {
+  background: var(--blue);
+  box-shadow: 0 0 0 1.5px var(--blue);
+}
+
+.t-dot.restaurant {
+  background: var(--orange);
+  box-shadow: 0 0 0 1.5px var(--orange);
+}
+
+.t-dot.transport {
+  background: var(--gray);
+  box-shadow: 0 0 0 1.5px var(--gray);
+}
+
+/* 转场行（FR-07）：相邻两条安排之间的距离/时长；纯展示，不可点击、不参与选中 */
+
+.t-leg {
+  display: flex;
+  gap: 12px;
+  padding: 1px 0;
+}
+
+.t-leg .t-leg-rail {
+  width: 88px;
+  flex-shrink: 0;
+}
+
+.t-leg .t-leg-line {
+  width: 14px;
+  flex-shrink: 0;
+  position: relative;
+}
+
+/* 转场段的连线画成虚线，视觉上区分「停留」与「移动」 */
+
+.t-leg .t-leg-line::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  transform: translateX(-50%);
+  border-left: 1.5px dashed var(--line-strong);
+}
+
+.t-leg .t-leg-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  padding: 3px 13px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.t-leg .t-leg-icon {
+  flex-shrink: 0;
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.t-leg .t-leg-text {
+  overflow-wrap: anywhere;
+}
+
+.t-row .t-card {
+  flex: 1;
+  min-width: 0;
+  background: var(--surface);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  padding: 10px 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.t-row .t-card:hover {
+  background: var(--surface);
+  box-shadow: 0 4px 14px rgba(31, 41, 92, 0.08);
+}
+
+.t-row.selected .t-card,
+.t-row .t-card.selected {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.14);
+  background: var(--surface);
+}
+
+.t-row .tc-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.t-row .tc-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.t-row .tc-title .tt {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.t-row .tc-cost {
+  color: var(--ink);
+  font-weight: 700;
+  font-size: 13.5px;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.t-row .tc-cost.free {
+  color: var(--green);
+}
+
+/* ---------- 价格溯源（参考价）----------
+   金额 + 「参考价」小标签 + 来源/免责小字 + 查价/地图深链。
+   全部用 flex-wrap + overflow-wrap:anywhere，390px 下换行而不是横向溢出。
+   颜色只取设计令牌，暗色主题自动跟随。 */
+
+.t-row .tc-price {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  flex-shrink: 0;
+  min-width: 0;
+  max-width: 64%;
+}
+
+.t-row .tc-price-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  margin-top: 5px;
+}
+
+.t-row .tc-price-source,
+.t-row .tc-price-disclaimer {
+  min-width: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  /* 小字也要可读：用二级文本色（11px 下 --ink-3 在暗色对比度不足） */
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.t-row .tc-price-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  min-width: 0;
+}
+
+.t-row .tc-price-link {
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--blue);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.t-row .tc-price-link:hover {
+  text-decoration: underline;
+}
+
+.t-row .tc-price-link:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+/* 窄屏：标题与金额分行，避免「金额 + 参考价标签 + 深链」把卡片顶出横向滚动 */
+
+@media (max-width: 480px) {
+  .t-row .tc-head {
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+}
+
+@media (max-width: 480px) {
+  .t-row .tc-price {
+    max-width: 100%;
+    justify-content: flex-start;
+  }
+}
+
+.t-row .tc-tags {
+  margin-top: 6px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* 预算执行：计划 / 预算 / 实际 / 偏差 */
+
+.budget-exec {
+  padding: 14px;
+  margin-bottom: 14px;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.be-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px;
+}
+
+.be-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.be-item span {
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
+.be-item b {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.be-item b.over,
+.be-cat-num.over {
+  color: var(--danger);
+}
+
+.be-item b.ok {
+  color: var(--success);
+}
+
+.be-bar {
+  height: 6px;
+  margin-top: 12px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.be-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--primary);
+}
+
+.be-bar.over i {
+  background: var(--danger);
+}
+
+.be-note {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.be-warn {
+  color: var(--danger);
+}
+
+.be-cats {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.be-cat {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+}
+
+.be-cat-name {
+  min-width: 44px;
+  color: var(--text-2);
+}
+
+.be-cat-num {
+  color: var(--text-3);
+}
+
+@media (max-width: 700px) {
+  .be-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.t-row .tc-desc {
+  margin-top: 6px;
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 1.55;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.t-card.tc-done {
+  border-color: var(--success);
+  background: linear-gradient(180deg, rgba(52, 199, 89, 0.07), var(--surface));
+}
+
+.t-card.tc-skipped {
+  opacity: 0.82;
+}
+
+.tc-actual-time {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- P1 知识依据（citations） ---------- */
+
+/* 地图 marker：Ant 图标以 SVG 渲染，固定 12px，不依赖字体 */
+.m3d-marker .m3d-dot svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* 移动端：标题最多两行，不再被操作区挤成单行省略号 */
+@media (max-width: 720px) {
+  .t-row .tc-title {
+    flex-wrap: wrap;
+  }
+
+  .t-row .tc-title .tt {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    overflow: hidden;
+  }
+}
+
 /* ---------- 行程页：桌面「时间轴主栏 + 地图/AI 侧栏」，移动端「行程/地图/AI」分段 ---------- */
 .trip-workbench {
   display: grid;
@@ -172,5 +745,24 @@
 
   .next-up {
     margin: var(--sp-2) var(--sp-2) 0;
+  }
+}
+
+/* 「更多」菜单：没有可撤销动作时写明原因，而不是让用户点了才知道 */
+.menu-with-hint {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.menu-with-hint .menu-hint {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+/* 移动端时间轴底部的安全区：分页/撤销条不压住 home 指示条 */
+@media (max-width: 720px) {
+  .trip-timeline-card {
+    padding-bottom: calc(12px + var(--safe-bottom));
   }
 }

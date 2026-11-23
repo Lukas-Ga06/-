@@ -1,6 +1,6 @@
 # 评审与验收快照（Review Snapshots）
 
-> 状态：目录规范 | 适用版本：0.1.0（Spring Boot 3.5.7 / Node 20） | 最后验证：2026-11-19 | 事实来源：docs/review/、docs/guide/documentation.md
+> 状态：目录规范 | 适用版本：0.1.0（Spring Boot 3.5.12 / Node 20） | 最后验证：2026-11-19 | 事实来源：docs/review/、docs/guide/documentation.md
 
 本目录保存**带日期的评审 / 验收 / 决策快照**。快照回答「当时用什么环境、验了什么、结论是什么」，**不代表当前版本的行为保证**；当前事实一律以 [docs/guide](../guide/README.md) 为准。
 
@@ -38,9 +38,15 @@
 | [2026-11-21-stage-e-css-split-visual.md](2026-11-21-stage-e-css-split-visual.md) | 2026-11-21 | global.css 页面级拆分、11 张关键页面截图基线 | 拆分逐像素等价（11/11）、482 用例全绿；剩余共享层分批、基线未进 CI |
 | [2026-11-21-stage-d-conflict.md](2026-11-21-stage-d-conflict.md) | 2026-11-21 | 冲突提示「此行程已在其他位置更新」：版本字段、409 处理、版本主动对齐 | 冲突可识别/提示/刷新，后端 verify 与前端 482 用例全绿；真实双端并发未验 |
 | [2026-11-21-recent-conversations.md](2026-11-21-recent-conversations.md) | 2026-11-21 | §8.6 最近会话列表与继续对话（两个只读接口 + 助手抽屉） | 列表/回填可用（547 后端 + 490 前端用例全绿）；会话 scope 与会话管理未做 |
+| [2026-11-23-first-screen-budget.md](2026-11-23-first-screen-budget.md) | 2026-11-23 | 首屏单 chunk 依赖归因、表单栈分割实验 | 首屏 597,968/600,000 B（余 2,032 B）；manualChunks 拆表单栈反而涨到 684 KB，已回退；v1 不得新增首屏依赖 |
+| [2026-11-23-monitoring-and-rollback-drill.md](2026-11-23-monitoring-and-rollback-drill.md) | 2026-11-23 | Prometheus/Grafana 告警实跑、V24 之后回退 N-1 的回滚演练 | 后端掉线 3 分钟后 `TravelAgentServerDown` 真实 firing 并恢复；Grafana 数据源/仪表盘可用；N-1 jar 在 V24 schema 上启动 + 业务冒烟通过，回滚 RTO≈15s |
+| [2026-11-23-amap-real-key-probe.md](2026-11-23-amap-real-key-probe.md) | 2026-11-23 | 高德 REST 真实 Key 验收：地理编码/路线/跨城 POI/并发限流 | Key 可作 Web 服务使用；跨城同名 POI 与 polyline 正常；20 并发复现 9 次 `10021`；MCP 的 `AMAP_MAPS_API_KEY` 仍未验 |
 | [2026-11-21-conversation-scope.md](2026-11-21-conversation-scope.md) | 2026-11-21 | 会话 scope（V21 迁移 + scope 字段 + 回填带作用域 + 前端恢复行程绑定） | scope 端到端打通、跨页面续聊恢复 tripId；真实 MySQL V1..V21 全绿（550 后端用例）；会话管理与同会话并发控制未做 |
 | [2026-11-21-stage-e-css-split-batch2.md](2026-11-21-stage-e-css-split-batch2.md) | 2026-11-21 | global.css 第二批拆分（首页 / 行程 / 足迹）+ 视觉基线复核 | 逐规则等价（0 丢失 / 0 声明变化）、11/11 基线 0 像素差、入口 CSS −13.5%；7 类必须留在 global 的规则已列明 |
 | [2026-11-21-device-network-acceptance.md](2026-11-21-device-network-acceptance.md) | 2026-11-21 | WebKit/iPhone 预设移动端、CDP 弱网与离线、同账号多端并发 | 8 条新增用例全过（21/21）；iOS 真机不可验；顺带把 a11y 门禁从「数据依赖」修成确定性并修掉一处真实对比度缺陷 |
 | [2026-11-22-real-model-acceptance.md](2026-11-22-real-model-acceptance.md) | 2026-11-22 | 真实 DeepSeek key 下的规划/意图链路、模型运行态自报 | `llmVerified=true` 链路打通（23s 出规划）；默认模型名 `deepseek-chat` 在售列表里已不存在，需 `deepseek-flash`；余额仅 ¥0.80 只做 2 次调用 |
+| [2026-11-22-remote-ci-first-run.md](2026-11-22-remote-ci-first-run.md) | 2026-11-22 | 远端 CI 首跑、9 类环境漂移的归因与修复 | main 上 7/8 job 绿；剩余 2 项卡在仓库设置开关（Dependency graph / Code scanning）；顺带修掉生产容器的时区隐患 |
+| [2026-11-22-mcp-live-and-fr03.md](2026-11-22-mcp-live-and-fr03.md) | 2026-11-22 | 高德 MCP 12 工具的逐项业务输出核对 + FR-03 真模型复跑 | 12/12 工具真实可用（2 个上游参数被丢弃已定位到源码）；FR-03 真模型打通（mcp_amap_maps_weather 被模型自主选用），暴露 4 个缺口：内置工具缺参数名、研究循环不给 FINAL、MCP 路线分支无 10021 重试、状态页不报 MCP |
+| [2026-11-22-p0-execution.md](2026-11-22-p0-execution.md) | 2026-11-22 | P0-A/P0-B/P0-C/P0-D 与 P1-E/P1-G 的代码、门禁、隔离 E2E、账号注销与 UI 收口 | 隔离 E2E 桌面 14/14、设备 22/22，后端 617 / 前端 532 用例全绿；真实 MySQL 备份演练、真实 iOS、法务与 GitHub 安全设置仍未完成 |
 
 新增快照后请同步本表，并运行 `node scripts/docs-check.mjs` 校验链接。完整文档规则见 [文档生命周期](../guide/documentation.md)。

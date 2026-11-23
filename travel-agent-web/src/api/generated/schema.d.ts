@@ -100,6 +100,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agent/conversations/{conversationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["deleteConversation"];
+        options?: never;
+        head?: never;
+        patch: operations["renameConversation"];
+        trace?: never;
+    };
     "/api/agent/conversations/{conversationId}/messages": {
         parameters: {
             query?: never;
@@ -268,6 +284,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["me"];
+        put?: never;
+        post?: never;
+        delete: operations["deleteMe"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/me/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["exportMe"];
         put?: never;
         post?: never;
         delete?: never;
@@ -872,6 +904,39 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        Account: {
+            createdAt?: string;
+            /** Format: int64 */
+            id?: number;
+            nickname?: string;
+            username?: string;
+        };
+        AccountExport: {
+            account?: components["schemas"]["Account"];
+            conversations?: components["schemas"]["Conversation"][];
+            counts?: components["schemas"]["Counts"];
+            expenses?: {
+                [key: string]: unknown;
+            }[];
+            exportedAt?: string;
+            formatVersion?: string;
+            itineraryItems?: {
+                [key: string]: unknown;
+            }[];
+            knowledgeDocuments?: {
+                [key: string]: unknown;
+            }[];
+            memos?: {
+                [key: string]: unknown;
+            }[];
+            photos?: components["schemas"]["Photo"][];
+            schedules?: {
+                [key: string]: unknown;
+            }[];
+            trips?: {
+                [key: string]: unknown;
+            }[];
+        };
         AddExpenseRequest: {
             amount: number;
             category?: string;
@@ -935,6 +1000,13 @@ export interface components {
             tripId?: number;
             warnings?: string[];
         };
+        ApiResponseAccountExport: {
+            /** Format: int32 */
+            code?: number;
+            data?: components["schemas"]["AccountExport"];
+            message?: string;
+            pagination?: components["schemas"]["Pagination"];
+        };
         ApiResponseAgentResult: {
             /** Format: int32 */
             code?: number;
@@ -960,6 +1032,13 @@ export interface components {
             /** Format: int32 */
             code?: number;
             data?: components["schemas"]["ConversationMessagesView"];
+            message?: string;
+            pagination?: components["schemas"]["Pagination"];
+        };
+        ApiResponseConversationRenameResult: {
+            /** Format: int32 */
+            code?: number;
+            data?: components["schemas"]["ConversationRenameResult"];
             message?: string;
             pagination?: components["schemas"]["Pagination"];
         };
@@ -1264,6 +1343,13 @@ export interface components {
             riskLevel?: string;
             summary?: string;
         };
+        Conversation: {
+            conversationId?: string;
+            createdAt?: string;
+            messages?: components["schemas"]["Message"][];
+            title?: string;
+            updatedAt?: string;
+        };
         ConversationMessageView: {
             content?: string;
             createdAt?: string;
@@ -1274,6 +1360,10 @@ export interface components {
             messages?: components["schemas"]["ConversationMessageView"][];
             scope?: string;
         };
+        ConversationRenameResult: {
+            conversationId?: string;
+            title?: string;
+        };
         ConversationSummary: {
             conversationId?: string;
             lastMessageAt?: string;
@@ -1282,12 +1372,35 @@ export interface components {
             scope?: string;
             title?: string;
         };
+        Counts: {
+            /** Format: int32 */
+            conversations?: number;
+            /** Format: int32 */
+            expenses?: number;
+            /** Format: int32 */
+            itineraryItems?: number;
+            /** Format: int32 */
+            knowledgeDocuments?: number;
+            /** Format: int32 */
+            memos?: number;
+            /** Format: int32 */
+            messages?: number;
+            /** Format: int32 */
+            photos?: number;
+            /** Format: int32 */
+            schedules?: number;
+            /** Format: int32 */
+            trips?: number;
+        };
         DailyBudget: {
             actual?: number;
             /** Format: int32 */
             day?: number;
             planned?: number;
             variance?: number;
+        };
+        DeleteAccountRequest: {
+            password?: string;
         };
         DiffChange: {
             cost?: number;
@@ -1420,6 +1533,15 @@ export interface components {
             /** Format: int64 */
             userId?: number;
         };
+        Message: {
+            content?: string;
+            createdAt?: string;
+            intent?: string;
+            role?: string;
+            scope?: string;
+            /** Format: int64 */
+            turnSeq?: number;
+        };
         Pagination: {
             hasMore?: boolean;
             /** Format: int32 */
@@ -1527,6 +1649,9 @@ export interface components {
             items?: components["schemas"]["Reminder"][];
             /** Format: date-time */
             serverTime?: string;
+        };
+        RenameConversationRequest: {
+            title?: string;
         };
         RollbackResult: {
             /** Format: int32 */
@@ -1971,6 +2096,54 @@ export interface operations {
             };
         };
     };
+    deleteConversation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseVoid"];
+                };
+            };
+        };
+    };
+    renameConversation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenameConversationRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseConversationRenameResult"];
+                };
+            };
+        };
+    };
     conversationMessages: {
         parameters: {
             query?: {
@@ -2245,6 +2418,50 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseAuthResponse"];
+                };
+            };
+        };
+    };
+    deleteMe: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["DeleteAccountRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseVoid"];
+                };
+            };
+        };
+    };
+    exportMe: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseAccountExport"];
                 };
             };
         };

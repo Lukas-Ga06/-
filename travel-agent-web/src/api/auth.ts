@@ -1,6 +1,10 @@
 import { request } from './client';
+import type { components } from './generated/schema';
 import { useAuthStore } from '../store/authStore';
 import type { AuthResp } from '../types/trip';
+
+/** 账号级数据导出的响应体（字段由后端契约生成，见 docs/api/openapi.json） */
+export type AccountExport = components['schemas']['AccountExport'];
 
 export function loginApi(username: string, password: string): Promise<AuthResp> {
   return request<AuthResp>({ url: '/auth/login', method: 'post', data: { username, password } });
@@ -23,9 +27,35 @@ export function meApi(): Promise<AuthResp> {
   return request<AuthResp>({ url: '/auth/me' });
 }
 
+/**
+ * 注销账号：DELETE /auth/me，body 需要当前密码二次确认。
+ *
+ * 密码错误时后端返回 401。这不是「登录态失效」，必须标记 skipAuthRedirect，
+ * 否则 401 拦截器会把正在注销的用户直接踢下线、跳登录页。
+ * 删除成功由后端级联清理行程/照片/会话与派生数据并清 Cookie。
+ */
+export function deleteAccountApi(password: string): Promise<void> {
+  return request<void>({
+    url: '/auth/me',
+    method: 'delete',
+    data: { password },
+    skipAuthRedirect: true,
+  });
+}
+
 /** 服务端登出：清掉浏览器里的登录 Cookie */
 export function logoutApi(): Promise<void> {
   return request<void>({ url: '/auth/logout', method: 'post' });
+}
+
+/**
+ * 导出本人全部可见数据（GET /auth/me/export）。
+ *
+ * 只读操作：不会删除或修改任何数据，也不改变登录态。后端有独立且较严的限流桶
+ * （默认 5 分钟 3 次），429 时提示稍后再试即可，不能当成登录失效。
+ */
+export function exportAccountDataApi(): Promise<AccountExport> {
+  return request<AccountExport>({ url: '/auth/me/export' });
 }
 
 /** UI 登出：先清本地登录态，再把服务端注销当作 best-effort；导航由调用方处理 */

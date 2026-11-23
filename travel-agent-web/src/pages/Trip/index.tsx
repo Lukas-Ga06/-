@@ -1,16 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { App, Button, Drawer, Dropdown, Segmented } from 'antd';
-import {
-  ArrowLeftOutlined,
-  BarChartOutlined,
-  BookOutlined,
-  CloudSyncOutlined,
-  EnvironmentOutlined,
-  MoreOutlined,
-  ReadOutlined,
-  UndoOutlined,
-  WalletOutlined,
-} from '@ant-design/icons';
+import { App } from 'antd';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useTripStore } from '../../store/tripStore';
 import { useAgentStore } from '../../store/agentStore';
@@ -22,24 +11,19 @@ import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { undoTrip } from '../../api/agent';
 import { getBudgetExecution, updateItemStatus } from '../../api/trip';
 import type { BudgetExecution } from '../../types/expense';
-import { daysOf, totalCost, tripPhaseLabel, type ItineraryStatus } from '../../types/trip';
+import { totalCost, type ItineraryStatus } from '../../types/trip';
 import { overlayStatuses, pendingFor, pendingIds } from '../../lib/statusQueue';
 import { conflictNotice, isTripConflict } from '../../lib/tripConflict';
 import { nextFocusAfter, scrollToItem } from '../../lib/tripFocus';
-import MapView from '../../components/MapView';
-import Timeline from '../../components/Timeline';
-import ChatPanel from '../../components/ChatPanel';
-import PlanDiff from '../../components/PlanDiff';
-import BudgetChart from '../../components/BudgetChart';
-import BudgetExecutionPanel from '../../components/BudgetExecution';
-import ExpensePanel from '../../components/ExpensePanel';
 import AppShell from '../../components/AppShell';
-import UndoBar from '../../components/UndoBar';
+import TripHeader from './components/TripHeader';
+import TripWorkspace from './components/TripWorkspace';
+import TripDrawers from './components/TripDrawers';
+import TripModals from './components/TripModals';
+import TripUndoLayer from './components/TripUndoLayer';
+import type { MobileView, SideView, UndoState } from './components/types';
 import './trip.css';
 import './trip-flow.css';
-
-/** 移动端分段视图：默认「行程」，地图与 AI 是辅助视图（不能压在时间轴之前） */
-type MobileView = 'itinerary' | 'map' | 'ai';
 
 /** 撤销条上的动作动词：说清「刚刚发生了什么」，而不是只给一个状态名 */
 const STATUS_VERB: Record<ItineraryStatus, string> = {
@@ -60,18 +44,12 @@ function isNetworkFailure(error: unknown): boolean {
   return true;
 }
 
-/** 一次状态变更的撤销窗口（§7.3 第 3 条） */
-interface UndoState {
-  token: number;
-  itemId: number;
-  title: string;
-  previous: ItineraryStatus;
-  next: ItineraryStatus;
-  message: string;
-  detail: string;
-}
-
-/** 行程主界面：工作台式布局 —— 地图 + AI 助手 + 时间轴 + 预算 */
+/**
+ * 行程主界面：工作台式布局 —— 地图 + AI 助手 + 时间轴 + 预算。
+ *
+ * 页面本身负责数据加载、状态变更与撤销链、待同步队列的协作；
+ * 页头、工作区（移动分段 / 桌面主栏+侧栏）与浮层在 components/ 下，只做展示。
+ */
 export default function TripPage() {
   const { id } = useParams();
   const tripId = Number(id);
@@ -126,7 +104,7 @@ export default function TripPage() {
   /** 移动端分段视图；桌面端只用 sideView 切换右侧面板 */
   const isMobile = useIsMobile();
   const [mobileView, setMobileView] = useState<MobileView>('itinerary');
-  const [sideView, setSideView] = useState<'map' | 'ai'>('map');
+  const [sideView, setSideView] = useState<SideView>('map');
 
   useEffect(() => {
     clearCurrent();
@@ -380,234 +358,64 @@ export default function TripPage() {
   return (
     <AppShell active="travel">
       <div className="dash-wrap">
-        <div className="dash-greeting">
-          <div className="dg-left">
-            <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/travel')} />
-            <div>
-              <h1>{currentTrip?.name ?? '行程'}</h1>
-              <div className="dg-date">
-                {currentTrip
-                  ? `${currentTrip.destination} · ${daysOf(currentTrip)} 天 · ${currentTrip.partySize ?? 1} 人 · ${tripPhaseLabel(currentTrip)} · ${items.length} 个安排`
-                  : '加载中…'}
-              </div>
-            </div>
-          </div>
-          <div className="page-actions">
-            {pendingCount > 0 && (
-              // 离线记录的状态不是「已完成」，只是「本机已记录」：页头先给一句总数
-              <span className="chip chip-warn trip-pending-chip" data-testid="trip-pending-sync">
-                <CloudSyncOutlined aria-hidden="true" /> {pendingCount} 项待同步
-              </span>
-            )}
-            <span className={`chip ${over ? 'chip-warn' : 'chip-ok'}`}>
-              已花 ¥{total.toFixed(0)} / 预算 ¥{budget ?? '-'}
-            </span>
-            {/* 一级只保留与当前阶段最相关的动作（P1-05）：行中先记账，行前先看预算 */}
-            <Button
-              type="primary"
-              icon={ongoing ? <WalletOutlined /> : <BarChartOutlined />}
-              onClick={() => (ongoing ? setExpenseOpen(true) : setBudgetOpen(true))}
-            >
-              {ongoing ? '记账' : '预算分析'}
-            </Button>
-            <Dropdown
-              trigger={['click']}
-              menu={{
-                items: [
-                  {
-                    key: 'undo',
-                    icon: <UndoOutlined />,
-                    label: '撤销上一次 AI 修改',
-                    disabled: undoing,
-                    onClick: onUndo,
-                  },
-                  {
-                    key: 'review',
-                    icon: <ReadOutlined />,
-                    label: '旅行回顾',
-                    disabled: !tripId || Number.isNaN(tripId),
-                    onClick: () => navigate(`/trip/${tripId}/review`),
-                  },
-                  {
-                    key: 'guidebook',
-                    icon: <BookOutlined />,
-                    label: '导出路书 PDF',
-                    onClick: onExportGuidebook,
-                  },
-                  ongoing
-                    ? {
-                        key: 'budget',
-                        icon: <BarChartOutlined />,
-                        label: '预算分析',
-                        onClick: () => setBudgetOpen(true),
-                      }
-                    : {
-                        key: 'expense',
-                        icon: <WalletOutlined />,
-                        label: '记账',
-                        onClick: () => setExpenseOpen(true),
-                      },
-                ],
-              }}
-            >
-              <Button icon={<MoreOutlined />} aria-label="更多行程操作" />
-            </Dropdown>
-          </div>
-        </div>
+        <TripHeader
+          tripId={tripId}
+          currentTrip={currentTrip}
+          items={items}
+          total={total}
+          budget={budget}
+          over={over}
+          ongoing={ongoing}
+          pendingCount={pendingCount}
+          undo={undo}
+          undoing={undoing}
+          onBack={() => navigate('/travel')}
+          onUndoStep={onUndoStatus}
+          onUndoAiChange={onUndo}
+          onOpenReview={() => navigate(`/trip/${tripId}/review`)}
+          onExportGuidebook={onExportGuidebook}
+          onOpenBudget={() => setBudgetOpen(true)}
+          onOpenExpense={() => setExpenseOpen(true)}
+        />
 
-        {isMobile ? (
-          <>
-            {/* 移动端：分段视图，默认行程；下一项与主动作在时间轴顶部（P1-04） */}
-            <Segmented
-              block
-              data-testid="trip-view-switch"
-              className="trip-view-switch"
-              value={mobileView}
-              onChange={(v) => setMobileView(v as MobileView)}
-              options={[
-                { value: 'itinerary', label: '行程' },
-                { value: 'map', label: '地图' },
-                { value: 'ai', label: 'AI' },
-              ]}
-            />
-            {mobileView === 'itinerary' && (
-              <section className="dash-card trip-timeline-card">
-                <Timeline
-                  trip={currentTrip}
-                  items={items}
-                  focus={lastFocus}
-                  routeLegs={routeLegs}
-                  onItemStatusChange={onItemStatusChange}
-                  statusBusyId={statusBusy}
-                  pendingSyncIds={pendingSyncIds}
-                />
-              </section>
-            )}
-            {mobileView === 'map' && (
-              <section className="dash-card trip-map-card">
-                <div className="dc-head">
-                  <b>地图</b>
-                  <span className="mini-tag">
-                    <EnvironmentOutlined /> Day {selectedDay}
-                  </span>
-                </div>
-                <div className="trip-map-body">
-                  <MapView
-                    items={items}
-                    focus={lastFocus}
-                    focusDay={selectedDay}
-                    routeLegs={routeLegs}
-                  />
-                </div>
-              </section>
-            )}
-            {mobileView === 'ai' && (
-              <aside className="dash-card trip-chat-card">
-                <div className="dc-head">
-                  <b>AI 助手</b>
-                  <span className="mini-tag">随时调整行程</span>
-                </div>
-                <div className="trip-chat-body">
-                  <ChatPanel tripId={tripId} placeholder="例如：明天下雨，把户外景点换掉" />
-                </div>
-              </aside>
-            )}
-          </>
-        ) : (
-          /* 桌面：时间轴做主栏，地图与 AI 共享右侧可切换面板（§8.5） */
-          <div className="trip-workbench">
-            <section className="dash-card trip-timeline-card trip-main-col">
-              <Timeline
-                trip={currentTrip}
-                items={items}
-                focus={lastFocus}
-                routeLegs={routeLegs}
-                onItemStatusChange={onItemStatusChange}
-                statusBusyId={statusBusy}
-                pendingSyncIds={pendingSyncIds}
-              />
-            </section>
-            <aside className="dash-card trip-side-col">
-              <Segmented
-                size="small"
-                block
-                data-testid="trip-side-switch"
-                value={sideView}
-                onChange={(v) => setSideView(v as 'map' | 'ai')}
-                options={[
-                  { value: 'map', label: '地图' },
-                  { value: 'ai', label: 'AI 助手' },
-                ]}
-              />
-              {/*
-                侧栏 keep-alive（§8.5）：地图与 AI 一次挂载、按可见性显隐。
-                以前点「AI 助手」会把地图卸载重建，用户缩放/平移到的地方全丢；
-                现在只切 visibility，地图实例与相机保持原样。
-              */}
-              <div className="trip-side-body trip-side-keepalive">
-                <div
-                  className="trip-pane"
-                  data-testid="trip-side-pane-map"
-                  data-active={sideView === 'map'}
-                  aria-hidden={sideView !== 'map'}
-                >
-                  <div className="trip-map-body">
-                    <MapView
-                      items={items}
-                      focus={lastFocus}
-                      focusDay={selectedDay}
-                      routeLegs={routeLegs}
-                      active={sideView === 'map'}
-                    />
-                  </div>
-                </div>
-                <div
-                  className="trip-pane"
-                  data-testid="trip-side-pane-ai"
-                  data-active={sideView === 'ai'}
-                  aria-hidden={sideView !== 'ai'}
-                >
-                  <div className="trip-chat-body">
-                    <ChatPanel tripId={tripId} placeholder="例如：明天下雨，把户外景点换掉" />
-                  </div>
-                </div>
-              </div>
-            </aside>
-          </div>
-        )}
+        <TripWorkspace
+          isMobile={isMobile}
+          tripId={tripId}
+          currentTrip={currentTrip}
+          items={items}
+          routeLegs={routeLegs}
+          focus={lastFocus}
+          selectedDay={selectedDay}
+          statusBusy={statusBusy}
+          pendingSyncIds={pendingSyncIds}
+          onItemStatusChange={onItemStatusChange}
+          mobileView={mobileView}
+          onMobileViewChange={setMobileView}
+          sideView={sideView}
+          onSideViewChange={setSideView}
+          onOpenDiagnostics={() => navigate('/settings/diagnostics')}
+        />
       </div>
 
-      <Drawer title="预算分析" open={budgetOpen} onClose={() => setBudgetOpen(false)} width={560}>
-        <BudgetExecutionPanel data={budgetExecution} />
-        <BudgetChart items={items} budget={budget} />
-      </Drawer>
-      <Drawer
-        title="行程记账 · 实际支出"
-        open={expenseOpen}
-        onClose={() => setExpenseOpen(false)}
-        width={480}
-        styles={{ body: { paddingTop: 12 } }}
-      >
-        <ExpensePanel tripId={tripId} budget={budget} planned={total} />
-      </Drawer>
-      <PlanDiff
+      <TripDrawers
+        tripId={tripId}
+        budgetOpen={budgetOpen}
+        onBudgetClose={() => setBudgetOpen(false)}
+        budgetExecution={budgetExecution}
+        items={items}
+        budget={budget}
+        expenseOpen={expenseOpen}
+        onExpenseClose={() => setExpenseOpen(false)}
+        total={total}
+      />
+      <TripModals
         open={!!pendingConfirm}
         result={pendingConfirm}
         onConfirm={onConfirm}
         onCancel={() => cancel()}
         loading={streaming}
       />
-      {/* 短时撤销：key=token 让每次操作各自重新计时，不会被上一次续命 */}
-      {undo && (
-        <UndoBar
-          key={undo.token}
-          token={undo.token}
-          message={undo.message}
-          detail={undo.detail}
-          onAction={onUndoStatus}
-          onExpire={() => setUndo(null)}
-        />
-      )}
+      <TripUndoLayer undo={undo} onAction={onUndoStatus} onExpire={() => setUndo(null)} />
     </AppShell>
   );
 }

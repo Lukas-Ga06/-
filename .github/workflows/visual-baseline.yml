@@ -1,0 +1,67 @@
+name: Visual baseline (Linux)
+
+# 视觉回归基线生成器（人工触发）。
+#
+# 为什么需要它：`travel-agent-web/e2e/visual/pages.spec.ts-snapshots/` 里现有 11 张基线是
+# `*-chromium-win32.png`，只能在 Windows 上逐像素复用；Linux runner 的字体渲染不同，
+# 直接拿 Windows 基线跑 CI 必然误报。Playwright 的官方容器镜像把浏览器、字体和依赖都固定住，
+# 是这套截图唯一可重复的生成环境。
+#
+# 用法：
+#   1) Actions → "Visual baseline (Linux)" → Run workflow（选分支）；
+#   2) 下载产物 `visual-linux-baselines`；
+#   3) 把其中的 `*-chromium-linux.png` 放进 travel-agent-web/e2e/visual/pages.spec.ts-snapshots/ 并提交；
+#   4) ci.yml 的 `visual` job 检测到 Linux 基线后自动从“跳过”变为“比较”，从观察转正时
+#      把该 job 的 continue-on-error 去掉即可。
+#
+# 生成与比较用同一镜像（同一 tag），避免“生成时新、比较时旧”的浏览器版本漂移。
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 要生成基线的分支（默认当前默认分支）
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  update-baseline:
+    name: Generate Linux snapshots
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-jammy
+      options: --ipc=host
+    defaults:
+      run:
+        working-directory: travel-agent-web
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch || github.ref }}
+
+      - name: Show toolchain versions
+        run: node -v && npm -v && npx playwright --version
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      # 只在容器里生成，不比较；产物供人工 review 后提交
+      - name: Update snapshots
+        run: npx playwright test -c playwright.visual.config.ts --update-snapshots
+
+      - name: List generated snapshots
+        run: ls -la e2e/visual/pages.spec.ts-snapshots/
+
+      - name: Upload Linux baselines
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-linux-baselines
+          path: travel-agent-web/e2e/visual/pages.spec.ts-snapshots/*-chromium-linux.png
+          retention-days: 30
+          if-no-files-found: error

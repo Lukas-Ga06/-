@@ -126,11 +126,9 @@ test('窄屏核心交互：行程详情时间轴 + AI 助手「最近会话」�
   await page.goto(`/trip/${tripId}`);
   const viewSwitch = page.getByTestId('trip-view-switch');
   await expect(viewSwitch).toBeVisible({ timeout: 20_000 });
-  expect(await viewSwitch.locator('.ant-segmented-item').allInnerTexts()).toEqual([
-    '行程',
-    '地图',
-    'AI',
-  ]);
+  expect(
+    (await viewSwitch.locator('.ant-segmented-item').allInnerTexts()).map((text) => text.trim()),
+  ).toEqual(['行程', '地图', 'AI']);
   await expect(page.getByRole('heading', { name: tripName })).toBeVisible();
   await expectNoHorizontalOverflow(page, '移动端行程详情');
 

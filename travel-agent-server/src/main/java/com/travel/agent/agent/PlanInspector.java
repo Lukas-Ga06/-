@@ -3,7 +3,7 @@ package com.travel.agent.agent;
 import com.travel.agent.entity.ItineraryItem;
 import com.travel.agent.entity.Trip;
 import com.travel.agent.model.RouteInfo;
-import com.travel.agent.model.WeatherInfo;
+import com.travel.agent.model.WeatherLookup;
 import com.travel.agent.service.ItineraryService;
 import com.travel.agent.service.RouteService;
 import com.travel.agent.service.WeatherService;
@@ -129,18 +129,20 @@ public class PlanInspector {
      * 逐日天气（只有行程里出现的天才查，避免无谓请求）。
      *
      * <p>没有出发日期或城市时返回空 Map——审核侧据此跳过天气约束，绝不猜一个日期去查。
+     * <b>查不到就是不可用</b>：每个值都是 {@link WeatherLookup}（可用预报或不可用 + 原因），
+     * 这里不会用模拟数据补位，审核/修复按 {@code available()} 自行决定「跳过」「如实告警」还是「明确拒绝」。
      */
-    public Map<Integer, WeatherInfo> weatherByDay(AgentPlan plan, Trip trip) {
+    public Map<Integer, WeatherLookup> weatherByDay(AgentPlan plan, Trip trip) {
         LocalDate base = baseDate(plan, trip);
         String city = cityName(plan, trip);
         if (base == null || city == null || city.isBlank()) {
             return Map.of();
         }
-        Map<Integer, WeatherInfo> weather = new TreeMap<>();
+        Map<Integer, WeatherLookup> weather = new TreeMap<>();
         for (Integer day : effectiveItemsByDay(plan, trip).keySet()) {
             int index = day == null ? 1 : day;
             LocalDate date = base.plusDays(Math.max(index, 1) - 1L);
-            weather.put(index, weatherService.forecast(city, date, false));
+            weather.put(index, weatherService.forecast(city, date));
         }
         return weather;
     }

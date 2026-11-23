@@ -39,6 +39,15 @@ public class RateLimitProperties {
     /** 照片上传：同一用户在窗口内的最大请求数 */
     private int uploadLimit = 60;
 
+    /**
+     * 账号级数据导出（GET /api/auth/me/export）：同一用户在窗口内的最大请求数。
+     *
+     * <p>刻意收紧（默认 3 / 5 分钟）：一次导出要读完该用户全部归属数据，是普通读接口的
+     * 数百倍开销，正常用户不会连续导出。单独开桶还避免它落进 auth 登录桶按 IP 计数——
+     * 那个桶默认只有 10，多标签页会互相踢成 429。
+     */
+    private int exportLimit = 3;
+
     /** 其它接口：同一用户在窗口内的最大请求数 */
     private int defaultLimit = 600;
 

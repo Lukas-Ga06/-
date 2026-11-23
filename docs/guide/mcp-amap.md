@@ -1,6 +1,6 @@
 # 高德 MCP 接入（真实地图数据源）
 
-> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.7 / Node 20） | 最后验证：2026-11-19 | 事实来源：travel-agent-server/src/main/java/com/travel/agent/mcp/、travel-agent-server/src/main/resources/application.yml、.tools/amap-mcp-probe/
+> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.12 / Node 20） | 最后验证：2026-11-19 | 事实来源：travel-agent-server/src/main/java/com/travel/agent/mcp/、travel-agent-server/src/main/resources/application.yml、.tools/amap-mcp-probe/
 
 > 面向**要给 Agent 接真实地图数据**的后端开发者，以及**要排「为什么模型没查地图」**的运维。
 > 事实来源两类，缺一不可：① 真实包 `@amap/amap-maps-mcp-server@0.0.8` 的静态源码与本机实测
@@ -191,11 +191,16 @@ MCP 服务器 [amap] (mcp-server/amap-maps) 已接入，注册 12 个工具
 `StructuredPlanner` 只从 `CityCatalog` 里选实体，坐标与价格一律取目录值。MCP 工具目前**没有**接进候选清单，
 所以「行程里出现真实 POI 与真实票价」不在本次接入范围内。
 
-仓库里已经有一个**按优先级消费 MCP 的真空位**，只是还没接线：`service/AmapDataService`（POI 文本搜索、驾车/步行路径）
+仓库里已经有一个**按优先级消费 MCP 的接缝**：`service/AmapDataService`（POI 文本搜索、驾车/步行路径）
 按「已注册的 `mcp_*_maps_text_search` / `mcp_*_maps_direction_*` → 高德 REST（`AMAP_KEY`）→ 返回空列表/null 由调用方降级」
-三级取数，并说明用 `ObjectProvider<ToolRegistry>` 懒解析避免构造环。**当前生产代码里没有任何调用方**（只有
-`AmapDataServiceTest`），而且它按 REST 的 JSON 形状（`status`/`pois`）解析 MCP 返回的文本——真实返回体未验证，
-接线时必须先核对。它和 `AmapMcpAdapter` 一样属于「本批留下的接缝」，不是已生效能力。
+三级取数，用 `ObjectProvider<ToolRegistry>` 懒解析避免构造环。
+
+**接线现状（2026-11-22 实测更正）**：`AmapDataService` 的**路线**分支已有生产调用方 ——
+`RouteService.realRoute` → `AmapDataService.driving`（`docs/review/2026-11-22-mcp-live-and-fr03.md` §5.2 的运行栈可证）。
+`textSearch` 分支仍无生产调用方（只有 `AmapDataServiceTest`）。两处注意：
+`direction` 的 MCP 分支**没有** REST 分支那套 10021 退避重试，突发算路会先撞限流并打 ERROR 日志再退回 REST；
+`textSearch` 传给 MCP 的 `types` 参数会被上游丢弃（见 §5.2「上游参数缺陷」）。
+`AmapMcpAdapter` 仍属「本批留下的接缝」，不是已生效能力。
 
 ---
 
@@ -248,6 +253,8 @@ MCP 服务器 [amap] 接入失败，已跳过: timeout initialize
 | 端到端注册 | 12 个工具全部注册为 `mcp_amap_*`，全部 `readOnly=true`；`AmapMcpAdapter` 12 个语义能力全部映射成功 |
 | Windows | `cmd /c` 自动补全后 `npx` 能正常拉起 |
 | 降级 | 关 MCP / 无 Key / 握手失败三种情况，应用启动与其它工具均不受影响 |
+| **12 个工具的业务输出逐项核对**（2026-11-22，真实「Web服务」Key） | 12/12 全部 `isError=false` 并返回可用业务数据，逐项对账见 [`docs/review/2026-11-22-mcp-live-and-fr03.md`](../review/2026-11-22-mcp-live-and-fr03.md) §3。关键交叉验证：`maps_distance` 直线 1069389 m vs 驾车 1212467 m（自洽）；`maps_direction_transit_integrated` 给出「地铁1号线(萧山国际机场--湘湖)」换乘；`maps_geo` 天安门 → `116.397463,39.909187`。核对工具：`McpAmapLiveTest`（`MCP_IT=true`，2 例 22.6s） |
+| **应用内真实模型选用 MCP 工具**（2026-11-22） | `intent=INVOKE_TOOL`，模型自己从 18 个工具里挑出 `mcp_amap_maps_weather` 并构造 `{"city":"杭州"}`，应用真实执行并原样返回高德预报；运行追踪 `INTENT 6085ms → TOOL 168ms`，`toolCalls` 记录 `success=True` |
 | **前端 JS API 真实渲染**（2026-11-19 实测） | 配好 `VITE_AMAP_KEY` + `VITE_AMAP_SECURITY_CODE` 后打开行程页：`window.AMap` 加载成功、`AMap.Map` 可用、`.amap-container` + `canvas` 已创建，共 **33 个高德域请求**（`webapi.amap.com` / `jsapi.amap.com` / `jsapi-data1..5` / `o4.amap.com` / `restapi.amap.com` 的 `jscode` 校验），页面无「地图加载失败」降级提示。**这是「前端地图真实渲染」从推测转为已验证** |
 | **后端「Web 服务」Key 真实联调**（2026-11-19 实跑两次，`amap-real-key-probe.ps1` 结论均 **PASS**） | 独立实例 + 独立 H2：`/v3/place/text` `status=1` 返回 3 条 POI；`/v3/geocode/geo` 3/3 `status=1`（西湖 `120.130396,30.259242`、杭州东站 `120.212600,30.290851`、天安门 `116.397463,39.909187`，均为 GCJ-02），且地理编码点直接算路成功（11353 m）；`route-legs` 两次分别 **6/7** 与 **4/7** 段 `source=amap`（首段 10.7 km / 驾车 31 min，剩余段为 QPS 限流降级，见 §5.2）；GCJ-02 一致性：与高德 `/v3/assistant/coordinate/convert` 偏差 **0.13 m**、偏移量 **554.7 m**、`gcj02ToWgs84` 往返 **0 m**。证据：`.e2e/amap-key-20261119-143839/`、`.e2e/amap-key-20261119-143613/` |
 
@@ -282,9 +289,27 @@ MCP 服务器 [amap] 接入失败，已跳过: timeout initialize
   `status=0 info=CUQPS_HAS_EXCEEDED_THE_LIMIT infocode=10021` 做**一次**退避重试（220~400ms 抖动），
   重试仍失败打 WARN 并带 infocode；`estimated` 结果改为 **60 秒**短 TTL，不再把一次限流钉死 10 分钟。
   真实 10021 时序仍待真实 Key 并发复现（单测用 `MockRestServiceServer` 覆盖了重试/告警/不缓存失败三件事）。
-- 12 个 MCP 工具只验证了「能被注册与调用到」；**各自的业务输出没有逐一核对**（例如 `maps_distance` 的
-  `type` 取值、`maps_direction_transit_integrated` 的换乘结构），真实 Key 下的 MCP 链路（`MCP_ENABLED=true` +
-  `AMAP_MAPS_API_KEY`）也还没有跑过。
+- ~~12 个 MCP 工具只验证了「能被注册与调用到」；各自的业务输出没有逐一核对~~ →
+  **2026-11-22 已逐项核对（真实 Key）**：12 个工具全部返回可用业务数据，
+  可重复执行的核对工具是 `McpAmapLiveTest`（`MCP_IT=true`，与 `MySqlFlywayMigrationTest` 同一惯例），
+  逐项结果见 `docs/review/2026-11-22-mcp-live-and-fr03.md` §3。真实 Key 下的 MCP 链路
+  （`MCP_ENABLED=true` + `AMAP_MAPS_API_KEY`）已跑通，含应用内真实模型选用 MCP 工具（同报告 §5.1）。
+- **上游参数缺陷（`@amap/amap-maps-mcp-server@0.0.8`，接线时必须自己兜住）**：
+  - `maps_geo` 的 `city` 是死参数：`handleGeo` 收了但从不写进 REST URL。实测
+    `address=东方明珠, city=上海` → 湖南省邵阳市大祥区（`level=住宅区`），且 `isError=false`。
+    **跨城同名地点会被解析到错误城市**，消费方必须自己按省市过滤。
+  - `maps_text_search` 的 `types` 是死参数：分发处只取 `{keywords, city, citylimit}`。
+    `AmapDataService.textSearch` 现在会传 `types`，走 MCP 时被静默丢弃（只有 REST 分支生效）。
+    反过来 `citylimit` 能透传但 schema 里没声明，模型不知道该传。
+  - `maps_ip_location` 查不到时返回 `{province: [], city: [], adcode: [], rectangle: []}` 且
+    `isError=false`：不是错误也不是结果，消费方必须判空（否则会把 `[]` 当城市名）。
+  - 形状差异：`maps_regeocode` 的字段名是 `provice`（上游拼写错误），直辖市 `city` 返回 `[]`；
+    `photos`/`cost`/`street` 等常为 `[]` 而非 null。
+- **MCP 路线分支缺 10021 限流重试（2026-11-22 实测）**：7 段路线里 MCP 分支连续撞
+  `CUQPS_HAS_EXCEEDED_THE_LIMIT` → 打 ERROR 日志 → 退回 REST（REST 分支自带一次退避重试所以最终都成功，
+  `routeProvider=amap`、`amapVerified=true`）。突发算路会先烧一遍失败配额，日志里的 ERROR 还会误导排障。
+- **`/api/system/status` 不暴露 MCP 状态**：状态页能自报 `llmVerified`/`routeProvider`/`amapVerified`，
+  但没有「MCP 接入了几个工具」，运维只能翻启动日志。
 - 真实行程里的 POI 采纳：见 3.4，MCP 尚未接进规划候选清单；行程条目坐标仍来自城市目录（WGS-84），
   高德数据体现在**路段距离/时长**上。
 
@@ -299,7 +324,7 @@ MCP 服务器 [amap] 接入失败，已跳过: timeout initialize
 | `travel-agent-server/src/main/java/com/travel/agent/mcp/McpConnection.java` | `initialize` / `tools/list` / `tools/call`，`isError` 转异常 |
 | `travel-agent-server/src/main/java/com/travel/agent/mcp/McpAgentTool.java` | 包装成只读 `AgentTool`，异常转 `BusinessException(502)` |
 | `travel-agent-server/src/main/java/com/travel/agent/mcp/AmapMcpAdapter.java` | 语义能力映射与 `promptSummary`（可选增强，未接线） |
-| `travel-agent-server/src/main/java/com/travel/agent/service/AmapDataService.java` | POI / 路径三级取数（MCP → REST → 降级）；**当前无生产调用方** |
+| `travel-agent-server/src/main/java/com/travel/agent/service/AmapDataService.java` | POI / 路径三级取数（MCP → REST → 降级）；路线分支由 `RouteService` 生产调用，`textSearch` 仍无调用方 |
 | `travel-agent-server/src/main/java/com/travel/agent/config/McpProperties.java` | `travel.mcp.*` 配置模型（`enabled` / `servers[]`） |
 | `travel-agent-server/src/main/resources/application.yml` | `travel.mcp` 配置示例（默认关闭） |
 | `travel-agent-server/src/test/java/com/travel/agent/mcp/` | `AmapMcpAdapterTest`、`McpStdioEnvTest` 等 |
@@ -385,7 +410,7 @@ powershell -ExecutionPolicy Bypass -File .e2e\amap-real-key-probe.ps1 -AmapKey "
 脚本给**子进程**设置的环境变量（均以代码实际读取的为准）：
 `AMAP_KEY`、`AMAP_MAPS_API_KEY`（同一 Key；因 `MCP_ENABLED=false` 本次不生效，只保持变量口径一致）、
 `JWT_SECRET`（每次随机生成，不读 `.env.local`）、`RATE_LIMIT_ENABLED=false`、`LLM_ENABLED=false`、
-`WEATHER_REAL=false`、`MCP_ENABLED=false`、`DEMO_ACCOUNT=true`、`SERVER_PORT`、`SPRING_DATASOURCE_URL`（指向证据目录下的独立 H2）、
+`WEATHER_SIMULATION=true`（避免外呼天气；产品路径默认走真实天气，模拟只给探针用）、`MCP_ENABLED=false`、`DEMO_ACCOUNT=true`、`SERVER_PORT`、`SPRING_DATASOURCE_URL`（指向证据目录下的独立 H2）、
 `PHOTOS_DIR`；另有已退役模块的历史变量 `INVOICE_DIR`（代码已不再读取，脚本保留只为复用旧证据目录）。
 关掉 LLM 是为了让规划走规则引擎（不需要 LLM Key）；`/api/system/status` 不在 `SecurityConfig` 的 publicPaths 里，
 所以脚本**先登录再自检**（第 2 步先于第 1 步执行，汇总表仍按 0/1/2/3/4a/4b 排列）。

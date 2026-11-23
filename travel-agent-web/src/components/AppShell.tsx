@@ -9,9 +9,11 @@ import {
   HomeOutlined,
   LogoutOutlined,
   MessageOutlined,
+  MoonOutlined,
   PlusOutlined,
   ReadOutlined,
   SettingOutlined,
+  SunOutlined,
   UserOutlined,
   WalletOutlined,
 } from '@ant-design/icons';
@@ -135,7 +137,7 @@ export default function AppShell({
             aria-label="回到首页"
           >
             <span className="hn-logo" aria-hidden="true">
-              🧳
+              <CompassOutlined />
             </span>
             <span className="sb-brand-text">AI 智能旅行助手</span>
           </button>
@@ -226,16 +228,17 @@ export default function AppShell({
                   }}
                 />
               </Tooltip>
-              <Button
-                type="text"
-                size="small"
-                title={themeMode === 'dark' ? '切换到浅色' : '切换到暗色'}
-                aria-label={themeMode === 'dark' ? '切换到浅色模式' : '切换到暗色模式'}
-                data-testid="theme-toggle-sidebar"
-                onClick={toggleTheme}
-              >
-                {themeMode === 'dark' ? '☀️' : '🌙'}
-              </Button>
+              <Tooltip title={themeMode === 'dark' ? '切换到浅色模式' : '切换到暗色模式'}>
+                <Button
+                  type="text"
+                  size="small"
+                  title={themeMode === 'dark' ? '切换到浅色' : '切换到暗色'}
+                  aria-label={themeMode === 'dark' ? '切换到浅色模式' : '切换到暗色模式'}
+                  data-testid="theme-toggle-sidebar"
+                  icon={themeMode === 'dark' ? <SunOutlined /> : <MoonOutlined />}
+                  onClick={toggleTheme}
+                />
+              </Tooltip>
             </div>
           </div>
         </aside>

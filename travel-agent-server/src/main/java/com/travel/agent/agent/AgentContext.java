@@ -3,6 +3,7 @@ package com.travel.agent.agent;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.travel.agent.dto.ChatDtos;
 import com.travel.agent.entity.ConversationMessage;
+import com.travel.agent.service.ConversationService;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 
@@ -61,6 +62,15 @@ public class AgentContext {
      */
     private String scope;
 
+    /**
+     * 本轮的会话轮次序号（V23）：用户消息与随后的助手回复共用它，两行因此在历史里始终相邻。
+     *
+     * <p>由 {@code AgentEngine#loadConversation} 在开口时分配（compare-and-set，
+     * 撞唯一键就换号重试）。{@code ConversationService.NO_TURN} 表示未分组
+     * （单轮对话 / 分配失败）：回复照旧落库，只是不带分组标记。
+     */
+    private long turnSeq = ConversationService.NO_TURN;
+
     /** 多模态上下文：用户当前选中的元素，解决「这个换成类似的」的指代 */
     private ChatDtos.SelectedElement selectedElement;
     private ChatDtos.MapLocation mapCenter;
@@ -86,6 +96,15 @@ public class AgentContext {
      */
     @JsonIgnore
     private volatile boolean cancelled;
+
+    /**
+     * 本轮意图识别出的「其他未执行的独立请求」（P0-B 多意图提示）。
+     *
+     * <p>为空表示不需要提示；非空时最终回复（REST 响应与 SSE complete 事件）与会话落库
+     * 都会在末尾追加一次明确说明，不能静默只做一半，也不能重复追加。
+     */
+    @JsonIgnore
+    private List<String> alsoRequested = List.of();
 
     /**
      * 本轮端到端时间预算（P1）。

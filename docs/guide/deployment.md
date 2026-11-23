@@ -1,12 +1,12 @@
 # 部署与运维
 
-> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.7 / Node 20） | 最后验证：2026-11-19 | 事实来源：docker-compose.yml、docker-compose.infra.yml、travel-agent-server/Dockerfile、travel-agent-web/Dockerfile、travel-agent-web/nginx.conf、travel-agent-server/src/main/resources/application*.yml
+> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.12 / Node 20） | 最后验证：2026-11-19 | 事实来源：docker-compose.yml、docker-compose.infra.yml、travel-agent-server/Dockerfile、travel-agent-web/Dockerfile、travel-agent-web/nginx.conf、travel-agent-server/src/main/resources/application*.yml
 
 > 面向负责上线与运维的同学：从一台干净的服务器把「AI 智能旅行助手」跑起来，并知道它坏了怎么查、数据怎么备。
 > 全部命令、服务名、端口、变量名均取自仓库当前 HEAD 的 **源码**（`docker-compose.yml`、两个 Dockerfile、
 > `nginx.conf`、`application*.yml` 与 Java 类），可以直接复制执行。
 
-本文适用版本：`travel-agent-server` 0.1.0 / Spring Boot 3.5.7，`travel-agent-web` 0.1.0。
+本文适用版本：`travel-agent-server` 0.1.0 / Spring Boot 3.5.12，`travel-agent-web` 0.1.0。
 
 ---
 
@@ -17,7 +17,8 @@
 | 对外端口 | **8081**（宿主机）→ 容器 `web:80` | `docker-compose.yml` → `web.ports` |
 | 后端端口 | 容器内 `backend:8080`（不对外暴露，仅经 `web` 反代） | `docker-compose.yml` → `backend.ports`（已注释） |
 | 数据库 | 容器 `mysql`，镜像 `mysql:8.4`，库 `travel_agent`，用户 `travel` | `docker-compose.yml` |
-| 数据卷 | `mysql-data` → `/var/lib/mysql`；`backend-data` → `/app/data` | `docker-compose.yml` → `volumes` |
+| 数据卷 | `mysql-data` → `/var/lib/mysql`；`backend-data` → `/app/data`；`redis-data` → `/data`（仅限流计数） | `docker-compose.yml` → `volumes` |
+| Redis | 容器 `redis`，镜像 `redis:7-alpine`（AOF + healthcheck）；默认 `RATE_LIMIT_STORE=redis` | `docker-compose.yml` |
 | 必配变量 | 仅 `JWT_SECRET`（缺失时 compose 直接拒绝启动） | `docker-compose.yml` → `${JWT_SECRET:?JWT_SECRET is required}` |
 | 一条命令启动 | `JWT_SECRET=$(openssl rand -base64 48) docker compose up -d --build` | `docker-compose.yml` 头部注释 |
 | 探活 | `GET /actuator/health`（免登录）、`GET /api/system/status`（需登录） | `SecurityConfig`、`SystemController` |
@@ -32,7 +33,7 @@
 ```mermaid
 graph LR
     U["浏览器 / PWA<br/>https://your-domain"] -->|"443 → 8081"| N["web（nginx:1.27-alpine）<br/>SPA 静态资源 + /api 反代<br/>SSE 关缓冲"]
-    N -->|"proxy_pass http://backend:8080"| B["backend（Spring Boot 3.5.7 / JRE 17）<br/>/api/** + /actuator/health<br/>SPRING_PROFILES_ACTIVE=mysql"]
+    N -->|"proxy_pass http://backend:8080"| B["backend（Spring Boot 3.5.12 / JRE 17）<br/>/api/** + /actuator/health<br/>SPRING_PROFILES_ACTIVE=mysql"]
     B -->|"jdbc:mysql://mysql:3306/travel_agent"| M[("mysql:8.4<br/>utf8mb4")]
     B -->|"/app/data"| V[("卷 backend-data<br/>照片 / 在线城市缓存 / H2 兜底文件")]
     M --- MV[("卷 mysql-data")]
@@ -45,8 +46,10 @@ graph LR
    浏览器只与 nginx 通信；同源反代部署时 `CORS_ALLOWED_ORIGINS` 基本用不到。
 2. **SSE 必须端到端不缓冲**：`GET/POST /api/agent/stream` 是长连接流式输出（`SseEmitter` 180 秒），
    nginx 已配 `proxy_buffering off`，任何额外网关（CDN / ALB / ingress）也必须关闭缓冲。
-3. **MySQL 是唯一有状态依赖**：MySQL 未 healthy 时 `backend` 不会启动（`depends_on.condition: service_healthy`），
+3. **MySQL 是唯一不可替代的有状态依赖**：MySQL 未 healthy 时 `backend` 不会启动（`depends_on.condition: service_healthy`），
    镜像为 MySQL 8.4；`docker-compose.infra.yml` 里的 8.0 只用于本地开发。
+4. **Redis 只存限流计数**：compose 内置 `redis:7-alpine`（AOF + healthcheck），`backend` 同样依赖其 healthy 才启动；
+   运行期 Redis 掉线时代码 fail-open 放行并告警，`redis-data` 丢失只会重置计数，不纳入 RTO/RPO 关键数据。
 
 ### 1.2 本地 / 单机（H2 兜底模式，作为对照）
 
@@ -110,6 +113,8 @@ MYSQL_PASSWORD=CHANGE_ME_APP
 
 # ---- 可选能力（留空即降级，不影响启动）----
 LLM_API_KEY=
+# 模型名（application.yml / compose 默认已是 deepseek-flash；换 provider 必须用 /models 核对）
+LLM_MODEL=deepseek-flash
 AMAP_KEY=
 # 行程地图使用高德「Web 端(JS API)」，与上面的后端 Web 服务 Key 分开申请；构建镜像时注入
 VITE_AMAP_KEY=
@@ -118,7 +123,18 @@ VITE_AMAP_SECURITY_CODE=
 # 配了它并且 MCP_ENABLED=true 才会拉起 npx 子进程；缺 Key 时 MCP 段只降级、不影响启动
 AMAP_MAPS_API_KEY=
 MCP_ENABLED=false
-WEATHER_REAL=false
+# 天气默认走 Open-Meteo 真实预报（免费、无需 Key）；拿不到即「不可用」，不会降级模拟。
+# WEATHER_SIMULATION 仅测试/离线演示使用，生产保持 false（状态接口会自报 simulated）。
+WEATHER_SIMULATION=false
+# 限流计数：compose 已内置 redis 服务，默认 redis（多实例共享）；单实例可改 memory
+RATE_LIMIT_STORE=redis
+# 照片存储：local（backend-data 卷）/ s3（对象存储）；s3 时填下面 S3_*（compose 会映射为 TRAVEL_PHOTOS_S3_*）
+PHOTOS_STORE=local
+# S3_ENDPOINT=
+# S3_REGION=us-east-1
+# S3_BUCKET=
+# S3_ACCESS_KEY=
+# S3_SECRET_KEY=
 # 知识库历史版本块保留数（除 ACTIVE 版本外额外保留几个历史版本；0 = 只留 ACTIVE）
 RAG_CHUNK_VERSION_RETENTION=2
 TELEGRAM_BOT_TOKEN=
@@ -127,20 +143,10 @@ CHANNEL_WEBHOOK_SECRET=
 EOF
 ```
 
-> ⚠️ **两个新变量目前没有经 `docker-compose.yml` 透传给容器**：`AMAP_MAPS_API_KEY` 与 `RAG_CHUNK_VERSION_RETENTION`。
-> 只写进 `.env` **不会**进 `backend` 容器的环境，结果就是 MCP 子进程拿不到 Key（只降级、不报错，容易误判成"配了没用"）、
-> 块保留数仍是默认 2。容器部署请加一个 override 文件（compose 会自动合并，**不要提交到仓库**）：
->
-> ```yaml
-> # docker-compose.override.yml
-> services:
->   backend:
->     environment:
->       AMAP_MAPS_API_KEY: ${AMAP_MAPS_API_KEY:-}
->       RAG_CHUNK_VERSION_RETENTION: ${RAG_CHUNK_VERSION_RETENTION:-2}
-> ```
->
-> 非容器方式（`mvn spring-boot:run` / systemd）直接设进程环境变量即可，无需这一步。
+> 注：当前 `docker-compose.yml` 已透传绝大部分变量（含限流细项、LLM 配额/探测、Embedding、`PHOTOS_STORE`、`S3_*`、时区、Agent 预算、渠道、`JAVA_OPTS`）。
+> 仍**不能**只靠 `.env` 改变的是：`TELEGRAM_POLL_TIMEOUT`（需 override）、`MYSQL_HOST/PORT/DATABASE/USERNAME`（compose 字面量固定），
+> 以及外部 Redis 的认证/TLS、S3 的重试/超时等细项（需 override 或 `SPRING_APPLICATION_JSON`）。完整核对见 [生产配置清单](../operations/production-config.md) §5。
+> 非容器方式（`mvn spring-boot:run` / systemd）直接设进程环境变量即可。
 
 生成密钥并写入（避免 Base64 里的 `+` `/` `=` 出错）：
 
@@ -294,10 +300,13 @@ docker compose down -v                # ⚠️ 连卷一起删：MySQL 数据与
 - **来源二**：`docs/DEVELOPMENT.md` 开头「环境变量」表（是否必需 / 未配置时的行为）。
 - **来源三（权威，已修复补齐）**：`application.yml` / `application-mysql.yml` 的 `${VAR:default}` 占位，
   以及 Java 的 `@Value("${...}")`；全仓库主代码**没有** `System.getenv`。
-- 合并去重后共 **61 个**变量（应用侧 54 + 3 个前端构建期变量 + 4 个仅 Docker 面变量，明细见 §5.8）；三源差异见 §5.9。
+- 合并去重后共 **67 个**用户可见变量（应用侧 55 + 3 个前端构建期 + 4 个仅 Docker 面 + 5 个 S3 映射，明细见 §5.8）；三源差异见 §5.9。
+- `docker-compose.yml` 当前可注入 61 个变量名（50 个应用侧 + 11 个 compose 面/构建期）；`SPRING_DATA_REDIS_HOST/PORT` 由 compose 固定为内置服务，不计入用户变量。
 
 > **默认值优先级**：环境变量 > `travel-agent-server/.env.local`（`spring.config.import` 加载，`[.properties]` 解析）
 > > `application.yml` 默认值。容器内不带 `.env.local`（已列入 `.dockerignore`），所以 compose 环境就是最终来源。
+>
+> 本文是**部署与变量默认值的权威表**；生产上线用的可审计清单（必填/示例/密钥权限与轮换/未配置时的预期行为/容器透传缺口）见 [生产配置清单](../operations/production-config.md)。
 
 ### 5.2 认证与安全
 
@@ -317,9 +326,10 @@ docker compose down -v                # ⚠️ 连卷一起删：MySQL 数据与
 | 变量 | 默认值 | 是否必需 | 作用 | 未配置时的降级行为 |
 | --- | --- | --- | --- | --- |
 | `LLM_ENABLED` | `true` | 可选 | LLM 总开关；`false` 强制关闭模型调用 | 保持启用（但无 Key 时等同不可用） |
-| `LLM_API_KEY` | 空 | 可选（**强烈建议**） | OpenAI-compatible API Key | 全链路走规则引擎：功能完整，超纲目的地与生僻说法识别较弱；`llm.calls{result=skipped}` 增长 |
+| `LLM_API_KEY` | 空 | 可选（**强烈建议**） | OpenAI-compatible API Key | 全链路走规则规划器 + 模板回复：主流程可跑，但意图/结构化规划能力弱于模型；`llm.calls{result=skipped}` 增长 |
 | `LLM_BASE_URL` | `https://api.deepseek.com/v1` | 可选 | 任意 OpenAI-compatible 端点（DeepSeek/Qwen/OpenAI） | 用 DeepSeek 默认端点 |
-| `LLM_MODEL` | `deepseek-chat` | 可选 | 模型名（如 `qwen-plus`、`gpt-4o-mini`） | `deepseek-chat` |
+| `LLM_MODEL` | `deepseek-flash` | 可选 | 模型名（如 `qwen-plus`、`gpt-4o-mini`）；默认值按当前 Key 的 `/models` 核对 | `deepseek-flash`；模型不存在时启动 WARN，`/api/system/status` 显示 `llmModelAvailable=false` |
+| `LLM_MODEL_PROBE_ENABLED` | `true` | 可选 | 启动后异步探测 `GET {base-url}/models`（≤3s），结论进 `llmModelAvailable` | `true`；关闭后 `llmModelAvailable=null`（未校验） |
 | `LLM_TEMPERATURE` | `0.4` | 可选 | 采样温度 | 0.4 |
 | `LLM_CONNECT_TIMEOUT_MS` | `5000` | 可选 | 建连超时（毫秒） | 5 秒 |
 | `LLM_READ_TIMEOUT_MS` | `30000` | 可选 | 读超时（毫秒） | 30 秒 |
@@ -351,7 +361,8 @@ docker compose down -v                # ⚠️ 连卷一起删：MySQL 数据与
 | `VITE_AMAP_KEY` | 空 | 行程地图必需 | 前端高德「Web 端(JS API)」Key；作为 Docker 构建参数注入 | 行程地图不渲染，并显示配置提示 |
 | `VITE_AMAP_SECURITY_CODE` | 空 | 行程地图必需 | 与 Web 端 Key 配套的安全密钥；作为 Docker 构建参数注入 | 高德脚本可能校验失败，页面显示加载提示 |
 | `VITE_FOOTPRINT_BASEMAP` | `amap` | 可选 | 足迹地图底图：`amap`（高德栅格 + MapLibre 球体）或 `osm`（原 OSM/OpenFreeMap） | 默认高德；高德瓦片不可达时运行时回退 OSM。商用前确认高德瓦片授权 |
-| `WEATHER_REAL` | `false` | 可选 | `true` 时天气走 Open-Meteo 真实预报（免费无 Key，窗口为今天起 16 天） | 确定性模拟数据；真实模式下网络失败或超范围也自动降级模拟 |
+| `WEATHER_SIMULATION` | `false` | 可选 | **仅测试/离线演示**：`true` 时返回确定性模拟天气 | 默认走 Open-Meteo 真实预报（免费无 Key，窗口今天起 16 天）；拿不到即不可用——依赖天气的修改返回 `status=FAILED`（业务码 503）并说明原因，普通规划如实标注「未做天气校验」 |
+| `WEATHER_FAILURE_CACHE_SECONDS` | `60` | 可选 | 天气失败负缓存秒数，避免离线时一次规划反复等连接超时 | `0` = 不缓存失败；负缓存只影响重试频率，不影响正确性 |
 
 ### 5.5 渠道入口
 
@@ -378,13 +389,25 @@ docker compose down -v                # ⚠️ 连卷一起删：MySQL 数据与
 | `RATE_LIMIT_DEFAULT` | `600` | 可选 | 其它 `/api/**`：同用户上限 | 600 次 |
 | `RATE_LIMIT_SESSION` | `60` | 可选 | `GET /api/auth/me`（会话恢复）独立桶：同用户上限，避免刷新页面被登录桶（`RATE_LIMIT_AUTH`）踢成 429 | 60 次 |
 | `RATE_LIMIT_WINDOW_SECONDS` | `300` | 可选 | 限流窗口长度（秒） | 300 秒 |
-| `RATE_LIMIT_STORE` | `memory` | 可选 | 计数存储：`memory`（进程内）/ `redis`（多实例共享配额，Redis 故障 fail-open） | 进程内计数：重启清零，多实例各算各的 |
-| `PHOTOS_STORE` | `local` | 可选 | 照片存储：`local`（本地磁盘）/ `s3`（S3 兼容对象存储，需同时配 `travel.photos.s3.*`） | 本地磁盘 |
+| `RATE_LIMIT_STORE` | yml `memory` / compose `redis` | 可选 | 计数存储：`memory`（进程内）/ `redis`（多实例共享配额，Redis 故障 fail-open） | 进程内计数：重启清零，多实例各算各的 |
+| `PHOTOS_STORE` | `local` | 可选 | 照片存储：`local`（本地磁盘）/ `s3`（S3 兼容对象存储） | 本地磁盘 |
 
-> **限流的 `redis` 模式与照片的 `s3` 模式还需要额外的连接配置**：前者需 `spring.data.redis.*`，
-> 后者需 `travel.photos.s3.*`（endpoint / region / bucket / access-key / secret-key）。
-> 这些连接项没有独立环境变量，用 §5.9 的 `SPRING_APPLICATION_JSON` 方式注入。
-> Redis 不可用时 `RedisRateCounter` 会记 WARN、计 `ratelimit.failopen` 指标并放行（fail-open），不会让整站不可用。
+> **Redis 与 S3 由 compose 原生支持**：
+>
+> - `docker-compose.yml` 已内置 `redis` 服务（`redis:7-alpine` + AOF + healthcheck），并给 backend 注入
+>   `SPRING_DATA_REDIS_HOST=redis` / `SPRING_DATA_REDIS_PORT=6379`；默认 `RATE_LIMIT_STORE=redis`，backend 依赖 `redis: service_healthy`。
+>   外部 Redis 用 override 改 `SPRING_DATA_REDIS_*`，密码/TLS 用 `SPRING_APPLICATION_JSON`。
+> - S3 用 `.env` 的 `S3_*` 变量，compose 转成 `TRAVEL_PHOTOS_S3_*`（Spring 宽松绑定到 `travel.photos.s3.*`）：
+>
+> | `.env` 变量 | 容器内变量 | 说明 |
+> | --- | --- | --- |
+> | `S3_ENDPOINT` | `TRAVEL_PHOTOS_S3_ENDPOINT` | MinIO/OSS/COS 的 endpoint；AWS 可留空 |
+> | `S3_REGION` | `TRAVEL_PHOTOS_S3_REGION` | 默认 `us-east-1` |
+> | `S3_BUCKET` | `TRAVEL_PHOTOS_S3_BUCKET` | `PHOTOS_STORE=s3` 时必填 |
+> | `S3_ACCESS_KEY` | `TRAVEL_PHOTOS_S3_ACCESS_KEY` | 只授予目标 bucket 的 Put/Get/Head/Delete |
+> | `S3_SECRET_KEY` | `TRAVEL_PHOTOS_S3_SECRET_KEY` | 密钥，不入库、不进日志 |
+>
+> `PHOTOS_STORE=s3` 但 bucket/AK/SK 缺失会**启动失败**。Redis 运行期不可用时 `RedisRateCounter` 记 WARN、计 `ratelimit.failopen` 并放行（fail-open）；启动阶段 Redis 容器不健康会因 `depends_on` 阻止 backend 启动。
 
 ### 5.7 数据库、会话记忆与其他
 
@@ -400,7 +423,7 @@ docker compose down -v                # ⚠️ 连卷一起删：MySQL 数据与
 | `MCP_ENABLED` | `false` | 可选 | 是否接入 `travel.mcp.servers` 里的 MCP server（工具只读，前缀 `mcp_`） | 仅内置工具；日志 `MCP 未启用…仅使用内置工具` |
 | `RAG_CHUNK_VERSION_RETENTION` | `2` | 可选 | 知识库**历史版本知识块**的保留数（除 ACTIVE 外额外保留最近 N 个版本的块）；`0` = 只留 ACTIVE | 保留 2 个历史版本；其余由每日 04:30 的 `RagChunkRetentionJob` 清理（只删块，版本行与正文保留） |
 | `JAVA_OPTS` | 空 | 可选 | 传给 `java` 的 JVM 参数（Dockerfile `ENTRYPOINT` 使用），如 `-Xmx1g` | 由 JVM 默认堆策略决定 |
-| `TZ` | `Asia/Shanghai`（仅 mysql 服务） | 可选 | MySQL 容器时区 | — |
+| `TZ` | `Asia/Shanghai` | 可选 | 容器/backend 时区（compose 已透传）；MySQL 容器也固定 `Asia/Shanghai` | 容器默认 UTC，日期会偏一天 |
 | `CONVERSATION_HISTORY_LIMIT` | `10` | 可选 | 会话记忆喂给模型的最近消息**条数**（一轮问答 = 2 条，`10` 条 ≈ 5 轮，不是 10 轮） | 10 条 |
 | `CONVERSATION_RETENTION_DAYS` | `7` | 可选 | 会话消息保留天数；过期由写入侧快路径（每小时最多一次）+ 每日 04:30 定时任务清理 | 7 天 |
 
@@ -413,35 +436,39 @@ docker compose down -v                # ⚠️ 连卷一起删：MySQL 数据与
 | 分组 | 数量 | 变量 |
 | --- | --- | --- |
 | 认证与安全 | 8 | `JWT_SECRET` `JWT_EXPIRE_HOURS` `COOKIE_SECURE` `CORS_ALLOWED_ORIGINS` `DEMO_ACCOUNT` `APP_TIMEZONE` `MYSQL_ROOT_PASSWORD` `TICKET_TTL_SECONDS` |
-| LLM 与 Embedding | 13 | `LLM_ENABLED` `LLM_API_KEY` `LLM_BASE_URL` `LLM_MODEL` `LLM_TEMPERATURE` `LLM_CONNECT_TIMEOUT_MS` `LLM_READ_TIMEOUT_MS` `LLM_DAILY_QUOTA` `EMBEDDING_ENABLED` `EMBEDDING_BASE_URL` `EMBEDDING_API_KEY` `EMBEDDING_MODEL` `RAG_MIN_SCORE` |
-| 地图与天气 | 6 | `AMAP_KEY` `AMAP_MAPS_API_KEY` `VITE_AMAP_KEY` `VITE_AMAP_SECURITY_CODE` `VITE_FOOTPRINT_BASEMAP` `WEATHER_REAL` |
+| LLM 与 Embedding | 14 | `LLM_ENABLED` `LLM_API_KEY` `LLM_BASE_URL` `LLM_MODEL` `LLM_MODEL_PROBE_ENABLED` `LLM_TEMPERATURE` `LLM_CONNECT_TIMEOUT_MS` `LLM_READ_TIMEOUT_MS` `LLM_DAILY_QUOTA` `EMBEDDING_ENABLED` `EMBEDDING_BASE_URL` `EMBEDDING_API_KEY` `EMBEDDING_MODEL` `RAG_MIN_SCORE` |
+| 地图与天气 | 7 | `AMAP_KEY` `AMAP_MAPS_API_KEY` `VITE_AMAP_KEY` `VITE_AMAP_SECURITY_CODE` `VITE_FOOTPRINT_BASEMAP` `WEATHER_SIMULATION` `WEATHER_FAILURE_CACHE_SECONDS` |
 | 渠道入口 | 7 | `TELEGRAM_BOT_TOKEN` `TELEGRAM_POLL_TIMEOUT` `CHANNEL_WEBHOOK_ENABLED` `CHANNEL_WEBHOOK_SECRET` `WECHAT_OA_TOKEN` `WECHAT_OA_APPID` `WECHAT_OA_SECRET` |
 | 存储与限流 | 12 | `PHOTO_MAX_PER_TRIP` `PHOTO_MAX_BYTES_PER_USER` `RATE_LIMIT_ENABLED` `RATE_LIMIT_AUTH` `RATE_LIMIT_AGENT` `RATE_LIMIT_UPLOAD` `RATE_LIMIT_DEFAULT` `RATE_LIMIT_SESSION` `RATE_LIMIT_WINDOW_SECONDS` `RATE_LIMIT_STORE` `RATE_LIMIT_TRUSTED_PROXIES` `PHOTOS_STORE` |
+| S3 映射（compose 转 `TRAVEL_PHOTOS_S3_*`） | 5 | `S3_ENDPOINT` `S3_REGION` `S3_BUCKET` `S3_ACCESS_KEY` `S3_SECRET_KEY` |
 | 数据库与其他 | 11 | `SPRING_PROFILES_ACTIVE` `MYSQL_HOST` `MYSQL_PORT` `MYSQL_DATABASE` `MYSQL_USERNAME` `MYSQL_PASSWORD` `MCP_ENABLED` `RAG_CHUNK_VERSION_RETENTION` `JAVA_OPTS` `TZ` `H2_CONSOLE_ENABLED` |
 | 会话记忆 | 2 | `CONVERSATION_HISTORY_LIMIT` `CONVERSATION_RETENTION_DAYS` |
 | Agent 时间预算 | 2 | `AGENT_BUDGET_ENABLED` `AGENT_BUDGET_TOTAL_MS` |
-| **合计** | **61** | 应用侧 54（两份 yml + Java `@Value` 占位去重）+ 3 个前端构建期变量 + 4 个仅 Docker 面变量（`MYSQL_ROOT_PASSWORD`、`SPRING_PROFILES_ACTIVE`、`JAVA_OPTS`、`TZ`） |
+| **合计** | **67** | 应用侧 55（两份 yml 去重）+ 3 个前端构建期变量 + 4 个仅 Docker 面变量（`MYSQL_ROOT_PASSWORD`、`SPRING_PROFILES_ACTIVE`、`JAVA_OPTS`、`TZ`）+ 5 个 S3 映射输入 |
 
-> 口径提示：`TESSERACT_CMD`、`TESSDATA_PREFIX`、`INVOICE_DIR`、`INVOICE_STORE` 已随发票/OCR 退役删除，不再是有效配置项。
+> 口径提示：`TESSERACT_CMD`、`TESSDATA_PREFIX`、`INVOICE_DIR`、`INVOICE_STORE` 已随发票/OCR 退役删除，不再是有效配置项；`INVOICE_DIR` 也已从 `docker-compose.yml` / Dockerfile 移除。
+> `SPRING_DATA_REDIS_HOST` / `SPRING_DATA_REDIS_PORT` 由 compose 固定为内置 `redis` 服务，属内部连接项，不计入用户变量；外部 Redis 才需要 override。
 
 来源分布（按定义位置；一个变量可能出现于多份配置文件）：
 
 | 来源 | 数量 | 说明 |
 | --- | --- | --- |
-| `application.yml` 的 `${VAR:default}` 占位 | 49 | 49 处、49 个不同变量（`AMAP_KEY` 只在 `travel.amap.key`，`AMAP_MAPS_API_KEY` 只在 `travel.mcp.servers[].env`） |
+| `application.yml` 的 `${VAR:default}` 占位 | 50 | P0-A 新增 `LLM_MODEL_PROBE_ENABLED` 后重新核对（`AMAP_KEY` 只在 `travel.amap.key`，`AMAP_MAPS_API_KEY` 只在 `travel.mcp.servers[].env`） |
 | `application-mysql.yml` 的占位 | 5 | `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_DATABASE` / `MYSQL_USERNAME` / `MYSQL_PASSWORD` |
-| 两份 yml 合计（去重） | **54** | P0 删除发票/OCR 配置后重新核对 |
-| Java 代码内独立 env 占位 | **0** | P0 删除 `TESSERACT_CMD` / `TESSDATA_PREFIX` 后，主代码不再有独立 env 占位（`@Value` 只读配置项默认值） |
-| 仅由 `docker-compose.yml` / Dockerfile 提供 | 4 | `MYSQL_ROOT_PASSWORD`、`TZ`（mysql 服务）、`SPRING_PROFILES_ACTIVE`、`JAVA_OPTS`（后端 `ENTRYPOINT` 消费） |
+| 两份 yml 合计（去重） | **55** | P0 删除发票/OCR 配置后重新核对 |
+| Java 代码内独立 env 占位 | **0** | 主代码不再有独立 env 占位（`@Value` 只读配置项默认值） |
+| 仅由 `docker-compose.yml` / Dockerfile 提供 | 4 | `MYSQL_ROOT_PASSWORD`、`TZ`、`SPRING_PROFILES_ACTIVE`、`JAVA_OPTS`（后端 `ENTRYPOINT` 消费） |
+| S3 映射输入 | 5 | `S3_*` → `TRAVEL_PHOTOS_S3_*`（`docker-compose.yml` 的 `environment` 右侧） |
 | 前端构建期变量 | 3 | `VITE_AMAP_KEY`、`VITE_AMAP_SECURITY_CODE`、`VITE_FOOTPRINT_BASEMAP` |
 | `System.getenv` 直接读取 | **0** | 全仓库主代码没有 `System.getenv`（测试代码只用 `System.getProperty`） |
 
-对账：54（yml 去重）+ 3（前端构建期）+ 4（仅 Docker 面）= **61**。复核命令：
+对账：55（yml 去重）+ 3（前端构建期）+ 4（仅 Docker 面）+ 5（S3 映射）= **67**。复核命令：
 
 ```bash
-grep -rhoE '\$\{[A-Z_]+' travel-agent-server/src/main/resources/application*.yml | sort -u | wc -l
-grep -rhoE '\$\{[A-Z_]+' travel-agent-server/src/main/resources/application-mysql.yml | sort -u | wc -l
-grep -rhoE '@Value\("\$\{[A-Z_]+' travel-agent-server/src/main/java | sort -u | wc -l
+grep -rhoE '\$\{[A-Z0-9_]+' travel-agent-server/src/main/resources/application*.yml | sed 's/^..//' | sort -u | wc -l
+grep -rhoE '\$\{[A-Z0-9_]+' travel-agent-server/src/main/resources/application-mysql.yml | sed 's/^..//' | sort -u | wc -l
+grep -rhoE '@Value\("\$\{[A-Z0-9_]+' travel-agent-server/src/main/java | sort -u | wc -l
+grep -oE '\$\{[A-Z0-9_]+' docker-compose.yml | sed 's/^..//' | sort -u | wc -l
 ```
 
 ### 5.9 README / DEVELOPMENT.md 的差异（重要）
@@ -452,7 +479,7 @@ grep -rhoE '@Value\("\$\{[A-Z_]+' travel-agent-server/src/main/java | sort -u | 
 | 环境变量 | 对应配置项（默认值） |
 | --- | --- |
 | `PHOTOS_STORE` | `travel.photos.store`（`local`） |
-| `RATE_LIMIT_STORE` | `travel.rate-limit.store`（`memory`） |
+| `RATE_LIMIT_STORE` | `travel.rate-limit.store`（yml `memory` / compose `redis`） |
 | `WECHAT_OA_APPID` / `WECHAT_OA_SECRET` | `travel.channels.wechat.appid` / `.secret`（空） |
 
 | 文档 | 情况 | 本表处理 |
@@ -465,12 +492,11 @@ grep -rhoE '@Value\("\$\{[A-Z_]+' travel-agent-server/src/main/java | sort -u | 
 
 **仍只能通过配置文件项覆盖的**：`travel.photos.dir`（照片落盘目录）在 yml 中是字面量、未暴露环境变量，
 Docker 下容器工作目录为 `/app`，因此落在 `/app/data/photos`（已由 `backend-data` 卷持久化）。
-这类配置项可用 `SPRING_APPLICATION_JSON` 注入（改 compose 的 `backend.environment`，不用改代码）：
+Redis 与 S3 已由 compose 原生支持（`SPRING_DATA_REDIS_HOST/PORT`、`S3_*`）；只有**未暴露的细项**（照片目录、S3 重试/超时、外部 Redis 密码/TLS 等）才需要 `SPRING_APPLICATION_JSON`（改 compose 的 `backend.environment`，不用改代码）：
 
 ```yaml
     environment:
-      # 例 1：改照片目录；例 2：开多实例 Redis 限流（同时设 RATE_LIMIT_STORE=redis）
-      SPRING_APPLICATION_JSON: '{"travel":{"photos":{"dir":"/app/data/photos"},"rate-limit":{"store":"redis"}},"spring":{"data":{"redis":{"host":"redis","port":6379}}}}'
+      SPRING_APPLICATION_JSON: '{"travel":{"photos":{"dir":"/app/data/photos","s3":{"max-retries":0,"api-call-timeout-ms":3000}},"rate-limit":{"store":"redis"}},"spring":{"data":{"redis":{"timeout":"2s"}}}}'
 ```
 
 ---
@@ -596,7 +622,7 @@ MySQL = `migration` + `migration-mysql`），否则工具会算出不同的 reso
 | **真实 MySQL `8.0.46`**（本机，**不是 8.4**） | ① 全新库 `V1..V13` 13 个迁移 + `validate` 通过（21 表，启动 14.6s）；② 存量库（`flyway.target=10` 模拟现网）→ 只增量 V11/V12/V13 + `validate` 通过；③ `V8` 幂等：先手工建唯一键再跑，走「已存在 → 跳过」分支，无 `Duplicate key name` |
 | H2（2.3.232，`MODE=MySQL`） | 全新库 `V1..V13(h2)` + `validate` 通过；**现有 dev 库副本**升级只增量 V13(h2)（全部 `IF NOT EXISTS` 空转）+ `validate` 通过 |
 
-遗留风险两条：① **Flyway 对 8.4 的官方支持滞后**：Spring Boot 3.5.7 带的 Flyway 在连 8.4.10 时打印
+遗留风险两条：① **Flyway 对 8.4 的官方支持滞后**：Spring Boot 3.5.12 带的 Flyway 在连 8.4.10 时打印
 `MySQL 8.4 is newer than this version of Flyway ... latest supported version of MySQL is 8.1`（仅 WARN）；验收当时 17 个迁移
 与 `validate` 全部通过（V19 为后续增量），说明 DDL 未踩到差异，但升级 8.4 前建议顺手升级 Flyway（或显式接受该告警）；② 极端旧库若
 `health_record.weight` 还是 `DECIMAL(5,1)`、`operation_history.before_state`/`after_state` 还是 `JSON`，`validate` 会报
@@ -633,6 +659,7 @@ MySQL = `migration` + `migration-mysql`），否则工具会算出不同的 reso
 | 透传头 | `Host` / `X-Real-IP` / `X-Forwarded-For` / `X-Forwarded-Proto` | `RateLimitFilter` **默认完全不读 `X-Forwarded-For`**，直接用 TCP 源地址计数；只有配置了 `RATE_LIMIT_TRUSTED_PROXIES`（命中受信代理）才从右往左取第一个非受信地址。反代部署必须同时配该变量，否则所有请求按代理 IP 共用一个桶 |
 | SPA 回退 | `try_files $uri $uri/ /index.html;` | React Router 深链刷新不 404 |
 | 静态缓存 | `/assets/` `expires 30d` + `immutable`；`= /index.html` `no-cache` | 带 hash 的资源长缓存，入口不缓存（保证版本切换立刻生效） |
+| 访问日志 | `log_format without_args` 只记 `$request_method $uri $server_protocol`（**不含查询串**），`access_log /var/log/nginx/access.log without_args` | 照片原图 / SSE 用 `?ticket=` 做短期票据；默认 `$request` 会把票据写进 `docker compose logs web`。`log_format` 已修正为 **`http` 上下文（位于 `server {` 之前）**；**仍缺 `nginx -t` / 真实容器验证** |
 
 ### 7.2 在 nginx 前面加 HTTPS 终结（推荐做法）
 
@@ -676,6 +703,10 @@ server {
 
 配套环境变量：`COOKIE_SECURE=true`（HTTPS 下必须），`CORS_ALLOWED_ORIGINS=https://your-domain.example.com`。
 
+> **外层 TLS 终结也要关票据日志**：内层 `travel-agent-web/nginx.conf` 已用 `log_format without_args` 只记 `$uri`；
+> 宿主机/云 LB 这一层如果保留默认 `$request`，仍会把 `?ticket=` 写进自己的访问日志。请在外层同样定义
+> `log_format without_args ... '"$request_method $uri $server_protocol" ...'` 并使用它，或对 `/api/` 关闭 access log。
+
 ### 7.3 SSE 排障口诀
 
 > 「**内层关缓冲、外层关缓冲、CDN 关缓冲、超时都拉长**」。
@@ -691,14 +722,16 @@ server {
 
 | 字段 | 类型 | 含义 / 运维用途 |
 | --- | --- | --- |
-| `llmConfigured` | boolean | `LLM_ENABLED=true` **且** `LLM_API_KEY` 非空 → `true`。`false` 说明整站走规则引擎 |
+| `llmConfigured` | boolean | `LLM_ENABLED=true` **且** `LLM_API_KEY` 非空 → `true`。`false` 说明整站走规则规划器 |
 | `llmVerified` | boolean | 最近一次真实 LLM 调用是否成功（未调用过 = `false`） |
 | `llmModel` | string/null | 生效的模型名（未接入时为 `null`） |
-| `llmHint` / `geoHint` / `routeHint` / `priceHint` | string | 中文说明，可直接转给用户 |
+| `llmHint` / `geoHint` / `routeHint` / `weatherHint` / `priceHint` | string | 中文说明，可直接转给用户 |
 | `amapConfigured` | boolean | `AMAP_KEY` 是否配置 |
 | `geoProvider` | string | `amap` 或 `osm`（兜底路径） |
 | `timezone` | string | 实际生效时区（应等于 `APP_TIMEZONE`）；**排查「日期差一天」先看它** |
 | `routeProvider` / `routeConfigured` / `amapVerified` / `routeLastError` | string/boolean | 路线来源与「配置 vs 验证」分离；`routeProvider` 取值域 `amap`\|`estimated` |
+| `weatherProvider` | string | `open-meteo` \| `simulated` \| `unavailable`。生产应为 `open-meteo`；出现 `simulated` 说明误开了 `WEATHER_SIMULATION` |
+| `weatherLastError` | string/null | 最近一次真实天气失败原因（不含密钥）；成功/未调用为 `null` |
 | `priceProvider` | string | 恒为 `reference-estimate`：价格只有本地参考估算，未接实时房态/库存 |
 | `pendingPlanStore` | string | 恒为 `database`（待确认方案落库，多实例可用） |
 | `rateLimitEnabled` | boolean | 限流是否开启 |
@@ -714,8 +747,10 @@ server {
 | 位置 | 内容 |
 | --- | --- |
 | `docker compose logs backend` | 后端 stdout（Spring Boot 默认控制台日志），格式 `级别 [traceId] ...` |
-| `docker compose logs web` | nginx access/error log（容器 stdout） |
+| `docker compose logs web` | nginx access/error log（容器 stdout）；access log 使用 `without_args` 不记查询串（`log_format` 已修正为 `http` 上下文；仍缺 `nginx -t` / 真实容器验证） |
+| 日志轮转 | `backend` / `web` 已配置 `json-file` `max-size: 10m` / `max-file: 3`；`mysql` / `redis` 未单独配置（日志量小） |
 | 响应头 `X-Trace-Id` | 每个请求的链路 ID；上游传了合法值（`[A-Za-z0-9_-]{6,64}`）就沿用 |
+| 启动配置体检 | `SecurityStartupGuard` 在 `mysql` / `prod` profile 下对 H2 控制台、demo 账号、`cookie-secure=false` 打 `[SECURITY]` WARN（只告警，不阻止启动；上线按硬失败处理） |
 
 **用 traceId 捞日志**（排查用户报障的标准动作）：
 
@@ -843,6 +878,7 @@ docker compose ps
 | --- | --- | --- | --- |
 | `mysql-data` | `/var/lib/mysql` | 全部业务数据（用户、行程、记账、待确认方案、LLM 配额计数、RAG 向量…） | **最高** |
 | `backend-data` | `/app/data` | 照片（`photos/`）、在线城市缓存（`online-cities/`）、H2 库（`travel-agent.mv.db`，仅 H2 模式有） | 高（照片不可再生） |
+| `redis-data` | `/data` | 限流计数（AOF 持久化）；丢失只会让窗口计数清零，不影响业务数据 | 低（不纳入 RTO/RPO 关键数据） |
 
 确认实际卷名（前缀取决于 compose 项目名，默认是目录名 `travel-agent`）：
 
@@ -933,6 +969,7 @@ docker compose start backend
 | `pending_plan` | 每次规划一条，TTL **30 分钟**，仅在写入新方案时清理过期行 | 量很小；量大时定期 `DELETE FROM pending_plan WHERE created_at < NOW() - INTERVAL 1 DAY` |
 | `conversation_message` | 按「用户 + 会话」保留最近 10 条消息（约 5 轮）喂给模型；超过 `CONVERSATION_RETENTION_DAYS`（默认 7 天）的消息自动清理（写入侧快路径每小时最多一次 + 每日 04:30 定时任务） | 清理已自动化；需要时再定期归档 |
 | `rag_chunk` | 10 篇内置知识 × 段落数；版本化之后旧块不随指纹变化删除，但**只保留最近 `RAG_CHUNK_VERSION_RETENTION`（默认 2）个历史版本**，更老的块由每日 04:30 的 `RagChunkRetentionJob` 清理（版本行与正文保留）；**切换 Embedding 模型需重建** | 变更前清空 `rag_chunk`、`rag_document_version` 与 `rag_document`，重启自动重建（见 [数据模型](data-model.md) §7.3） |
+| 容器日志 | `backend` / `web` 的 `json-file` 轮转为 10m × 3（约 30m/容器上限）；`mysql` / `redis` 未配轮转 | 如将 `mysql`/`redis` 日志也外置或排障，可补同样 `logging.options`；否则长期运行仍可能被这两个容器日志占满 |
 | MySQL 表空间 | `mysql-data` 卷 | 按 §10.2 备份并监控卷使用率 |
 
 **建议的监控阈值**（无内置告警，需外部接）：宿主机磁盘 > 80%、容器内存 > 85%、`/actuator/health` 连续失败、
@@ -944,15 +981,18 @@ docker compose start backend
 
 本文以仓库当前 HEAD 的源码为准做了逐项核对：
 
-- **环境变量总数：61**——应用侧 54（= 两份 yml + Java `@Value` 占位去重数）
+- **环境变量总数：67**——应用侧 55（= 两份 yml 去重；含 `LLM_MODEL_PROBE_ENABLED`）
   \+ 3 个前端构建期变量（`VITE_AMAP_KEY`、`VITE_AMAP_SECURITY_CODE`、`VITE_FOOTPRINT_BASEMAP`）
-  \+ 仅 Docker 面 4（`MYSQL_ROOT_PASSWORD`、`SPRING_PROFILES_ACTIVE`、`JAVA_OPTS`、`TZ`）。分组明细见 §5.8；
-- **来源分布**：`application.yml` 49 个不同占位、`application-mysql.yml` 5 个、
-  `docker-compose.yml`/Dockerfile 4 个、`System.getenv` 直接读取 **0** 个；**Java 代码内不再有独立 env 占位**
+  \+ 仅 Docker 面 4（`MYSQL_ROOT_PASSWORD`、`SPRING_PROFILES_ACTIVE`、`JAVA_OPTS`、`TZ`）
+  \+ S3 映射 5（`S3_*` → `TRAVEL_PHOTOS_S3_*`）。分组明细见 §5.8；
+- **来源分布**：`application.yml` 50 个不同占位、`application-mysql.yml` 5 个、
+  `docker-compose.yml`/Dockerfile 4 个、S3 映射 5 个、`System.getenv` 直接读取 **0** 个；**Java 代码内不再有独立 env 占位**
   （P0 删除的 `TESSERACT_CMD` / `TESSDATA_PREFIX` 是最后一处）；
+- **compose 变更的验证边界**：本次 `docker-compose.yml` 重写**未在本机执行 `docker compose config`**（本机无 Docker），
+  只用 `python -c "import yaml; yaml.safe_load(open('docker-compose.yml'))"` 做了 YAML 语法检查（通过）；真实渲染、启动与 healthcheck 行为属于未验证项，发布前必须在有 Docker 的环境跑一次。
 - **刻意不进表的配置项**（无环境变量占位，只能走配置文件项或 `SPRING_APPLICATION_JSON`）：
-  `travel.photos.dir`、`travel.photos.s3.*`、`travel.mcp.servers`、
-  MCP server 的 `command`/`url`/`env`——见 §5.7 末与 §5.9 的注入示例（`travel.jwt.ticket-ttl-seconds` 已改为环境变量 `TICKET_TTL_SECONDS`，默认 300）；
+  `travel.photos.dir`、`travel.photos.s3.*` 的未暴露细项（如 `max-retries`、`api-call-timeout-ms`）、`travel.mcp.servers`、
+  MCP server 的 `command`/`url`/`env`——见 §5.7 末与 §5.9 的注入示例（`travel.jwt.ticket-ttl-seconds` 已改为环境变量 `TICKET_TTL_SECONDS`，默认 300；S3 的 endpoint/region/bucket/AK/SK 已通过 `S3_*` 暴露）；
 - **Docker 服务/端口**：`mysql`（3306，仅容器网络）、`backend`（8080，仅容器网络）、`web`（宿主机 8081 → 容器 80），
   与 `docker-compose.yml` 逐字一致；镜像 `mysql:8.4`、`nginx:1.27-alpine`、`eclipse-temurin:17-jre`；
 - **README / DEVELOPMENT.md 差异**：`RATE_LIMIT_STORE`、`PHOTOS_STORE`、`WECHAT_OA_APPID`/`WECHAT_OA_SECRET`

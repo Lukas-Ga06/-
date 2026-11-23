@@ -247,7 +247,8 @@ spec:
             summary: "外部依赖降级率超过 5%（每请求降级次数）"
             description: >-
               10 分钟窗口内，平均每个 HTTP 请求触发 {{ $value }} 次外部依赖降级
-              （external_degraded_total）。服务仍可用，但方案质量在下降（天气/路线/POI 变成估算）。
+              （external_degraded_total）。服务仍可用，但方案质量在下降：路线/POI 回落估算，
+              天气拿不到时依赖天气的修改会被明确拒绝（503，不生成方案）。
               按 provider 拆开看是哪一家：rate(external_degraded_total[10m]) by (provider, reason)。
               该指标由韧性任务（T3）提供；未合入时本告警不会触发。
             runbook_url: "https://github.com/OWNER/travel-agent/blob/main/docs/operations/runbook.md#7-travelexternaldegradedhigh-p1"

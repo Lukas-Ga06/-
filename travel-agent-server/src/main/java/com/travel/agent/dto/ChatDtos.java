@@ -176,4 +176,28 @@ public class ChatDtos {
         @Pattern(regexp = "[A-Za-z0-9_-]+", message = "格式不正确")
         private String conversationId;
     }
+
+    /**
+     * 重命名会话（V23）：会话 id 在路径上，这里只带新标题。
+     *
+     * <p>空串 / 只有空白 = <b>恢复自动标题</b>（删掉覆盖行，回到「首条用户消息」的推导标题）。
+     * 上限 40 字符与服务端的截断规则一致：超长标题在列表里撑破单行布局。
+     */
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class RenameConversationRequest {
+        @Size(max = 40, message = "长度不能超过 40 个字符")
+        private String title;
+    }
+
+    /** 重命名结果：回传服务端真正生效的标题（已做截断/去空白），null 表示恢复自动标题 */
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    public static class ConversationRenameResult {
+        private String conversationId;
+        private String title;
+    }
 }

@@ -137,6 +137,9 @@ public class TravelQueryHandler {
     }
 
     private AgentDtos.AgentResult complete(AgentContext ctx, AgentDtos.AgentResult result) {
+        // P0-B：SSE 的 complete 事件在 handler 里发出，多意图提示必须在这里就挂上，
+        // 否则包一层引擎的 REST 返回值有提示、SSE 用户却看不到（finish 处再挂靠前缀幂等）。
+        MultiIntentNotices.attach(ctx.getAlsoRequested(), result);
         ctx.emit("complete", result);
         return result;
     }

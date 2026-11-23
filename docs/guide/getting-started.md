@@ -1,11 +1,11 @@
 # 快速上手（新人 onboarding）
 
-> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.7 / Node 20） | 最后验证：2026-11-19 | 事实来源：travel-agent-server/pom.xml、travel-agent-server/run-dev.ps1、travel-agent-web/package.json、docker-compose.infra.yml
+> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.12 / Node 20） | 最后验证：2026-11-23 | 事实来源：travel-agent-server/pom.xml、travel-agent-server/run-dev.ps1、travel-agent-web/package.json、docker-compose.infra.yml
 
 > 从零把项目跑起来：装环境 → 启动后端 → 启动前端 → 走通一条完整演示链路 → 知道遇到问题去哪里查。
 > 全流程基于仓库当前 HEAD 的真实脚本与配置，命令可直接复制执行。
 
-本文适用版本：以仓库当前 HEAD 为准（`travel-agent-server` 0.1.0 / Spring Boot 3.5.7，前端 0.1.0）。
+本文适用版本：以仓库当前 HEAD 为准（`travel-agent-server` 0.1.0 / Spring Boot 3.5.12，前端 0.1.0）。
 
 ---
 
@@ -44,7 +44,7 @@
 | 工具 | 用途 | 不装的后果 |
 | --- | --- | --- |
 | Docker | 全栈一键部署 / 本地 MySQL + Redis | 只能走 H2 本地模式（这也是默认模式） |
-| 大模型 API Key | 意图识别增强、结构化规划、文案润色、回顾总结 | 全部走规则引擎，功能完整但表达与泛化较弱 |
+| 大模型 API Key | 意图识别增强、结构化规划、文案润色、回顾总结 | 全部走规则规划器：主流程可跑，但表达与泛化弱于模型（默认体验见 [能力边界](capability-boundaries.md)） |
 | 高德 Web 服务 Key | 目录外城市 POI 真实定位 | 退回「大模型生成坐标 + OSM Nominatim」兜底，较慢 |
 
 > 仓库**不保存任何密钥**。`JWT_SECRET`、`LLM_API_KEY` 等一律通过环境变量注入，
@@ -131,6 +131,18 @@ Tomcat started on port 8080 (http)
 curl -s http://localhost:8080/actuator/health
 # {"status":"UP"}
 ```
+
+想确认「哪些能力是真数据、哪些是估算」，同一个后端还提供状态自报（`/api/system/status` 需登录，用演示账号取一次）：
+
+```bash
+curl -s -c travel.cookies -H 'Content-Type: application/json' \
+  -d '{"username":"demo","password":"demo123"}' http://localhost:8080/api/auth/login >/dev/null
+curl -s -b travel.cookies http://localhost:8080/api/system/status | jq '{llmConfigured, routeProvider, weatherProvider, weatherHint}'
+```
+
+天气是唯一**默认就走真实数据**的来源（Open-Meteo，免费无需 Key）：`weatherProvider=open-meteo` 才算真实预报成功；
+`unavailable` 表示还没成功连上（`weatherHint` 会写原因），此时依赖天气的行程修改会被明确拒绝（业务码 503），
+**不会用模拟天气改行程**。各字段口径见 [能力边界与默认口径](capability-boundaries.md)。
 
 H2 控制台（默认关闭，调试时设 `H2_CONSOLE_ENABLED=true` 后重启）：<http://localhost:8080/h2-console>
 （JDBC URL `jdbc:h2:file:./data/travel-agent;MODE=MySQL;AUTO_SERVER=TRUE`，用户 `sa`，密码空）

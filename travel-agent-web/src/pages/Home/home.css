@@ -9,6 +9,108 @@
    （规则级 diff 与像素级回归见 docs/review 里的阶段 E 第二批验收）。
    ============================================================ */
 
+/* ============================================================
+   以下段落由原 src/styles/pages.css 迁入（只换归属，不改声明）
+   Home 独占：.assistant-quick 基础层 / .footprint-loading / .pending-row / .hg-map
+   ============================================================ */
+
+.assistant-quick {
+  position: relative;
+  border-radius: var(--radius-lg);
+  background: var(--lg-bg);
+  border: 1px solid var(--lg-border);
+  box-shadow: var(--lg-shadow);
+  padding: 16px;
+  overflow: hidden;
+}
+
+.footprint-loading {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+/* 待处理：整行可点，数字在前，箭头贴右 */
+
+.pending-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  width: 100%;
+  padding: var(--sp-3) 0;
+  border-top: 1px solid var(--border);
+  background: transparent;
+  border-left: 0;
+  border-right: 0;
+  border-bottom: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pending-row:first-of-type,
+.pending-row.as-text {
+  border-top: 0;
+}
+
+.pending-row.as-text {
+  cursor: default;
+}
+
+.pending-row:not(.as-text):hover .pr-label {
+  color: var(--accent);
+}
+
+.pending-row .pr-main {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.pending-row .pr-num {
+  font-size: 20px;
+  font-weight: 680;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.pending-row .pr-label {
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.pending-row .pr-arrow {
+  color: var(--text-3);
+  font-size: 16px;
+}
+
+/* ---------- 首页：左列（足迹 + 待办）与快捷入口 ---------- */
+
+.hero-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  min-width: 0;
+}
+
+/*
+ * 地图区必须给"确定高度"：.fp-canvas/.fp-map 用的是 height:100%，
+ * 而百分比高度需要一个确定的父高度。父容器若只有 flex/min-height，
+ * 解析结果会退化成 auto，maplibre 容器塌成 0 高、再被 overflow:hidden 裁掉（表现为整块空白）。
+ */
+
+.hg-map {
+  position: relative;
+  flex: none;
+  height: 380px;
+  min-height: 300px;
+}
+
 .assistant-quick .aq-hint {
   display: flex;
   gap: 8px;
@@ -217,4 +319,53 @@
   .hero-globe {
     min-height: 360px;
   }
+}
+
+/* ---------- P1-G：足迹空态 / 地图失败 / 首屏地图高度 ---------- */
+.aq-hint .suggest-chip .anticon {
+  margin-right: 4px;
+}
+
+.footprint-compact-state {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 6px;
+  min-height: 80px;
+  padding: 4px 0;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.footprint-compact-state .fcs-hint {
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.footprint-compact-state .fcs-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 没有足迹时的空态固定 80–96px，不再让空地图撑满首屏 */
+#home-footprint .empty-state--compact {
+  min-height: 80px;
+  max-height: 96px;
+}
+
+/* 首页地图只是足迹摘要：给确定高度但压低，避免占掉半屏 */
+.hg-map.footprint-slim-map {
+  height: 180px;
+  min-height: 160px;
+}
+
+.footprint-slim-map .fp-canvas {
+  min-height: 0;
+}
+
+/* 地图失败/加载中的紧凑占位 */
+.hg-map .fp-engine-error {
+  background: var(--surface);
 }

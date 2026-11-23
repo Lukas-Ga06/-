@@ -1,0 +1,1293 @@
+/* ============================================================
+   跨页复用组件的样式
+   ------------------------------------------------------------
+   这里的每一段都至少被两处宿主使用，所以不能随单个页面 chunk 走：
+     · 聊天区 .chat-*（Planner / Trip / Assistant 共用 ChatPanel）
+     · PlanDiff .diff-* / .plan-*（计划差异与审核结论）
+     · AgentActivityPanel .agent-activity / .aa-*
+     · FootprintMap .fp-*（首页摘要卡 + 足迹页 + 行程足迹 tab）
+     · Skeleton .sk-*、SwipeRow .swipe-*、备忘行 .memo-*
+     · Toast .toast-*、CitationList .citation-*、ReminderBell .notify-* / .reminder-*
+   由原 styles/pages.css 收敛而来，规则内容只换归属、不改声明。
+   ============================================================ */
+
+/* ============================================================
+   聊天（iMessage 风格）
+   ============================================================ */
+
+.chat-row {
+  display: flex;
+  gap: 9px;
+  align-items: flex-end;
+}
+
+.chat-row.user {
+  flex-direction: row-reverse;
+}
+
+.chat-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  color: #fff;
+}
+
+.chat-avatar.ai {
+  background: var(--grad-primary);
+  box-shadow: 0 4px 12px rgba(0, 122, 255, 0.3);
+}
+
+.chat-avatar.user {
+  background: linear-gradient(135deg, #a6a6ad, #8e8e93);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.chat-bubble {
+  max-width: 78%;
+  padding: 9px 13px;
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  animation: fadeUp 0.22s ease both;
+}
+
+.chat-bubble.assistant {
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 18px 18px 18px 5px;
+  border: 1px solid var(--border);
+  box-shadow: 0 2px 8px rgba(31, 41, 92, 0.06);
+}
+
+.chat-bubble.user {
+  background: var(--blue);
+  color: #ffffff;
+  border-radius: 18px 18px 5px 18px;
+  box-shadow: 0 4px 14px rgba(0, 122, 255, 0.28);
+}
+
+.chat-stage {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--ink-3);
+  padding-left: 37px;
+}
+
+.selected-chip {
+  padding: 0 14px 8px;
+}
+
+/* 过程警告：与结论并列，说明「哪些模块没过」，而不是只给一个绿色成功标签 */
+
+.chat-warnings {
+  margin: 0 0 8px 37px;
+  padding: 9px 12px;
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--warn);
+  border-radius: var(--r-sm);
+  background: var(--warn-weak);
+  color: var(--text);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.chat-warnings .cw-head {
+  font-weight: 650;
+  color: var(--warn);
+  margin-bottom: 4px;
+}
+
+.chat-warnings ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-2);
+}
+
+.chat-input-area {
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
+  border-top: 1px solid var(--line);
+  padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  background: var(--surface);
+}
+
+.chat-input-area .ant-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* 空对话：桌面居中但限制最大高度，入口按钮直接写任务 */
+.chat-empty {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 720px;
+  max-height: 420px;
+  margin: auto;
+}
+
+.chat-empty .chat-suggest {
+  margin-top: 0;
+}
+
+.chat-suggest .suggest-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  max-width: 100%;
+  text-align: left;
+  line-height: 1.5;
+  overflow-wrap: break-word;
+}
+
+.chat-stage .chat-stage-stop-hint {
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
+.selected-chip .selected-chip-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: var(--r-full);
+}
+
+.selected-chip .selected-chip-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+/* 提醒抽屉 */
+
+.notify-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.reminder-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.reminder-item {
+  display: flex;
+  gap: 10px;
+  padding: 12px;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.reminder-item.overdue {
+  border-color: rgba(220, 38, 38, 0.4);
+}
+
+.ri-icon {
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.ri-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.ri-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.ri-detail {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.ri-time {
+  margin-top: 3px;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
+.ri-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* ============================================================
+   Diff 弹窗
+   ============================================================ */
+
+.diff-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  margin-bottom: 6px;
+  font-size: 13.5px;
+}
+
+.diff-row.remove {
+  background: rgba(255, 59, 48, 0.08);
+}
+
+.diff-row.add {
+  background: rgba(52, 199, 89, 0.09);
+}
+
+.diff-row .dr-icon {
+  width: 21px;
+  height: 21px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.diff-row.remove .dr-icon {
+  background: var(--red);
+}
+
+.diff-row.add .dr-icon {
+  background: var(--green);
+}
+
+.diff-row .dr-title {
+  font-weight: 600;
+}
+
+.diff-row .dr-extra {
+  margin-left: auto;
+  color: var(--ink-3);
+  font-size: 12px;
+  flex-shrink: 0;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.diff-budget-box {
+  margin-top: 14px;
+  padding: 13px 16px;
+  border-radius: var(--radius-md);
+  background: rgba(0, 122, 255, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.diff-budget-box .db-label {
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.diff-budget-box .db-value {
+  font-size: 21px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============================================================
+   旅行足迹 3D 地图（FootprintMap / 足迹页）
+   ============================================================ */
+
+/* ---------- 地图画布 ---------- */
+
+.fp-map {
+  /* maplibre 会给容器加上 .maplibregl-map{position:relative}，其样式在懒加载后才注入且优先级不低于本文件，
+     所以这里不能依赖 absolute + inset 撑开尺寸，必须显式给高度，否则容器塌成 0 高、地图不渲染。 */
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.fp-globe-hint {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 2;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  color: var(--ink-2);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  pointer-events: none;
+}
+
+/* ---------- 悬浮控制条 ---------- */
+
+.fp-controls {
+  position: absolute;
+  right: 12px;
+  bottom: 34px;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+/* ---------- 足迹标记 ---------- */
+
+.fp-marker {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.fp-marker .fp-dot {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--mc, var(--primary));
+  box-shadow:
+    0 4px 14px rgba(31, 41, 92, 0.3),
+    0 0 0 3px rgba(255, 255, 255, 0.86);
+  transition: transform 0.2s ease;
+}
+
+.fp-marker .fp-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid var(--mc, var(--primary));
+  opacity: 0.5;
+  animation: fp-pulse 2.6s ease-out infinite;
+}
+
+.fp-marker .fp-label {
+  position: absolute;
+  top: 34px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 12px rgba(31, 41, 92, 0.14);
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
+}
+
+.fp-canvas.labels-off .fp-marker .fp-label {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-4px);
+  pointer-events: none;
+}
+
+.fp-canvas.labels-off .fp-marker:hover .fp-label,
+.fp-canvas.labels-off .fp-marker:focus-visible .fp-label {
+  opacity: 1;
+  transform: translateX(-50%);
+}
+
+.fp-marker:hover .fp-dot,
+.fp-marker:focus-visible .fp-dot {
+  transform: scale(1.16);
+}
+
+@keyframes fp-pulse {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.55;
+  }
+  70% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+
+/* ---------- 足迹气泡 ---------- */
+
+.fp-popup .maplibregl-popup-content {
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 16px;
+}
+
+.fp-popup .maplibregl-popup-tip {
+  border-top-color: rgba(255, 255, 255, 0.94);
+}
+
+.fp-popup-card {
+  min-width: 200px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--mc, var(--primary));
+  box-shadow: 0 16px 40px rgba(31, 41, 92, 0.2);
+}
+
+.fp-popup-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13.5px;
+}
+
+.fp-popup-status {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--primary);
+  background: rgba(0, 122, 255, 0.1);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.fp-popup-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 7px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.fp-popup-hint {
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: var(--blue);
+  font-weight: 600;
+}
+
+/* 空对话的可点击示例：收成可换行的按钮组，不再是一段读得完但点不了的文字 */
+
+.chat-suggest {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 14px 10px 51px;
+}
+
+.chat-suggest .suggest-chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ============================================================
+   V2.2：Agent 过程可视化 / 内容指纹 / 执行同步结果 / 运行记录
+   全部走主题令牌（var(--surface)/--text/--ok/--danger…），暗色自动跟随
+   ============================================================ */
+
+/* ---------- PlanDiff：问题清单（warnings）与内容指纹 ---------- */
+
+.plan-warnings {
+  margin: 0 0 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.plan-warning-row {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  padding: 5px 10px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  border-radius: var(--r-sm);
+  background: var(--warn-weak);
+  color: var(--warn);
+  overflow-wrap: anywhere;
+}
+
+.plan-warning-row .pw-icon {
+  flex-shrink: 0;
+}
+
+/* ---------- PlanDiff：审核结论（Batch 13）：HIGH 红 / MEDIUM 橙 + 重规划动作 ---------- */
+
+.plan-review {
+  margin: 0 0 12px;
+}
+
+.plan-review-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 12.5px;
+}
+
+.plan-review-head .pr-badge {
+  font-size: 11px;
+  padding: 1.5px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+
+.plan-review-head .pr-badge.blocked {
+  background: var(--danger-weak);
+  border-color: rgba(255, 59, 48, 0.24);
+  color: var(--danger);
+}
+
+.plan-review-head .pr-badge.warn {
+  background: var(--warn-weak);
+  border-color: rgba(217, 119, 6, 0.24);
+  color: var(--warn);
+}
+
+.plan-review-head .pr-badge.passed {
+  background: var(--ok-weak);
+  border-color: rgba(52, 199, 89, 0.28);
+  color: #1e9e47;
+}
+
+.plan-review-issues {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* 严重级配色：HIGH 红、MEDIUM 橙；行布局沿用 .plan-warning-row */
+
+.plan-warning-row.high {
+  background: var(--danger-weak);
+  color: var(--danger);
+}
+
+.plan-warning-row.medium {
+  background: var(--warn-weak);
+  color: var(--warn);
+}
+
+.plan-review-repairs {
+  margin-top: 6px;
+  padding: 5px 10px;
+  font-size: 12px;
+  line-height: 1.55;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+
+/* 未解决高风险：勾选「我已了解风险」后才能提交 */
+
+.plan-ack {
+  margin-top: 12px;
+}
+
+.plan-fingerprint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 5px 10px;
+  font-size: 12px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.plan-fingerprint .pf-label {
+  color: var(--text-3);
+}
+
+.plan-fingerprint .pf-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--text-2);
+  letter-spacing: 0.4px;
+}
+
+.plan-fingerprint .pf-hint {
+  color: var(--text-3);
+  margin-left: auto;
+}
+
+/* ---------- AgentActivityPanel：过程时间线（ChatPanel 消息区内，吸顶） ---------- */
+
+/* 有过程时间线时去掉消息区顶部内边距，让吸顶状态条贴住容器上沿；
+   没有时间线时保持原来的 16px 首条间距（:has 不支持的老浏览器只是回退成 16px 缩进）。 */
+
+.chat-messages:has(> .agent-activity) {
+  padding-top: 0;
+}
+
+.agent-activity {
+  /* 面板是 .chat-messages 的第一个子节点：吸顶保持运行中始终可见，
+     否则消息区自动滚到底部会把时间线顶出视口；z-index 保证盖住随后的消息气泡。 */
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  flex-shrink: 0;
+  /* 抵消 .chat-messages 的 16px 内边距：整幅状态条，与下方 .exec-panel 左右对齐 */
+  margin: 0 -16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-2);
+  min-width: 0;
+}
+
+.agent-activity .aa-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  min-width: 0;
+}
+
+.agent-activity .aa-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.agent-activity .aa-count {
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+.agent-activity .aa-list {
+  max-height: 168px;
+  overflow-y: auto;
+  padding: 2px 14px 8px 30px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.agent-activity .aa-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-2);
+  min-width: 0;
+  position: relative;
+}
+
+.agent-activity .aa-row::before {
+  content: '';
+  position: absolute;
+  left: -12px;
+  top: 7px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--border-strong);
+}
+
+.agent-activity .aa-row.error {
+  color: var(--danger);
+}
+
+.agent-activity .aa-icon {
+  flex-shrink: 0;
+  font-size: 11px;
+}
+
+.agent-activity .aa-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.agent-activity .aa-time {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 390px 窄屏：新面板不撑出横向滚动 ---------- */
+
+@media (max-width: 720px) {
+  .agent-activity .aa-list {
+    padding-left: 22px;
+  }
+}
+
+@media (max-width: 720px) {
+  .plan-fingerprint .pf-hint {
+    margin-left: 0;
+  }
+}
+
+/* ============================================================
+   末段收口：必须在文件最后，才能盖住上面同名的历史规则
+   （同优先级下 CSS 取"后出现"的那条）
+   ============================================================ */
+
+/* 对话滚动容器原本是 35% 白：浅色下是灰底，深色下会变成一块突兀的浅灰 */
+
+.chat-messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: transparent;
+}
+
+/* ============================================================
+   地图底衬：中性平面
+   ------------------------------------------------------------
+   P1-G：去掉纸色底、颗粒叠加和 inset 暗角。地图只做内容背景，
+   不再用装饰性材质抢行程信息的注意力。
+   ============================================================ */
+.hg-map,
+.fp-main,
+.fp-canvas {
+  background: var(--surface-2);
+}
+
+.fp-canvas {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 260px;
+  border-radius: inherit;
+  overflow: hidden;
+}
+
+[data-theme='dark'] .hg-map,
+[data-theme='dark'] .fp-main,
+[data-theme='dark'] .fp-canvas {
+  background: var(--bg);
+}
+
+/* ============================================================
+   复杂 UI 组件与交互效果
+   ------------------------------------------------------------
+   遵循现有设计令牌：var(--surface) / var(--border) / var(--accent) 等
+   ============================================================ */
+
+/* ---------- 骨架屏 Skeleton ---------- */
+
+.sk-bone {
+  background: linear-gradient(
+    90deg,
+    var(--surface-3) 0%,
+    var(--surface-2) 50%,
+    var(--surface-3) 100%
+  );
+  background-size: 200% 100%;
+  animation: sk-shimmer 1.4s ease-in-out infinite;
+  border-radius: var(--r-sm);
+  display: inline-block;
+}
+
+@keyframes sk-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+[data-theme='dark'] .sk-bone {
+  background: linear-gradient(
+    90deg,
+    var(--surface-3) 0%,
+    var(--surface-2) 50%,
+    var(--surface-3) 100%
+  );
+  background-size: 200% 100%;
+}
+
+.sk-shrink {
+  flex-shrink: 0;
+}
+
+.sk-stat-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--sp-3);
+}
+
+.sk-chat-row {
+  display: flex;
+  gap: 9px;
+  align-items: flex-end;
+  margin-bottom: 12px;
+}
+
+.sk-chat-row.right {
+  flex-direction: row-reverse;
+}
+
+.sk-chat-bone {
+  max-width: 70%;
+  padding: 10px 14px;
+  border-radius: 18px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+@media (max-width: 900px) {
+  .sk-stat-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* ---------- 滑动操作 SwipeRow ---------- */
+
+.swipe-row {
+  position: relative;
+  overflow: hidden;
+  user-select: none;
+  touch-action: pan-y;
+}
+
+.swipe-content {
+  position: relative;
+  z-index: 2;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  will-change: transform;
+}
+
+.swipe-actions {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: stretch;
+  z-index: 1;
+}
+
+.swipe-actions.left {
+  left: 0;
+}
+
+.swipe-actions.right {
+  right: 0;
+  flex-direction: row-reverse;
+}
+
+.swipe-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 72px;
+  padding: 0 16px;
+  border: none;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: filter 0.15s ease;
+}
+
+.swipe-action-btn:hover {
+  filter: brightness(1.1);
+}
+
+.swipe-action-btn:active {
+  filter: brightness(0.95);
+}
+
+.memo-check {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-strong);
+  background: transparent;
+  color: #fff;
+  font-size: 12px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+
+.memo-check:hover {
+  border-color: var(--ok);
+}
+
+.memo-check.checked {
+  background: var(--ok);
+  border-color: var(--ok);
+}
+
+/* toggle 请求在途时禁用（防双击取反抵消） */
+
+.memo-check:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.memo-content {
+  flex: 1;
+  min-width: 0;
+  font-size: 13.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.memo-time {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+/* ---------- Toast 通知 ---------- */
+
+.toast-container {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+  max-width: calc(100vw - 32px);
+}
+
+@keyframes toast-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(-20px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes toast-slide-out {
+  to {
+    opacity: 0;
+    transform: translateY(-16px) scale(0.97);
+  }
+}
+
+.toast-icon {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 800;
+  color: #fff;
+  margin-top: 1px;
+}
+
+.toast-success .toast-icon {
+  background: var(--ok);
+}
+
+.toast-warning .toast-icon {
+  background: var(--warn);
+}
+
+.toast-error .toast-icon {
+  background: var(--danger);
+}
+
+.toast-info .toast-icon {
+  background: var(--accent);
+}
+
+.toast-ai .toast-icon {
+  background: linear-gradient(135deg, var(--purple), var(--indigo));
+}
+
+.toast-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.toast-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+
+.toast-content {
+  font-size: 13px;
+  color: var(--text-2);
+  line-height: 1.55;
+}
+
+.toast-close {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: var(--r-sm);
+  transition:
+    color 0.15s ease,
+    background 0.15s ease;
+}
+
+.toast-close:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.toast-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2.5px;
+  background: transparent;
+}
+
+.toast-progress-bar {
+  height: 100%;
+  background: currentColor;
+  opacity: 0.3;
+  animation: toast-progress linear forwards;
+}
+
+@keyframes toast-progress {
+  from {
+    width: 100%;
+  }
+  to {
+    width: 0%;
+  }
+}
+
+.toast-success .toast-progress-bar {
+  color: var(--ok);
+}
+
+.toast-warning .toast-progress-bar {
+  color: var(--warn);
+}
+
+.toast-error .toast-progress-bar {
+  color: var(--danger);
+}
+
+.toast-info .toast-progress-bar {
+  color: var(--accent);
+}
+
+.toast-ai .toast-progress-bar {
+  color: var(--purple);
+}
+
+@media (max-width: 720px) {
+  .toast-container {
+    top: 12px;
+    left: 12px;
+    right: 12px;
+    transform: none;
+    max-width: none;
+  }
+}
+
+.citation-list {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+}
+
+.citation-list.compact {
+  margin: 6px 0 0;
+  padding: 6px 8px;
+  border-style: dashed;
+  background: var(--surface);
+}
+
+.citation-head {
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--ink-2);
+}
+
+.citation-count {
+  margin-left: 6px;
+  font-weight: 400;
+  color: var(--ink-3);
+}
+
+.citation-row {
+  padding: 6px 0;
+}
+
+.citation-row + .citation-row {
+  border-top: 1px dashed var(--border);
+}
+
+.citation-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.citation-title .ct-title {
+  overflow-wrap: anywhere;
+}
+
+.citation-tag {
+  margin-inline-end: 0;
+  font-size: 10.5px;
+  line-height: 16px;
+}
+
+.citation-score {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.citation-snippet {
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.citation-list.compact .citation-snippet {
+  font-size: 11.5px;
+}
+
+.citation-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+.aa-citation-wrap {
+  padding: 0 0 4px 22px;
+}
+
+/* 足迹地图引擎失败：紧凑错误态，不把技术错误原文暴露给用户 */
+.fp-engine-error {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 20px;
+  text-align: center;
+  background: var(--surface);
+  color: var(--text-2);
+}
+
+.fp-engine-error b {
+  font-size: 14px;
+  color: var(--text);
+}
+
+.fp-engine-hint {
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+/* 移动端输入区：只隐藏诊断类低频入口（运行记录），保留「最近会话 / 新对话」——
+   后者是用户功能，不能为了腾空间直接消失；输入框用 flex 自适应剩余宽度。 */
+@media (max-width: 720px) {
+  .chat-input-area .chat-tool-btn--runs {
+    display: none;
+  }
+
+  .chat-input-area {
+    gap: 6px;
+  }
+}

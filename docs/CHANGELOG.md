@@ -2,6 +2,228 @@
 
 按主题记录行为变化。**第四节是最需要注意的**：其中几项改变了原有的使用习惯。
 
+## 账号级数据导出（数据可携带）（2026-11-23）
+
+### 一、行为变化
+
+- 新增 `GET /api/auth/me/export`：返回本人全部可见数据的 JSON 快照（账号资料、行程与行程项、
+  记账、备忘、日程、会话与消息、本人上传的知识库文档、照片清单）。只读——不写库、不改会话、
+  不清理照片，可重复调用。
+- **照片不导出二进制**：只给 `/api/photos/{id}/raw` 访问地址（仍需本人凭证），导出体积与照片
+  数量无关，可整段放进内存。
+- 个人中心新增「导出我的数据」：浏览器侧生成并下载 `travel-agent-<username>-<date>.json`；
+  失败（含 `429` 限流）只提示、不清登录态。
+- **不导出**内部执行追踪（`agent_run` / `agent_task` / `tool_call_trace` 只存执行状态与参数摘要，
+  对话正文已在 `conversations` 里）；`rag_document.user_id` 为空的城市公共知识同样不导出。
+
+### 二、接口与配置
+
+- 新接口 `GET /api/auth/me/export`（登录态）：身份只取自认证上下文，不接受用户 id 入参，
+  因此不存在「传别人 id 导出别人数据」的路径。
+- 新增独立限流桶 `travel.rate-limit.export-limit` / 环境变量 `RATE_LIMIT_EXPORT`
+  （默认 3 次 / 窗口，窗口默认 300s）：一次导出要读完该用户全部归属数据，且不能落进按 IP 计的
+  登录桶（那里默认只有 10，多标签页会互相踢成 429）。`docker-compose.yml` 与
+  `.env.production.example` 已透传。
+- 无数据库迁移；`docs/api/openapi.json` 与前端生成类型同步更新，接口总数 **66 → 67**。
+- 首屏 JS 597,035 + `registerSW.js` 134 = **597,169 B**（余量 2,831 B），仍在 600,000 B 预算内。
+
+### 三、测试与门禁
+
+- 新增 `AccountExportApiTest`：未登录 `401`、本人数据齐全且字段名稳定、他人数据不可见、
+  响应不含密码哈希、重复导出不写库。
+- 后端 `mvn verify`：**639 tests，0 failures，0 errors，3 skipped**；前端 **53 文件 / 537 tests**；
+  `api:check`、`docs-check`、包体预算全部通过。
+
+## 天气「不可降级地真实」+ 前端收口 + 默认口径（2026-11-23）
+
+### 一、行为变化
+
+- **天气不再有模拟兜底**：产品路径只走 Open-Meteo 真实预报。拿不到真实天气时，
+  **依赖天气的行程修改会被明确拒绝**（`status=FAILED`，业务码 503，文案含城市/日期/原因，
+  不生成待确认方案、不出 Diff）；普通规划照常出方案，但审核只写「未获取真实天气（原因），本次未做雨天/户外校验」，
+  回复不再出现「因为下雨」这类没有事实依据的句子。
+- **删除「提到雨就模拟降雨」开关**（`mentionRain`）：它曾让演示永远能演「下雨换室内」，
+  也让审核可能拿假数据做判断。模拟天气只保留在 `WEATHER_SIMULATION=true`（仅测试/离线演示），
+  且 `/api/system/status` 会自报 `weatherProvider=simulated`。
+- **`WEATHER_REAL` 环境变量被 `WEATHER_SIMULATION` 取代**（默认 `false`）。语义反转：
+  不再是「要不要真实天气」，而是「只给测试开模拟」。生产保持 `false`。
+- **下线 `/ui-demo` 组件厨房**，删除仅它使用的 `DraggableList` / `Collapse` 及其孤儿样式。
+  自研基础组件改由单测 + 页面 e2e 覆盖；`/ui-demo` 路由随之删除，路由 **21 → 20 条**（其余 20 条全部保留）。
+- **样式按职责收敛**：`global.css` 从「一个大文件」拆成固定 `@import` 顺序的
+  `tokens / shell / buttons / cards / status / shared / components / animations` + 页面私有 CSS。
+  页面私有大段（足迹、时间轴、地图控制条、首页列表等）迁回各自 `pages/<Page>/<page>.css`；
+  删掉死规则与和 `tokens.css` 重复的 antd 覆盖。首屏源 CSS（`global.css` 直接 import 的文件合计）
+  **104,669 → 85,019 B（−18.8%）**；构建产物首屏 CSS **57,156 B**（gzip9 11,671 B），
+  已由 `check-bundle-budget.mjs` 以 **≤ 65,536 B** 的预算守住，防止页面私有规则回流首屏。
+- **规划页 / 行程页拆分**：`pages/Planner/index.tsx` 935 → 359 行、`pages/Trip/index.tsx` 669 → 421 行；
+  步骤视图、工作区、页脚、抽屉、撤销条拆到各自 `components/` 子目录。行为与 DOM 契约不变
+  （测试零改动，视觉基线 11/11 像素一致）。
+
+### 二、接口与配置
+
+- `GET /api/system/status` 新增 `weatherProvider`（`open-meteo|simulated|unavailable`）、
+  `weatherLastError`、`weatherHint`；`llmModel` 示例默认值同步为 `deepseek-flash`。
+- 新增指标 `external.degraded{provider="weather",reason=...}`；「超出 16 天窗口」「城市无法定位」
+  属输入边界，不计降级指标。
+- 新环境变量：`WEATHER_SIMULATION`、`WEATHER_FAILURE_CACHE_SECONDS`（默认 60）、
+  `WEATHER_GEOCODE_BASE_URL`、`WEATHER_FORECAST_BASE_URL`（后两者供测试指向 WireMock）。
+- `WeatherService.forecast(city, date)` 返回 `WeatherLookup`（可用 / 不可用 + 原因），不再返回猜出来的天气。
+- 无数据库迁移。
+
+### 三、文档
+
+- 新增 [能力边界与默认口径](guide/capability-boundaries.md)：明确「默认 = 规则规划器 + 目录 + 估算」，
+  模型 / 语义 Embedding / 真实 POI·路线均为可选增强，并列出「CI 已门禁」与「仅手工验收」的边界。
+- README 重写「核心能力」为「默认具备 / 显式开启的增强」，演示闭环标注「本地 H2，非生产数据」，
+  天气步骤写明失败会拒绝；`docs/guide/{deployment,external-dependencies,api-reference,frontend,getting-started}.md`、
+  `docs/DEVELOPMENT.md`、法务文档与 `.env.production.example` / `docker-compose.yml` 同步新口径。
+- getting-started 增加 `/api/system/status` 自查片段（用演示账号取 cookie），让新人能直接分辨
+  `open-meteo` / `unavailable` / `simulated` 三种天气口径。
+- [CI 门禁](guide/ci.md) 新增 §1.3「CI 自动门禁 vs 人工验收」：逐项说明哪些能力 CI **不能**证明
+  （真实天气外呼、真实 LLM/高德 Key、Android 真机、Linux 视觉基线），并规定「CI 绿 ≠ 能力可用」。
+- 修正法务口径：`privacy-policy` 不再写天气「未配置走模拟」；`operations/alerts.yml` 的降级告警说明
+  改为「路线/POI 回落估算、天气不可用则依赖天气的修改被 503 拒绝」，与代码一致。
+- 历史快照保留原文、只加「口径变更说明」：`design/v2.2-gap-analysis-backend.md`、
+  `review/2026-11-19-provider-rag-decision.md`、`proposals/TREK-BENCHMARK.md` 中的 `WEATHER_REAL` 表述均加注日期与现口径链接。
+- `frontend-performance.md` 的包体预算表补充**首屏 CSS**一项，并刷新首屏 JS / precache 实测值到当前构建。
+
+### 四、为什么
+
+「看起来像高德、其实是直线距离」「提到下雨就一定能演」这类不诚实，比少一个枚举更伤用户信任。
+本次只选**天气**一个数据源做到「失败就明确说排不了」，其余数据源继续如实标注来源（`estimated` / `reference-estimate`），
+不假装成实时库存或实时路况。发布级别仍是「内部演示」；灰度/公网门槛见 [P0 执行快照](review/2026-11-22-p0-execution.md) §5。
+
+---
+
+## 会话并发控制 + 会话重命名/删除（V23，2026-11-22）
+
+### 一、行为变化
+
+- **并发对话不再互相穿插**：一轮问答（用户消息 + 它的助手回复）现在共用一个轮次序号
+  （`conversation_message.turn_seq`）。两台设备同时聊同一个 `conversationId` 时，后到的那一轮
+  顺延到下一个序号，各自的问答始终相邻。此前消息只有 id 顺序，并发时读回来是
+  「A 问、B 问、A 答、B 答」——下一轮做指代消解时「上一句」指向了另一台设备的半句，
+  不报错、不崩溃，是悄悄写坏上下文。
+- **「最近会话」抽屉可以改名和删除**：改名只改展示标题，不动消息、不影响续聊；
+  标题清空 = 恢复自动标题（回到「首条用户消息」的推导标题）。删除会把消息与标题一起删，
+  不可恢复；删掉的若是当前正在聊的那段，客户端自动开一段新会话，不会继续往已删除的历史里追加。
+  此前想清理一段跑偏的对话，只能等 7 天保留期到期。
+
+### 二、数据与迁移
+
+- **V23**：`conversation_message` 加 `turn_seq`（可空）+ 唯一键 `uk_conv_turn_role`
+  `(user_id, conversation_id, turn_seq, role)`；新建 `conversation_meta`（会话标题覆盖）
+  + 唯一键 `uk_conv_meta_user_conv`。
+- **存量数据不需要回填**：历史行 `turn_seq` 为 NULL，H2 与 MySQL 的唯一索引都允许多个 NULL；
+  读取口径是 `COALESCE(turn_seq, 0), created_at, id`，存量行自然排在所有新轮次之前。
+- 实体补了同名 `@UniqueConstraint`（与 V22 同理）：测试 profile 用 `ddl-auto=create-drop`
+  且关闭 Flyway，没有它测试库就没有这条约束，并发用例会「测了个寂寞」。
+- 唯一键用 `CREATE UNIQUE INDEX` 单独建而不是内联 `UNIQUE KEY`：H2 会把内联约束改名成
+  `UK_..._INDEX_2`，索引名对不上就无法用「名字存在」证明约束真的建出来了。
+
+### 三、为什么是「重试」而不是「锁」
+
+序号没有独立的计数器行，分配方式是 compare-and-set：读当前最大值 +1 后直接插入，
+撞唯一键就换号重试（抖动 1–4ms，上限 20 次）。并发 N 台设备同时开口时，第一轮会有 N-1 个请求
+撞键，之后逐轮收敛，最坏 O(N) 次，20 次覆盖「一个账号在多端同时刷」的现实规模。
+插入走独立事务（`ConversationTurnWriter`，与 V22 的 `PlanScheduleSyncWriter` 同一范式）：
+撞键后若在同一事务里 catch 继续写，提交时必然变成 `UnexpectedRollbackException`。
+超过上限时退化为「不带序号的单条写入」——**宁可少一个分组标记，也不丢用户的消息**。
+
+### 四、没有做「409 冲突拒绝」，以及为什么
+
+两台设备并发写同一个会话时，正确做法是「都接受，各自成组」，而不是让后到的一方失败：
+SSE 重连会用同一个 `requestId` 重放上一条消息，如果按「客户端序号过期」拒绝，
+重连恢复本身就会被自己判成冲突。数据正确性由唯一键 + 成组排序保证，不需要客户端配合。
+
+### 五、新增回归用例
+
+- 后端 `ConversationTurnConcurrencyTest`（3）：6 个线程并发开轮后序号互不相同、
+  读回来永远是「问、答、问、答」且每条回复紧跟它自己的提问、同轮重复收尾只留一条助手回复。
+- 后端 `ConversationManageApiTest`（6）：改名压过推导标题、空标题恢复自动标题、
+  删除后列表与回填都拿不到、重复删除仍成功、重建同名会话不粘旧标题、跨用户改不动也删不掉。
+- 后端 `ConversationConfigTest` / `ConversationMemoryTest` 同步补上新协作对象（元数据仓库、
+  轮次写入器），`@DataJpaTest` 切片显式导入 —— 否则上下文直接死在装配上。
+- 前端 `ConversationDrawer` 新增 6 例（内联改名、提交空标题、取消、删除非当前/当前会话、
+  删除失败），`api/conversationManage.test.ts` 4 例覆盖请求形状与 URL 编码。
+
+## 登出串号 / SSE 错误语义 / 同步日程幂等（2026-11-22）
+
+### 一、行为变化
+
+- **登出会清空上一个用户的界面状态**：同一标签页退出后换账号登录，不再看到上一个人的
+  聊天记录、待确认方案、行程列表与标题、跨页选中上下文；规划草稿（`travel:planner-draft:v1`）
+  与离线待同步队列（`travel:status-queue:v1`）也会被清掉，不再提示「恢复上次未完成规划」。
+  清理入口集中在 `store/sessionCleanup.ts`，登出与 401 强制登出都走它。
+- **SSE 业务错误不再被显示成「连接已中断」**：服务端 `event: error` 的帧会被浏览器同时派发给
+  `onerror`；现在带 data 的 error 帧只当过程警告，随后的 `complete` 仍会到达（结果卡不再丢）。
+- **同步日程的幂等从「先查后插」变成数据库兜底**：`schedule_item.source_key` 补上了唯一索引
+  （V22），插入改到独立事务（`PlanScheduleSyncWriter`），并发重试/多实例不再写出重复的
+  「🧳 行程 · Day N」时间块；撞键也不会再把整个同步事务标成 rollback-only。
+
+### 二、数据与迁移
+
+- **V22 会先清理历史重复**：同一 `source_key` 只保留 id 最小的一条（这些是同步产物，
+  `source='PLAN_SYNC'`）；手工日程 `source_key` 为 NULL，唯一索引允许多个 NULL，不受影响。
+  升级后无需手工 repair，`ddl-auto=validate` 不校验索引，启动不会因索引名不同失败。
+- 实体补了同名 `@UniqueConstraint`：测试 profile 用 `ddl-auto=create-drop` 且关闭 Flyway，
+  没有它测试库就没有这条唯一约束，幂等用例会「测了个寂寞」。
+
+### 三、新增回归用例
+
+- 后端 `PlanScheduleIdempotencyTest`（3）：重复 `source_key` 只落一条、NULL 键可多条并存、
+  撞键不污染外层事务。
+- 后端 `H2FlywayMigrationTest`（1）：默认 profile 的 V1–V22 在全新 H2 库上真实跑完，
+  并断言 `uk_schedule_source_key` 存在（补上「默认 profile 迁移链」此前没有自动覆盖的空白）。
+- 前端 `sessionCleanup.test.ts`（3）+ `authStore` 1 例 + `agent.test.ts` 1 例（SSE 回归）。
+
+## 安全升级：Spring Boot 3.5.7 → 3.5.12（2026-11-22）
+
+> 由首次跑到真 runner 的 Trivy 扫描暴露，不是本轮功能改动引入的问题。
+
+- **两个 HIGH 认证绕过**：
+  - `CVE-2026-22731`：Actuator Health Group `additional path` 误配置导致的认证绕过；
+  - `CVE-2026-22733`：Actuator CloudFoundry 端点下的认证绕过。
+  两者均在 **3.5.12 / 4.0.4** 修复；本项目 3.5.7 命中。
+- 影响面：项目确实对外暴露 `/actuator/health`（Docker `HEALTHCHECK` 用它），
+  所以这不是「没用到就不用修」的类型。
+- 处置：`spring-boot-starter-parent` 升到 **3.5.12**（同一 3.5.x 线上补丁版本，无代码改动）。
+  本地 `mvn -B verify` **551 用例 0 失败 0 错误**，Checkstyle 0 / SpotBugs 0 保持。
+  `docs/guide` 等「当前事实」文档里的版本号同步更新；**历史快照一律保持原文不改**。
+- 门禁口径：CI 的 Trivy 是 `severity: CRITICAL,HIGH` + `exit-code: 1`，
+  **不要为了先跑绿把阈值调低或加 `ignore-unfixed` 之外的豁免**。
+  若将来出现「无修复版本」的条目，按 `docs/guide/ci.md` 第 6 节的豁免流程记录风险与到期时间。
+
+## 行程跨度上限一年（2026-11-22）
+
+### 一、行为变化
+
+- **跨度超过一年的行程会被拒绝**：`endDate` 晚于 `startDate + 1 年`（按日历算，含当天）时，
+  手工新建、改期、Agent 确认（`createFromAgent`）三条写入路径统一返回 400
+  `行程跨度不能超过 1 年（当前 N 天）`。口径常量是 `TripService.MAX_TRIP_YEARS`。
+  改期只带一个日期时，跨度按「库里已有日期 + 本次提交」合并后判定；只改名/预算、不动日期的
+  请求不重新校验，避免把规则上线前的历史超长行程卡死（但一改日期就按新口径拦）。
+- **行程项的落点不再能超出跨度**：条目表只存 `dayIndex`，绝对时间由
+  `startDate + dayIndex - 1` 派生；新增/修改条目现在校验 `1 <= dayIndex <= 行程天数`，
+  越界返回 400。此前可以写入落在行程日期之外的安排，路书、日程同步与天气会按它算出行程外的日期。
+
+### 二、为什么按年、按日历算
+
+- 「上限一年」是产品口径，直接比较 `endDate` 与 `startDate.plusYears(1)`：闰年会自动多一天，
+  用 365/366 的固定天数口径会让跨闰年的整年行程莫名被拒一天。
+- 上限挡的是多年行程带来的规划条目、日程同步与路书渲染规模失控，不是技术限制；
+  改这个常量等于改口径，需同步本条记录。
+- 校验点放在 `TripService` / `ItineraryService` 而不是 DTO `@Valid`：新建会补默认日期、
+  改期允许只带一个日期、Agent 路径根本不经过 DTO，只有服务层能看到合并后的最终跨度；
+  条目日期是派生的，只能在写入时按 `dayIndex` 校验。
+
+### 三、回归用例
+
+- 后端 `TripSpanLimitTest`（5）：一年整/再晚一天边界、改期越界被拒且原日期不变、
+  `dayIndex` 0/越界被拒且边界内可增可改、Agent 草稿路径同口径（超一天拒绝、一年整落库）、
+  历史超长行程只改名放行 / 一改日期即拦。
+  边界天数按起始日动态算（跨闰年时一年是 366/367 天），不写死 365。
+
 ## 真实模型验收 + 首次远端 CI 跑通（2026-11-22）
 
 ### 一、行为变化

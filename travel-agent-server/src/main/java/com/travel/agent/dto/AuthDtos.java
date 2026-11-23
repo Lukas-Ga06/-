@@ -33,6 +33,20 @@ public class AuthDtos {
         private String nickname;
     }
 
+    /**
+     * 注销账号的确认凭据。
+     *
+     * <p>请求体整体可选，但一旦提供，{@code password} 必须非空白——只凭 httpOnly Cookie
+     * 不能删除账号（浏览器被借用、CSRF 之外的误触都要再确认一次）。密码错误与账号不存在
+     * 统一按 401 处理，不向调用方泄露账号是否存在。
+     */
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class DeleteAccountRequest {
+        private String password;
+    }
+
     @Data
     @Builder
     @NoArgsConstructor

@@ -1,6 +1,6 @@
 # OpenAPI 契约与前端类型
 
-> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.7 / Node 20） | 最后验证：2026-11-19 | 事实来源：`travel-agent-server/src/main/java/com/travel/agent/config/OpenApiConfig.java`、`travel-agent-server/src/test/java/com/travel/agent/contract/OpenApiSnapshotTest.java`、`docs/api/openapi.json`、`travel-agent-web/src/api/generated/schema.d.ts`、`travel-agent-web/scripts/check-openapi-types.mjs`、`travel-agent-web/src/types/api-contract.ts`
+> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.12 / Node 20） | 最后验证：2026-11-19 | 事实来源：`travel-agent-server/src/main/java/com/travel/agent/config/OpenApiConfig.java`、`travel-agent-server/src/test/java/com/travel/agent/contract/OpenApiSnapshotTest.java`、`docs/api/openapi.json`、`travel-agent-web/src/api/generated/schema.d.ts`、`travel-agent-web/scripts/check-openapi-types.mjs`、`travel-agent-web/src/types/api-contract.ts`
 
 本文只讲**机器契约的生成、校验与破坏性变更流程**。每个接口的业务语义、错误码、字段口径仍以
 [api-reference.md](api-reference.md) 为准；两者关系见第 7 节。

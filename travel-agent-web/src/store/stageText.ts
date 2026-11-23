@@ -34,7 +34,7 @@ const STAGE_TEXT: Record<string, (data: any) => string> = {
       ? '联网查询目的地的景点/酒店/餐厅数据…'
       : `调用工具 ${d?.tool ?? ''}…`,
   tool_result: (d) => `工具 ${d?.tool ?? ''} 执行完成`,
-  rag_result: () => '检索旅游知识库…',
+  rag_result: () => '检索攻略…',
   plan_update: () => '生成方案对比…',
   // Batch 13：审核未通过进入重规划，data = { attempt, issues[] }
   replan: (d) => {

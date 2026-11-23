@@ -113,7 +113,8 @@ npx vitest run src/store/agentStore   # 或 `npx vitest` 交互式 watch
 
 ## 6. 视觉回归（截图基线）
 
-`global.css` 拆成页面级文件后，「只是搬家」不能靠肉眼确认。仓库因此有一份**独立的截图基线**套件：
+`global.css` 已按职责拆成固定顺序的多个样式文件（`tokens / shell / buttons / cards / status / shared / components / animations`
++ 页面级 CSS，见 [前端结构](frontend.md) §2.1）。「只是搬家」不能靠肉眼确认。仓库因此有一份**独立的截图基线**套件：
 
 - 配置：`playwright.visual.config.ts`（与 `playwright.config.ts` 解耦；后者用 `testIgnore` 排除 `e2e/visual`）；
 - 用例：`e2e/visual/pages.spec.ts` —— 登录、首页、旅行列表、行程详情（1440×900 + 390×844）、规划器、

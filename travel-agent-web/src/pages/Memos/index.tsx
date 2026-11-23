@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react';
 import { App, Button, Empty, Input } from 'antd';
-import { CheckOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
+import {
+  CheckOutlined,
+  CheckSquareOutlined,
+  DeleteOutlined,
+  PlusOutlined,
+} from '@ant-design/icons';
 import AppShell from '../../components/AppShell';
 import SwipeRow from '../../components/SwipeRow';
 import Skeleton from '../../components/Skeleton';
@@ -179,7 +184,9 @@ export default function Memos() {
       <div className="dash-wrap">
         <div className="dash-greeting">
           <div>
-            <h1>📝 备忘</h1>
+            <h1>
+              <CheckSquareOutlined aria-hidden="true" className="page-title-icon" /> 备忘
+            </h1>
             <div className="dg-date">
               待办 {open.length} 项 · 已完成 {done.length} 项
               {meta.paged ? ` · 共 ${meta.total} 条` : ''} · 左滑可完成或删除

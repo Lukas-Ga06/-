@@ -1,6 +1,6 @@
 # REST API 参考
 
-> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.7 / Node 20） | 最后验证：2026-11-19 | 事实来源：`travel-agent-server/src/main/java/com/travel/agent/controller/`、`dto/`、`docs/api/openapi.json`
+> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.12 / Node 20） | 最后验证：2026-11-19 | 事实来源：`travel-agent-server/src/main/java/com/travel/agent/controller/`、`dto/`、`docs/api/openapi.json`
 
 > **机器契约入口**：`GET /v3/api-docs` 是字段/类型/必填约束的事实来源，入库快照为 [`docs/api/openapi.json`](../api/openapi.json)，前端类型由它生成。快照的生成、校验与破坏性变更流程见 [api-contract.md](api-contract.md)。本文负责人读语义（业务规则、字段口径、错误码、示例）；两者冲突时，字段类型以 OpenAPI 快照为准，业务语义以本文为准。
 
@@ -8,7 +8,7 @@
 所有接口、字段、校验规则和错误码均取自 `travel-agent-server` 源码，未使用推测内容。
 
 - 源码根：`travel-agent-server/src/main/java/com/travel/agent/`
-- 接口总数：**63 个**（12 个业务 Controller 的 60 个 + 渠道包 3 个），清单见第 14、15 章
+- 接口总数：**67 个**（12 个业务 Controller 的 64 个 + 渠道包 3 个），清单见第 14、15 章
 - 已退役：`/api/office/**`、`/api/report/**`、`/api/health/**`、`/api/learning/**`（Controller 与实体已删除，调用 404）
 - 每个接口标注 `类名#方法名:行号`，可直接回源码核对
 
@@ -131,8 +131,8 @@ GET /api/photos/12/raw?ticket=...                    # 只能用 media-read 票�
 
 | code / HTTP | 触发条件 | 典型 message |
 | --- | --- | --- |
-| `400` | `@Valid` 校验失败、请求体不可解析、缺参数、`BusinessException(400)` | `<字段> <校验提示>`；`结束日期不能早于开始日期`；`未知的行程项状态: xxx` |
-| `401` | 未登录 / 登录过期（安全链）、登录失败、用户不存在 | `未登录或登录状态已过期`；`用户名或密码错误` |
+| `400` | `@Valid` 校验失败、请求体不可解析、缺参数、`BusinessException(400)` | `<字段> <校验提示>`；`结束日期不能早于开始日期`；`未知的行程项状态: xxx`；`请输入密码确认注销` |
+| `401` | 未登录 / 登录过期（安全链）、登录失败、用户不存在、密码错误 | `未登录或登录状态已过期`；`用户名或密码错误`；`密码错误` |
 | `403` | `AccessDeniedException` | `没有权限执行该操作` |
 | `404` | 资源不存在或无权访问 | `行程不存在或无权访问`；`照片不存在`；`文档不存在`；`版本不存在` |
 | `409` | 唯一约束/数据冲突、乐观锁冲突 | `数据冲突，请检查是否重复提交或文本过长` |
@@ -191,10 +191,10 @@ GET /api/photos/12/raw?ticket=...                    # 只能用 media-read 票�
 
 ---
 
-## 2. 认证与票据（5 个）
+## 2. 认证与票据（7 个）
 
 ### 2.1 POST /api/auth/register — 注册
-鉴权：免登录 ｜ 源码：`AuthController#register:27` ｜ 成功时响应头带 `Set-Cookie: travel_agent_token=...`
+鉴权：免登录 ｜ 源码：`AuthController#register:36` ｜ 成功时响应头带 `Set-Cookie: travel_agent_token=...`
 | 参数 | 必填 | 说明 |
 | --- | --- | --- |
 | `username` | 是 | 3–32 字符，全局唯一 |
@@ -209,7 +209,7 @@ GET /api/photos/12/raw?ticket=...                    # 只能用 media-read 票�
 错误：`400` 用户名/密码为空或长度不符、`用户名已存在`；`429` 限流
 
 ### 2.2 POST /api/auth/login — 登录
-鉴权：免登录 ｜ 源码：`AuthController#login:35` ｜ 成功时 `Set-Cookie`
+鉴权：免登录 ｜ 源码：`AuthController#login:44` ｜ 成功时 `Set-Cookie`
 | 参数 | 必填 | 说明 |
 | --- | --- | --- |
 | `username` | 是 | 用户名 |
@@ -223,20 +223,65 @@ GET /api/photos/12/raw?ticket=...                    # 只能用 media-read 票�
 错误：`401` `用户名或密码错误`；`429` 限流
 
 ### 2.3 GET /api/auth/me — 恢复登录态
-鉴权：登录 ｜ 源码：`AuthController#me:47` ｜ 无请求体（凭 Cookie/头恢复用户资料，`token` 为 `null`）
+鉴权：登录 ｜ 源码：`AuthController#me:56` ｜ 无请求体（凭 Cookie/头恢复用户资料，`token` 为 `null`）
 ```json
 {"code":0,"message":"success","data":{"token":null,"id":2,"username":"traveler","nickname":"小旅"}}
 ```
 错误：`401` 未登录或登录已过期
 
 ### 2.4 POST /api/auth/logout — 登出
-鉴权：免登录（幂等）｜ 源码：`AuthController#logout:58` ｜ 无参数；清空登录 Cookie
+鉴权：免登录（幂等）｜ 源码：`AuthController#logout:109` ｜ 无参数；清空登录 Cookie
 ```json
 {"code":0,"message":"success","data":null}
 ```
 错误：`500`（极少数 Cookie 写失败场景）
 
-### 2.5 POST /api/access-ticket — 签发短期只读票据
+### 2.5 DELETE /api/auth/me — 注销账号（P0-D）
+鉴权：登录 ｜ 源码：`AuthController#deleteMe:92` ｜ 请求体 `{"password":"<当前密码>"}`
+| 参数 | 必填 | 说明 |
+| --- | --- | --- |
+| `password` | 是 | 当前账号密码；缺失、`{}` 或空白 → `400` |
+```json
+// 请求
+{"password":"secret123"}
+// 成功响应（同时 Set-Cookie: travel_agent_token=; Max-Age=0）
+{"code":0,"message":"success","data":null}
+```
+删除范围（单事务）：`tool_call_trace`、`agent_task`、`agent_run`、`agent_command_dedupe`、`plan_execution`、`pending_plan`、`operation_history`、`expense`、`conversation_message`、`conversation_meta`、`memo`、`schedule_item`、`llm_quota_usage`（按 `user_name`）、本人 `rag_chunk`/`rag_document_version`/`rag_document`（公共知识保留）、`trip_event`、`itinerary_item`、`trip_photo`、`trip`、`users`。照片文件在事务提交后由 `PhotoStore.deleteQuietly` 清理（失败只 WARN）。
+
+错误：`400` `请输入密码确认注销`；`401` `密码错误`（不删除、保持登录）、未登录、用户已不存在/重复注销；`429` 限流。
+
+> 语义见 [数据删除流程](../legal/data-deletion.md) §3。V24 起注销会立即吊销旧 token（同名重注册不串号），并在事务提交后重建内存 RAG 索引。OpenAPI 快照目前只声明 `200` 响应，`400/401` 来自代码与 `AccountDeletionApiTest`。
+
+### 2.6 GET /api/auth/me/export — 导出本人数据（数据可携带）
+鉴权：登录 ｜ 源码：`AuthController#exportMe:76` ｜ 无参数；身份只取自登录态，因此不存在「传别人 id 导出别人数据」的路径
+
+返回本人全部可见数据的 JSON 快照。`formatVersion` 为 `1`；表格类数据是数组，键名固定 camelCase，时间一律 ISO-8601 字符串，金额仍是数字。
+
+```json
+{"code":0,"message":"success","data":{
+  "formatVersion":"1","exportedAt":"2026-11-23T19:40:12.345+08:00",
+  "account":{"id":2,"username":"traveler","nickname":"小旅","createdAt":"2026-11-20T10:00:00"},
+  "counts":{"trips":1,"itineraryItems":1,"expenses":1,"memos":1,"schedules":1,"conversations":1,"messages":1,"knowledgeDocuments":1,"photos":1},
+  "trips":[{"id":7,"name":"杭州三日","destination":"杭州","startDate":"2026-12-01","endDate":"2026-12-03","budget":3000.00,"partySize":2,"status":"CONFIRMED","createdAt":"2026-11-22T09:00:00"}],
+  "itineraryItems":[{"id":11,"tripId":7,"dayIndex":1,"itemType":"ATTRACTION","title":"西湖漫步","startTime":"2026-12-01T09:00:00","endTime":null,"latitude":30.24,"longitude":120.15,"cost":0.00,"tags":"","description":"","status":"PENDING","startedAt":null,"completedAt":null,"visitedAt":null}],
+  "expenses":[{"id":3,"tripId":7,"category":"FOOD","amount":128.50,"note":"午饭","spentAt":"2026-12-01","paymentMethod":"WECHAT","createdAt":"2026-12-01T12:30:00"}],
+  "memos":[{"id":5,"content":"带伞","done":false,"createdAt":"2026-11-22T09:10:00","tripId":7,"itineraryItemId":null,"source":"MANUAL","travelDay":null}],
+  "schedules":[{"id":9,"title":"高铁出发","date":"2026-12-01","time":"07:30","note":null,"done":false,"recurrence":null,"repeatUntil":null,"reminderDismissedAt":null,"createdAt":"2026-11-22T09:20:00","tripId":7,"itineraryItemId":null,"source":"MANUAL","travelDay":null}],
+  "conversations":[{"conversationId":"conv-1","title":"杭州三天","createdAt":"2026-11-22T09:30:00","updatedAt":"2026-11-22T09:35:00","messages":[{"role":"user","content":"帮我规划杭州三天","intent":null,"scope":null,"turnSeq":1,"createdAt":"2026-11-22T09:30:00"}]}],
+  "knowledgeDocuments":[{"id":4,"title":"我的杭州笔记","city":"杭州","category":"GUIDE","content":"……","source":"UPLOAD","updatedAt":"2026-11-22T09:40:00"}],
+  "photos":[{"id":2,"tripId":7,"originalName":"断桥.jpg","contentType":"image/jpeg","sizeBytes":204800,"createdAt":"2026-11-23T10:00:00","url":"/api/photos/2/raw"}]
+}}
+```
+
+**范围与口径**
+
+- 含：账号资料、行程、行程项、记账、备忘、日程、会话与消息、本人上传的知识库文档、照片清单。
+- 不含：照片二进制（只给 `/api/photos/{id}/raw`，仍需本人凭证）；`agent_run` / `agent_task` / `tool_call_trace`（只存执行状态与参数摘要，对话正文已在 `conversations` 里）；`rag_document.user_id` 为空的城市公共知识。
+- 只读：不写库、不重复插入消息、不清理照片，可重复调用；`counts` 与各数组长度一致。
+
+错误：`401` 未登录；`429` 导出桶限流（`RATE_LIMIT_EXPORT`，默认 5 分钟 3 次，独立于登录桶，不影响页面刷新）。
+### 2.7 POST /api/access-ticket — 签发短期只读票据
 鉴权：登录 ｜ 源码：`AccessTicketController#issue:21`
 
 | 参数 | 必填 | 说明 |
@@ -290,13 +335,15 @@ P1 新增字段（口径见 `TripDtos.TripMapPoint`）：
 | `endDate` | 否 | `yyyy-MM-dd`，缺省 `startDate + 2 天`（共 3 天） |
 | `budget` | 否 | `BigDecimal` ≥ 0，缺省 `5000` |
 | `partySize` | 否 | **V2.2 FR-01** 同行人数 1..20，缺省 1；预算的房数/餐费/门票口径随它变化 |
+> 跨度上限：`endDate` 不得晚于 `startDate` + 1 年（按日历算，含当天；闰年自动多一天）。
+> 只传一端时，先按缺省值补齐再判定。超过返回 `400 行程跨度不能超过 1 年（当前 N 天）`。
 ```json
 // 请求
 {"name":"杭州三日","destination":"杭州","startDate":"2026-11-20","endDate":"2026-11-22","budget":5000,"partySize":2}
 // 响应
 {"code":0,"message":"success","data":{"id":1,"name":"杭州三日","destination":"杭州","startDate":"2026-11-20","endDate":"2026-11-22","budget":5000.00,"partySize":2,"status":"PLANNING","phase":"UPCOMING","daysUntilStart":12,"createdAt":"2026-11-08"}}
 ```
-错误：`400` 校验失败 / `结束日期不能早于开始日期` / `开始日期不是有效日期，请使用 yyyy-MM-dd`；`401`
+错误：`400` 校验失败 / `结束日期不能早于开始日期` / `开始日期不是有效日期，请使用 yyyy-MM-dd` / `行程跨度不能超过 1 年（当前 N 天）`；`401`
 
 ### 3.4 GET /api/trips/{id} — 行程详情
 鉴权：登录 ｜ 源码：`TripController#get:62` ｜ 参数：路径 `id` ｜ 响应结构同 §3.3
@@ -313,7 +360,7 @@ P1 新增字段（口径见 `TripDtos.TripMapPoint`）：
 // 响应
 {"code":0,"message":"success","data":{"id":1,"name":"杭州四日","destination":"杭州","startDate":"2026-11-20","endDate":"2026-11-23","budget":6000.00,"partySize":3,"status":"PLANNING","phase":"UPCOMING","daysUntilStart":12,"createdAt":"2026-11-01"}}
 ```
-错误：`400` 结束日期早于开始日期 / `缩短后第 N 天的安排会超出范围…`；`401`；`404`
+错误：`400` 结束日期早于开始日期 / `缩短后第 N 天的安排会超出范围…` / `行程跨度不能超过 1 年（当前 N 天）`（按合并后的起止日期判定）；`401`；`404`
 改期会整体平移行程项时间（保持「第几天 + 时刻」不变）。
 
 ### 3.6 DELETE /api/trips/{id} — 删除行程
@@ -407,7 +454,7 @@ P1 新增字段（口径见 `TripDtos.TripMapPoint`）：
 | 参数 | 必填 | 说明 |
 | --- | --- | --- |
 | `title` | 是 | ≤200 字符 |
-| `dayIndex` | 否 | 第几天，从 1 开始，缺省 1 |
+| `dayIndex` | 否 | 第几天，从 1 开始，缺省 1；不得超过行程天数（越界 `400`） |
 | `itemType` | 否 | `attraction`（缺省）/ `hotel` / `restaurant` / `transport` |
 | `startTime` / `endTime` | 否 | `HH:mm`，缺省 `09:00` / `11:00`（按行程日期锚定） |
 | `cost` | 否 | ≥0 |
@@ -420,7 +467,7 @@ P1 新增字段（口径见 `TripDtos.TripMapPoint`）：
 // 响应
 {"code":0,"message":"success","data":{"id":12,"tripId":1,"dayIndex":1,"itemType":"restaurant","title":"楼外楼","startTime":"2026-11-20T12:00:00","endTime":"2026-11-20T13:00:00","latitude":null,"longitude":null,"cost":180.00,"tags":["餐饮"],"description":"西湖边"}}
 ```
-错误：`400` 校验失败；`401`；`404`（手动新增会写入撤销历史）
+错误：`400` 校验失败 / `第 N 天超出行程范围（当前共 M 天）`；`401`；`404`（手动新增会写入撤销历史）
 
 ### 3.11 GET /api/trips/{id}/budget — 预算执行对账
 鉴权：登录 ｜ 源码：`TripController#budget:100` ｜ 参数：路径 `id`
@@ -554,8 +601,16 @@ P1 新增字段（口径见 `TripDtos.TripMapPoint`）：
 | `execution` | `Object` | 仅 `confirm` 成功路径：`{executionId, planId, tripId, status:SUCCEEDED\|PARTIAL_FAILED\|FAILED, modules:[...]}`（V2.2 FR-09，见 §5.12） |
 | `citations` | `Object[]` | **P1 知识依据**：`[{documentId, version, chunkId, score, source, title, snippet, label}]`；规划/修改路径可能为空数组，前端不得编造。与 `/api/knowledge/search` 同构 |
 
+**`status=FAILED` 的语义**：`code` 仍为 `0`（HTTP 200），失败原因在 `data.message`，不产生 `planId` / `diff`。
+一类典型场景是**依赖天气的修改拿不到真实预报**：返回 `status=FAILED`（内部业务码 503），
+消息形如「没拿到 上海 11月24日 的真实天气（网络不可达）……本次没有生成修改方案」，
+不会用模拟天气改行程，也不会写待确认方案。
+
 `review.issues[].type`：`BUDGET_OVERRUN`（预算超限）/ `TRANSFER_TIME`（转场时间不够）/ `WEATHER_OUTDOOR`（雨天排户外）为
-`HIGH`（硬约束，触发重规划）；`TIME_CONFLICT`（时间重叠）与**模拟天气**下的 `WEATHER_OUTDOOR` 为 `MEDIUM`（提示，不阻断）。
+`HIGH`（硬约束，触发重规划）；`TIME_CONFLICT`（时间重叠）为 `MEDIUM`。
+`WEATHER_OUTDOOR` 只在拿到真实预报且大概率下雨时产生；模拟天气（仅 `WEATHER_SIMULATION=true` 的测试/离线演示）下为 `MEDIUM`。
+拿不到真实天气时**不会产生该 issue**，而是在 `warnings` 里写「未获取真实天气（原因），本次未做雨天/户外校验」——
+不凭不存在的事实判 HIGH，也不假装校验过。
 
 ### 5.2 POST /api/agent/chat — 同步对话
 鉴权：登录 ｜ 源码：`AgentController#chat:39`
@@ -605,7 +660,7 @@ data:{"message":"正在为你规划行程…"}
 event:complete
 data:{"planId":"plan-8f3c","tripId":null,"message":"…","intent":"PLAN_TRIP","status":"NEED_CONFIRMATION"}
 ```
-其余事件：`run`（V2.2 FR-10，紧随 `start`，`{runId}` 可查 §5.11 的完整追踪）、`tool_call`（`{tool,args}`）、
+其余事件：`run`（V2.2 FR-10，紧随 `start`，`{runId}` 可查 §5.13 的完整追踪）、`tool_call`（`{tool,args}`）、
 `tool_result`（`{tool,result}`）、`plan_update`（`{diff,budget}`）、`focus`、
 `confirmation`（含 `contentHash`，确认时回传见 §5.5）、
 `rag_result`（**P1**：`{sources:[标题], citations:[{documentId,version,chunkId,score,source,title,snippet,label}]}`；
@@ -666,7 +721,7 @@ data:{"planId":"plan-8f3c","tripId":null,"message":"…","intent":"PLAN_TRIP","s
 
 **确认后的跨模块同步（V2.2 FR-09）**：提交成功后按 `calendar` / `budget` / `footprint` 逐模块同步并写台账，
 模块级失败**不回滚**已保存的行程，响应 `execution.status` 为 `PARTIAL_FAILED` / `FAILED`，
-失败模块可用 §5.12 单独重试（成功项不重复创建）。口径红线：`budget` 只记计划快照（估算不会自动变成已消费），
+失败模块可用 §5.14 单独重试（成功项不重复创建）。口径红线：`budget` 只记计划快照（估算不会自动变成已消费），
 `footprint` 只标计划态（不会把未来行程记为已到访）。
 
 ### 5.6 POST /api/agent/cancel — 取消方案
@@ -712,7 +767,33 @@ data:{"planId":"plan-8f3c","tripId":null,"message":"…","intent":"PLAN_TRIP","s
 ```
 错误：`400` 校验失败；`401`
 
-### 5.10 GET /api/agent/runs — 运行列表（V2.2 FR-10）
+### 5.10 PATCH /api/agent/conversations/{conversationId} — 重命名会话（V23）
+鉴权：登录 ｜ 源码：`AgentController#renameConversation` ｜ 参数：路径 `conversationId`
+| 参数 | 必填 | 说明 |
+| --- | --- | --- |
+| `title` | 否 | ≤40 字符；**空串 / 只有空白 = 恢复自动标题**（回到「首条用户消息」的推导标题） |
+```json
+// 请求
+{"title":"杭州周末"}
+// 响应
+{"code":0,"message":"success","data":{"conversationId":"c-1a2b3c","title":"杭州周末"}}
+// 恢复自动标题的响应（title=null 表示已删掉覆盖行）
+{"code":0,"message":"success","data":{"conversationId":"c-1a2b3c","title":null}}
+```
+只改展示标题，不动消息、不影响续聊。不属于当前用户的 `conversationId` 同样返回成功
+（写入按 `user_id` 隔离，改不到别人的会话；也不提供 404，避免变成会话存在性探测接口）。
+错误：`400` 标题超长；`401`
+
+### 5.11 DELETE /api/agent/conversations/{conversationId} — 删除会话（V23）
+鉴权：登录 ｜ 源码：`AgentController#deleteConversation` ｜ 参数：路径 `conversationId`
+```json
+{"code":0,"message":"success","data":null}
+```
+把该会话的消息与标题覆盖（`conversation_meta`）一起删，**不可恢复**。幂等：不存在的会话同样返回成功
+（保留期清理可能已经删过）；非法 / 超长的 `conversationId` 清洗成「无此会话」，删不到任何数据。
+错误：`401`
+
+### 5.12 GET /api/agent/runs — 运行列表（V2.2 FR-10）
 鉴权：登录 ｜ 源码：`AgentController#runs` ｜ 参数：`limit`（默认 20，上限 50）
 ```json
 {"code":0,"message":"success","data":[{"runId":"8f3c…","tripId":null,"message":"帮我规划杭州三日游","intent":"PLAN_TRIP","status":"SUCCEEDED","error":null,"startedAt":"2026-11-18 12:03:11","endedAt":"2026-11-18 12:03:19","durationMs":8123}]}
@@ -720,7 +801,7 @@ data:{"planId":"plan-8f3c","tripId":null,"message":"…","intent":"PLAN_TRIP","s
 `status`：`RUNNING` / `SUCCEEDED` / `FAILED` / `CANCELLED`（`NEED_CONFIRMATION` 记为 `SUCCEEDED`——规划已完成，等待用户动作）。
 错误：`401`
 
-### 5.11 GET /api/agent/runs/{runId} — 运行明细（任务图 + 工具调用）
+### 5.13 GET /api/agent/runs/{runId} — 运行明细（任务图 + 工具调用）
 鉴权：登录 ｜ 源码：`AgentController#runDetail` ｜ 参数：路径 `runId`
 ```json
 {"code":0,"message":"success","data":{
@@ -743,7 +824,7 @@ data:{"planId":"plan-8f3c","tripId":null,"message":"…","intent":"PLAN_TRIP","s
 
 摘要字段为截断 JSON（不含密钥）。错误：`401`；`404` `运行记录不存在`（他人的 run 同样 404）
 
-### 5.12 GET /api/agent/executions/{executionId} — 同步台账（V2.2 FR-09）
+### 5.14 GET /api/agent/executions/{executionId} — 同步台账（V2.2 FR-09）
 鉴权：登录 ｜ 源码：`AgentController#executionDetail` ｜ 参数：路径 `executionId`
 ```json
 {"code":0,"message":"success","data":{"executionId":"e-77b1","planId":"plan-8f3c","tripId":1,"status":"PARTIAL_FAILED","modules":[
@@ -753,7 +834,7 @@ data:{"planId":"plan-8f3c","tripId":null,"message":"…","intent":"PLAN_TRIP","s
 `module`：`calendar`（日程时间块）/ `budget`（计划预算快照）/ `footprint`（足迹计划标记）。
 错误：`401`；`404` `执行记录不存在`
 
-### 5.13 POST /api/agent/executions/{executionId}/retry — 重试失败模块
+### 5.15 POST /api/agent/executions/{executionId}/retry — 重试失败模块
 鉴权：登录 ｜ 源码：`AgentController#executionRetry` ｜ 参数：路径 `executionId`（无请求体）
 ```json
 {"code":0,"message":"success","data":{"executionId":"e-77b1","status":"SUCCEEDED","modules":[…]}}
@@ -761,7 +842,7 @@ data:{"planId":"plan-8f3c","tripId":null,"message":"…","intent":"PLAN_TRIP","s
 只重试 `FAILED` 模块，`SUCCEEDED` 模块原样保留（幂等键保证不重复创建）；`retryCount` 递增。
 错误：`400` `该执行记录没有可重试的模块`；`401`；`404`
 
-### 5.14 目的地城市名匹配（`util/CityNames`）
+### 5.16 目的地城市名匹配（`util/CityNames`）
 
 规划链路判断「目的地是否在目录内」统一走 `util/CityNames`（纯静态工具类，`OnlineCityService.matchesCity` 的唯一实现）：
 
@@ -1034,7 +1115,7 @@ RAG 文档接口在 P0 从原 `LearningController` 拆出，迁入 `TravelKnowle
 ### 12.1 GET /api/system/status — 运行能力自检
 鉴权：登录 ｜ 源码：`SystemController#status` ｜ 参数：无（不返回任何密钥）
 ```json
-{"code":0,"message":"success","data":{"llmConfigured":true,"llmVerified":false,"llmModel":"deepseek-chat","llmHint":"已接入大模型：意图识别、方案生成与文案润色走模型","amapConfigured":false,"geoProvider":"osm","geoHint":"未配置 AMAP_KEY：城市定位退回 OSM Nominatim，国内网络可能较慢或失败","timezone":"Asia/Shanghai","routeProvider":"estimated","routeConfigured":false,"amapVerified":false,"routeLastError":null,"routeHint":"路线为本地距离估算（未配置 AMAP_KEY / 高德 MCP）：距离与耗时为近似值","priceProvider":"reference-estimate","priceHint":"价格均为本地参考估算，未接入实时房态/库存","pendingPlanStore":"database","rateLimitEnabled":true,"llmQuotaUsed":3,"llmQuotaLimit":50}}
+{"code":0,"message":"success","data":{"llmConfigured":true,"llmVerified":false,"llmModel":"deepseek-flash","llmHint":"已接入大模型：意图识别、方案生成与文案润色走模型","amapConfigured":false,"geoProvider":"osm","geoHint":"未配置 AMAP_KEY：城市定位退回 OSM Nominatim，国内网络可能较慢或失败","timezone":"Asia/Shanghai","routeProvider":"estimated","routeConfigured":false,"amapVerified":false,"routeLastError":null,"routeHint":"路线为本地距离估算（未配置 AMAP_KEY / 高德 MCP）：距离与耗时为近似值","weatherProvider":"open-meteo","weatherLastError":null,"weatherHint":"真实天气：Open-Meteo（免费）","priceProvider":"reference-estimate","priceHint":"价格均为本地参考估算，未接入实时房态/库存","pendingPlanStore":"database","rateLimitEnabled":true,"llmQuotaUsed":3,"llmQuotaLimit":50}}
 ```
 错误：`401`。`llmQuotaUsed` / `llmQuotaLimit` 仅在 `travel.llm.quota-daily-limit > 0` 且已登录时出现。
 **P0 起不再返回 `ocrConfigured` / `ocrHint`**（发票/OCR 能力已退役）。
@@ -1049,6 +1130,8 @@ RAG 文档接口在 P0 从原 `LearningController` 拆出，迁入 `TravelKnowle
 | `routeConfigured` | 配了 `AMAP_KEY` 或检测到高德 MCP 工具 |
 | `amapVerified` | 最近一次真实路径调用是否成功（MCP 或 REST 任一成功） |
 | `routeLastError` | 最近一次失败原因，形如 `infocode=10001, info=INVALID_USER_KEY`；含 infocode、**不含 Key**；成功/未调用为 `null` |
+| `weatherProvider` | 天气来源，取值域严格 `open-meteo` \| `simulated` \| `unavailable`；生产应为 `open-meteo`，出现 `simulated` 说明误开了 `WEATHER_SIMULATION` |
+| `weatherLastError` | 最近一次真实天气失败原因（`timeout` / `connection_error` 等）；成功或未调用为 `null` |
 | `priceProvider` | 价格能力：恒为 `reference-estimate`（只有本地参考估算，没有实时房态/库存） |
 
 `routeHint` 四态：已验证 amap / 未配置 / 已配置但最近失败（带 infocode）/ 已配置但尚未验证。
@@ -1095,69 +1178,73 @@ RAG 文档接口在 P0 从原 `LearningController` 拆出，迁入 `TravelKnowle
 
 | # | 方法 | 路径 | 鉴权 | 说明 | 源码 |
 | --- | --- | --- | --- | --- | --- |
-| 1 | POST | `/api/auth/register` | 免登录 | 注册 | `AuthController#register:27` |
-| 2 | POST | `/api/auth/login` | 免登录 | 登录 | `AuthController#login:35` |
-| 3 | GET | `/api/auth/me` | 登录 | 恢复登录态 | `AuthController#me:47` |
-| 4 | POST | `/api/auth/logout` | 免登录 | 登出 | `AuthController#logout:58` |
-| 5 | POST | `/api/access-ticket` | 登录 | 签发短期只读票据 | `AccessTicketController#issue:21` |
-| 6 | GET | `/api/trips` | 登录 | 行程列表 | `TripController#list` |
-| 7 | GET | `/api/trips/map` | 登录 | 足迹坐标（P1 扩展） | `TripController#map` |
-| 8 | POST | `/api/trips` | 登录 | 创建行程 | `TripController#create` |
-| 9 | GET | `/api/trips/{id}` | 登录 | 行程详情 | `TripController#get` |
-| 10 | PUT | `/api/trips/{id}` | 登录 | 更新行程 | `TripController#update` |
-| 11 | DELETE | `/api/trips/{id}` | 登录 | 删除行程 | `TripController#delete` |
-| 12 | PUT | `/api/trips/{id}/status` | 登录 | 确认/取消/恢复 | `TripController#updateStatus` |
-| 13 | GET | `/api/trips/{id}/itinerary` | 登录 | 行程项列表 | `TripController#itinerary` |
-| 14 | POST | `/api/trips/{id}/itinerary` | 登录 | 新增行程项 | `TripController#addItem` |
-| 15 | GET | `/api/trips/{id}/route-legs` | 登录 | 每日路线段 | `TripController#routeLegs` |
-| 16 | GET | `/api/trips/{id}/budget` | 登录 | 预算执行对账 | `TripController#budget` |
-| 17 | GET | `/api/trips/{id}/review` | 登录 | 旅行回顾（P1） | `TripController#review` |
-| 18 | GET | `/api/trips/{id}/events` | 登录 | 旅行事件流（P1） | `TripController#events` |
-| 19 | GET | `/api/trips/{id}/guidebook.pdf` | 登录 | 路书 PDF 导出 | `TripController#guidebook` |
-| 20 | PUT | `/api/itinerary/{id}` | 登录 | 修改行程项 | `ItineraryController#update` |
-| 21 | DELETE | `/api/itinerary/{id}` | 登录 | 删除行程项 | `ItineraryController#delete` |
-| 22 | PUT | `/api/itinerary/{id}/status` | 登录 | 行程项状态推进（P1） | `ItineraryController#updateStatus` |
-| 23 | POST | `/api/agent/chat` | 登录 | 同步对话 | `AgentController#chat` |
-| 24 | GET | `/api/agent/stream` | 登录/票据 | SSE 流式对话 | `AgentController#stream` |
-| 25 | POST | `/api/agent/stream` | 登录 | SSE 流式对话（表单） | `AgentController#streamPost` |
-| 26 | POST | `/api/agent/confirm` | 登录 | 确认提交方案 | `AgentController#confirm` |
-| 27 | POST | `/api/agent/cancel` | 登录 | 取消方案 | `AgentController#cancel` |
-| 28 | POST | `/api/agent/undo` | 登录 | 撤销上一次修改 | `AgentController#undo` |
-| 29 | GET | `/api/agent/plans/{planId}` | 登录 | 取回待确认方案 | `AgentController#pending` |
-| 30 | GET | `/api/agent/runs` | 登录 | 运行列表 | `AgentController#runs` |
-| 31 | GET | `/api/agent/runs/{runId}` | 登录 | 运行明细（任务图 + 工具调用） | `AgentController#runDetail` |
-| 32 | GET | `/api/agent/executions/{executionId}` | 登录 | 同步台账 | `AgentController#executionDetail` |
-| 33 | POST | `/api/agent/executions/{executionId}/retry` | 登录 | 重试失败模块 | `AgentController#executionRetry` |
-| 34 | POST | `/api/agent/conversation/clear` | 登录 | 清空会话 | `AgentController#clearConversation` |
-| 35 | GET | `/api/trips/{tripId}/expenses` | 登录 | 支出列表 | `ExpenseController#list:30` |
-| 36 | POST | `/api/trips/{tripId}/expenses` | 登录 | 记一笔 | `ExpenseController#add:41` |
-| 37 | GET | `/api/expenses/overview` | 登录 | 记账总览 | `ExpenseController#overview:55` |
-| 38 | DELETE | `/api/expenses/{id}` | 登录 | 删除支出 | `ExpenseController#delete:61` |
-| 39 | POST | `/api/trips/{tripId}/photos` | 登录 | 上传照片 | `PhotoController#upload:28` |
-| 40 | GET | `/api/trips/{tripId}/photos` | 登录 | 照片列表 | `PhotoController#list:36` |
-| 41 | GET | `/api/photos/{id}/raw` | 登录/票据 | 读取原图 | `PhotoController#raw:52` |
-| 42 | DELETE | `/api/photos/{id}` | 登录 | 删除照片 | `PhotoController#delete:70` |
-| 43 | GET | `/api/reminders` | 登录 | 提醒板 | `ReminderController#board:22` |
-| 44 | POST | `/api/reminders/schedule/{id}/dismiss` | 登录 | 忽略日程提醒 | `ReminderController#dismissSchedule:28` |
-| 45 | POST | `/api/reminders/trip/{id}/dismiss` | 登录 | 忽略出发提醒 | `ReminderController#dismissTrip:35` |
-| 46 | GET | `/api/memos` | 登录 | 备忘列表 | `MemoController#list` |
-| 47 | POST | `/api/memos` | 登录 | 新增备忘 | `MemoController#add` |
-| 48 | POST | `/api/memos/{id}/toggle` | 登录 | 切换完成状态 | `MemoController#toggle` |
-| 49 | DELETE | `/api/memos/{id}` | 登录 | 删除备忘 | `MemoController#delete` |
-| 50 | GET | `/api/memos/open-count` | 登录 | 未完成备忘数量 | `MemoController#openCount` |
-| 51 | GET | `/api/schedule` | 登录 | 日程列表 | `ScheduleController#list` |
-| 52 | POST | `/api/schedule` | 登录 | 新增日程 | `ScheduleController#add` |
-| 53 | POST | `/api/schedule/{id}/toggle` | 登录 | 切换完成状态 | `ScheduleController#toggle` |
-| 54 | DELETE | `/api/schedule/{id}` | 登录 | 删除日程 | `ScheduleController#delete` |
-| 55 | POST | `/api/knowledge/add` | 登录 | 旅行知识库录入 | `TravelKnowledgeController#addKnowledge` |
-| 56 | POST | `/api/knowledge/search` | 登录 | 知识库检索 | `TravelKnowledgeController#searchKnowledge` |
-| 57 | GET | `/api/knowledge/documents/{id}/versions` | 登录 | 版本列表 | `TravelKnowledgeController#versions` |
-| 58 | GET | `/api/knowledge/documents/{id}/versions/{versionNo}` | 登录 | 版本详情 | `TravelKnowledgeController#version` |
-| 59 | POST | `/api/knowledge/documents/{id}/rollback/{versionNo}` | 登录 | 回滚版本 | `TravelKnowledgeController#rollback` |
-| 60 | GET | `/api/system/status` | 登录 | 运行能力自检 | `SystemController#status` |
-| 61 | POST | `/api/channels/webhook` | 渠道密钥 | 通用 Webhook | `WebhookChannelController#handle:43` |
-| 62 | GET | `/api/channels/wechat` | 微信签名 | 公众号接入验证 | `WeChatOfficialAccountController#verify:66` |
-| 63 | POST | `/api/channels/wechat` | 微信平台 | 公众号消息推送 | `WeChatOfficialAccountController#receive:85` |
+| 1 | POST | `/api/auth/register` | 免登录 | 注册 | `AuthController#register:36` |
+| 2 | POST | `/api/auth/login` | 免登录 | 登录 | `AuthController#login:44` |
+| 3 | GET | `/api/auth/me` | 登录 | 恢复登录态 | `AuthController#me:56` |
+| 4 | POST | `/api/auth/logout` | 免登录 | 登出 | `AuthController#logout:109` |
+| 5 | DELETE | `/api/auth/me` | 登录 | 注销账号（密码二次确认，清 Cookie） | `AuthController#deleteMe:92` |
+| 6 | GET | `/api/auth/me/export` | 登录 | 导出本人数据（JSON，照片只给清单） | `AuthController#exportMe:76` |
+| 7 | POST | `/api/access-ticket` | 登录 | 签发短期只读票据 | `AccessTicketController#issue:21` |
+| 8 | GET | `/api/trips` | 登录 | 行程列表 | `TripController#list` |
+| 9 | GET | `/api/trips/map` | 登录 | 足迹坐标（P1 扩展） | `TripController#map` |
+| 10 | POST | `/api/trips` | 登录 | 创建行程 | `TripController#create` |
+| 11 | GET | `/api/trips/{id}` | 登录 | 行程详情 | `TripController#get` |
+| 12 | PUT | `/api/trips/{id}` | 登录 | 更新行程 | `TripController#update` |
+| 13 | DELETE | `/api/trips/{id}` | 登录 | 删除行程 | `TripController#delete` |
+| 14 | PUT | `/api/trips/{id}/status` | 登录 | 确认/取消/恢复 | `TripController#updateStatus` |
+| 15 | GET | `/api/trips/{id}/itinerary` | 登录 | 行程项列表 | `TripController#itinerary` |
+| 16 | POST | `/api/trips/{id}/itinerary` | 登录 | 新增行程项 | `TripController#addItem` |
+| 17 | GET | `/api/trips/{id}/route-legs` | 登录 | 每日路线段 | `TripController#routeLegs` |
+| 18 | GET | `/api/trips/{id}/budget` | 登录 | 预算执行对账 | `TripController#budget` |
+| 19 | GET | `/api/trips/{id}/review` | 登录 | 旅行回顾（P1） | `TripController#review` |
+| 20 | GET | `/api/trips/{id}/events` | 登录 | 旅行事件流（P1） | `TripController#events` |
+| 21 | GET | `/api/trips/{id}/guidebook.pdf` | 登录 | 路书 PDF 导出 | `TripController#guidebook` |
+| 22 | PUT | `/api/itinerary/{id}` | 登录 | 修改行程项 | `ItineraryController#update` |
+| 23 | DELETE | `/api/itinerary/{id}` | 登录 | 删除行程项 | `ItineraryController#delete` |
+| 24 | PUT | `/api/itinerary/{id}/status` | 登录 | 行程项状态推进（P1） | `ItineraryController#updateStatus` |
+| 25 | POST | `/api/agent/chat` | 登录 | 同步对话 | `AgentController#chat` |
+| 26 | GET | `/api/agent/stream` | 登录/票据 | SSE 流式对话 | `AgentController#stream` |
+| 27 | POST | `/api/agent/stream` | 登录 | SSE 流式对话（表单） | `AgentController#streamPost` |
+| 28 | POST | `/api/agent/confirm` | 登录 | 确认提交方案 | `AgentController#confirm` |
+| 29 | POST | `/api/agent/cancel` | 登录 | 取消方案 | `AgentController#cancel` |
+| 30 | POST | `/api/agent/undo` | 登录 | 撤销上一次修改 | `AgentController#undo` |
+| 31 | GET | `/api/agent/plans/{planId}` | 登录 | 取回待确认方案 | `AgentController#pending` |
+| 32 | GET | `/api/agent/runs` | 登录 | 运行列表 | `AgentController#runs` |
+| 33 | GET | `/api/agent/runs/{runId}` | 登录 | 运行明细（任务图 + 工具调用） | `AgentController#runDetail` |
+| 34 | GET | `/api/agent/executions/{executionId}` | 登录 | 同步台账 | `AgentController#executionDetail` |
+| 35 | POST | `/api/agent/executions/{executionId}/retry` | 登录 | 重试失败模块 | `AgentController#executionRetry` |
+| 36 | POST | `/api/agent/conversation/clear` | 登录 | 清空会话 | `AgentController#clearConversation` |
+| 37 | PATCH | `/api/agent/conversations/{conversationId}` | 登录 | 重命名会话（V23；空标题=恢复自动标题） | `AgentController#renameConversation` |
+| 38 | DELETE | `/api/agent/conversations/{conversationId}` | 登录 | 删除会话（V23，幂等） | `AgentController#deleteConversation` |
+| 39 | GET | `/api/trips/{tripId}/expenses` | 登录 | 支出列表 | `ExpenseController#list:30` |
+| 40 | POST | `/api/trips/{tripId}/expenses` | 登录 | 记一笔 | `ExpenseController#add:41` |
+| 41 | GET | `/api/expenses/overview` | 登录 | 记账总览 | `ExpenseController#overview:55` |
+| 42 | DELETE | `/api/expenses/{id}` | 登录 | 删除支出 | `ExpenseController#delete:61` |
+| 43 | POST | `/api/trips/{tripId}/photos` | 登录 | 上传照片 | `PhotoController#upload:28` |
+| 44 | GET | `/api/trips/{tripId}/photos` | 登录 | 照片列表 | `PhotoController#list:36` |
+| 45 | GET | `/api/photos/{id}/raw` | 登录/票据 | 读取原图 | `PhotoController#raw:52` |
+| 46 | DELETE | `/api/photos/{id}` | 登录 | 删除照片 | `PhotoController#delete:70` |
+| 47 | GET | `/api/reminders` | 登录 | 提醒板 | `ReminderController#board:22` |
+| 48 | POST | `/api/reminders/schedule/{id}/dismiss` | 登录 | 忽略日程提醒 | `ReminderController#dismissSchedule:28` |
+| 49 | POST | `/api/reminders/trip/{id}/dismiss` | 登录 | 忽略出发提醒 | `ReminderController#dismissTrip:35` |
+| 50 | GET | `/api/memos` | 登录 | 备忘列表 | `MemoController#list` |
+| 51 | POST | `/api/memos` | 登录 | 新增备忘 | `MemoController#add` |
+| 52 | POST | `/api/memos/{id}/toggle` | 登录 | 切换完成状态 | `MemoController#toggle` |
+| 53 | DELETE | `/api/memos/{id}` | 登录 | 删除备忘 | `MemoController#delete` |
+| 54 | GET | `/api/memos/open-count` | 登录 | 未完成备忘数量 | `MemoController#openCount` |
+| 55 | GET | `/api/schedule` | 登录 | 日程列表 | `ScheduleController#list` |
+| 56 | POST | `/api/schedule` | 登录 | 新增日程 | `ScheduleController#add` |
+| 57 | POST | `/api/schedule/{id}/toggle` | 登录 | 切换完成状态 | `ScheduleController#toggle` |
+| 58 | DELETE | `/api/schedule/{id}` | 登录 | 删除日程 | `ScheduleController#delete` |
+| 59 | POST | `/api/knowledge/add` | 登录 | 旅行知识库录入 | `TravelKnowledgeController#addKnowledge` |
+| 60 | POST | `/api/knowledge/search` | 登录 | 知识库检索 | `TravelKnowledgeController#searchKnowledge` |
+| 61 | GET | `/api/knowledge/documents/{id}/versions` | 登录 | 版本列表 | `TravelKnowledgeController#versions` |
+| 62 | GET | `/api/knowledge/documents/{id}/versions/{versionNo}` | 登录 | 版本详情 | `TravelKnowledgeController#version` |
+| 63 | POST | `/api/knowledge/documents/{id}/rollback/{versionNo}` | 登录 | 回滚版本 | `TravelKnowledgeController#rollback` |
+| 64 | GET | `/api/system/status` | 登录 | 运行能力自检 | `SystemController#status` |
+| 65 | POST | `/api/channels/webhook` | 渠道密钥 | 通用 Webhook | `WebhookChannelController#handle:43` |
+| 66 | GET | `/api/channels/wechat` | 微信签名 | 公众号接入验证 | `WeChatOfficialAccountController#verify:66` |
+| 67 | POST | `/api/channels/wechat` | 微信平台 | 公众号消息推送 | `WeChatOfficialAccountController#receive:85` |
 
 ---
 
@@ -1167,11 +1254,11 @@ RAG 文档接口在 P0 从原 `LearningController` 拆出，迁入 `TravelKnowle
 
 | Controller | 接口数 | 源码文件 |
 | --- | --- | --- |
-| `AuthController` | 4 | `controller/AuthController.java` |
+| `AuthController` | 6 | `controller/AuthController.java` |
 | `AccessTicketController` | 1 | `controller/AccessTicketController.java` |
 | `TripController` | 14 | `controller/TripController.java` |
 | `ItineraryController` | 3 | `controller/ItineraryController.java` |
-| `AgentController` | 12 | `controller/AgentController.java` |
+| `AgentController` | 14 | `controller/AgentController.java` |
 | `ExpenseController` | 4 | `controller/ExpenseController.java` |
 | `PhotoController` | 4 | `controller/PhotoController.java` |
 | `ReminderController` | 3 | `controller/ReminderController.java` |
@@ -1181,16 +1268,16 @@ RAG 文档接口在 P0 从原 `LearningController` 拆出，迁入 `TravelKnowle
 | `SystemController` | 1 | `controller/SystemController.java` |
 | `WeChatOfficialAccountController` | 2 | `channel/WeChatOfficialAccountController.java` |
 | `WebhookChannelController` | 1 | `channel/WebhookChannelController.java` |
-| **合计** | **63** | 12 个 controller 包文件（60 个接口）+ 2 个 channel 包文件（3 个接口） |
+| **合计** | **67** | 12 个 controller 包文件（64 个接口）+ 2 个 channel 包文件（3 个接口） |
 
 ### 15.2 按业务模块
 
 | 模块 | 章 | 数量 |
 | --- | --- | --- |
-| 认证与票据 | §2 | 5 |
+| 认证与票据 | §2 | 7 |
 | 行程 | §3 | 14 |
 | 行程项 | §4 | 3 |
-| Agent 对话与方案 | §5 | 12 |
+| Agent 对话与方案 | §5 | 14 |
 | 记账 | §6 | 4 |
 | 照片 | §7 | 4 |
 | 提醒 | §8 | 3 |
@@ -1199,11 +1286,11 @@ RAG 文档接口在 P0 从原 `LearningController` 拆出，迁入 `TravelKnowle
 | 旅行知识库 | §11 | 5 |
 | 系统 | §12 | 1 |
 | 渠道 | §13 | 3 |
-| **合计** | — | **63** |
+| **合计** | — | **67** |
 
 ### 15.3 自检结论
 
-- 源码映射注解统计：12 个 controller 共 **60** 个 `@*Mapping` + 2 个 channel 文件共 **3** 个 = **63**，与第 14 章逐条一致。
+- 源码映射注解统计：12 个 controller 共 **64** 个 `@*Mapping` + 2 个 channel 文件共 **3** 个 = **67**，与第 14 章逐条一致（新增 `DELETE /api/auth/me`）。
 - **P0 删除的 22 个接口**（Office 8、Report 2、旧 Learning 8、Health 4）不再存在；原 Learning 的 RAG 三接口已迁到
   `/api/knowledge/documents/**`，知识录入/检索改为 `/api/knowledge/add`、`/api/knowledge/search`。
 - **P1 新增 3 个接口**：`PUT /api/itinerary/{id}/status`、`GET /api/trips/{id}/review`、`GET /api/trips/{id}/events`；

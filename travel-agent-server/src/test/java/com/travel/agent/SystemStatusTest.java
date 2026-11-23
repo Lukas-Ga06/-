@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MvcResult;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -29,6 +30,20 @@ class SystemStatusTest extends IntegrationTestSupport {
                 .andExpect(jsonPath("$.data.routeConfigured").value(false))
                 .andExpect(jsonPath("$.data.amapVerified").value(false))
                 .andExpect(jsonPath("$.data.timezone").value("Asia/Shanghai"))
+                // P0-A：MCP 接入状态与模型探测字段必须存在，且口径不伪装（LLM 未配置时模型可用性为 null）
+                .andExpect(jsonPath("$.data.mcpEnabled").isBoolean())
+                .andExpect(jsonPath("$.data.mcpConnected").isBoolean())
+                .andExpect(jsonPath("$.data.mcpToolCount").isNumber())
+                .andExpect(jsonPath("$.data.amapMcpToolCount").isNumber())
+                .andExpect(jsonPath("$.data.mcpServers").isArray())
+                .andExpect(jsonPath("$.data.mcpHint").isString())
+                .andExpect(jsonPath("$.data.llmProvider").value(nullValue()))
+                .andExpect(jsonPath("$.data.llmModelAvailable").value(nullValue()))
+                .andExpect(jsonPath("$.data.llmModelCheckPending").value(false))
+                // 天气自报（P0）：测试 profile 只跑模拟天气，状态接口必须如实说「模拟」而不是真实预报
+                .andExpect(jsonPath("$.data.weatherProvider").value("simulated"))
+                .andExpect(jsonPath("$.data.weatherLastError").value(nullValue()))
+                .andExpect(jsonPath("$.data.weatherHint").value(org.hamcrest.Matchers.containsString("模拟天气")))
                 .andReturn();
 
         String body = result.getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);

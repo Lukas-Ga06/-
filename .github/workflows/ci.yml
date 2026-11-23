@@ -302,25 +302,20 @@ jobs:
           cache: npm
           cache-dependency-path: travel-agent-web/package-lock.json
 
-      # 后端：H2 文件库 + demo 账号（默认开启），后台常驻供 e2e 使用
-      # RATE_LIMIT_ENABLED=false：/api/auth/login 与 /api/auth/me 共用 10 次/300 秒的 IP 限流桶，
-      # e2e 反复刷新页面会把它打满 → 429 → 前端当未登录 → 用例崩溃。e2e 专用后端必须关限流。
-      # 路书 PDF 导出需要 CJK 字体（TripGuidebookService.findCjkFont 在找不到字体时抛 500）。
-      # 生产镜像（travel-agent-server/Dockerfile）已装 fonts-noto-cjk，这里让 CI 与生产对齐：
-      # 否则「登录 → 建行程 → 路书可达」这条用例会以「服务器未找到可用的中文字体」失败，
-      # 而这属于**环境缺失**，不是代码缺陷。
+      # 路书 PDF 导出需要 CJK 字体（TripGuidebookService.findCjkFont 找不到字体时抛 500）。
+      # 生产镜像已装 fonts-noto-cjk，这里让 CI 与生产对齐，否则「登录→建行程→路书」会以
+      # 「服务器未找到可用的中文字体」失败，而那属于环境缺失、不是代码缺陷。
       - name: Install CJK fonts (PDF export parity with production image)
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends fonts-noto-cjk
 
-      - name: Start backend
+      # 后端不再用 `mvn spring-boot:run` 常驻：那条路径会读 travel-agent-server/.env.local，
+      # 把真实 LLM/高德 Key 带进 e2e（2026-11-22 device 套件 19/21 的根因）。
+      # 现在由 `npm run e2e:isolated` 让 Playwright 拉起 scripts/start-e2e-backend.mjs：
+      # 独立 H2 内存库 + LLM/Embedding/MCP/AMAP 全关 + 限流关闭，且不读开发者 .env.local。
+      # 这里只先构建 jar，避免 webServer 里再跑一次 mvn package 拖长启动超时。
+      - name: Build backend jar (isolated e2e)
         working-directory: travel-agent-server
-        env:
-          RATE_LIMIT_ENABLED: 'false'
-        run: nohup mvn -B spring-boot:run > backend.log 2>&1 &
-
-      - name: Wait for backend health
-        run: |
-          timeout 240 bash -c 'until curl -sf http://localhost:8080/actuator/health > /dev/null; do sleep 5; done'
+        run: mvn -B -q -Dmaven.test.skip=true package
 
       - name: Install frontend dependencies
         working-directory: travel-agent-web
@@ -334,9 +329,11 @@ jobs:
         working-directory: travel-agent-web
         run: npx playwright install --with-deps chromium
 
-      - name: Run e2e smoke
+      - name: Run e2e smoke（隔离后端：H2 + 无真实 LLM/MCP/外部 Key）
         working-directory: travel-agent-web
-        run: npx playwright test
+        env:
+          E2E_ASSERT_ISOLATION: '1'
+        run: npm run e2e:isolated
 
       - name: Upload artifacts on failure
         if: failure()
@@ -344,17 +341,19 @@ jobs:
         with:
           name: e2e-artifacts
           path: |
-            travel-agent-server/backend.log
+            .e2e/isolated/backend.log
             travel-agent-web/test-results
             travel-agent-web/playwright-report
           retention-days: 7
-  # 移动端 / 弱网 / 多端并发：本地已实跑通过，但**暂不作为阻塞门禁**（continue-on-error）。
-  # 转正条件见 docs/guide/ci.md「为什么有三个套件只在本地」：
-  #   1) 观察 2 周，确认在共享 runner 上不因耗时阈值抖动而红；
-  #   2) 把「移动端真实 Safari」与「Playwright WebKit 模拟」的边界写进 PR 模板，避免被当成真机结论。
-  # 注意：不得并入上面的 `e2e` job —— 那个 job 的门禁口径是「13 条 Chromium 桌面冒烟」，保持稳定。
+  # 移动端 / 弱网 / 多端并发：已改用隔离后端（H2 内存库 + LLM/MCP/AMAP 全关），
+  # 但**仍保持观察模式（continue-on-error）**：剩下的不确定性是共享 runner 上
+  # WebKit 与弱网耗时阈值的抖动，不是外部 Key 污染。
+  # 转正条件（写进 docs/guide/ci.md，2026-12-06 前复盘）：
+  #   1) 连续 2 周在隔离后端上无「只有 CI 红、本地绿」的抖动；
+  #   2) PR 模板已写明「Playwright WebKit 模拟 ≠ 真实 iOS Safari」。
+  # 不得并入上面的 `e2e` job —— 桌面门禁口径保持稳定。
   e2e-device:
-    name: E2E / 移动端(WebKit) + 弱网(CDP) + 多端并发（观察中，不阻塞）
+    name: E2E / 移动端(WebKit) + 弱网(CDP) + 多端并发（隔离后端，观察中）
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
@@ -378,16 +377,11 @@ jobs:
       - name: Install CJK fonts (PDF export parity with production image)
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends fonts-noto-cjk
 
-      # 与 e2e job 同款后端：H2 文件库 + demo 账号，关限流（原因见上面 e2e job 的注释）
-      - name: Start backend
+      # 与 e2e job 同一套隔离后端：Playwright 拉起 scripts/start-e2e-backend.mjs，
+      # 不读开发者 .env.local，也不启动 8080 上的真实 provider 实例。
+      - name: Build backend jar (isolated e2e)
         working-directory: travel-agent-server
-        env:
-          RATE_LIMIT_ENABLED: 'false'
-        run: nohup mvn -B spring-boot:run > backend.log 2>&1 &
-
-      - name: Wait for backend health
-        run: |
-          timeout 240 bash -c 'until curl -sf http://localhost:8080/actuator/health > /dev/null; do sleep 5; done'
+        run: mvn -B -q -Dmaven.test.skip=true package
 
       - name: Install frontend dependencies
         working-directory: travel-agent-web
@@ -402,10 +396,12 @@ jobs:
         working-directory: travel-agent-web
         run: npx playwright install --with-deps chromium webkit
 
-      # device = 13 条主冒烟 + 8 条新增（移动端 3 / 弱网 3 / 多端并发 2）
-      - name: Run device suites
+      # device = 13 条主冒烟 + 8 条新增（移动端 3 / 弱网 3 / 多端并发 2），全部跑隔离后端
+      - name: Run device suites（隔离后端）
         working-directory: travel-agent-web
-        run: npm run test:e2e:device
+        env:
+          E2E_ASSERT_ISOLATION: '1'
+        run: npm run e2e:device:isolated
 
       - name: Upload artifacts on failure
         if: failure()
@@ -413,7 +409,56 @@ jobs:
         with:
           name: e2e-device-artifacts
           path: |
-            travel-agent-server/backend.log
+            .e2e/isolated/backend.log
+            travel-agent-web/test-results
+            travel-agent-web/playwright-report
+          retention-days: 7
+
+  # 视觉回归：与生成器用同一个 Playwright 官方镜像（浏览器/字体/依赖固定），
+  # 只有仓库里存在 `*-chromium-linux.png` 基线时才真正比较；没有基线时只发 notice，
+  # 不制造“看起来跑过了”的假绿。
+  # 当前 continue-on-error=true（观察）：Linux 基线需要先由 visual-baseline.yml 生成并提交，
+  # 首次比较通过后再转硬门禁，条件见 docs/guide/ci.md。
+  visual:
+    name: Visual / 11 页截图回归（Linux 基线，观察中）
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-jammy
+      options: --ipc=host
+    defaults:
+      run:
+        working-directory: travel-agent-web
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Detect Linux baseline
+        id: baseline
+        run: |
+          if ls e2e/visual/pages.spec.ts-snapshots/*-chromium-linux.png >/dev/null 2>&1; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::仓库里还没有 *-chromium-linux.png 视觉基线；请先运行 Visual baseline (Linux) workflow 并提交产物。"
+          fi
+
+      - name: Build frontend
+        if: steps.baseline.outputs.present == 'true'
+        run: npm run build
+
+      - name: Compare snapshots (Linux)
+        if: steps.baseline.outputs.present == 'true'
+        run: npm run test:visual
+
+      - name: Upload visual diff on failure
+        if: failure() && steps.baseline.outputs.present == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-diff
+          path: |
             travel-agent-web/test-results
             travel-agent-web/playwright-report
           retention-days: 7

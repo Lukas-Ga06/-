@@ -1,6 +1,6 @@
-# 外部依赖降级矩阵（高德 / LLM / Embedding / Redis / S3）
+# 外部依赖降级矩阵（高德 / LLM / Embedding / 天气 / Redis / S3）
 
-> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.7 / AWS SDK 2.25.70 / WireMock 3.13.1） | 最后验证：2026-11-19 | 事实来源：`travel-agent-server/src/main/java/com/travel/agent/{service,llm,rag,security,config}/*.java`、`src/main/resources/application.yml`、`src/test/java/com/travel/agent/resilience/*`
+> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.12 / AWS SDK 2.25.70 / WireMock 3.13.1） | 最后验证：2026-11-23 | 事实来源：`travel-agent-server/src/main/java/com/travel/agent/{service,llm,rag,security,config}/*.java`、`src/main/resources/application.yml`、`src/test/java/com/travel/agent/{service,resilience}/*`
 
 本文只写**代码与测试能证明的现状**：每个外部依赖的超时预算从哪来、重试到底有没有、
 失败后变成什么、用户看到什么、哪个指标会涨、哪个测试类守住它。
@@ -8,13 +8,17 @@
 
 ## 1. 降级原则与指标契约
 
-五个外部依赖都遵循同一条纪律：**失败即降级，不把异常抛给业务主链路**。
-唯一的例外是 S3 的写入/读取（照片是用户资产，必须给用户明确的 500/404 语义，而不是静默丢文件）。
+外部依赖总体遵循：**失败即降级，不把异常抛给业务主链路**。
+两个例外：
+
+- **S3 的写入/读取**：照片是用户资产，必须给用户明确的 500/404 语义，而不是静默丢文件。
+- **天气**（2026-11-23 起）：产品路径**没有模拟兜底**。拿不到真实预报就是「不可用」——依赖天气的行程修改
+  直接 `503` 拒绝并说明原因，普通规划如实写「未做天气校验」。理由见 [能力边界](capability-boundaries.md) §3。
 
 统一降级指标（由本矩阵负责埋点，可观测性文档只消费、不重复定义）：
 
 ```
-external.degraded{provider=amap|llm|embedding|redis|s3,
+external.degraded{provider=amap|llm|embedding|weather|redis|s3,
                   reason=timeout|rate_limited|server_error|bad_response|connection_error}
 ```
 
@@ -44,6 +48,7 @@ sum by (provider) (rate(external_degraded_total[5m])) > 0.2
 | 高德地理编码 | 2000ms / 5000ms（可配） | **0**（批量失败退化为逐条查询，见 §3.1） | 单点返回 `null`、批量返回空/部分 Map | 无错误文案；坐标/路径精度下降（上层走 Nominatim 或本地估算） | `AmapResilienceTest` |
 | LLM（OpenAI 兼容） | 5000ms / 30000ms（可配，另受 Agent 端到端预算封顶） | **0** | `null`，上层用规则模板继续回复 | 无错误文案；回复来自模板而非模型 | `LlmResilienceTest` |
 | 真实 Embedding | 5000ms / 15000ms（默认值，`application.yml` 未覆盖） | **0** | 本地字符 bigram 哈希向量（256 维），**进程内永久锁存** | 无错误文案；RAG 召回质量下降 | `EmbeddingResilienceTest` |
+| 天气（Open-Meteo） | 3000ms / 5000ms（`WeatherService` 硬编码） | **0** | **不降级、不模拟**：返回 `WeatherLookup.unavailable(reason)`；依赖天气的修改被明确拒绝（`status=FAILED`，业务码 503），普通规划如实标注未校验 | 拒绝文案含日期与原因；方案警告写「未获取真实天气（原因），本次未做雨天/户外校验」 | `WeatherServiceTest`、`WeatherDependentModificationTest` |
 | Redis 限流计数 | Lettuce 命令超时（未配置 → Lettuce 默认 60s）；连接不可达时立即失败 | **0** | fail-open **放行**，`Retry-After` 至少 1s | 无错误文案；限流实际未生效（多实例额度不再共享） | `RedisResilienceTest` |
 | S3 兼容对象存储 | AWS SDK 默认 2s / 30s；可用 `api-call-timeout-ms` 设总超时 | **3 次**（SDK 默认，可配 0） | 写/读转 `BusinessException(500)`；读 404 转 `BusinessException(404)`；`exists` 404 → `false` | 「照片保存失败，请重试」/「照片读取失败，请重试」/「照片文件不存在（可能已被清理）」 | `S3ResilienceTest` |
 
@@ -65,7 +70,7 @@ sum by (provider) (rate(external_degraded_total[5m])) > 0.2
 - 单次调用还可带独立读超时：`AgentBudget.chat` 在端到端预算（`travel.agent.budget.*`，默认 30s）开启时把读超时压到「配置值与剩余预算的较小者」，避免最后一个阶段越过 deadline。
 - 重试：**0**。`OpenAiCompatibleLlmClient.chat` 失败即返回 `null`。
 - 降级链：`OpenAiCompatibleLlmClient` → `null`；`DelegatingLlmClient` 在未配置/配额耗尽/真实调用失败时同样返回 `null`（分别记 `llm.calls{result=skipped|quota|failed}`）；上层 `AgentEngine`/`StructuredPlanner` 用 `MessageTemplates` 的模板化输出继续回复。
-- 用户提示：无错误文案（`application.yml` 注释口径：「未配置或调用失败……自动降级为规则引擎，功能不受影响」）。`/api/system/status` 的 `llmVerified` 会如实显示最近一次真实调用失败（`LlmRuntimeStatus`）。
+- 用户提示：无错误文案（`application.yml` 注释口径：「未配置或调用失败……自动降级为规则规划器 + 模板回复：主流程仍可跑通，但能力弱于模型」）。`/api/system/status` 的 `llmVerified` 会如实显示最近一次真实调用失败（`LlmRuntimeStatus`）。
 - 指标：`provider=llm`；429→`rate_limited`，5xx→`server_error`，空响应/无 `choices`/内容空白/坏 JSON→`bad_response`，超时→`timeout`。既有 `llm.calls{result}` / `llm.latency` 不受影响。
 - 恢复语义：无锁存，下次调用成功即恢复。
 - 测试覆盖（`LlmResilienceTest`，9 个用例）：200、429、500、坏 JSON、空内容、读超时、故障后恢复、`DelegatingLlmClient` 失败时返回 `null`（上层走规则兜底）、未启用时零外呼（`skipped`）。
@@ -80,7 +85,24 @@ sum by (provider) (rate(external_degraded_total[5m])) > 0.2
 - 恢复语义：**本实例不自动恢复**。服务端恢复后，重新部署/重启进程才会重新使用真实模型；切换模型还需清空 `rag_document`/`rag_chunk` 重建知识库。测试同时验证「锁存」与「新实例可用真实模型」两面。
 - 测试覆盖（`EmbeddingResilienceTest`，7 个用例）：200（L2 归一化向量）、429、500、坏 JSON、空 `data`、读超时、锁存 + 新实例恢复。
 
-### 3.4 Redis 限流计数
+### 3.4 天气（Open-Meteo）
+
+- 配置：`travel.weather.simulation`（`WEATHER_SIMULATION`，默认 `false`）、`failure-cache-seconds`（`WEATHER_FAILURE_CACHE_SECONDS`，默认 60）、`geocode-base-url` / `forecast-base-url`（默认 Open-Meteo，测试用 WireMock 指向本地）。
+- 超时：`SimpleClientHttpRequestFactory` 硬编码 connect 3000ms / read 5000ms。
+- 重试：**0**。失败直接进入负缓存（同城同日 60 秒内不再外呼）。
+- 数据语义：`WeatherService.forecast(city, date)` 返回 `WeatherLookup`——要么 `available=true`（`info.source=real`），
+  要么 `available=false` + `reason`（`outside-forecast-window` / `city-not-found` / `timeout` / `rate_limited` /
+  `server_error` / `bad_response` / `connection_error`）。**没有第三种「猜一个天气」的结果**。
+- 产品行为：
+  - 依赖天气的行程修改（消息含雨/天气等）且不可用 → `BusinessException(503)`，不生成方案；
+  - 普通规划不可用 → 方案照常生成，审核警告如实写「未做雨天/户外校验」，文案不写「因为下雨」；
+  - 模拟数据只在 `travel.weather.simulation=true`（仅测试/离线演示）下出现，`/api/system/status` 自报 `weatherProvider=simulated`。
+- 用户提示：拒绝文案含城市、日期与原因（原文见 [能力边界](capability-boundaries.md) §3）；普通规划警告每天一条、有上限。
+- 指标：`provider=weather`；reason 与统一词表一致（`timeout` / `rate_limited` / `server_error` / `bad_response` / `connection_error`）。
+- 恢复语义：无锁存；负缓存到期后的下一次成功调用即恢复 `weatherProvider=open-meteo`。
+- 测试覆盖：`WeatherServiceTest`（模拟开关、不可达、超窗口、WireMock 200/500/坏 JSON、负缓存与指标）、`WeatherDependentModificationTest`（依赖天气的修改被 503 拒绝且不落待确认方案）。
+
+### 3.5 Redis 限流计数
 
 - 启用条件：`travel.rate-limit.store=redis`（默认 `memory`）。
 - 超时预算：未在 `application.yml` 配置 `spring.data.redis.timeout`，即沿用 Lettuce 默认命令超时（60s）；连接不可达时命令立即失败（connection refused），不会等满超时。降级测试用 127.0.0.1:1 + 200ms 命令/连接超时验证真实不可达路径。
@@ -91,7 +113,7 @@ sum by (provider) (rate(external_degraded_total[5m])) > 0.2
 - 恢复语义：无锁存，Redis 恢复后下一次命令成功即恢复真实限流（测试用「第一次抛异常、第二次返回计数」覆盖）。
 - 测试覆盖（`RedisResilienceTest`，4 个用例）：真实端口不可达 fail-open（两个指标都递增、不抛异常、可重复调用）、`retryAfterSeconds` 至少 1s、命令超时归类 `timeout`、恢复后计数重新生效。
 
-### 3.5 S3 兼容对象存储
+### 3.6 S3 兼容对象存储
 
 - 启用条件：`travel.photos.store=s3`。
 - 超时预算：默认沿用 AWS SDK 默认（连接 2s / socket 30s，已核对 AWS SDK 2.25.70 的 `SdkHttpConfigurationOption` 默认值）；如需单次调用总超时，设 `travel.photos.s3.api-call-timeout-ms`（毫秒，默认 `null` = 不设）。
@@ -109,18 +131,18 @@ sum by (provider) (rate(external_degraded_total[5m])) > 0.2
 
 ```bash
 cd travel-agent-server
-# 只跑降级矩阵（5 个类，38 个用例；WireMock 直接用已声明的 test scope 依赖，无需 Docker/Redis/S3）
-mvn -B -Dtest='*ResilienceTest' test
+# 只跑降级矩阵（*ResilienceTest 5 个类 + 天气两个测试类；WireMock 直接用已声明的 test scope 依赖，无需 Docker/Redis/S3）
+mvn -B -Dtest='*ResilienceTest,WeatherServiceTest,WeatherDependentModificationTest' test
 # 离线环境（依赖已在本地仓库时）
-mvn -B -o -Dtest='*ResilienceTest' test
+mvn -B -o -Dtest='*ResilienceTest,WeatherServiceTest,WeatherDependentModificationTest' test
 # 单个依赖
 mvn -B -Dtest=AmapResilienceTest test
 ```
 
-- 全部用例不依赖外网：高德/LLM/Embedding/S3 指向本地 WireMock 动态端口，Redis 指向 127.0.0.1:1（不可达端口）。
+- 全部用例不依赖外网：高德/LLM/Embedding/天气/S3 指向本地 WireMock 动态端口，Redis 指向 127.0.0.1:1（不可达端口）。
 - 超时用例统一用「服务端固定延迟 1500ms / 客户端 300ms 预算」制造真实读超时，单用例在秒级。
 - 指标断言用 `SimpleMeterRegistry`（`DegradedMetrics` 工具类），不需要启动 Spring 上下文。
-- 改完客户端后建议同时跑 `mvn -B test` 确认不破坏既有 540 个用例基线。
+- 改完客户端后建议同时跑 `mvn -B test` 确认不破坏既有用例基线（用例数以 CI 输出为准）。
 
 ## 5. 已知边界与遗留风险
 
@@ -130,3 +152,4 @@ mvn -B -Dtest=AmapResilienceTest test
 4. S3 `exists` 遇到非 404 异常仍向上抛（既有语义），因此不存在「探测失败即当作不存在」的静默风险，但调用方必须处理 500。
 5. 测试覆盖的是 HTTP 层故障（WireMock 注入的状态码/延迟/坏包体）与端口不可达，**不覆盖**真实 TLS 握手失败、DNS 劫持、代理层截断等网络故障；这些只能靠线上指标与 Runbook 兜底。
 6. 本文的指标只包含 `external.degraded`；业务结果类指标（`travel.plan.outcome`、`travel.llm.tokens` 等）见 `docs/guide/observability.md`，两边不重名。
+7. 天气的「不可用」是产品语义而不是降级：离线部署 + 未开 `WEATHER_SIMULATION` 时，所有依赖天气的修改都会 503。这是刻意的（宁可不排，也不拿模拟数据改行程），部署前应确认出站 HTTPS 可达 Open-Meteo。

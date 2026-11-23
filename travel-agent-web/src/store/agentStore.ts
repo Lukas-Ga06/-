@@ -81,6 +81,13 @@ interface AgentState {
   /** 刷新后用 planId 取回的方案重新挂起确认弹窗 */
   restorePending: (result: AgentResult) => void;
   reset: () => void;
+  /**
+   * 登出 / 换账号：彻底清空**所有作用域**的对话、在途流与服务端会话标识。
+   * 与 reset() 的区别：reset 只清当前作用域界面，保留 conversationId 与其它作用域的快照
+   * （跨页面续聊要用）；登出必须连快照与 conversations 一起抹掉，否则下一个登录的人
+   * 在同一标签页里能看到上一个人的聊天与待确认方案。
+   */
+  clearSession: () => void;
   /** 显式开新会话：清消息 + 换 conversationId（同时清掉服务端该会话历史） */
   newConversation: () => void;
   /**
@@ -356,7 +363,7 @@ export const useAgentStore = create<AgentState>()(
         const stopMsg: ChatMessage = {
           id: nextId(),
           role: 'assistant',
-          content: '⏹ 已停止生成。已获得的过程记录保留在运行详情里，你可以补充需求后重新发送。',
+          content: '已停止生成。已获得的过程记录保留在运行详情里，你可以补充需求后重新发送。',
           time: new Date().toISOString(),
           // 合成结果：界面用「已停止」结果卡与普通回答区分（§10.1 cancelled 语义）
           result: {
@@ -513,6 +520,30 @@ export const useAgentStore = create<AgentState>()(
           warnings: [],
           lastExecution: null,
           resumedTripId: null,
+        });
+      },
+
+      clearSession: () => {
+        // 在途流必须先作废：旧请求的回调不能写进下一个用户的界面
+        streamSeq += 1;
+        closeFn?.();
+        closeFn = null;
+        scopeCache.clear();
+        set({
+          scope: DEFAULT_SCOPE,
+          messages: [],
+          streaming: false,
+          stage: null,
+          pendingConfirm: null,
+          lastFocus: null,
+          committedTripId: null,
+          currentRun: null,
+          activity: [],
+          warnings: [],
+          lastExecution: null,
+          resumedTripId: null,
+          conversationId: null,
+          conversations: {},
         });
       },
 

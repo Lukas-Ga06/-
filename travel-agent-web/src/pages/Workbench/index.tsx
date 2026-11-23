@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Empty, Spin } from 'antd';
-import { ReloadOutlined } from '@ant-design/icons';
+import { BugOutlined, ReloadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { useNavigate } from 'react-router-dom';
 import AppShell from '../../components/AppShell';
@@ -256,7 +256,9 @@ export default function Workbench() {
       <div className="dash-wrap">
         <div className="dash-greeting">
           <div>
-            <h1>🩺 运行诊断</h1>
+            <h1>
+              <BugOutlined aria-hidden="true" className="page-title-icon" /> 运行诊断
+            </h1>
             <div className="dg-date">
               回看每次旅行规划运行：任务 DAG、重派与冲突、工具调用耗时与失败原因
             </div>

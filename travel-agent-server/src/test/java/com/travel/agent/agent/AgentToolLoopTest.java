@@ -28,9 +28,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class AgentToolLoopTest {
 
-    /** 脚本化 LLM：按顺序吐出决策 JSON */
+    /** 脚本化 LLM：按顺序吐出决策 JSON，并记录每次决策请求（便于断言工具清单/参数提示） */
     private static final class ScriptedLlm implements LlmClient {
         private final ArrayDeque<String> responses;
+        final List<List<LlmMessage>> requests = new ArrayList<>();
         int calls = 0;
 
         ScriptedLlm(String... responses) {
@@ -40,6 +41,7 @@ class AgentToolLoopTest {
         @Override
         public String chat(List<LlmMessage> messages, double temperature) {
             calls++;
+            requests.add(messages);
             return responses.isEmpty() ? "{\"action\":\"FINAL\",\"summary\":\"耗尽\"}" : responses.poll();
         }
 
@@ -96,6 +98,37 @@ class AgentToolLoopTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    /** P0-B：声明了结构化参数的测试工具（city 必填、nearLat 可选），用于断言提示词渲染与参数校验 */
+    private static final class SchemaTool implements AgentTool {
+        @Override
+        public String getName() {
+            return "schema_tool";
+        }
+
+        @Override
+        public String getDescription() {
+            return "带结构化参数声明的测试工具";
+        }
+
+        @Override
+        public RiskLevel getRiskLevel() {
+            return RiskLevel.LOW;
+        }
+
+        @Override
+        public List<AgentTool.ToolParameter> getParameters() {
+            return List.of(
+                    new AgentTool.ToolParameter("city", true, "string", "城市"),
+                    new AgentTool.ToolParameter("nearLat", false, "number", "数字"));
+        }
+
+        @Override
+        public Object execute(Map<String, Object> args) {
+            return Map.of("city", String.valueOf(args.get("city")),
+                    "nearLat", String.valueOf(args.get("nearLat")));
+        }
+    }
+
     private AgentToolLoop loop(LlmClient llm, ToolRegistry registry) {
         // 追踪层用 Mockito 桩（单元测试不落库；AgentTraceService 内部本来就吞异常，桩只为满足构造）
         return new AgentToolLoop(llm, registry,
@@ -124,6 +157,7 @@ class AgentToolLoopTest {
                 context(), "收集上海事实", ALLOWED, 4);
 
         assertThat(result.completed()).isTrue();
+        assertThat(result.partial()).as("模型自己 FINAL 不算部分完成").isFalse();
         assertThat(result.steps()).hasSize(1);
         assertThat(result.steps().get(0).success()).isTrue();
         assertThat(result.notes()).singleElement()
@@ -163,7 +197,7 @@ class AgentToolLoopTest {
     }
 
     @Test
-    @DisplayName("步骤预算耗尽时停止并返回未完成（调用方走既有降级路径）")
+    @DisplayName("步骤预算耗尽但已有成功观察 → completed=true、partial=true，并写明已收集事实数（P0-B）")
     void budgetExhaustionStopsLoop() {
         // 每步换参数避开去重 → 永远 CALL_TOOL → 耗尽 3 步预算
         ScriptedLlm llm = new ScriptedLlm(
@@ -174,8 +208,9 @@ class AgentToolLoopTest {
         AgentToolLoop.LoopResult result = loop(llm, with(new EchoTool(false))).run(
                 context(), "预算验证", ALLOWED, 3);
 
-        assertThat(result.completed()).isFalse();
-        assertThat(result.summary()).contains("预算耗尽");
+        assertThat(result.completed()).isTrue();
+        assertThat(result.partial()).isTrue();
+        assertThat(result.summary()).contains("已收集 3 条可用事实").contains("步数上限");
         assertThat(result.steps()).hasSize(3);
     }
 
@@ -223,9 +258,9 @@ class AgentToolLoopTest {
     }
 
     @Test
-    @DisplayName("步骤预算耗尽时仍保留已成功收集的事实（未完成 != 丢弃已查到的结果）")
+    @DisplayName("步骤预算耗尽但事实已收集：按 partial 收尾，已查到的事实全部保留")
     void budgetExhaustionKeepsCollectedFacts() {
-        // 两步成功调用 + 第三步仍在 CALL_TOOL → 预算 3 步耗尽
+        // 三步成功调用后预算耗尽 → 不再是「研究未完成」，而是「部分完成 + 3 条事实」
         ScriptedLlm llm = new ScriptedLlm(
                 "{\"action\":\"CALL_TOOL\",\"tool\":\"echo_tool\",\"args\":{\"city\":\"上海\"}}",
                 "{\"action\":\"CALL_TOOL\",\"tool\":\"echo_tool\",\"args\":{\"day\":1}}",
@@ -233,11 +268,73 @@ class AgentToolLoopTest {
         AgentToolLoop.LoopResult result = loop(llm, with(new EchoTool(false))).run(
                 context(), "预算耗尽但已查到东西", ALLOWED, 3);
 
-        assertThat(result.completed()).isFalse();
+        assertThat(result.completed()).isTrue();
+        assertThat(result.partial()).isTrue();
         assertThat(result.steps()).hasSize(3);
         // 关键：三步全部成功执行 → notes 必须完整保留，供下游 Prompt 使用
         assertThat(result.notes()).hasSize(3);
         assertThat(result.notes()).allSatisfy(note -> assertThat(note).contains("echo_tool"));
+    }
+
+    @Test
+    @DisplayName("预算耗尽且一条成功观察都没有 → 仍算未完成（不能把空研究包装成部分完成）")
+    void exhaustionWithoutSuccessStaysIncomplete() {
+        ScriptedLlm llm = new ScriptedLlm(
+                "{\"action\":\"CALL_TOOL\",\"tool\":\"echo_tool\",\"args\":{\"i\":1}}",
+                "{\"action\":\"CALL_TOOL\",\"tool\":\"echo_tool\",\"args\":{\"i\":2}}");
+        AgentToolLoop.LoopResult result = loop(llm, with(new EchoTool(true))).run(
+                context(), "全失败研究", ALLOWED, 2);
+
+        assertThat(result.completed()).isFalse();
+        assertThat(result.partial()).isFalse();
+        assertThat(result.summary()).contains("预算耗尽");
+        assertThat(result.notes()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("P0-B：内置工具参数名/必填/说明渲染进决策提示词，避免模型猜参数名")
+    void decisionPromptRendersToolSchema() {
+        ScriptedLlm llm = new ScriptedLlm("{\"action\":\"FINAL\",\"summary\":\"够了\"}");
+        loop(llm, with(new SchemaTool())).run(context(), "参数清单验证", Set.of("schema_tool"), 3);
+
+        assertThat(llm.requests).isNotEmpty();
+        String prompt = llm.requests.get(0).stream()
+                .map(LlmMessage::content)
+                .collect(java.util.stream.Collectors.joining("\n"));
+        assertThat(prompt).contains("- schema_tool（参数: city*（城市）, nearLat（数字）；*为必填）");
+        // 必须明确告诉模型「参数名来自清单、不要自造」，这是 10021 排障暴露的模型猜参根因
+        assertThat(prompt).contains("不要自造 location/indoor");
+        assertThat(prompt).contains("同一工具已成功调用 2 次");
+    }
+
+    @Test
+    @DisplayName("P0-B：模型自造参数名时工具不执行，观察里给出可用参数让模型自纠")
+    void unknownParameterBecomesObservation() {
+        ScriptedLlm llm = new ScriptedLlm(
+                "{\"action\":\"CALL_TOOL\",\"tool\":\"schema_tool\",\"args\":{\"location\":\"杭州\"}}",
+                "{\"action\":\"FINAL\",\"summary\":\"放弃\"}");
+        AgentToolLoop.LoopResult result = loop(llm, with(new SchemaTool())).run(
+                context(), "参数错误自纠", Set.of("schema_tool"), 3);
+
+        assertThat(result.steps()).hasSize(1);
+        assertThat(result.steps().get(0).success()).isFalse();
+        assertThat(result.steps().get(0).observation())
+                .contains("未知参数 location").contains("可用参数").contains("city");
+        assertThat(result.notes()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("P0-B：缺必填参数时工具不执行，观察点名缺哪个参数")
+    void missingRequiredParameterBecomesObservation() {
+        ScriptedLlm llm = new ScriptedLlm(
+                "{\"action\":\"CALL_TOOL\",\"tool\":\"schema_tool\",\"args\":{}}",
+                "{\"action\":\"FINAL\",\"summary\":\"放弃\"}");
+        AgentToolLoop.LoopResult result = loop(llm, with(new SchemaTool())).run(
+                context(), "缺参自纠", Set.of("schema_tool"), 3);
+
+        assertThat(result.steps()).hasSize(1);
+        assertThat(result.steps().get(0).success()).isFalse();
+        assertThat(result.steps().get(0).observation()).contains("缺少必填参数 city");
     }
 
     @Test

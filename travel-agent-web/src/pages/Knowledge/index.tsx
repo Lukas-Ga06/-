@@ -1,9 +1,18 @@
-import { useState } from 'react';
-import { App, Button, Empty, Input, InputNumber, Modal, Popconfirm, Spin, Tag } from 'antd';
-import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { useMemo, useState } from 'react';
+import { App, Button, Empty, Input, Modal, Popconfirm, Select, Spin, Tag } from 'antd';
+import {
+  BookOutlined,
+  CloudUploadOutlined,
+  FileTextOutlined,
+  HistoryOutlined,
+  ReloadOutlined,
+  RollbackOutlined,
+  SearchOutlined,
+} from '@ant-design/icons';
 import dayjs from 'dayjs';
 import AppShell from '../../components/AppShell';
 import EmptyState from '../../components/EmptyState';
+import RunStatus from '../../components/RunStatus';
 import {
   addKnowledge,
   getKnowledgeVersion,
@@ -25,14 +34,29 @@ function formatDateTime(value?: string | null): string {
   return d.isValid() ? d.format('YYYY-MM-DD HH:mm') : value;
 }
 
+/** 后端版本状态 → 用户能读懂的文案（技术状态只出现在诊断详情里） */
+function versionStatusText(version: KnowledgeVersionSummary): string {
+  if (version.active) return '当前版本';
+  if (version.status === 'SKIPPED') return '内容未变化';
+  return '历史版本';
+}
+
+interface SavedDoc {
+  id: number;
+  title: string;
+}
+
 /**
- * 旅行知识库：为 Planner 研究链路补充自定义攻略文档，并按需检索 / 回滚版本。
- * 只做旅行域的 RAG 文档管理，不提供通用产物生成。
+ * 攻略库：保存目的地攻略与旅行笔记，检索结果会进入 Planner 的研究链路。
+ *
+ * 用户主流程只说「攻略 / 保存 / 片段 / 历史版本」；
+ * provider、指纹、文档编号等技术信息收在每行的「详情与诊断」里，
+ * 不在主流程暴露后端契约字段名。
  */
 export default function Knowledge() {
   const { message } = App.useApp();
 
-  // 添加文档
+  // 保存攻略
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [addBusy, setAddBusy] = useState(false);
@@ -44,13 +68,13 @@ export default function Knowledge() {
   const [hits, setHits] = useState<KnowledgeSearchHit[] | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
 
-  // 版本与回滚
+  // 历史版本
   const [documentId, setDocumentId] = useState<number | null>(null);
-  const [versionDocId, setVersionDocId] = useState<number | null>(null);
   const [versions, setVersions] = useState<KnowledgeVersionSummary[] | null>(null);
   const [versionsLoading, setVersionsLoading] = useState(false);
   const [versionsError, setVersionsError] = useState<string | null>(null);
   const [rollbackBusy, setRollbackBusy] = useState<number | null>(null);
+  const [savedDocs, setSavedDocs] = useState<SavedDoc[]>([]);
 
   // 版本正文预览
   const [versionModal, setVersionModal] = useState<{
@@ -60,36 +84,55 @@ export default function Knowledge() {
   const [versionDetail, setVersionDetail] = useState<KnowledgeVersionDetail | null>(null);
   const [versionDetailLoading, setVersionDetailLoading] = useState(false);
 
+  /** 记住攻略标题：历史版本下拉与命中结果都从「已保存攻略」里选，而不是让用户填文档 ID */
+  const rememberDoc = (id: number, docTitle: string) => {
+    setSavedDocs((prev) =>
+      prev.some((doc) => doc.id === id) ? prev : [{ id, title: docTitle }, ...prev],
+    );
+  };
+
+  const docOptions = useMemo(
+    () =>
+      savedDocs.map((doc) => ({
+        value: doc.id,
+        label: doc.title,
+      })),
+    [savedDocs],
+  );
+
   const loadVersions = (id?: number | null) => {
     const target = id ?? documentId;
     if (!target) {
-      message.warning('请先填写文档 ID，或从检索结果打开对应版本');
+      message.warning('先从已保存攻略里选一篇');
       return;
     }
     setDocumentId(target);
-    setVersionDocId(target);
     setVersionsLoading(true);
     setVersionsError(null);
     listKnowledgeVersions(target)
       .then((rows) => setVersions(Array.isArray(rows) ? rows : []))
-      .catch((e: any) => setVersionsError(e?.message || '版本列表加载失败'))
+      .catch((e: any) => setVersionsError(e?.message || '历史版本加载失败'))
       .finally(() => setVersionsLoading(false));
   };
 
   const doAdd = async () => {
     if (!content.trim()) {
-      message.warning('填写知识正文');
+      message.warning('写点攻略正文再保存');
       return;
     }
     setAddBusy(true);
     try {
       const result = await addKnowledge({ title: title.trim(), content: content.trim() });
+      const savedTitle = title.trim() || '未命名攻略';
       setAddResult(result);
       setDocumentId(result.documentId);
-      message.success(`已入库：${result.chunks} 个切块 · 版本 v${result.versionNo}`);
+      rememberDoc(result.documentId, savedTitle);
+      setTitle('');
+      setContent('');
+      message.success('攻略已更新');
       loadVersions(result.documentId);
     } catch (e: any) {
-      message.error(e?.message || '知识入库失败');
+      message.error(e?.message || '攻略保存失败');
     } finally {
       setAddBusy(false);
     }
@@ -97,16 +140,20 @@ export default function Knowledge() {
 
   const doSearch = async () => {
     if (!query.trim()) {
-      message.warning('输入检索关键词');
+      message.warning('输入关键词再查');
       return;
     }
     setSearchBusy(true);
     setSearchError(null);
     try {
       const rows = await searchKnowledge(query.trim());
-      setHits(Array.isArray(rows) ? rows : []);
+      const list = Array.isArray(rows) ? rows : [];
+      setHits(list);
+      for (const hit of list) {
+        if (hit.documentId) rememberDoc(hit.documentId, hit.title);
+      }
     } catch (e: any) {
-      setSearchError(e?.message || '知识检索失败');
+      setSearchError(e?.message || '攻略查询失败');
     } finally {
       setSearchBusy(false);
     }
@@ -118,19 +165,20 @@ export default function Knowledge() {
     setVersionDetailLoading(true);
     getKnowledgeVersion(id, versionNo)
       .then(setVersionDetail)
-      .catch((e: any) => message.error(e?.message || '版本正文加载失败'))
+      .catch((e: any) => message.error(e?.message || '版本内容加载失败'))
       .finally(() => setVersionDetailLoading(false));
   };
 
   const doRollback = async (versionNo: number) => {
-    if (!versionDocId) return;
+    const target = documentId;
+    if (!target) return;
     setRollbackBusy(versionNo);
     try {
-      const result = await rollbackKnowledge(versionDocId, versionNo);
-      message.success(`已回滚到 v${result.activeVersionNo}，向量索引已重建`);
-      loadVersions(versionDocId);
+      const result = await rollbackKnowledge(target, versionNo);
+      message.success(`已切换到第 ${result.activeVersionNo} 版，攻略已更新`);
+      loadVersions(target);
     } catch (e: any) {
-      message.error(e?.message || '版本回滚失败');
+      message.error(e?.message || '切换版本失败');
     } finally {
       setRollbackBusy(null);
     }
@@ -141,9 +189,11 @@ export default function Knowledge() {
       <div className="dash-wrap">
         <div className="dash-greeting">
           <div>
-            <h1>📚 旅行知识库</h1>
+            <h1>
+              <BookOutlined aria-hidden="true" className="page-title-icon" /> 攻略库
+            </h1>
             <div className="dg-date">
-              补充目的地攻略与旅行笔记，检索结果会进入 Planner 的研究链路；支持版本回滚
+              保存目的地攻略与旅行笔记，规划时会优先参考；保存后会生成可回滚的历史版本。
             </div>
           </div>
         </div>
@@ -151,11 +201,13 @@ export default function Knowledge() {
         <div className="knowledge-grid">
           <section className="dash-card">
             <div className="dc-head">
-              <b>📥 添加文档</b>
-              <span className="dg-date">标题可留空（记为「未命名知识」）</span>
+              <b>
+                <CloudUploadOutlined aria-hidden="true" /> 保存攻略
+              </b>
+              <span className="dg-date">标题可留空（记为「未命名攻略」）</span>
             </div>
             <div className="kb-field">
-              <label htmlFor="kb-title">标题</label>
+              <label htmlFor="kb-title">攻略标题</label>
               <Input
                 id="kb-title"
                 size="large"
@@ -166,7 +218,7 @@ export default function Knowledge() {
               />
             </div>
             <div className="kb-field">
-              <label htmlFor="kb-content">正文</label>
+              <label htmlFor="kb-content">攻略正文</label>
               <Input.TextArea
                 id="kb-content"
                 rows={7}
@@ -178,21 +230,32 @@ export default function Knowledge() {
               />
             </div>
             <Button type="primary" size="large" loading={addBusy} onClick={doAdd}>
-              入库并切块
+              保存攻略
             </Button>
             {addResult && (
               <div className="kb-add-result" data-testid="kb-add-result">
-                <Tag color="green">文档 #{addResult.documentId}</Tag>
-                <Tag color="blue">{addResult.chunks} 个切块</Tag>
-                <Tag>版本 v{addResult.versionNo}</Tag>
+                <RunStatus
+                  status="complete"
+                  text="攻略已保存"
+                  detail={`第 ${addResult.versionNo} 版 · 共 ${addResult.chunks} 个片段`}
+                  actions={[
+                    {
+                      label: '查看历史版本',
+                      icon: <HistoryOutlined />,
+                      onClick: () => loadVersions(addResult.documentId),
+                    },
+                  ]}
+                />
               </div>
             )}
           </section>
 
           <section className="dash-card">
             <div className="dc-head">
-              <b>🔍 检索知识</b>
-              <span className="dg-date">公共知识 + 你上传的文档</span>
+              <b>
+                <SearchOutlined aria-hidden="true" /> 查找攻略
+              </b>
+              <span className="dg-date">公共攻略 + 你保存的内容</span>
             </div>
             <div className="kb-toolbar">
               <Input
@@ -211,14 +274,14 @@ export default function Knowledge() {
                 loading={searchBusy}
                 onClick={doSearch}
               >
-                检索
+                查找
               </Button>
             </div>
 
             {searchBusy && <Spin style={{ display: 'block', margin: '24px auto' }} />}
             {!searchBusy && searchError && (
               <div className="run-error-box">
-                <div className="run-error">⚠ {searchError}</div>
+                <RunStatus status="failed" text="攻略查询失败" detail={searchError} />
                 <Button size="small" icon={<ReloadOutlined />} onClick={doSearch}>
                   重试
                 </Button>
@@ -227,12 +290,12 @@ export default function Knowledge() {
             {!searchBusy && !searchError && hits && hits.length === 0 && (
               <EmptyState
                 testId="knowledge-search-empty"
-                title="没有命中知识"
-                hint="换个更短的关键词，或先在上方把攻略正文入库。"
+                title="没有找到相关攻略"
+                hint="换个更短的关键词，或在上方保存一篇攻略。"
               />
             )}
             {!searchBusy && !searchError && hits === null && (
-              <div className="runs-empty-line">输入关键词，查看知识库命中片段</div>
+              <div className="runs-empty-line">输入关键词，查看匹配到的攻略片段</div>
             )}
             {!searchBusy && !searchError && hits && hits.length > 0 && (
               <div className="kb-hits">
@@ -241,18 +304,30 @@ export default function Knowledge() {
                     <div className="kb-hit-head">
                       <b>{hit.title}</b>
                       <span className="kb-score">
-                        score {Number.isFinite(hit.score) ? hit.score.toFixed(3) : '—'}
+                        相关度 {Number.isFinite(hit.score) ? hit.score.toFixed(3) : '—'}
                       </span>
                     </div>
                     <div className="kb-hit-snippet">{hit.snippet}</div>
                     <div className="kb-hit-meta">
-                      <Tag>文档 #{hit.documentId}</Tag>
-                      <Tag>v{hit.version}</Tag>
-                      <Tag>切块 #{hit.chunkId}</Tag>
-                      <span className="kb-source">{hit.source}</span>
-                      <Button size="small" type="link" onClick={() => loadVersions(hit.documentId)}>
-                        查看版本
+                      <Tag>第 {hit.version} 版</Tag>
+                      <Tag>片段 {hit.chunkId}</Tag>
+                      <span className="kb-source">来源：{hit.source}</span>
+                      <Button
+                        size="small"
+                        type="link"
+                        onClick={() => {
+                          rememberDoc(hit.documentId, hit.title);
+                          loadVersions(hit.documentId);
+                        }}
+                      >
+                        查看历史版本
                       </Button>
+                      <details className="kb-details">
+                        <summary>详情与诊断</summary>
+                        <span>
+                          攻略编号 {hit.documentId} · 版本 {hit.version} · 片段 {hit.chunkId}
+                        </span>
+                      </details>
                     </div>
                   </div>
                 ))}
@@ -263,73 +338,87 @@ export default function Knowledge() {
 
         <section className="dash-card">
           <div className="dc-head">
-            <b>🗂️ 文档版本与回滚</b>
-            <span className="dg-date">
-              {versionDocId ? `当前文档 #${versionDocId}` : '按文档 ID 查询，或从检索结果打开'}
-            </span>
+            <b>
+              <HistoryOutlined aria-hidden="true" /> 历史版本
+            </b>
+            <span className="dg-date">保存新内容会产生新版本，可随时切回旧版本</span>
           </div>
           <div className="kb-toolbar">
-            <InputNumber
-              min={1}
-              precision={0}
+            <Select
+              showSearch
+              optionFilterProp="label"
               size="large"
-              style={{ width: 180 }}
-              value={documentId}
-              onChange={(value) => setDocumentId(typeof value === 'number' ? value : null)}
-              placeholder="文档 ID"
-              aria-label="文档 ID"
+              style={{ minWidth: 240, flex: '0 1 360px' }}
+              value={documentId ?? undefined}
+              onChange={(value: number) => {
+                setDocumentId(value);
+                setVersions(null);
+                setVersionsError(null);
+              }}
+              options={docOptions}
+              placeholder="从已保存攻略中选择"
+              aria-label="从已保存攻略中选择"
+              notFoundContent="还没有已保存的攻略"
             />
             <Button
               size="large"
-              icon={<ReloadOutlined />}
+              icon={<FileTextOutlined />}
               loading={versionsLoading}
               onClick={() => loadVersions()}
+              disabled={!documentId}
             >
-              查询版本
+              查看历史版本
             </Button>
           </div>
+          {docOptions.length === 0 && (
+            <div className="runs-empty-line">保存或查找一篇攻略后，就能在这里查看历史版本。</div>
+          )}
 
           {versionsLoading && <Spin style={{ display: 'block', margin: '24px auto' }} />}
           {!versionsLoading && versionsError && (
             <div className="run-error-box">
-              <div className="run-error">⚠ {versionsError}</div>
+              <RunStatus status="failed" text="历史版本加载失败" detail={versionsError} />
               <Button size="small" icon={<ReloadOutlined />} onClick={() => loadVersions()}>
                 重试
               </Button>
             </div>
           )}
-          {!versionsLoading && !versionsError && versions === null && (
-            <div className="runs-empty-line">尚未查询版本列表</div>
+          {!versionsLoading && !versionsError && versions === null && docOptions.length > 0 && (
+            <div className="runs-empty-line">选择一篇攻略后查看历史版本</div>
           )}
           {!versionsLoading && !versionsError && versions && versions.length === 0 && (
-            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="该文档暂无版本记录" />
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="这篇攻略还没有历史版本" />
           )}
           {!versionsLoading && !versionsError && versions && versions.length > 0 && (
             <div className="kb-versions">
               {versions.map((version) => (
                 <div className="kb-version-row" key={version.versionNo}>
                   <Tag color={version.active ? 'green' : 'default'}>
-                    v{version.versionNo}
-                    {version.active ? ' · 当前' : ''}
+                    第 {version.versionNo} 版{version.active ? ' · 当前' : ''}
                   </Tag>
                   <div className="kb-version-meta">
                     <span className="kb-version-doc">
-                      {version.status} · {formatDateTime(version.createdAt)}
+                      {versionStatusText(version)} · {formatDateTime(version.createdAt)}
                     </span>
-                    <span className="kb-version-doc" title={version.fingerprint}>
-                      指纹 {version.fingerprint ? `${version.fingerprint.slice(0, 12)}…` : '—'}
-                    </span>
+                    <details className="kb-details">
+                      <summary>详情与诊断</summary>
+                      <span>
+                        攻略编号 {documentId ?? '—'} · 指纹{' '}
+                        {version.fingerprint ? `${version.fingerprint.slice(0, 12)}…` : '—'} ·
+                        后端状态 {version.status}
+                      </span>
+                    </details>
                   </div>
                   <Button
                     size="small"
-                    onClick={() => versionDocId && openVersion(versionDocId, version.versionNo)}
+                    onClick={() => documentId && openVersion(documentId, version.versionNo)}
                   >
                     查看正文
                   </Button>
                   <Popconfirm
-                    title={`回滚到 v${version.versionNo}？`}
-                    description="目标版本会置为当前版本，并立即重建向量索引。"
-                    okText="回滚"
+                    title={`切回第 ${version.versionNo} 版？`}
+                    description="当前攻略内容会被替换，检索依据同步切换。"
+                    okText="切回这一版"
                     cancelText="取消"
                     disabled={version.active}
                     onConfirm={() => doRollback(version.versionNo)}
@@ -339,8 +428,9 @@ export default function Knowledge() {
                       danger
                       disabled={version.active}
                       loading={rollbackBusy === version.versionNo}
+                      icon={<RollbackOutlined />}
                     >
-                      {version.active ? '已是当前版本' : '回滚到此版本'}
+                      {version.active ? '已是当前版本' : '切回这一版'}
                     </Button>
                   </Popconfirm>
                 </div>
@@ -352,11 +442,7 @@ export default function Knowledge() {
 
       <Modal
         open={!!versionModal}
-        title={
-          versionModal
-            ? `文档 #${versionModal.documentId} · v${versionModal.versionNo} 正文`
-            : '版本正文'
-        }
+        title={versionModal ? `第 ${versionModal.versionNo} 版内容` : '历史版本内容'}
         footer={null}
         width={760}
         onCancel={() => {
@@ -369,7 +455,7 @@ export default function Knowledge() {
         ) : versionDetail ? (
           <pre className="kb-version-content">{versionDetail.content}</pre>
         ) : (
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="版本正文不可用" />
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="版本内容不可用" />
         )}
       </Modal>
     </AppShell>

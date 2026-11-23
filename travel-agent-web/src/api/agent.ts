@@ -167,8 +167,17 @@ export async function streamAgentChat(
    * 连接层错误：服务端 180s 超时、网络中断等情况下浏览器只会触发 onerror。
    * 旧实现只在 readyState === CLOSED 时才回调，导致既不 complete 也不 error，
    * 调用方的 streaming 状态永远停在 true（输入框被永久禁用）。
+   *
+   * 关键陷阱：服务端的业务错误也用 `event: error` 下发，浏览器会把这条 **带 data 的
+   * MessageEvent** 同样派发给 onerror。那种帧已经由上面的监听器当过程警告处理，
+   * 后面还会跟一条 complete；如果在这里无条件 finish，complete 会被丢掉，
+   * 用户看到「连接已中断」，真实业务文案也随之消失。
    */
-  es.onerror = () => {
+  es.onerror = (event?: Event) => {
+    const data = (event as MessageEvent | undefined)?.data;
+    if (typeof data === 'string' && data.length > 0) {
+      return;
+    }
     finish(() => handlers.onError?.('与 Agent 的连接已中断，请重试'));
   };
 
@@ -394,5 +403,39 @@ export function clearConversation(conversationId: string): Promise<void> {
     url: '/agent/conversation/clear',
     method: 'post',
     data: { conversationId },
+  });
+}
+
+/** 重命名结果：服务端真正生效的标题（null = 已恢复自动标题） */
+export interface ConversationRenameResult {
+  conversationId: string;
+  title: string | null;
+}
+
+/**
+ * 重命名一段会话（V23）：只改展示标题，不动消息、不影响续聊。
+ *
+ * 传空串 = 恢复自动标题（回到「首条用户消息」的推导标题），返回值里的 title 也就是 null。
+ */
+export function renameConversation(
+  conversationId: string,
+  title: string,
+): Promise<ConversationRenameResult> {
+  return request<ConversationRenameResult>({
+    url: `/agent/conversations/${encodeURIComponent(conversationId)}`,
+    method: 'patch',
+    data: { title },
+  });
+}
+
+/**
+ * 删除一段会话（V23）：消息与标题一起删，不可恢复。
+ *
+ * 幂等：不存在的会话同样成功（保留期清理可能已经删过），不需要前端区分。
+ */
+export function deleteConversation(conversationId: string): Promise<void> {
+  return request<void>({
+    url: `/agent/conversations/${encodeURIComponent(conversationId)}`,
+    method: 'delete',
   });
 }

@@ -1,4 +1,11 @@
 import { useEffect, useState, useCallback, useRef, type ReactNode } from 'react';
+import {
+  CheckOutlined,
+  CloseOutlined,
+  ExclamationOutlined,
+  InfoOutlined,
+  StarOutlined,
+} from '@ant-design/icons';
 
 export type ToastType = 'success' | 'warning' | 'error' | 'info' | 'ai';
 
@@ -51,12 +58,12 @@ export const toast = {
   dismiss,
 };
 
-const ICONS: Record<ToastType, string> = {
-  success: '✓',
-  warning: '!',
-  error: '✕',
-  info: 'i',
-  ai: '✦',
+const ICONS: Record<ToastType, ReactNode> = {
+  success: <CheckOutlined />,
+  warning: <ExclamationOutlined />,
+  error: <CloseOutlined />,
+  info: <InfoOutlined />,
+  ai: <StarOutlined />,
 };
 
 /**
@@ -114,13 +121,15 @@ function ToastCard({ toast, onClose }: { toast: ToastItem; onClose: () => void }
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
-      <div className="toast-icon">{ICONS[toast.type]}</div>
+      <div className="toast-icon" aria-hidden="true">
+        {ICONS[toast.type]}
+      </div>
       <div className="toast-body">
         {toast.title && <div className="toast-title">{toast.title}</div>}
         <div className="toast-content">{toast.content}</div>
       </div>
-      <button className="toast-close" onClick={handleClose} aria-label="关闭">
-        ✕
+      <button className="toast-close" onClick={handleClose} aria-label="关闭" title="关闭">
+        <CloseOutlined aria-hidden="true" />
       </button>
       {toast.duration > 0 && (
         <div className="toast-progress">

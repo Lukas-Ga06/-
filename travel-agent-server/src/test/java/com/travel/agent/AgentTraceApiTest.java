@@ -86,7 +86,12 @@ class AgentTraceApiTest extends IntegrationTestSupport {
         JsonNode runs = recentRuns(account);
         JsonNode latest = runs.get(0);
         assertThat(latest.path("intent").asText()).isEqualTo("PLAN_TRIP");
-        assertThat(latest.path("status").asText()).isEqualTo("SUCCEEDED");
+        // P0-07：状态是聚合结论，不再是「HTTP 200 就算成功」。测试环境没有真实天气/供应商，
+        // 规划会带 MEDIUM 过程警告（如「模拟天气」）——有警告时必须是 PARTIAL_SUCCESS，
+        // 没有警告时才是 SUCCEEDED。断言二者一致，避免把带警告的结果伪装成绿色。
+        boolean hasWarnings = result.path("warnings").size() > 0;
+        assertThat(latest.path("status").asText())
+                .isEqualTo(hasWarnings ? "PARTIAL_SUCCESS" : "SUCCEEDED");
 
         JsonNode detail = runDetail(account, latest.path("runId").asText());
         List<String> taskTypes = new ArrayList<>();

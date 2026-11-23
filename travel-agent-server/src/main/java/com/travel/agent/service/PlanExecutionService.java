@@ -12,7 +12,6 @@ import com.travel.agent.repository.ScheduleItemRepository;
 import com.travel.agent.repository.TripRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -50,6 +49,7 @@ public class PlanExecutionService {
     private final PlanExecutionRepository executionRepository;
     private final ScheduleItemRepository scheduleItemRepository;
     private final TripRepository tripRepository;
+    private final PlanScheduleSyncWriter scheduleSyncWriter;
     private final ObjectMapper objectMapper;
 
     // ==================== 确认后的首次同步 ====================
@@ -167,24 +167,22 @@ public class PlanExecutionService {
             for (int day = 1; day <= days; day++) {
                 String sourceKey = sourceKey(planId, day);
                 if (scheduleItemRepository.findBySourceKey(sourceKey).isPresent()) {
-                    continue; // 幂等：已同步过
+                    continue; // 幂等：已同步过（快路径，不走唯一键异常）
                 }
-                try {
-                    scheduleItemRepository.saveAndFlush(ScheduleItem.builder()
-                            .userId(userId)
-                            .title("🧳 " + trip.getName() + " · Day " + day)
-                            .date(trip.getStartDate().plusDays(day - 1L))
-                            .time(LocalTime.of(9, 0))
-                            .note("同步自行程计划（目的地 " + trip.getDestination() + "）")
-                            .sourceKey(sourceKey)
-                            .tripId(tripId)
-                            .travelDay(day)
-                            .source("PLAN_SYNC")
-                            .build());
+                // 并发兜底走独立事务：撞唯一键只回滚这一天，不会把整个同步事务标成 rollback-only
+                boolean inserted = scheduleSyncWriter.insertIfAbsent(ScheduleItem.builder()
+                        .userId(userId)
+                        .title("🧳 " + trip.getName() + " · Day " + day)
+                        .date(trip.getStartDate().plusDays(day - 1L))
+                        .time(LocalTime.of(9, 0))
+                        .note("同步自行程计划（目的地 " + trip.getDestination() + "）")
+                        .sourceKey(sourceKey)
+                        .tripId(tripId)
+                        .travelDay(day)
+                        .source("PLAN_SYNC")
+                        .build());
+                if (inserted) {
                     created++;
-                } catch (DataIntegrityViolationException e) {
-                    // 并发兜底：唯一索引拦下重复创建，视为已同步
-                    log.debug("日程同步撞唯一键（按已同步处理）: {}", sourceKey);
                 }
             }
             module.setStatus("SUCCEEDED");

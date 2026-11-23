@@ -1,6 +1,95 @@
 {
   "components" : {
     "schemas" : {
+      "Account" : {
+        "properties" : {
+          "createdAt" : {
+            "type" : "string"
+          },
+          "id" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "nickname" : {
+            "type" : "string"
+          },
+          "username" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "AccountExport" : {
+        "properties" : {
+          "account" : {
+            "$ref" : "#/components/schemas/Account"
+          },
+          "conversations" : {
+            "items" : {
+              "$ref" : "#/components/schemas/Conversation"
+            },
+            "type" : "array"
+          },
+          "counts" : {
+            "$ref" : "#/components/schemas/Counts"
+          },
+          "expenses" : {
+            "items" : {
+              "additionalProperties" : { },
+              "type" : "object"
+            },
+            "type" : "array"
+          },
+          "exportedAt" : {
+            "type" : "string"
+          },
+          "formatVersion" : {
+            "type" : "string"
+          },
+          "itineraryItems" : {
+            "items" : {
+              "additionalProperties" : { },
+              "type" : "object"
+            },
+            "type" : "array"
+          },
+          "knowledgeDocuments" : {
+            "items" : {
+              "additionalProperties" : { },
+              "type" : "object"
+            },
+            "type" : "array"
+          },
+          "memos" : {
+            "items" : {
+              "additionalProperties" : { },
+              "type" : "object"
+            },
+            "type" : "array"
+          },
+          "photos" : {
+            "items" : {
+              "$ref" : "#/components/schemas/Photo"
+            },
+            "type" : "array"
+          },
+          "schedules" : {
+            "items" : {
+              "additionalProperties" : { },
+              "type" : "object"
+            },
+            "type" : "array"
+          },
+          "trips" : {
+            "items" : {
+              "additionalProperties" : { },
+              "type" : "object"
+            },
+            "type" : "array"
+          }
+        },
+        "type" : "object"
+      },
       "AddExpenseRequest" : {
         "properties" : {
           "amount" : {
@@ -203,6 +292,24 @@
         },
         "type" : "object"
       },
+      "ApiResponseAccountExport" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/AccountExport"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "pagination" : {
+            "$ref" : "#/components/schemas/Pagination"
+          }
+        },
+        "type" : "object"
+      },
       "ApiResponseAgentResult" : {
         "properties" : {
           "code" : {
@@ -265,6 +372,24 @@
           },
           "data" : {
             "$ref" : "#/components/schemas/ConversationMessagesView"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "pagination" : {
+            "$ref" : "#/components/schemas/Pagination"
+          }
+        },
+        "type" : "object"
+      },
+      "ApiResponseConversationRenameResult" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/ConversationRenameResult"
           },
           "message" : {
             "type" : "string"
@@ -1104,6 +1229,29 @@
         },
         "type" : "object"
       },
+      "Conversation" : {
+        "properties" : {
+          "conversationId" : {
+            "type" : "string"
+          },
+          "createdAt" : {
+            "type" : "string"
+          },
+          "messages" : {
+            "items" : {
+              "$ref" : "#/components/schemas/Message"
+            },
+            "type" : "array"
+          },
+          "title" : {
+            "type" : "string"
+          },
+          "updatedAt" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "ConversationMessageView" : {
         "properties" : {
           "content" : {
@@ -1135,6 +1283,17 @@
         },
         "type" : "object"
       },
+      "ConversationRenameResult" : {
+        "properties" : {
+          "conversationId" : {
+            "type" : "string"
+          },
+          "title" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "ConversationSummary" : {
         "properties" : {
           "conversationId" : {
@@ -1156,6 +1315,47 @@
         },
         "type" : "object"
       },
+      "Counts" : {
+        "properties" : {
+          "conversations" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "expenses" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "itineraryItems" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "knowledgeDocuments" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "memos" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "messages" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "photos" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "schedules" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "trips" : {
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
       "DailyBudget" : {
         "properties" : {
           "actual" : {
@@ -1170,6 +1370,14 @@
           },
           "variance" : {
             "type" : "number"
+          }
+        },
+        "type" : "object"
+      },
+      "DeleteAccountRequest" : {
+        "properties" : {
+          "password" : {
+            "type" : "string"
           }
         },
         "type" : "object"
@@ -1525,6 +1733,30 @@
         },
         "type" : "object"
       },
+      "Message" : {
+        "properties" : {
+          "content" : {
+            "type" : "string"
+          },
+          "createdAt" : {
+            "type" : "string"
+          },
+          "intent" : {
+            "type" : "string"
+          },
+          "role" : {
+            "type" : "string"
+          },
+          "scope" : {
+            "type" : "string"
+          },
+          "turnSeq" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
       "Pagination" : {
         "properties" : {
           "hasMore" : {
@@ -1827,6 +2059,16 @@
           },
           "serverTime" : {
             "format" : "date-time",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "RenameConversationRequest" : {
+        "properties" : {
+          "title" : {
+            "maxLength" : 40,
+            "minLength" : 0,
             "type" : "string"
           }
         },
@@ -2779,6 +3021,66 @@
         "tags" : [ "agent-controller" ]
       }
     },
+    "/api/agent/conversations/{conversationId}" : {
+      "delete" : {
+        "operationId" : "deleteConversation",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "conversationId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseVoid"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "agent-controller" ]
+      },
+      "patch" : {
+        "operationId" : "renameConversation",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "conversationId",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/RenameConversationRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseConversationRenameResult"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "agent-controller" ]
+      }
+    },
     "/api/agent/conversations/{conversationId}/messages" : {
       "get" : {
         "operationId" : "conversationMessages",
@@ -3148,6 +3450,31 @@
       }
     },
     "/api/auth/me" : {
+      "delete" : {
+        "operationId" : "deleteMe",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/DeleteAccountRequest"
+              }
+            }
+          }
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseVoid"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "auth-controller" ]
+      },
       "get" : {
         "operationId" : "me",
         "responses" : {
@@ -3156,6 +3483,24 @@
               "*/*" : {
                 "schema" : {
                   "$ref" : "#/components/schemas/ApiResponseAuthResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "auth-controller" ]
+      }
+    },
+    "/api/auth/me/export" : {
+      "get" : {
+        "operationId" : "exportMe",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseAccountExport"
                 }
               }
             },

@@ -34,6 +34,18 @@ import java.util.Set;
 @Slf4j
 public class TripService {
 
+    /**
+     * 行程跨度上限（年）。
+     *
+     * <p>按日历算：结束日期最晚到 {@code startDate.plusYears(MAX_TRIP_YEARS)}（含当天）。
+     * 不用「365/366 天」这种固定天数口径——闰年会错开 2 月 29 日，跨闰年的整年行程
+     * 会被莫名拒掉一天。
+     *
+     * <p>这是产品口径而不是技术限制：多年行程会让规划条目、日程同步与路书渲染的
+     * 规模失控，因此在所有写入入口统一拒绝。改这个常量等于改口径，需同步 docs/CHANGELOG.md。
+     */
+    public static final int MAX_TRIP_YEARS = 1;
+
     private final TripRepository tripRepository;
     private final ItineraryItemRepository itineraryItemRepository;
     private final ExpenseRepository expenseRepository;
@@ -74,6 +86,7 @@ public class TripService {
         if (requestedEnd != null && requestedEnd.isBefore(start)) {
             throw new BusinessException(400, "结束日期不能早于开始日期");
         }
+        requireSpanWithinLimit(start, requestedEnd);
         int days = 3;
         if (requestedEnd != null) {
             days = (int) (requestedEnd.toEpochDay() - start.toEpochDay()) + 1;
@@ -91,6 +104,23 @@ public class TripService {
         return tripRepository.save(trip);
     }
 
+    /**
+     * 跨度上限校验：起止日期缺一（例如还没填结束日期）时跳过，默认值由调用方补齐后再校验。
+     *
+     * <p>改期路径必须重新走这里：起始日平移不改变跨度，但拉长结束日期会；只看 DTO 的
+     * {@code @Valid} 做不到，因为更新请求允许只带一个日期，跨度要等合并后才成立。
+     */
+    private static void requireSpanWithinLimit(LocalDate start, LocalDate end) {
+        if (start == null || end == null) {
+            return;
+        }
+        if (end.isAfter(start.plusYears(MAX_TRIP_YEARS))) {
+            long days = ChronoUnit.DAYS.between(start, end) + 1;
+            throw new BusinessException(400,
+                    "行程跨度不能超过 " + MAX_TRIP_YEARS + " 年（当前 " + days + " 天）");
+        }
+    }
+
     @Transactional
     public Trip update(Long tripId, Long userId, TripDtos.TripRequest req) {
         Trip trip = getOwned(tripId, userId);
@@ -103,6 +133,11 @@ public class TripService {
         if (newEnd != null) trip.setEndDate(newEnd);
         if (trip.getStartDate() != null && trip.getEndDate() != null && trip.getEndDate().isBefore(trip.getStartDate())) {
             throw new BusinessException(400, "结束日期不能早于开始日期");
+        }
+        // 只有本次请求动了日期才校验跨度：改期后按合并后的起止日期重算；只改名/预算的
+        // 历史超长行程（本规则上线前创建）不该被顺手挡住
+        if (newStart != null || newEnd != null) {
+            requireSpanWithinLimit(trip.getStartDate(), trip.getEndDate());
         }
         // 缩短行程时，先确认没有安排落在新范围之外（不做静默删除）
         int totalDays = trip.totalDays();
@@ -213,12 +248,14 @@ public class TripService {
     /** Agent 确认后创建行程（含完整行程条目） */
     @Transactional
     public Trip createFromAgent(Long userId, TripDraft draft, List<ItineraryItem> items) {
+        LocalDate end = draft.getStartDate().plusDays(Math.max(draft.getDays(), 1) - 1L);
+        requireSpanWithinLimit(draft.getStartDate(), end);
         Trip trip = Trip.builder()
                 .userId(userId)
                 .name(draft.getName())
                 .destination(draft.getDestination())
                 .startDate(draft.getStartDate())
-                .endDate(draft.getStartDate().plusDays(Math.max(draft.getDays(), 1) - 1L))
+                .endDate(end)
                 .budget(draft.getBudget())
                 .partySize(BudgetService.effectiveParty(draft.getPartySize()))
                 .status(Trip.STATUS_CONFIRMED)

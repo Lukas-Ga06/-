@@ -1,6 +1,6 @@
 # 质量门禁（后端发布前必须通过）
 
-> 状态：当前事实 | 适用版本：0.1.0 / Spring Boot 3.5.7（Java 17） | 最后验证：2026-11-20 | 事实来源：`travel-agent-server/pom.xml`、`travel-agent-server/config/`（`checkstyle/checkstyle.xml`、`checkstyle/suppressions.xml`、`spotbugs-exclude.xml`）、`travel-agent-server/.mvn/jvm.config`、`travel-agent-server/src/main/resources/application.yml`
+> 状态：当前事实 | 适用版本：0.1.0 / Spring Boot 3.5.12（Java 17） | 最后验证：2026-11-20 | 事实来源：`travel-agent-server/pom.xml`、`travel-agent-server/config/`（`checkstyle/checkstyle.xml`、`checkstyle/suppressions.xml`、`spotbugs-exclude.xml`）、`travel-agent-server/.mvn/jvm.config`、`travel-agent-server/src/main/resources/application.yml`
 
 一句话导读：`mvn -B verify` 是后端唯一的发布门禁——单元/集成测试 + JaCoCo 覆盖率门槛 + Checkstyle + SpotBugs，任一不过即 BUILD FAILURE；真实 MySQL 迁移与前端门禁见 [mysql-migration.md](mysql-migration.md)、[frontend-quality.md](frontend-quality.md)，CI 编排见 [ci.md](ci.md)。
 
@@ -8,7 +8,7 @@
 
 | 门禁 | 绑定阶段 | 本地命令 | 当前数字 / 阈值 |
 | --- | --- | --- | --- |
-| 单元/集成测试（H2） | test | `mvn -B test` | **540 tests，0 failures，0 errors，1 skipped** |
+| 单元/集成测试（H2） | test | `mvn -B test` | **623 tests，0 failures，0 errors，3 skipped**（MCP/MySQL 两个真实服务用例按环境变量跳过；2026-11-23 V24 安全用例加入后从 617 增加） |
 | JaCoCo INSTRUCTION | verify（check） | `mvn -B verify` | 实测 **79.73%**（38038/47707），阈值 **≥ 0.76** |
 | JaCoCo BRANCH | verify（check） | `mvn -B verify` | 实测 **60.81%**（3105/5106），阈值 **≥ 0.57** |
 | JaCoCo LINE | verify（check） | `mvn -B verify` | 实测 **79.15%**（7252/9162），阈值 **≥ 0.76** |

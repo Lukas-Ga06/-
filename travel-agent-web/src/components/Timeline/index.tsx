@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo } from 'react';
 import { Button, Empty, Segmented } from 'antd';
+import { CarOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import type { ItineraryItem, ItineraryStatus, RouteLeg, Trip } from '../../types/trip';
 import type { AgentFocus } from '../../types/agent';
@@ -69,11 +70,18 @@ function RouteLegRow({ leg }: { leg: RouteLeg }) {
       <div className="t-leg-line" aria-hidden />
       <div className="t-leg-body">
         <span className="t-leg-icon" aria-hidden>
-          🚕
+          <CarOutlined />
         </span>
         <span className="t-leg-text">{routeLegText(leg)}</span>
-        <span className={`mini-tag ${measured ? 'leg-amap' : 'leg-estimated'}`}>
-          {measured ? '实测' : '估算'}
+        <span
+          className={`mini-tag ${measured ? 'leg-amap' : 'leg-estimated'}`}
+          title={
+            measured
+              ? '路线来源：amap（高德实测，可复核）'
+              : '路线来源：estimated（按距离估算，可能受路况影响）'
+          }
+        >
+          {measured ? '实测 · amap' : '估算 · estimated'}
         </span>
       </div>
     </div>
@@ -180,7 +188,7 @@ export default function Timeline({
         <div className="next-up" data-testid="next-up">
           <button type="button" className="nu-main" onClick={() => locate(nextItem)}>
             <span className="nu-label">
-              下一项 · Day {nextItem.dayIndex}
+              下一项安排 · Day {nextItem.dayIndex}
               {nextClock ? ` · ${nextClock}` : ''}
             </span>
             <span className="nu-title">{nextItem.title}</span>

@@ -5,7 +5,7 @@ import com.travel.agent.entity.Trip;
 import com.travel.agent.model.Attraction;
 import com.travel.agent.model.CityCatalog;
 import com.travel.agent.model.RouteInfo;
-import com.travel.agent.model.WeatherInfo;
+import com.travel.agent.model.WeatherLookup;
 import com.travel.agent.service.RouteService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -88,7 +88,7 @@ public class PlanRepairService {
         if (city == null || city.attractions() == null || city.attractions().isEmpty()) {
             return protectedTitles;
         }
-        Map<Integer, WeatherInfo> weatherByDay = inspector.weatherByDay(plan, trip);
+        Map<Integer, WeatherLookup> weatherByDay = inspector.weatherByDay(plan, trip);
         if (weatherByDay.isEmpty()) {
             return protectedTitles;
         }
@@ -101,9 +101,11 @@ public class PlanRepairService {
             }
         }
 
-        for (Map.Entry<Integer, WeatherInfo> entry : new TreeMap<>(weatherByDay).entrySet()) {
-            // 只有真实预报才改行程；模拟天气只提示（ADR-006）
-            if (!ReflectAgent.likelyRainy(entry.getValue()) || entry.getValue().isSimulated()) {
+        for (Map.Entry<Integer, WeatherLookup> entry : new TreeMap<>(weatherByDay).entrySet()) {
+            // 只有「可用的真实预报」才改行程：不可用没有事实依据，模拟（仅测试开关）只提示（ADR-006）
+            WeatherLookup lookup = entry.getValue();
+            if (lookup == null || !lookup.available() || lookup.simulation()
+                    || !ReflectAgent.likelyRainy(lookup.info())) {
                 continue;
             }
             int day = entry.getKey();

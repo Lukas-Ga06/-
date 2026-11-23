@@ -13,11 +13,16 @@ import java.time.LocalDateTime;
  * 内容做截断存储，避免把超长粘贴文本原样入库。
  */
 @Entity
-@Table(name = "conversation_message", indexes = {
-        @Index(name = "idx_conv_user_session", columnList = "user_id, conversation_id"),
-        @Index(name = "idx_conv_created_at", columnList = "created_at"),
-        @Index(name = "idx_conv_user_scope", columnList = "user_id, scope")
-})
+@Table(name = "conversation_message",
+        // 测试 profile 用 ddl-auto=create-drop 且关闭 Flyway，没有这条约束测试库就没有
+        // 「同一轮同角色只能一条」的兜底，并发用例会「测了个寂寞」（与 V22 同一理由）。
+        uniqueConstraints = @UniqueConstraint(name = "uk_conv_turn_role",
+                columnNames = {"user_id", "conversation_id", "turn_seq", "role"}),
+        indexes = {
+                @Index(name = "idx_conv_user_session", columnList = "user_id, conversation_id"),
+                @Index(name = "idx_conv_created_at", columnList = "created_at"),
+                @Index(name = "idx_conv_user_scope", columnList = "user_id, scope")
+        })
 @Getter
 @Setter
 @NoArgsConstructor
@@ -60,6 +65,18 @@ public class ConversationMessage {
      */
     @Column(length = 32)
     private String scope;
+
+    /**
+     * 轮次序号（V23）：一轮问答（用户消息 + 助手回复）共用一个值，并发会话靠它成组。
+     *
+     * <p>分配方式见 {@code ConversationService#beginTurn}：取最大值 +1 后直接插入，
+     * 撞 {@code uk_conv_turn_role} 就重试。存量数据（V23 之前的行）为 null，
+     * 读取时按 {@code COALESCE(turn_seq, 0)} 排在所有新轮次之前。
+     *
+     * <p>不参与任何权限判断，只决定「同一会话里哪些消息属于同一轮」。
+     */
+    @Column(name = "turn_seq")
+    private Long turnSeq;
 
     @Column(name = "created_at")
     private LocalDateTime createdAt;

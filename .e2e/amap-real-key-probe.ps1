@@ -425,7 +425,7 @@ function Start-ProbeServer {
     #   JWT_SECRET          -> travel.jwt.secret
     #   RATE_LIMIT_ENABLED  -> travel.rate-limit.enabled
     #   LLM_ENABLED         -> travel.llm.enabled（关掉，走规则规划，避免需要 LLM_API_KEY）
-    #   WEATHER_REAL        -> travel.weather.real（关掉，避免外呼天气）
+    #   WEATHER_SIMULATION  -> travel.weather.simulation（打开模拟，避免外呼天气）
     #   MCP_ENABLED         -> travel.mcp.enabled（关掉，确保本次只验证 REST Key，不混入 MCP）
     #   SPRING_DATASOURCE_URL / SERVER_PORT / INVOICE_DIR / PHOTOS_DIR -> 隔离实例与数据落盘
     $vars = @{
@@ -436,7 +436,7 @@ function Start-ProbeServer {
         'JWT_SECRET'            = $jwtSecret
         'RATE_LIMIT_ENABLED'    = 'false'
         'LLM_ENABLED'           = 'false'
-        'WEATHER_REAL'          = 'false'
+        'WEATHER_SIMULATION'    = 'true'
         'MCP_ENABLED'           = 'false'
         'DEMO_ACCOUNT'          = 'true'
         'SERVER_PORT'           = [string]$Port
@@ -1413,7 +1413,7 @@ try {
             curl          = [string]((Get-Command curl.exe -ErrorAction SilentlyContinue).Source)
             mvn           = $script:MvnVersion
             problems      = @($problems)
-            envVarsInjected = @('AMAP_KEY', 'AMAP_MAPS_API_KEY', 'JWT_SECRET', 'RATE_LIMIT_ENABLED', 'LLM_ENABLED', 'WEATHER_REAL', 'MCP_ENABLED', 'DEMO_ACCOUNT', 'SERVER_PORT', 'SPRING_DATASOURCE_URL', 'INVOICE_DIR', 'PHOTOS_DIR')
+            envVarsInjected = @('AMAP_KEY', 'AMAP_MAPS_API_KEY', 'JWT_SECRET', 'RATE_LIMIT_ENABLED', 'LLM_ENABLED', 'WEATHER_SIMULATION', 'MCP_ENABLED', 'DEMO_ACCOUNT', 'SERVER_PORT', 'SPRING_DATASOURCE_URL', 'INVOICE_DIR', 'PHOTOS_DIR')
             endpoints     = @('/actuator/health', '/api/system/status', '/api/auth/login', '/api/agent/chat', '/api/agent/confirm', '/api/trips/{id}/route-legs',
                               '直连 /v3/place/text', '直连 /v3/geocode/geo', '直连 /v3/direction/driving', '直连 /v3/assistant/coordinate/convert')
             gcjClasspath  = (Resolve-GcjClasspath)

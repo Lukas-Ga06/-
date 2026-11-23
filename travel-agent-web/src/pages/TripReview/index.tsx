@@ -1,6 +1,18 @@
 import { useEffect, useState } from 'react';
 import { Alert, Button, Empty, Progress, Spin, Tag } from 'antd';
-import { ArrowLeftOutlined, ReloadOutlined } from '@ant-design/icons';
+import {
+  ArrowLeftOutlined,
+  CameraOutlined,
+  CheckCircleOutlined,
+  CompassOutlined,
+  EnvironmentOutlined,
+  GlobalOutlined,
+  HistoryOutlined,
+  ReloadOutlined,
+  RobotOutlined,
+  UnorderedListOutlined,
+  WalletOutlined,
+} from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import AppShell from '../../components/AppShell';
@@ -138,7 +150,9 @@ export default function TripReviewPage() {
           <>
             <section className="dash-card" data-testid="review-completion">
               <div className="dc-head">
-                <b>✅ 完成率</b>
+                <b>
+                  <CheckCircleOutlined aria-hidden="true" /> 完成率
+                </b>
                 <span className="dg-date">
                   {review.completedItems} / {review.totalItems} 项已完成
                 </span>
@@ -161,7 +175,9 @@ export default function TripReviewPage() {
             <div className="review-grid">
               <section className="dash-card" data-testid="review-cost">
                 <div className="dc-head">
-                  <b>💰 计划成本 vs 实际支出</b>
+                  <b>
+                    <WalletOutlined aria-hidden="true" /> 计划成本 vs 实际支出
+                  </b>
                   <span className="dg-date">实际支出以记账为准</span>
                 </div>
                 <div className="review-cost-grid">
@@ -202,7 +218,9 @@ export default function TripReviewPage() {
 
               <section className="dash-card" data-testid="review-places-summary">
                 <div className="dc-head">
-                  <b>📍 到访概览</b>
+                  <b>
+                    <EnvironmentOutlined aria-hidden="true" /> 到访概览
+                  </b>
                   <span className="dg-date">计划地点与实际到访分开统计</span>
                 </div>
                 <div className="review-cost-grid">
@@ -231,7 +249,9 @@ export default function TripReviewPage() {
             <div className="review-grid">
               <section className="dash-card" data-testid="review-planned-places">
                 <div className="dc-head">
-                  <b>🗺️ 计划地点</b>
+                  <b>
+                    <GlobalOutlined aria-hidden="true" /> 计划地点
+                  </b>
                   <span className="dg-date">{review.plannedPlaces.length} 个</span>
                 </div>
                 {review.plannedPlaces.length === 0 ? (
@@ -256,7 +276,9 @@ export default function TripReviewPage() {
 
               <section className="dash-card" data-testid="review-visited-places">
                 <div className="dc-head">
-                  <b>✅ 实际到访</b>
+                  <b>
+                    <CheckCircleOutlined aria-hidden="true" /> 实际到访
+                  </b>
                   <span className="dg-date">只认真实打卡</span>
                 </div>
                 {review.visitedPlaces.length === 0 ? (
@@ -285,7 +307,9 @@ export default function TripReviewPage() {
 
             <section className="dash-card" data-testid="review-actual-route">
               <div className="dc-head">
-                <b>🧭 实际路线</b>
+                <b>
+                  <CompassOutlined aria-hidden="true" /> 实际路线
+                </b>
                 <span className="dg-date">按到访时间排序 · 只含真实到访且有坐标的地点</span>
               </div>
               {review.actualRoute.length === 0 ? (
@@ -313,7 +337,9 @@ export default function TripReviewPage() {
 
             <section className="dash-card" data-testid="review-photos">
               <div className="dc-head">
-                <b>📷 旅行照片</b>
+                <b>
+                  <CameraOutlined aria-hidden="true" /> 旅行照片
+                </b>
                 <span className="dg-date">
                   共 {review.photoCount} 张
                   {review.photos.length < review.photoCount
@@ -360,7 +386,9 @@ export default function TripReviewPage() {
             <div className="review-grid">
               <section className="dash-card" data-testid="review-events">
                 <div className="dc-head">
-                  <b>📜 旅行事件</b>
+                  <b>
+                    <UnorderedListOutlined aria-hidden="true" /> 旅行事件
+                  </b>
                   <span className="dg-date">{review.events.length} 条</span>
                 </div>
                 {review.events.length === 0 ? (
@@ -385,7 +413,9 @@ export default function TripReviewPage() {
 
               <section className="dash-card" data-testid="review-modifications">
                 <div className="dc-head">
-                  <b>🕓 修改历史</b>
+                  <b>
+                    <HistoryOutlined aria-hidden="true" /> 修改历史
+                  </b>
                   <span className="dg-date">可撤销链的最新记录</span>
                 </div>
                 {review.modifications.length === 0 ? (
@@ -409,7 +439,9 @@ export default function TripReviewPage() {
 
             <section className="dash-card" data-testid="review-ai-summary">
               <div className="dc-head">
-                <b>🧠 AI 旅行总结</b>
+                <b>
+                  <RobotOutlined aria-hidden="true" /> AI 旅行总结
+                </b>
                 <span className="dg-date">基于真实行程数据生成；无模型时为规则文案</span>
               </div>
               {review.aiSummary?.trim() ? (

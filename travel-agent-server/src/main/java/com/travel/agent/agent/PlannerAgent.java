@@ -4,12 +4,14 @@ import com.travel.agent.dto.AgentDtos;
 import com.travel.agent.dto.ItineraryDtos;
 import com.travel.agent.entity.ItineraryItem;
 import com.travel.agent.entity.Trip;
+import com.travel.agent.exception.BusinessException;
 import com.travel.agent.model.Attraction;
 import com.travel.agent.model.CityCatalog;
 import com.travel.agent.llm.LlmProperties;
 import com.travel.agent.model.Hotel;
 import com.travel.agent.model.Restaurant;
 import com.travel.agent.model.WeatherInfo;
+import com.travel.agent.model.WeatherLookup;
 import com.travel.agent.rag.RagCitation;
 import com.travel.agent.rag.RagService;
 import com.travel.agent.service.BudgetService;
@@ -25,6 +27,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -396,9 +399,19 @@ public class PlannerAgent {
                 ? "（你提到的日期不在行程 " + trip.getStartDate() + " ~ " + trip.getEndDate()
                         + " 内，已按 Day " + scopeDay + " 处理）"
                 : "";
-        boolean mentionRain = MessageParser.mentions(message, "雨");
-        WeatherInfo weather = (WeatherInfo) tools.invoke(ctx, "query_weather",
-                draftsSupport.buildArgs(new HashMap<>(), "city", city.name(), "date", targetDate.toString(), "mentionRain", mentionRain));
+        // 天气：只认真实预报。依赖天气的修改（消息里提到雨/天气）拿不到真实天气就明确拒绝——
+        // 用模拟天气改行程等于把假数据当事实（ADR-006），用户看到的「因为下雨换成室内」会是编出来的。
+        WeatherLookup lookup = (WeatherLookup) tools.invoke(ctx, "query_weather",
+                Map.of("city", city.name(), "date", targetDate.toString()));
+        if (lookup == null) {
+            lookup = WeatherLookup.unavailable(WeatherLookup.REASON_BAD_RESPONSE);
+        }
+        if (!lookup.available() && MessageParser.mentions(message, "雨", "天气", "下雨", "雪", "台风")) {
+            throw new BusinessException(503, "没拿到 " + city.name() + " " + chineseDate(targetDate)
+                    + " 的真实天气（" + lookup.message() + "）。为避免用模拟天气改错行程，本次没有生成修改方案；"
+                    + "可以稍后重试，或直接告诉我换成哪些室内景点。");
+        }
+        WeatherInfo weather = lookup.available() ? lookup.info() : null;
 
         // LLM 结构化修改先行：模型在现有行程与候选清单内做替换/增删，失败回落规则路径。
         // P1：剩余预算不足时直接走规则路径（改一项的规则替换是确定性的、毫秒级完成），并留下降级痕迹。
@@ -516,7 +529,7 @@ public class PlannerAgent {
         }
 
         Map<String, Object> extras = new HashMap<>();
-        extras.put("weather", weather);
+        putRealWeather(extras, weather);
         extras.put("replacements", replacements);
         extras.put("day", lastTarget != null ? lastTarget.getDayIndex() : firstDay);
         extras.put("citations", citations);
@@ -537,6 +550,27 @@ public class PlannerAgent {
                 .build();
     }
 
+    /**
+     * 只有真实预报才写进 extras：模拟/不可用的天气不得进入方案。
+     * extras.weather 是「天气驱动」的下游判据（ExecutorAgent 写 WEATHER 事件、回复文案说「因为下雨」），
+     * 一旦允许模拟或空值混进去，用户会看到一条没有事实依据的天气结论。
+     */
+    private static void putRealWeather(Map<String, Object> extras, WeatherInfo weather) {
+        if (weather != null && !weather.isSimulated()) {
+            extras.put("weather", weather);
+        }
+    }
+
+    /** 给用户看的日期：同年只写月日，跨年补上年份（避免「1月2日」歧义） */
+    static String chineseDate(LocalDate date) {
+        if (date == null) {
+            return "";
+        }
+        return date.getYear() == LocalDate.now().getYear()
+                ? date.format(DateTimeFormatter.ofPattern("M月d日"))
+                : date.format(DateTimeFormatter.ofPattern("yyyy年M月d日"));
+    }
+
     // ==================== V2.2 研究循环（FR-03 自主工具调用） ====================
 
     /** 研究循环允许的只读工具白名单：规划期只允许只读工具，写操作一律经确认门 */
@@ -544,14 +578,20 @@ public class PlannerAgent {
             "query_weather", "search_attraction", "search_restaurant", "search_hotel", "calculate_route",
             "query_travel_knowledge");
 
-    /** 研究循环步骤上限：每步一次 LLM 决策 + 至多一次工具调用，避免整体规划被显著拖慢 */
-    private static final int RESEARCH_MAX_STEPS = 4;
+    /**
+     * 研究循环步骤上限：每步一次 LLM 决策 + 至多一次工具调用，避免整体规划被显著拖慢。
+     * P0-B 从 4 提到 6：真实调用里 4 步经常刚够查天气就耗尽，模型来不及输出 FINAL；
+     * 每步仍受 AgentBudget 的 MIN_RESEARCH_STEP_MS 门禁约束，预算不足会提前收尾而不是拖爆总预算。
+     */
+    private static final int RESEARCH_MAX_STEPS = 6;
 
     /**
      * 让 research-agent 在只读工具上自主「决策→调用→观察→继续」地收集事实（FR-03）。
      *
-     * <p>循环未完成（模型不可用 / 步骤预算耗尽 / 输出非法）时<b>仍返回已成功收集到的观察</b>：
-     * 步骤预算耗尽是常态（模型会先用几步确认天气/候选），已经查到的事实没有理由丢掉。
+     * <p>循环未完成（模型不可用 / 预算耗尽且零成功观察 / 输出非法）时<b>仍返回已成功收集到的观察</b>：
+     * 预算耗尽是常态（模型会先用几步确认天气/候选），已经查到的事实没有理由丢掉。
+     * P0-B 起，步数/时间耗尽但已有成功观察会返回 {@code completed=true, partial=true}，
+     * 追踪里显示「研究部分完成」而不是「研究未完成」。
      * 只有「一步都没成功」时才返回空清单，此时结构化规划照旧执行、Prompt 不带研究块，
      * 无 LLM 时行为与从前完全一致。收集到的 notes 只作为参考证据进入结构化 Prompt
      * （见 StructuredPlanner.researchBlock），名称命中、坐标与价格仍由候选清单与校验层决定——
@@ -569,9 +609,14 @@ public class PlannerAgent {
         AgentToolLoop.LoopResult result = taskRecorder.around(ctx,
                 com.travel.agent.entity.AgentTask.RECEIVER_RESEARCH, "RESEARCH",
                 () -> toolLoop.run(ctx, goal, RESEARCH_TOOLS, RESEARCH_MAX_STEPS),
-                r -> (r.completed() ? "研究完成" : "研究未完成（" + r.summary() + "）")
-                        + "：" + r.steps().size() + " 次工具调用"
-                        + (r.summary() == null || r.summary().isBlank() ? "" : "（" + r.summary() + "）"));
+                r -> {
+                    // P0-B：完成 / 部分完成 / 未完成三种终态分开写，耗尽不再一律记成「研究未完成」
+                    String state = !r.completed() ? "研究未完成"
+                            : (r.partial() ? "研究部分完成" : "研究完成");
+                    long facts = r.steps().stream().filter(AgentToolLoop.ToolStep::success).count();
+                    return state + "：" + r.steps().size() + " 次工具调用，可用事实 " + facts + " 条"
+                            + (r.summary() == null || r.summary().isBlank() ? "" : "（" + r.summary() + "）");
+                });
         // 未完成也保留已成功的事实：notes() 只取 success=true 的步骤
         return result.notes();
     }
@@ -731,7 +776,7 @@ public class PlannerAgent {
         }
         int day = focusDay != null ? focusDay : 1;
         Map<String, Object> extras = new HashMap<>();
-        extras.put("weather", weather);
+        putRealWeather(extras, weather);
         extras.put("replacements", replacements);
         extras.put("day", day);
         String warnings = parse.warnings().isEmpty() ? ""

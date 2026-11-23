@@ -1,8 +1,8 @@
 # 故障处理手册（Runbook）：travel-agent 告警处置
 
 - **文档性质**：On-call 处置手册，与 `docs/operations/alerts.yml` 一一对应
-- **适用版本**：`travel-agent-server` 0.1.0（Spring Boot 3.5.7，V2.2 HEAD）
-- **最后更新**：2026-11-19
+- **适用版本**：`travel-agent-server` 0.1.0（Spring Boot 3.5.12，V2.2 HEAD）
+- **最后更新**：2026-11-22（新增附录 A/B/C：日志脱敏、限流与配额验证、告警矩阵补充）
 - **关联**：[可观测性/SLO](../guide/observability.md) ｜ [告警规则](alerts.yml) ｜ [Dashboard](grafana-travel-agent.json)
 - **对应关系**：每个 `## N. AlertName` 就是 `alerts.yml` 里 `runbook_url` 的小节锚点（`#N-alertname-pX`），改标题必须同步改 YAML。
 
@@ -327,6 +327,194 @@ tail -f logs/travel-agent-server.log
 **排查**：Redis 连通性（`redis-cli ping`）、连接池、`travel.rate-limit.store` 配置、Redis 内存/淘汰策略（`maxmemory-policy` 导致 KEY 丢失不是 fail-open，但会让计数失真）。
 **止血**：切 `RATE_LIMIT_STORE=memory`（单实例内存限流，立即恢复保护；多实例下配额不共享，属可接受折中），修好 Redis 后切回。反代层可临时加 IP 级限速兜底。
 **回滚**：配置回退。**升级**：Redis 由平台负责 → 升级平台/DBA；确认无滥用流量后降级为 P2 观察。
+
+---
+
+## 附录 A：日志脱敏核对（P0-D）
+
+目标：JWT / Cookie / API Key / 手机号 / 照片与 SSE 票据不出现在可被运维、外包或日志平台看到的日志里。**当前状态是“部分成立 + 两处已知缺口”**，发布前必须至少完成一次核对并记录。
+
+### A.1 当前事实（按代码与配置核对）
+
+| 检查面 | 现状 | 证据 |
+| --- | --- | --- |
+| 后端日志格式 | `级别 [traceId] 消息`；`TraceIdFilter` 只写 MDC 与响应头，不记录请求头/请求体 | `application.yml` `logging.pattern.level`、`TraceIdFilter` |
+| 请求 URI | 后端用 `request.getRequestURI()`（不含 query string），不会把 `?ticket=` 写进业务日志 | `JwtAuthenticationFilter`、`RateLimitFilter` |
+| JWT / Cookie | 代码未打印 `Authorization` 头、Cookie 或 token；`JwtService` 只警告“未配置密钥” | `JwtAuthenticationFilter`、`JwtService` |
+| LLM Key | `LlmModelProbe` 只记录 provider host 与模型名；失败日志走 `ErrorSummary`（异常类型/状态），不打请求头 | `LlmModelProbe`、`OpenAiCompatibleLlmClient` |
+| 手机号 | **数据模型当前没有手机号字段**（账号只有 username/nickname/password hash），暂无手机号泄漏面；未来新增字段必须补脱敏规则 | `User.java` |
+| 照片原始文件名 | 会落库 `trip_photo.original_name`（可能含用户自定文件名）；不属于日志，但属于用户数据，删除流程需覆盖 | `PhotoService`、数据删除流程 |
+| **Redis 限流 fail-open** | WARN 日志带 `bucket=...`，bucket 由「作用域 + identity + 方法」拼成，identity 是**用户名或 IP** → **已知脱敏缺口** | `RedisRateCounter#failOpen` |
+| **nginx 访问日志** | `travel-agent-web/nginx.conf` 的 `log_format without_args`（只记 `$request_method $uri $server_protocol`，**不记查询串**）已修正为 **`http` 上下文（位于 `server {` 之前）**，`access_log ... without_args` 仍在 server 内 → **配置已修正；仍缺 `nginx -t` / 真实容器实测**。外层 TLS/云 LB 仍需同样配置，否则外层日志仍可能记 `?ticket=` | `travel-agent-web/nginx.conf` |
+| 异常日志 | `GlobalExceptionHandler` 记录异常消息与堆栈；上游错误可能含 URL/主机，不含 Key（Key 不在异常消息里） | `GlobalExceptionHandler` |
+| H2/DB 口令 | 只在环境变量/compose 中，不打印 | `application*.yml` |
+
+### A.2 核对步骤（每次上线前执行一次）
+
+```bash
+# 1) 后端：搜密钥、令牌、票据、口令、手机号特征
+docker compose logs backend --tail=5000 | grep -Ein \
+  'authorization|bearer |set-cookie|travel_agent_token|ticket=|api[_-]?key|secret|password|1[3-9][0-9]{9}'
+
+# 2) nginx：确认不再记录查询串（已改为 log_format without_args；若仍命中 ticket= 说明配置未生效或外层代理未改）
+docker compose logs web --tail=5000 | grep -Ein 'ticket=|authorization|set-cookie'
+
+# 3) 触发一次照片读取/SSE，再重复 1)2)，确认新增日志没有票据
+#    照片 URL 形如 /api/photos/<id>/raw?ticket=...；从浏览器 Network 取，不要复制到工单
+```
+
+判读：
+
+- 命中 `未配置环境变量 JWT_SECRET`、`演示账号已禁用` 这类**配置事实**属正常，不算泄漏。
+- 命中真实 `ticket=`（nginx）或 `bucket=<用户名>`（Redis fail-open）即**未通过**；nginx 侧先确认 `log_format without_args` 已生效（`nginx -t` + 重建/重启容器），外层代理同样处理，再记录风险接受人。
+- 不要为了“清零 grep”关掉错误日志；要改的是日志内容，不是可见性。
+
+### A.3 缺口处理建议
+
+| 缺口 | 建议修法 | 归属 |
+| --- | --- | --- |
+| nginx access log 记录 `?ticket=` | **配置已修正（http 上下文），仍待验证**：`nginx.conf` 的 `log_format without_args` 已移到 `server {` 之前、`access_log` 仍在 server 内；继续执行 `nginx -t`、重建 web 容器、确认 `docker compose logs web` 不再出现 `ticket=`。外层 TLS/云 LB 也要同样配置 | 前端/运维 |
+| Redis fail-open 日志带用户名/IP | 只记作用域与 identity 的哈希/类别（user/ip），或把 identity 从日志中移除；保留告警能力 | 后端单独 PR |
+| 日志保留期未书面化 | 在部署侧配置 Docker 日志轮转（`max-size`/`max-file`）并写入运维手册 | 运维 |
+| gitleaks 未进 CI | 在 `security` job 增加 gitleaks 步骤（需 CI 维护方评审） | CI |
+
+## 附录 B：限流与 LLM 配额验证（P0-D）
+
+### B.1 限流（`RATE_LIMIT_*`）
+
+前提：**不要**对 e2e 隔离后端验证（CI 的 e2e 后端显式 `RATE_LIMIT_ENABLED=false`）。用预发或专用实例，并确认 `rateLimitEnabled=true`。
+
+```bash
+BASE=http://127.0.0.1:8081
+# 1) 连续打登录接口，观察第 N 次是否 429（N 取 RATE_LIMIT_AUTH，默认 10/300s，IP 维度）
+for i in $(seq 1 15); do
+  curl -sS -o /tmp/rl.body -w "%{http_code} " -X POST "$BASE/api/auth/login" \
+    -H 'Content-Type: application/json' -d '{"username":"<账号>","password":"wrong"}'
+done; echo
+# 2) 期望：前若干次 401，之后出现 429；429 响应带 Retry-After，且 JSON message 含“操作过于频繁”
+curl -sS -D - -o /dev/null -X POST "$BASE/api/auth/login" \
+  -H 'Content-Type: application/json' -d '{"username":"<账号>","password":"wrong"}' | grep -Ei 'HTTP/|retry-after'
+```
+
+验收：
+
+- [ ] `RATE_LIMIT_AUTH` 次之后出现 `429`，`Retry-After` ≥ 1。
+- [ ] `/api/system/status` 的 `rateLimitEnabled=true`。
+- [ ] 反代部署时 `RATE_LIMIT_TRUSTED_PROXIES` 命中真实反代网段；未配置时会出现“所有用户共用一个桶”的 429（见 [生产配置清单](production-config.md) §4）。
+- [ ] `RATE_LIMIT_STORE=redis` 时，重启一个实例后计数仍共享；Redis 断开时 `ratelimit_failopen_total` 增长且请求被放行（fail-open 是预期）。
+
+### B.2 LLM 每日配额（`LLM_DAILY_QUOTA`）
+
+前提：在预发把 `LLM_DAILY_QUOTA` 设为一个小值（如 `2`）并确认它真的进入容器（compose 默认不透传，见配置清单 §5），然后重启。
+
+```bash
+# 1) 登录并查看配额
+curl -sS -c cookies.txt -X POST http://127.0.0.1:8081/api/auth/login \
+  -H 'Content-Type: application/json' -d '{"username":"<账号>","password":"<密码>"}'
+curl -sS -b cookies.txt http://127.0.0.1:8081/api/system/status | grep -o '"llmQuota[^,]*'
+
+# 2) 触发多次真实 LLM 调用（每次都要超过配额），观察降级与指标
+curl -sS -b cookies.txt "http://127.0.0.1:8081/actuator/metrics/llm.calls"
+# 3) 数据库侧核对（MySQL 模式）
+docker compose exec mysql mysql -uroot -p"$MYSQL_ROOT_PASSWORD" travel_agent -e \
+  "SELECT user_name, usage_date, used_count FROM llm_quota_usage ORDER BY used_count DESC LIMIT 10;"
+```
+
+验收：
+
+- [ ] 超过配额后 `llm.calls{result="quota"}` 增长，回复降级为规则模板，**不报 5xx**。
+- [ ] `llmQuotaUsed/llmQuotaLimit` 与实际计数一致（配额为 0 时不返回这两个字段）。
+- [ ] 校验完把配额改回生产值（或删除测试数据），并在变更记录里写明。
+
+### B.3 状态接口与模型探测
+
+```bash
+curl -sS -b cookies.txt http://127.0.0.1:8081/api/system/status \
+  | grep -oE '"llm(ModelAvailable|ModelError|ModelCheckPending|Provider|Verified|Configured)"[^,]*'
+```
+
+判读：`llmModelAvailable=true` 才表示模型在清单内；`false` 时看 `llmModelError`；`null` 表示未校验（探测关闭/未配 Key/探测失败），**不能当成可用**。
+
+## 附录 C：告警矩阵补充（与 `alerts.yml` 对齐）
+
+现有规则（`alerts.yml`）覆盖规划、确认、SSE、外部依赖、延迟、LLM、RAG、限流。以下 P0-D 关注项**还没有对应指标或规则**，先人工核对，指标补上后再加规则（不要在指标缺失时写“已覆盖”）。
+
+| 关注点 | 现有指标 / 告警 | 状态 | 缺口与建议 |
+| --- | --- | --- | --- |
+| LLM 失败率 | `llm_calls_total{result="failed"}` / `TravelLlmFailureHigh` | ✅ 已覆盖 | — |
+| LLM 配额拒绝 | `llm_calls_total{result="quota"}` / `TravelLlmQuotaRejectedHigh` | ✅ 已覆盖 | — |
+| 外部依赖降级 | `external_degraded_total{provider,reason}` / `TravelExternalDegradedHigh`、`TravelExternalProviderDegraded` | ✅ 已覆盖 | `10021` 被归到 `reason="bad_response"`，与无效 Key 混在一起 |
+| **MCP 工具数为 0** | 无指标；`/api/system/status` 有 `mcpToolCount`、`mcpLastError` | ⚠️ **待补指标** | 建议加 gauge（如 `mcp.tools.registered{server}`）；在补上前，用启动后巡检脚本查 `mcpToolCount` 并在为 0 时告警（查询需登录） |
+| **高德 10021 比例** | `external_degraded_total{provider="amap"}` **只覆盖地理编码**（`AmapGeocodeClient`）；POI/路线走 `AmapDataService`，只打 WARN 日志、不记该指标 | ⚠️ **待补指标** | 10021 在 geocode 侧被归到 `reason="bad_response"`，无法与无效 Key 区分；建议单独记 `amap.qps_limited`（POI/路线/REST/MCP 统一），阈值参考：5 分钟比例 > 1% 告警 |
+| **备份失败** | 无指标 | ⚠️ **待补** | `scripts/backup-drill.ps1` 退出码可接 cron/systemd；建议外部监控记录“最近成功时间”，超过 26 小时告警 |
+| **磁盘容量** | 无应用指标 | ⚠️ **待补/外部** | 用 node_exporter `node_filesystem_avail_bytes` 或宿主监控；阈值参考 [部署与运维 §11.2](../guide/deployment.md)（磁盘 > 80%） |
+| **照片容量** | 无指标；可查 `SELECT SUM(size_bytes) FROM trip_photo` | ⚠️ **待补指标** | 建议加 gauge（按用户/全局），或在备份巡检里顺带查；接近 `PHOTO_MAX_BYTES_PER_USER` 时提醒 |
+| **账号注销失败/残留** | 无指标；日志 `账号删除完成`、`账号注销照片文件清理失败` | ⚠️ **待补指标** | 建议 counter（按结果/表失败数）；补指标前按附录 D 人工核对。照片清理失败只 WARN，必须巡检 |
+| 规划 / 确认 / SSE / RAG / 延迟 | 见 `alerts.yml` | ✅ 已覆盖 | — |
+
+### C.1 告警落地检查（Prometheus Operator / 裸 Prometheus 通用）
+
+- [ ] `alerts.yml` 里 `runbook_url` 的 `OWNER` 占位已替换为真实组织名。
+- [ ] Prometheus 抓取目标 `job="travel-agent-server"` 能抓到 `/actuator/prometheus`（需登录；抓取凭证见 [可观测性](../guide/observability.md)）。
+- [ ] `TravelLowHistogramMissing` 未触发（否则 P95 类告警静默失效）。
+- [ ] 新增/修改规则后 `promtool check rules` 通过（如环境有 promtool）。
+- [ ] 每条 P0 规则都有值班接收人；用一次演练告警确认能送达（不要只配规则不验证）。
+
+## 附录 D：账号注销后仍有残留（核对步骤）
+
+**触发**：用户反馈“已注销但仍能查到账号/数据”，或巡检发现 `账号删除完成` 与预期不符。当前**没有专用指标**，按本节人工核对；先止损/取证，不要直接重跑注销。
+
+### D.1 先确认注销是否真的成功
+
+| 现象 | 判读 |
+| --- | --- |
+| 响应 `400` `请输入密码确认注销` | 没有删除，登录态仍在；引导用户重新输入密码 |
+| 响应 `401` `密码错误` | 没有删除；不要当“登录失效”踢下线 |
+| 响应 `401` 未登录/用户不存在 | 未登录或已经删过；查 `users` 是否已无该 id |
+| 响应 `200` + `Set-Cookie ... Max-Age=0` | 删除事务已提交；继续 D.2 |
+
+日志证据（不写用户名/密码/文件名）：
+
+```bash
+docker compose logs backend --tail=5000 | grep -E '账号删除完成|账号注销照片文件清理失败'
+# 形如：账号删除完成: userId=123, 删除行数=42, 照片文件数=2
+```
+
+### D.2 数据库残留
+
+用工单里的 `userId`（不要用用户名模糊匹配）：
+
+```sql
+SELECT COUNT(*) FROM users WHERE id = <userId>;
+-- 逐表核对（与 data-deletion §2 一致；users 已为 0 时仍要查子表）
+SELECT 'trip' t, COUNT(*) c FROM trip WHERE user_id=<userId>
+UNION ALL SELECT 'trip_photo', COUNT(*) FROM trip_photo WHERE user_id=<userId>
+UNION ALL SELECT 'conversation_message', COUNT(*) FROM conversation_message WHERE user_id=<userId>
+UNION ALL SELECT 'agent_run', COUNT(*) FROM agent_run WHERE user_id=<userId>
+UNION ALL SELECT 'llm_quota_usage', COUNT(*) FROM llm_quota_usage WHERE user_name='<username>'
+UNION ALL SELECT 'rag_document', COUNT(*) FROM rag_document WHERE user_id=<userId>;
+```
+
+- 若 `users` 已 0 但子表 >0：记录表名/行数，按 [数据删除流程](../legal/data-deletion.md) §4 **只补删残留**（先备份、双人复核），不要重跑整笔注销。
+- 若 `users` 仍存在：注销未成功（回到 D.1），不要手工删一半。
+
+### D.3 照片 / S3 / 内存 RAG / Redis
+
+- **照片**：日志有 `账号注销照片文件清理失败` 时，数据库已无 `stored_name` 可反查；用对象存储清单做孤儿扫描（与 `trip_photo` 全集比对），按运维策略删除。S3 的**版本控制/生命周期/备份中的历史对象**不会自动消失，需按存储策略处理。
+- **内存 RAG**：V24 起注销事务提交后会自动 `vectorStore.reload()`；若日志出现 `账号注销后重建内存向量索引失败`，重启 backend 即自愈（启动会全量重建）。这不是“删库失败”。
+- **Redis**：`SCAN 0 MATCH ratelimit:user:<username>* COUNT 100`；有残留可 `DEL`，或等 300 秒 TTL 自然过期。
+
+### D.4 旧 JWT / 同名重注册
+
+- 旧 JWT 携带 `uid` + `ver`，过滤器会校验用户存在与 `token_version`；注销后旧 token 应一律 `401`。若某个接口仍返回 200，按安全缺陷升级，不要当普通残留。
+- **同名重新注册不会再复用旧 token**：新账号得到新的自增 uid，旧 token 的 uid 查不到用户。不需要墓碑或禁用用户名。
+- 需要吊销某用户全部 token 时：`UPDATE users SET token_version = token_version + 1 WHERE id = ?`（注销路径已自动执行）。操作前确认影响面、备份并留记录。
+
+### D.5 日志 / 备份
+
+- 应用日志与 nginx 访问日志不应含被删内容；nginx 已用 `without_args`（待容器验证）。`docker compose logs web | grep 'ticket='` 应无命中。
+- **备份库仍可能有历史数据**，这是预期而非残留故障；按备份保留周期过期，不要为了“清零”删备份。
+- 取证只保留计数、userId、traceId、对象清单，不复制正文/照片。
 
 ---
 

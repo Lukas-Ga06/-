@@ -37,6 +37,10 @@ travel:
     api-key: ""
   amap:
     key: ""
+  weather:
+    # 测试只跑模拟天气：不触网、可重复。产品路径默认 WEATHER_SIMULATION=false（见 application.yml）；
+    # 「拿不到真实天气时明确拒绝」由 WeatherServiceTest 与 WeatherDependentModificationTest 单独覆盖。
+    simulation: true
 
 logging:
   level:

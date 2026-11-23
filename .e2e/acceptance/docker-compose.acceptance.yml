@@ -7,6 +7,6 @@ services:
       DEMO_ACCOUNT: "true"
       RATE_LIMIT_ENABLED: "false"
       LLM_ENABLED: "false"
-      WEATHER_REAL: "false"
+      WEATHER_SIMULATION: "true"
       AMAP_KEY: ${AMAP_KEY:-}
       AMAP_MAPS_API_KEY: ${AMAP_MAPS_API_KEY:-}

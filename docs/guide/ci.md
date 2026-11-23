@@ -1,6 +1,6 @@
 # CI 门禁：每个 job 做什么、本地怎么复现、失败怎么处理
 
-> 状态：当前事实 | 适用版本：0.1.0（GitHub Actions / JDK 17 / Node 20） | 最后验证：2026-11-21 | 事实来源：`.github/workflows/ci.yml`、`.github/workflows/codeql.yml`、`.github/dependabot.yml`、`.gitleaks.toml`、`lychee.toml`、`travel-agent-web/package.json`、`travel-agent-server/pom.xml`
+> 状态：当前事实 | 适用版本：0.1.0（GitHub Actions / JDK 17 / Node 20） | 最后验证：2026-11-23 | 事实来源：`.github/workflows/ci.yml`、`.github/workflows/codeql.yml`、`.github/workflows/visual-baseline.yml`、`.github/dependabot.yml`、`.gitleaks.toml`、`lychee.toml`、`travel-agent-web/package.json`、`travel-agent-server/pom.xml`
 
 ## 1. job 总览
 
@@ -12,27 +12,61 @@
 | `contract` | push/PR | OpenAPI 快照无漂移；PR 上 oasdiff 破坏性变更 | 见第 4 节 |
 | `docs` | push/PR | 相对链接存在、文档命令真实可用、lychee 本地链接 | `node scripts/docs-check.mjs` |
 | `security` | push/PR | 依赖漏洞（dependency-review / npm audit / Trivy） | 见第 5 节 |
-| `e2e` | push/PR | Playwright **13 条**（Chromium 桌面）：登录/建行程/路书/PWA 资源、地图引擎运行时加载、**5 个页面的 axe 无障碍扫描（critical/serious 必须为 0）** | `cd travel-agent-web && npx playwright test` |
-| `e2e-device` | push/PR | **观察中（`continue-on-error: true`，不阻塞合并）**：移动端 WebKit/iPhone 预设 3 条 + CDP 弱网/离线 3 条 + 多端并发 2 条（连同 13 条主冒烟，共 21 条） | `cd travel-agent-web && npm run test:e2e:device`（需后端 + preview 已就绪） |
-| （未接入）视觉回归 | **仅本地** | 11 张截图逐像素比较（`maxDiffPixelRatio: 0`） | `cd travel-agent-web && npm run test:visual` |
+| `e2e` | push/PR | Playwright **14 条**（Chromium 桌面）：登录/建行程/路书/PWA 资源、地图引擎运行时加载、**5 个页面的 axe 无障碍扫描（critical/serious 必须为 0）**、**1 条隔离自证**；后端是独立 H2 内存库 + LLM/MCP/AMAP 全关 | `cd travel-agent-web && npm run e2e:isolated` |
+| `e2e-device` | push/PR | **观察中（`continue-on-error: true`，不阻塞合并）**：移动端 WebKit/iPhone 预设 3 条 + CDP 弱网/离线 3 条 + 多端并发 2 条（连同 13 条主冒烟，共 21 条），同样跑隔离后端 | `cd travel-agent-web && npm run e2e:device:isolated` |
+| `visual` | push/PR | 11 张截图逐像素比较（`maxDiffPixelRatio: 0`）；**仅有 Linux 基线时比较**，当前 `continue-on-error: true` 观察 | `cd travel-agent-web && npm run test:visual`（需 Linux 基线，见第 3 节 visual） |
 | `CodeQL` | push/PR/每周 | Java + TypeScript SAST | 本地无法等价，靠 PR 结果（第 6 节） |
 
-### 哪些套件只在本地，为什么
+### 1.1 e2e 后端为什么必须隔离
+
+2026-11-22 的设备套件在默认 `.env.local` 环境上出现 19/21：两条规划器用例被真实 LLM 卡住。
+根因不是用例，而是**启动方式**：`application.yml` 里的
+`spring.config.import: optional:file:./.env.local` 按进程工作目录解析，从
+`travel-agent-server/` 启动的 e2e 后端会把真实 LLM/高德 Key 读进来。
+
+现在 `npm run e2e:isolated` 由 Playwright 的 webServer 拉起
+[`scripts/start-e2e-backend.mjs`](../../scripts/start-e2e-backend.mjs)，做三层隔离：
+
+1. **工作目录**：java 进程 cwd 是 `.e2e/isolated/`，这里没有 `.env.local`，可选 import 落空；
+2. **环境清洗**：删除继承的 `SPRING_*`、`LLM_API_KEY`、`AMAP_*`、`JWT_SECRET`、`MYSQL_*` 等变量；
+3. **显式关闭**：LLM/Embedding/MCP/AMAP/Redis 与限流全部关闭，H2 用内存库，每次启动全新。
+
+`e2e/isolation.spec.ts` 会请求 `/api/system/status` 并断言
+`llmConfigured=false`、`amapConfigured=false`、`mcpToolCount=0`、`routeProvider=estimated`、
+`timezone=Asia/Shanghai`。配置一旦漂移，门禁变红，而不是静默通过。
+
+> 普通 `npx playwright test`（不带 `E2E_START_BACKEND=1`）仍会连 8080，方便本地快速迭代；
+> 它**不是**发布证据，日志会打印一次「未启用隔离后端」的警告。
+
+### 1.2 哪些套件仍未转正，为什么
 
 | 套件 | 现状 | 原因 / 接入条件 |
 | --- | --- | --- |
-| 视觉回归 | **仅本地** | 基线文件带平台后缀（`-chromium-win32.png`），Linux runner 字体渲染不同，直接复用必然误报。接入需要两套基线（`-chromium-linux.png` 与 `-win32`）或容器内生成；维护成本 = 每次有意改视觉要更新两份 |
-| 移动端 WebKit | 已进 CI，**观察模式** | 已解决：job 里显式 `playwright install --with-deps chromium webkit`，且作为独立 job 不阻塞主 e2e。仍需观察耗时稳定性 |
+| 移动端 WebKit | 已进 CI，**观察模式** | 隔离后端已解决外部污染；剩余风险是共享 runner 上 WebKit 与耗时阈值的抖动。转正条件：连续 2 周无「只有 CI 红、本地绿」，且 PR 模板写明「WebKit 模拟 ≠ iOS 真机」 |
 | 弱网 / 离线 | 已进 CI，**观察模式** | 依赖 `Network.emulateNetworkConditions`（仅 Chromium）；断言是耗时阈值（用例按 ≤20s，实测 8.3s，约 2.4 倍余量），共享 runner 上需观察波动 |
-| 多端并发 | 已进 CI，**观察模式** | 两个独立 `browserContext` 同账号并发；依赖后端关限流（`RATE_LIMIT_ENABLED=false`，job 已设） |
+| 多端并发 | 已进 CI，**观察模式** | 两个独立 `browserContext` 同账号并发；依赖后端关限流（隔离后端已关） |
+| 视觉回归 | 已接 CI，**观察模式** | 基线文件名带平台后缀；仓库现有 11 张是 `-chromium-win32.png`。Linux 基线需用 `.github/workflows/visual-baseline.yml` 在固定 Playwright 容器里生成并提交（见第 3 节 visual），`visual` job 检测到 `-chromium-linux.png` 后才真正比较 |
 
-三类设备类断言都是**真的能跑**的（本地已实跑通过，见
-[真机与弱网验收](../review/2026-11-21-device-network-acceptance.md)）。移动端/弱网/并发已经接进 `e2e-device`，
-但标了 `continue-on-error: true` —— 红了不拦合并，用来观察在共享 runner 上是否稳定。
-视觉回归仍未接入（需要第二套平台基线）。`e2e-device` 转正（去掉 `continue-on-error`）的条件：
+`e2e-device` 转正（去掉 `continue-on-error`）的复盘期限：**2026-12-06**。
 
-1. 连续两周不出现「只有 CI 红、本地绿」的耗时阈值抖动；
-2. PR 模板里写明「WebKit 模拟 ≠ iOS 真机」，避免把模拟结果当真人验收结论。
+### 1.3 CI 自动门禁 vs 人工验收
+
+CI 只证明「不联网、无真实 Key 时也能正确失败并自报」。**它不能证明真实外部依赖可用**，
+下面这些项必须在有 Key/有网络的环境里人工验收，CI 绿了不代表它们通过：
+
+| 验收项 | CI 能否自动覆盖 | 为什么 | 人工验收方式 |
+| --- | --- | --- | --- |
+| 规则规划器闭环、确认/撤销、预算与足迹口径 | ✅ 自动 | 确定性逻辑，隔离后端可跑 | — |
+| 天气不可用时的拒绝语义（503、不生成方案） | ✅ 自动 | 单测直接构造「不可用 + 原因」，不依赖网络 | `WeatherDependentModificationTest` |
+| **天气真实预报可用** | ❌ 人工 | e2e 用 `WEATHER_SIMULATION=true` 隔离外呼，`WeatherServiceTest` 也只覆盖 WireMock 解析——都**不证明能连上真实 Open-Meteo** | 部署后看 `/api/system/status` 的 `weatherProvider=open-meteo` 与 `weatherHint` |
+| **LLM 真实可用** | ❌ 人工 | CI 不持有 `LLM_API_KEY`，只验回落规则规划器 | 配 Key 后跑 [真实模型验收](v2.2-iteration.md) 流程并留存证据 |
+| **高德 POI / 路线真实可用** | ❌ 人工 | 需要真实 `AMAP_KEY` 且有 QPS 配额 | `.e2e/amap-real-key-probe.ps1`，结果写进 `docs/review/` |
+| 移动端真机（Android） | ❌ 人工 | CI 只有 WebKit/iPhone 预设，模拟 ≠ 真机 | 按 [发布检查单](../operations/launch-checklist.md) §5.1 跑真机矩阵 |
+| 视觉回归基线 | ⚠️ 半自动 | 仓库基线是 `-chromium-win32.png`；Linux 基线需在固定容器里生成并提交 | `.github/workflows/visual-baseline.yml` 出图 + 人工 review diff |
+| 生产部署配置（密钥、`DEMO_ACCOUNT=false`、`WEATHER_SIMULATION=false`） | ❌ 人工 | CI 用的是隔离配置 | 按 [生产配置](../operations/production-config.md) 逐项核对 `/api/system/status` |
+
+判定规则：**CI 失败 = 不能合并**；**上表 ❌ 项未人工验收 = 不能算「能力可用」**，只能算「代码路径存在」。
+对外介绍与发布说明必须按 [能力边界与默认口径](capability-boundaries.md) 表述，不得用 CI 结果替代真实依赖验收。
 
 ## 2. 本地一次跑完全部快速门禁
 
@@ -50,7 +84,14 @@ npm run build:check && npm run api:check
 # 文档
 cd .. && node scripts/docs-check.mjs
 
+# 浏览器 e2e（隔离后端：独立 H2 + 无真实 LLM/MCP/外部 Key）
+cd travel-agent-web
+npm run build
+npm run e2e:isolated            # Chromium 桌面门禁
+npm run e2e:device:isolated     # WebKit 移动端 + 弱网 + 多端并发（观察）
+
 # 真实 MySQL 迁移（需本地实例，见 mysql-migration.md）
+cd ..
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/mysql-it.ps1
 ```
 
@@ -68,6 +109,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/mysql-it.ps1
 - 覆盖率双阈值：全局在 `vitest.config.ts`，`src/store|api|lib` 在 `scripts/check-core-coverage.mjs`；规则与 ratchet 见 [frontend-quality.md](frontend-quality.md)。
 - 包体预算在 `travel-agent-web/scripts/check-bundle-budget.mjs`；方案与数字见 [frontend-performance.md](frontend-performance.md)。**不允许通过调高 `chunkSizeWarningLimit` 让预算失败消失。**
 - 契约类型漂移：`docs/api/openapi.json` 变了就必须 `npm run api:generate`。
+
+### e2e（隔离后端）
+- 本地首次跑会构建后端 jar（`mvn -Dmaven.test.skip=true package`，约 30–60s），之后按源码 mtime 自动复用；`--force-build` 可强制重建。
+- 隔离实例固定 `http://127.0.0.1:18081`（可用 `E2E_API_PORT` 改），日志在 `.e2e/isolated/backend.log`。**端口被占用时脚本会直接拒绝启动**，不会复用可能的开发者实例；先停旧进程再跑。
+- 后端 cwd 必须是 `.e2e/isolated/`。如果该目录出现 `.env.local`，脚本拒绝启动——这是防止有人“手工把真实 Key 拷进隔离环境”。
+- 失败排查：先看 `.e2e/isolated/backend.log` 的启动异常（Flyway/H2/端口），再看 Playwright 的 `test-results`。若 `isolation.spec.ts` 报 `llmConfigured=true` 或 `mcpToolCount>0`，说明隔离配置被绕过，**不要**改断言，先查启动参数与环境变量。
+- 环境变量继承清洗清单在脚本 `isolatedEnv()`；新增外部依赖（如新的 provider Key）时要同步加进删除列表。
+
+### visual（Linux 基线）
+- 生成：Actions →「Visual baseline (Linux)」→ Run workflow → 下载 `visual-linux-baselines`，把 `*-chromium-linux.png` 提交到 `travel-agent-web/e2e/visual/pages.spec.ts-snapshots/`。
+- 比较：`visual` job 与生成器使用同一个 `mcr.microsoft.com/playwright:v1.64.1-jammy` 镜像，检测到 Linux 基线才会执行 `npm run test:visual`。
+- 转正：第一次 Linux 比较通过并人工 review 截图 diff 后，把 `visual` job 的 `continue-on-error` 删掉，并在本节记录日期与 commit。
 
 ### docs
 - `scripts/docs-check.mjs`：相对链接存在性 + 文档里 `npm run <script>` / `mvn <goal>` 的真实性（未知 Maven goal 只警告）。修复方式就是改链接或改命令，不要加豁免。

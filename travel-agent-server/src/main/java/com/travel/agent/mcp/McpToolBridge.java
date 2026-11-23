@@ -12,10 +12,15 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * MCP 桥接：启动时逐个接入 travel.mcp.servers，把每个 server 的工具以 mcp_{server}_{tool}
  * 注册进 ToolRegistry（只读，经 SafetyInterceptor 审计）。单个 server 失败只告警，不影响应用与其余 server。
+ *
+ * <p>P0-A：同时维护一份线程安全的接入状态快照（{@link McpStatusSnapshot}），供
+ * {@code /api/system/status} 如实自报「启用了没有 / 连上了几个 server / 注册了几个工具 / 最近错误」，
+ * 运维不必再翻启动日志猜 MCP 是否生效。
  */
 @Component
 @RequiredArgsConstructor
@@ -28,26 +33,66 @@ public class McpToolBridge implements SmartLifecycle {
     static final int MAX_SERVER_NAME = 20;
     /** 注册名里 tool 段的最大长度：要容下 maps_direction_transit_integrated（33 字符） */
     static final int MAX_TOOL_NAME = 39;
+    /** 状态快照里的错误摘要截断（避免把整段堆栈带进 status 响应） */
+    private static final int MAX_ERROR_LENGTH = 300;
 
     private final McpProperties properties;
     private final ToolRegistry toolRegistry;
     private final ObjectMapper objectMapper;
-    private final List<McpConnection> connections = new ArrayList<>();
+    private final List<McpConnection> connections = new CopyOnWriteArrayList<>();
     private volatile boolean running = false;
+
+    /** 一个 MCP server 的接入结果（status 数组里的一行） */
+    public record McpServerStatus(String name, boolean connected, int toolCount, String lastError) { }
+
+    /**
+     * 接入状态快照（不可变，volatile 引用整体替换）。
+     *
+     * @param enabled   配置是否启用 MCP
+     * @param running   桥接是否已启动（start 完成且未 stop）
+     * @param toolCount 已注册的 MCP 工具总数
+     * @param servers   每个配置 server 的接入结果
+     * @param lastError 最近一次接入失败原因（多个失败取第一个），全部成功为 null
+     */
+    public record McpStatusSnapshot(boolean enabled, boolean running, int toolCount,
+                                    List<McpServerStatus> servers, String lastError) {
+    }
+
+    /** 未启动/未启用时的空快照 */
+    private static final McpStatusSnapshot NOT_STARTED =
+            new McpStatusSnapshot(false, false, 0, List.of(), null);
+
+    private volatile McpStatusSnapshot status = NOT_STARTED;
 
     @Override
     public void start() {
         if (!properties.isEnabled()) {
+            List<McpServerStatus> configured = new ArrayList<>();
+            for (McpProperties.Server server : properties.getServers()) {
+                configured.add(new McpServerStatus(displayName(server), false, 0, null));
+            }
+            status = new McpStatusSnapshot(false, false, 0, List.copyOf(configured), null);
             log.info("MCP 未启用 (travel.mcp.enabled=false)，仅使用内置工具");
             return;
         }
         running = true;
+        List<McpServerStatus> serverStatuses = new ArrayList<>();
         for (McpProperties.Server server : properties.getServers()) {
-            connect(server);
+            serverStatuses.add(connect(server));
         }
+        int totalTools = serverStatuses.stream().mapToInt(McpServerStatus::toolCount).sum();
+        String lastError = serverStatuses.stream()
+                .map(McpServerStatus::lastError)
+                .filter(error -> error != null && !error.isBlank())
+                .findFirst()
+                .orElse(null);
+        status = new McpStatusSnapshot(true, true, totalTools, List.copyOf(serverStatuses), lastError);
+        log.info("MCP 接入完成：{} 个 server，共 {} 个工具{}", serverStatuses.size(), totalTools,
+                lastError == null ? "" : "（最近错误：" + lastError + "）");
     }
 
-    private void connect(McpProperties.Server server) {
+    private McpServerStatus connect(McpProperties.Server server) {
+        String name = displayName(server);
         McpConnection connection = null;
         try {
             McpTransport transport = server.getUrl() != null && !server.getUrl().isBlank()
@@ -73,11 +118,29 @@ public class McpToolBridge implements SmartLifecycle {
             connections.add(connection);
             log.info("MCP 服务器 [{}] ({}) 已接入，注册 {} 个工具", server.getName(),
                     connection.serverName(), registered);
+            return new McpServerStatus(name, true, registered, null);
         } catch (Exception e) {
             // 单个 server 失败只告警：不阻断应用启动，也不影响其余 server
-            log.warn("MCP 服务器 [{}] 接入失败，已跳过: {}", server.getName(), e.getMessage());
+            String error = truncateError(e);
+            log.warn("MCP 服务器 [{}] 接入失败，已跳过: {}", server.getName(), error);
             closeQuietly(connection, server.getName());
+            return new McpServerStatus(name, false, 0, error);
         }
+    }
+
+    /** 当前接入状态快照（线程安全：整体替换的不可变对象，可被 status 接口任意线程读取） */
+    public McpStatusSnapshot status() {
+        return status;
+    }
+
+    private static String displayName(McpProperties.Server server) {
+        return server.getName() == null || server.getName().isBlank() ? "unnamed" : server.getName();
+    }
+
+    private static String truncateError(Exception e) {
+        String message = e.getMessage() == null || e.getMessage().isBlank()
+                ? e.getClass().getSimpleName() : e.getMessage();
+        return message.length() > MAX_ERROR_LENGTH ? message.substring(0, MAX_ERROR_LENGTH) + "…" : message;
     }
 
     /** 握手/枚举中途失败时回收已拉起的 stdio 子进程，避免测试与运行期泄漏进程 */
@@ -174,6 +237,11 @@ public class McpToolBridge implements SmartLifecycle {
             }
         }
         connections.clear();
+        // 关闭后不再有可用连接：快照保留「启用过」的事实，但报告为未连接
+        List<McpServerStatus> stopped = status.servers().stream()
+                .map(s -> new McpServerStatus(s.name(), false, 0, s.lastError()))
+                .toList();
+        status = new McpStatusSnapshot(status.enabled(), false, 0, stopped, status.lastError());
     }
 
     @Override

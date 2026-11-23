@@ -2,7 +2,9 @@ package com.travel.agent.service;
 
 import com.travel.agent.dto.ChatDtos;
 import com.travel.agent.entity.ConversationMessage;
+import com.travel.agent.entity.ConversationMeta;
 import com.travel.agent.repository.ConversationMessageRepository;
+import com.travel.agent.repository.ConversationMetaRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Example;
@@ -19,6 +21,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -41,11 +44,18 @@ import java.util.concurrent.atomic.AtomicLong;
  * <h2>保留期与清理</h2>
  * {@code travel.conversation.retention-days} 默认 7 天。清理有两条路：
  * <ul>
- *   <li>快路径：{@link #append} 里每小时最多一次顺手清理（会话活跃时及时回收）；</li>
+ *   <li>快路径：{@link #beginTurn} 成功落库后每小时最多一次顺手清理（会话活跃时及时回收）；</li>
  *   <li>兜底：{@link #purgeDaily()} {@code @Scheduled} 每天跑一次（闲置账号没人写就不会触发快路径，
  *       只靠它会让过期数据无限堆积）。</li>
  * </ul>
  * 两条路共用 {@link #purgeExpired()} —— 它不依赖调度器，测试/运维可直接调用。
+ *
+ * <h2>并发（V23）</h2>
+ * 一轮问答（用户消息 + 助手回复）共用一个 {@code turn_seq}。分配是 compare-and-set：
+ * 取该会话当前最大序号 +1 后直接插入，撞唯一键就换号重试（{@link ConversationTurnWriter}）。
+ * 两台设备同时聊同一个 conversationId 时，后到的那一轮顺延到下一个号，
+ * 两轮各自的问答始终相邻 —— 读回来不会再出现「A 问、B 问、A 答、B 答」的交叉。
+ * 顺序口径统一为 {@code COALESCE(turn_seq, 0), createdAt, id}：存量行（无序号）排在所有新轮次之前。
  */
 @Service
 @Slf4j
@@ -61,8 +71,23 @@ public class ConversationService {
     private static final int TITLE_MAX_LENGTH = 40;
     /** 没有任何用户消息时的兜底标题 */
     private static final String DEFAULT_TITLE = "新会话";
+    /**
+     * 轮次序号的分配尝试上限（V23）。
+     *
+     * <p>为什么不是一个很小的数：并发 N 台设备同时开口时，第一轮会有 N-1 个请求撞键
+     * （大家都读到了同一个最大值），之后每轮继续收敛，最坏需要 O(N) 次。上限给到 20，
+     * 覆盖「一个账号在多端同时刷」的现实规模；真到上限就退化成「不分组写入」——
+     * 宁可少一个分组标记，也不丢用户的消息。
+     */
+    private static final int TURN_ALLOCATION_ATTEMPTS = 20;
+    /** 撞键后的抖动上限（毫秒）：让同时重试的请求错开，避免一直踩着同一个号 */
+    private static final int TURN_RETRY_JITTER_MS = 4;
+    /** 未分配到轮次序号时的返回值（单轮对话 / 分配失败）：回复照旧落库，只是不带分组 */
+    public static final long NO_TURN = -1L;
 
     private final ConversationMessageRepository repository;
+    private final ConversationMetaRepository metaRepository;
+    private final ConversationTurnWriter turnWriter;
     /** 喂给模型的最近消息条数（travel.conversation.history-limit，非法值已回落默认） */
     private final int historyLimit;
     /** 消息保留天数（travel.conversation.retention-days，非法值已回落默认） */
@@ -70,9 +95,13 @@ public class ConversationService {
     private final AtomicLong nextPurgeAt = new AtomicLong();
 
     public ConversationService(ConversationMessageRepository repository,
+                               ConversationMetaRepository metaRepository,
+                               ConversationTurnWriter turnWriter,
                                @Value("${travel.conversation.history-limit:10}") int historyLimit,
                                @Value("${travel.conversation.retention-days:7}") int retentionDays) {
         this.repository = repository;
+        this.metaRepository = metaRepository;
+        this.turnWriter = turnWriter;
         this.historyLimit = positiveOr(historyLimit, DEFAULT_HISTORY_LIMIT, "travel.conversation.history-limit");
         this.retentionDays = positiveOr(retentionDays, DEFAULT_RETENTION_DAYS, "travel.conversation.retention-days");
     }
@@ -140,11 +169,20 @@ public class ConversationService {
         for (ConversationMessage message : repository.findFirstOfRole(userId, ConversationMessage.ROLE_USER, ids)) {
             titles.putIfAbsent(message.getConversationId(), titleOf(message.getContent()));
         }
+        // 用户显式改过的名字（V23）优先于推导标题：一次 IN 查询取回，不在循环里查
+        Map<String, String> renamed = new LinkedHashMap<>();
+        for (ConversationMeta meta : metaRepository.findByUserIdAndConversationIdIn(userId, ids)) {
+            String assigned = blankToNull(meta.getTitle());
+            if (assigned != null) {
+                renamed.put(meta.getConversationId(), assigned);
+            }
+        }
         List<ChatDtos.ConversationSummary> result = new ArrayList<>(rows.size());
         for (ConversationMessageRepository.ConversationSummaryView row : rows) {
             result.add(ChatDtos.ConversationSummary.builder()
                     .conversationId(row.getConversationId())
-                    .title(titles.getOrDefault(row.getConversationId(), DEFAULT_TITLE))
+                    .title(renamed.getOrDefault(row.getConversationId(),
+                            titles.getOrDefault(row.getConversationId(), DEFAULT_TITLE)))
                     .lastMessageAt(row.getLastMessageAt() == null ? null : row.getLastMessageAt().toString())
                     .messageCount(row.getMessageCount() == null ? 0L : row.getMessageCount())
                     // coalesce 折叠成空串后在这里还原成 null：null 表示「未绑定」，不能伪装成某个作用域
@@ -179,8 +217,7 @@ public class ConversationService {
                     .build();
         }
         List<ConversationMessage> latest = new ArrayList<>(
-                repository.findByUserIdAndConversationIdOrderByCreatedAtDescIdDesc(
-                        userId, conversationId, PageRequest.of(0, limit)));
+                repository.findRecent(userId, conversationId, PageRequest.of(0, limit)));
         Collections.reverse(latest);
         String scope = latest.isEmpty()
                 ? null
@@ -213,37 +250,91 @@ public class ConversationService {
         return value == null || value.isBlank() ? null : value.trim();
     }
 
-    /** 追加一条消息；conversationId 为空（单轮模式）时不落库 */
-    @Transactional
-    public void append(Long userId, String conversationId, String role, String content, String intent) {
-        append(userId, conversationId, role, content, intent, null);
+    /**
+     * 开启一轮问答（V23）：分配该会话的下一个轮次序号，并落下本轮的用户消息。
+     *
+     * <p><b>为什么是 compare-and-set</b>：序号没有独立的计数器行，靠「读当前最大值 +1 后直接插入」
+     * 分配，由唯一键 {@code (user_id, conversation_id, turn_seq, role)} 兜底并发。
+     * 两台设备几乎同时开口时，后到的那次插入撞键 → 重读最大值 → 顺延到下一个号。
+     * 结果是两轮各自拿到互不相同的号，读回来不会互相穿插。
+     *
+     * <p>超过尝试上限时退化成「不带序号的单条写入」并返回 {@link #NO_TURN}：
+     * 分组标记丢了可以接受，用户的这句话不能丢。
+     *
+     * @return 本轮序号；{@link #NO_TURN} 表示未分组（单轮对话 / 分配失败）
+     */
+    public long beginTurn(Long userId, String conversationId, String content, String scope) {
+        if (userId == null || conversationId == null || conversationId.isBlank()
+                || content == null || content.isBlank()) {
+            return NO_TURN;
+        }
+        for (int attempt = 0; attempt < TURN_ALLOCATION_ATTEMPTS; attempt++) {
+            long turnSeq = repository.maxTurnSeq(userId, conversationId) + 1;
+            if (turnWriter.insertOnce(messageOf(userId, conversationId, ConversationMessage.ROLE_USER,
+                    content, null, scope, turnSeq))) {
+                purgeExpiredIfDue();
+                return turnSeq;
+            }
+            // 抖动后再读：几台设备同时重试时，不加抖动会一直踩着同一个号反复撞
+            if (!backoffBeforeRetry(attempt)) {
+                break;
+            }
+        }
+        log.warn("会话轮次分配连续 {} 次撞键，本轮不分组写入: user={} conversation={}",
+                TURN_ALLOCATION_ATTEMPTS, userId, conversationId);
+        turnWriter.insertOnce(messageOf(userId, conversationId, ConversationMessage.ROLE_USER,
+                content, null, scope, null));
+        return NO_TURN;
     }
 
     /**
-     * 追加一条消息并记录会话作用域（V21）。
+     * 落本轮的助手回复：与 {@link #beginTurn} 共用同一个轮次序号，两行因此始终相邻。
      *
-     * <p>scope 每轮写入，所以「该会话最新一条消息的 scope」= 「最近一次是在哪个页面聊的」，
-     * 列表与续聊都以它为准。scope 为 null 时不覆盖历史值之外的东西：新行就是 null，
-     * 但查询取的是「最后一条」，老客户端（不传 scope）继续聊会让作用域回到未绑定 ——
-     * 这是有意的：没有声明的绑定，不如没有。
+     * <p>撞唯一键说明这一轮已经有回复了（同一轮被重复收尾），直接忽略——
+     * 不覆盖、不追加第二条，历史里不会出现两个「助手答」。
      */
-    @Transactional
-    public void append(Long userId, String conversationId, String role, String content, String intent, String scope) {
-        if (userId == null || conversationId == null || conversationId.isBlank()) {
+    public void appendReply(Long userId, String conversationId, long turnSeq, String content, String intent,
+                            String scope) {
+        if (userId == null || conversationId == null || conversationId.isBlank()
+                || content == null || content.isBlank()) {
             return;
         }
-        if (content == null || content.isBlank()) {
+        boolean written = turnWriter.insertOnce(messageOf(userId, conversationId,
+                ConversationMessage.ROLE_ASSISTANT, content, intent, scope,
+                turnSeq == NO_TURN ? null : turnSeq));
+        if (!written) {
+            log.debug("本轮回复已存在，跳过重复收尾: user={} conversation={} turn={}",
+                    userId, conversationId, turnSeq);
             return;
         }
-        repository.save(ConversationMessage.builder()
+        purgeExpiredIfDue();
+    }
+
+    private static ConversationMessage messageOf(Long userId, String conversationId, String role, String content,
+                                                 String intent, String scope, Long turnSeq) {
+        return ConversationMessage.builder()
                 .userId(userId)
                 .conversationId(conversationId)
                 .role(role)
                 .content(truncate(content))
                 .intent(intent)
                 .scope(blankToNull(scope))
-                .build());
-        purgeExpiredIfDue();
+                .turnSeq(turnSeq)
+                .build();
+    }
+
+    /**
+     * 撞键后的短抖动：让同时重试的请求错开。返回 false 表示线程被中断，调用方应停止重试
+     * （恢复中断标志而不是把它吃掉）。
+     */
+    private static boolean backoffBeforeRetry(int attempt) {
+        try {
+            Thread.sleep(ThreadLocalRandom.current().nextInt(1, TURN_RETRY_JITTER_MS + 1) + (long) attempt);
+            return true;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
     }
 
     /** 开新会话：清掉该用户在这个会话里的历史 */
@@ -253,6 +344,60 @@ public class ConversationService {
             return;
         }
         repository.deleteByUserIdAndConversationId(userId, conversationId);
+        metaRepository.deleteByUserIdAndConversationId(userId, conversationId);
+    }
+
+    /**
+     * 重命名一段会话（V23）：只写 {@code conversation_meta}，不动消息。
+     *
+     * <p>空标题（null / 空白）表示<b>恢复自动标题</b> —— 删掉覆盖行，
+     * 列表回到「首条用户消息」的推导标题。这样「改错了」有退路，不必依赖前端清空输入框的语义猜测。
+     *
+     * @return 生效的标题；null 表示已恢复自动标题（调用方按推导标题展示即可）
+     */
+    @Transactional
+    public String rename(Long userId, String conversationId, String title) {
+        if (userId == null || conversationId == null || conversationId.isBlank()) {
+            return null;
+        }
+        String assigned = titleOf(title);
+        boolean restoreAuto = title == null || title.isBlank();
+        ConversationMeta meta = metaRepository.findByUserIdAndConversationId(userId, conversationId)
+                .orElse(null);
+        if (restoreAuto) {
+            if (meta != null) {
+                metaRepository.delete(meta);
+            }
+            return null;
+        }
+        if (meta == null) {
+            metaRepository.save(ConversationMeta.builder()
+                    .userId(userId)
+                    .conversationId(conversationId)
+                    .title(assigned)
+                    .build());
+        } else {
+            meta.setTitle(assigned);
+            metaRepository.save(meta);
+        }
+        return assigned;
+    }
+
+    /**
+     * 删除一段会话（V23）：消息与元数据一起删，按 userId 隔离，别人的会话删不动。
+     *
+     * <p>已过保留期的会话本来就没有行，删除同样返回 false（幂等：重复删除不报错）。
+     *
+     * @return true = 真的删掉了消息或元数据；false = 本来就没有
+     */
+    @Transactional
+    public boolean delete(Long userId, String conversationId) {
+        if (userId == null || conversationId == null || conversationId.isBlank()) {
+            return false;
+        }
+        long messages = repository.deleteByUserIdAndConversationId(userId, conversationId);
+        long metas = metaRepository.deleteByUserIdAndConversationId(userId, conversationId);
+        return messages > 0 || metas > 0;
     }
 
     /**

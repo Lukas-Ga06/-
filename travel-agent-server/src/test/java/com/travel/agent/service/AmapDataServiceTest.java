@@ -21,6 +21,7 @@ import org.springframework.web.client.RestClient;
 import java.util.List;
 import java.util.Map;
 import java.util.Locale;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
@@ -90,6 +91,27 @@ class AmapDataServiceTest {
             @Override public RiskLevel getRiskLevel() { return RiskLevel.LOW; }
             @Override public Object execute(Map<String, Object> args) { return result; }
         };
+    }
+
+    /** 按调用次序返回结果的假 MCP 工具（用于验证「限流一次 → 重试成功」的退避重试） */
+    private static final class CountingMcp implements AgentTool {
+        private final String name;
+        private final String[] results;
+        private final AtomicInteger calls = new AtomicInteger();
+
+        CountingMcp(String name, String... results) {
+            this.name = name;
+            this.results = results;
+        }
+
+        @Override public String getName() { return name; }
+        @Override public String getDescription() { return "scripted amap mcp"; }
+        @Override public RiskLevel getRiskLevel() { return RiskLevel.LOW; }
+
+        @Override public Object execute(Map<String, Object> args) {
+            int index = Math.min(calls.getAndIncrement(), results.length - 1);
+            return results[index];
+        }
     }
 
     private AmapDataService restService(String key, MockRestServiceServer[] outServer) {
@@ -421,5 +443,105 @@ class AmapDataServiceTest {
         AmapRoute route = svc.driving(31.222771, 121.490317, 31.24, 121.50);
         // 没有几何就给空列表，绝不用两端点伪造一条路径
         assertThat(route.polyline()).isEmpty();
+    }
+
+    // ------------------------------------------------------------------
+    // P0-B：MCP 分支的 10021 限流退避重试（与 REST 分支同口径）
+    // ------------------------------------------------------------------
+
+    @Test
+    void mcpQpsLimitIsRetriedOnceAndSucceeds() {
+        Logger logger = (Logger) LoggerFactory.getLogger(AmapDataService.class);
+        ListAppender<ILoggingEvent> logs = attachLogs(logger);
+        try {
+            CountingMcp mcp = new CountingMcp("mcp_amap_maps_direction_driving", QPS_LIMIT_JSON, DRIVE_JSON);
+            RestClient.Builder builder = RestClient.builder();
+            MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+            AmapDataService svc = new AmapDataService(
+                    provider(new ToolRegistry(List.of(mcp))), MAPPER, "test-key", builder.build());
+
+            AmapRoute route = svc.driving(31.222771, 121.490317, 31.24, 121.50);
+
+            assertThat(route).isNotNull();
+            assertThat(route.distanceMeters()).isEqualTo(12345.0);
+            assertThat(mcp.calls.get()).isEqualTo(2);
+            assertThat(svc.routeVerified()).isTrue();
+            assertThat(svc.routeLastError()).isNull();
+            assertThat(warnCount(logs, "10021")).as("限流重试要留一条 WARN").isGreaterThanOrEqualTo(1);
+            assertThat(logs.list.stream().noneMatch(e -> e.getLevel() == Level.ERROR))
+                    .as("可预期的限流不应打成 ERROR 堆栈").isTrue();
+            server.verify(); // 第二次成功，不再退回 REST
+        } finally {
+            logger.detachAppender(logs);
+        }
+    }
+
+    @Test
+    void mcpQpsLimitPersistsFallsBackToRest() {
+        Logger logger = (Logger) LoggerFactory.getLogger(AmapDataService.class);
+        ListAppender<ILoggingEvent> logs = attachLogs(logger);
+        try {
+            CountingMcp mcp = new CountingMcp("mcp_amap_maps_direction_driving", QPS_LIMIT_JSON, QPS_LIMIT_JSON);
+            RestClient.Builder builder = RestClient.builder();
+            MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+            AmapDataService svc = new AmapDataService(
+                    provider(new ToolRegistry(List.of(mcp))), MAPPER, "test-key", builder.build());
+            server.expect(requestTo(containsString("/v3/direction/driving")))
+                    .andRespond(withSuccess(DRIVE_JSON, MediaType.APPLICATION_JSON));
+
+            AmapRoute route = svc.driving(31.222771, 121.490317, 31.24, 121.50);
+
+            assertThat(route).as("连续限流后应退回 REST，不得抛异常").isNotNull();
+            assertThat(mcp.calls.get()).as("只重试一次，不无限重试").isEqualTo(2);
+            assertThat(svc.routeVerified()).isTrue();
+            assertThat(logs.list.stream().noneMatch(e -> e.getLevel() == Level.ERROR)).isTrue();
+            server.verify();
+        } finally {
+            logger.detachAppender(logs);
+        }
+    }
+
+    @Test
+    void mcpPoiQpsLimitIsRetriedOnce() {
+        CountingMcp mcp = new CountingMcp("mcp_amap_maps_text_search", QPS_LIMIT_JSON, POI_JSON);
+        AmapDataService svc = new AmapDataService(provider(new ToolRegistry(List.of(mcp))), MAPPER, "",
+                RestClient.builder().build());
+
+        List<AmapPoi> pois = svc.searchPoi("外滩", "上海", null, 5);
+
+        assertThat(pois).hasSize(1);
+        assertThat(pois.get(0).name()).isEqualTo("外滩");
+        assertThat(mcp.calls.get()).isEqualTo(2);
+    }
+
+    @Test
+    void mcpPoiQpsPersistsFallsBackToRest() {
+        CountingMcp mcp = new CountingMcp("mcp_amap_maps_text_search", QPS_LIMIT_JSON, QPS_LIMIT_JSON);
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        AmapDataService svc = new AmapDataService(
+                provider(new ToolRegistry(List.of(mcp))), MAPPER, "test-key", builder.build());
+        server.expect(requestTo(containsString("/v3/place/text")))
+                .andRespond(withSuccess(POI_JSON, MediaType.APPLICATION_JSON));
+
+        List<AmapPoi> pois = svc.searchPoi("外滩", "上海", null, 5);
+
+        assertThat(pois).as("MCP 连续限流后应退回 REST，不得抛异常").hasSize(1);
+        assertThat(mcp.calls.get()).isEqualTo(2);
+        server.verify();
+    }
+
+    @Test
+    void mcpQpsLimitWithoutRestDegradesWithoutThrowing() {
+        CountingMcp mcp = new CountingMcp("mcp_amap_maps_direction_driving", QPS_LIMIT_JSON, QPS_LIMIT_JSON);
+        AmapDataService svc = new AmapDataService(provider(new ToolRegistry(List.of(mcp))), MAPPER, "",
+                RestClient.builder().build());
+
+        AmapRoute route = svc.driving(31.222771, 121.490317, 31.24, 121.50);
+
+        assertThat(route).isNull();
+        assertThat(mcp.calls.get()).isEqualTo(2);
+        assertThat(svc.routeVerified()).isFalse();
+        assertThat(svc.routeLastError()).contains("10021");
     }
 }

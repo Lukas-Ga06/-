@@ -4,10 +4,10 @@ import com.travel.agent.model.Attraction;
 import com.travel.agent.service.TravelCatalogService;
 import com.travel.agent.tool.AgentTool;
 import com.travel.agent.tool.RiskLevel;
+import com.travel.agent.tool.ToolArgs;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -34,14 +34,34 @@ public class SearchAttractionTool implements AgentTool {
     }
 
     @Override
+    public List<ToolParameter> getParameters() {
+        return List.of(
+                new ToolParameter("city", true, "string", "城市"),
+                new ToolParameter("venue", false, "string", "室内/室外"),
+                new ToolParameter("nearLat", false, "number", "数字"),
+                new ToolParameter("nearLng", false, "number", "数字"),
+                new ToolParameter("exclude", false, "string-list", "逗号分隔"));
+    }
+
+    @Override
     public Object execute(Map<String, Object> args) {
-        var city = catalogService.requireCity((String) args.getOrDefault("city", ""));
-        String venue = (String) args.get("venue");
-        Double nearLat = args.get("nearLat") == null ? null : ((Number) args.get("nearLat")).doubleValue();
-        Double nearLng = args.get("nearLng") == null ? null : ((Number) args.get("nearLng")).doubleValue();
-        String excludeStr = (String) args.get("exclude");
-        List<String> exclude = excludeStr == null || excludeStr.isBlank() ? List.of() : Arrays.asList(excludeStr.split(","));
+        var city = catalogService.requireCity(ToolArgs.string(args, "city", ""));
+        String venue = normalizeVenue(ToolArgs.string(args, "venue"));
+        Double nearLat = ToolArgs.doubleValue(args, "nearLat");
+        Double nearLng = ToolArgs.doubleValue(args, "nearLng");
+        List<String> exclude = ToolArgs.stringList(args, "exclude");
         List<Attraction> result = catalogService.searchAttractions(city, venue, nearLat, nearLng, exclude, 6);
         return result;
+    }
+
+    /** 目录层只认 indoor/outdoor；提示词里写的是「室内/室外」，模型可能照抄中文，这里做一次归一化 */
+    private static String normalizeVenue(String venue) {
+        if ("室内".equals(venue)) {
+            return "indoor";
+        }
+        if ("室外".equals(venue)) {
+            return "outdoor";
+        }
+        return venue;
     }
 }

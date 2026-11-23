@@ -138,7 +138,7 @@ function Start-Backend {
     $env:DEMO_ACCOUNT = 'true'
     $env:LLM_ENABLED = 'false'
     $env:RATE_LIMIT_ENABLED = 'true'
-    $env:WEATHER_REAL = 'false'
+    $env:WEATHER_SIMULATION = 'true'
     $env:INVOICE_DIR = (Join-Path $ToolsRoot 'app\data\invoices')
     $env:PHOTOS_DIR = (Join-Path $ToolsRoot 'app\data\photos')
     $start = Get-Date

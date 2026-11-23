@@ -12,6 +12,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -32,6 +33,10 @@ public class IntentAgent {
     /** 明确的时间点，例如「下午3点」「9:30」——用于区分"排日程"与随口提到的会议 */
     private static final Pattern EXPLICIT_TIME =
             Pattern.compile("(上午|下午|中午|晚上|早上)?\\s*\\d{1,2}\\s*[点时:：]");
+
+    /** P0-B 多意图：最多保留 3 条「其余未执行请求」，每条最多 40 字 */
+    static final int MAX_ALSO_REQUESTED = 3;
+    static final int MAX_ALSO_REQUESTED_LENGTH = 40;
 
     private static final List<String> INTENTS = List.of(
             IntentResult.PLAN_TRIP, IntentResult.MODIFY_ITINERARY, IntentResult.QUERY_BUDGET,
@@ -101,8 +106,11 @@ public class IntentAgent {
                     没说的一律填 null，不要猜默认值。
                     结合对话历史理解指代与省略：用户说「那把第二天的酒店也换掉」「它太贵了」时，
                     要结合上一轮内容判断目标；分类仍然只看这一条消息的意图本身。
-                    仅输出 JSON，格式：{"intent":"...","target":"...","destination":"...","constraints":{"date":"明天","weather":"rain"},"slots":{"destination":"上海","days":3,"partySize":2,"budget":3000,"startDate":"2026-11-21"},"tool":"工具名","args":{"参数":"值"}}
+                    仅输出 JSON，格式：{"intent":"...","target":"...","destination":"...","constraints":{"date":"明天","weather":"rain"},"slots":{"destination":"上海","days":3,"partySize":2,"budget":3000,"startDate":"2026-11-21"},"alsoRequested":["其余请求的短语"],"tool":"工具名","args":{"参数":"值"}}
                     （intent 为 INVOKE_TOOL 时必须带 tool 与 args 两个字段；其他意图忽略 tool/args）
+                    alsoRequested：如果同一条消息里还包含其他独立、可执行的请求（与 intent 不同的动作），
+                    把其余请求各用一句短语放进数组，最多 3 条、每条不超过 40 字；没有就填 []。
+                    当前仍只处理最重要的一个意图，不要把这些请求合并执行。
                     当前用户是否已有行程：%s
                     %s用户消息：
                     """.formatted(toolsBlock, trip != null ? "有 (tripId=" + trip.getId() + ")" : "无", historyBlock) + message;
@@ -132,6 +140,8 @@ public class IntentAgent {
                     .intent(intent)
                     .target(node.path("target").asText(IntentResult.TARGET_NONE))
                     .constraints(constraints)
+                    // P0-B 多意图：其余独立请求只作为「未执行提示」的来源，不改变本轮处理范围
+                    .alsoRequested(parseAlsoRequested(node.path("alsoRequested")))
                     // 槽位以确定性解析为主，模型只补它听懂、但规则没解析出来的部分
                     .slots(RequirementSlots.fromMessage(message).fillMissingFrom(parseSlots(node.path("slots"))));
             if (IntentResult.INVOKE_TOOL.equals(intent)) {
@@ -176,6 +186,29 @@ public class IntentAgent {
         }
         return new RequirementSlots(destination, days > 0 ? days : null,
                 partySize > 0 ? partySize : null, budget, startDate);
+    }
+
+    /**
+     * 解析模型给出的「其余未执行请求」（P0-B）：只保留非空且不超过 40 字的短语，最多 3 条。
+     * 超长/空值直接丢弃（不截断成半句话），解析失败按空列表处理——多意图提示是补充信息，
+     * 不能因为模型输出脏数据而影响主流程。
+     */
+    private List<String> parseAlsoRequested(JsonNode node) {
+        if (node == null || !node.isArray()) {
+            return List.of();
+        }
+        List<String> result = new ArrayList<>();
+        for (JsonNode item : node) {
+            String text = item.asText("").trim();
+            if (text.isEmpty() || text.length() > MAX_ALSO_REQUESTED_LENGTH) {
+                continue;
+            }
+            result.add(text);
+            if (result.size() >= MAX_ALSO_REQUESTED) {
+                break;
+            }
+        }
+        return result;
     }
 
     /** 注册的 MCP 外部工具目录；未接入任何 MCP 工具时提示模型禁用 INVOKE_TOOL */

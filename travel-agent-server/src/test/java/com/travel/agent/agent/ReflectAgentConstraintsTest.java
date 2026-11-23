@@ -2,6 +2,7 @@ package com.travel.agent.agent;
 
 import com.travel.agent.entity.ItineraryItem;
 import com.travel.agent.model.WeatherInfo;
+import com.travel.agent.model.WeatherLookup;
 import com.travel.agent.service.RouteService;
 import com.travel.agent.service.WeatherService;
 import org.junit.jupiter.api.DisplayName;
@@ -35,8 +36,18 @@ class ReflectAgentConstraintsTest {
                 : info;
         return new WeatherService(new com.travel.agent.config.WeatherProperties(), null) {
             @Override
-            public WeatherInfo forecast(String city, LocalDate date, boolean mentionRain) {
-                return payload;
+            public WeatherLookup forecast(String city, LocalDate date) {
+                return WeatherLookup.available(payload);
+            }
+        };
+    }
+
+    /** 真实天气不可用：审核只能如实说「本次没做校验」，不能猜一个天气出来 */
+    private static WeatherService unavailableWeather() {
+        return new WeatherService(new com.travel.agent.config.WeatherProperties(), null) {
+            @Override
+            public WeatherLookup forecast(String city, LocalDate date) {
+                return WeatherLookup.unavailable(WeatherLookup.REASON_CONNECTION_ERROR);
             }
         };
     }
@@ -47,6 +58,12 @@ class ReflectAgentConstraintsTest {
     private static ReflectAgent agent(WeatherInfo weather, boolean real) {
         RouteService routeService = new RouteService();
         PlanInspector inspector = new PlanInspector(null, routeService, weather(weather, real));
+        return new ReflectAgent(inspector);
+    }
+
+    private static ReflectAgent agentWithoutWeather() {
+        RouteService routeService = new RouteService();
+        PlanInspector inspector = new PlanInspector(null, routeService, unavailableWeather());
         return new ReflectAgent(inspector);
     }
 
@@ -152,6 +169,24 @@ class ReflectAgentConstraintsTest {
             assertThat(issue.severity()).isEqualTo(ReflectAgent.PlanIssue.SEVERITY_MEDIUM);
             assertThat(issue.message()).contains("模拟天气");
         });
+    }
+
+    @Test
+    @DisplayName("真实天气不可用 → 只如实告警「未获取真实天气/本次未做校验」，不判 HIGH、不猜天气")
+    void unavailableWeatherIsReportedHonestlyWithoutHardViolation() {
+        AgentPlan plan = plan(3000, List.of(
+                attraction(1, "外滩", "10:00", "11:30", 31.23, 121.47, 0)));
+
+        ReflectAgent.ReviewVerdict verdict = agentWithoutWeather().reviewVerdict(plan, null);
+
+        // 不能凭不存在的事实判 HIGH，也不能让方案因为「查不到天气」被重规划
+        assertThat(verdict.passed()).isTrue();
+        assertThat(verdict.issues()).noneMatch(i ->
+                ReflectAgent.PlanIssue.TYPE_WEATHER_OUTDOOR.equals(i.type()));
+        assertThat(verdict.warnings()).anyMatch(w -> w.contains("未获取真实天气")
+                && w.contains("网络不可达")
+                && w.contains("本次未做雨天/户外校验"));
+        assertThat(verdict.warnings()).noneMatch(w -> w.contains("预报"));
     }
 
     @Test

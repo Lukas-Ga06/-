@@ -1,0 +1,251 @@
+/* ============================================================
+   按钮与可点击控件：尺寸、焦点环、快捷入口、地图控制器
+   ------------------------------------------------------------
+   36px 常规 / 32px 紧凑；纯图标按钮用 min-width 稳定尺寸；
+   焦点环 2px 高对比，不依赖阴影。
+   ============================================================ */
+
+/* ---------- 统一尺寸（P1-G）：按钮 36 / 紧凑 32 / 输入 40 ---------- */
+.ant-btn:not(.ant-btn-text):not(.ant-btn-link) {
+  height: var(--control-h);
+  min-height: var(--control-h);
+}
+
+.ant-btn.ant-btn-sm:not(.ant-btn-text):not(.ant-btn-link) {
+  height: var(--control-h-sm);
+  min-height: var(--control-h-sm);
+}
+
+.ant-btn.ant-btn-lg:not(.ant-btn-text):not(.ant-btn-link) {
+  height: var(--control-h-lg);
+  min-height: var(--control-h-lg);
+}
+
+/* 纯图标按钮：稳定宽高，不因图标字体/内容变化抖动 */
+.ant-btn.ant-btn-icon-only {
+  min-width: var(--control-h);
+  min-height: var(--control-h);
+  padding-inline: 0;
+}
+
+.ant-btn.ant-btn-sm.ant-btn-icon-only {
+  min-width: var(--control-h-sm);
+  min-height: var(--control-h-sm);
+}
+
+/* 输入类控件统一 40px；文本域按内容自适应，不强制高度 */
+.ant-input:not(textarea),
+.ant-input-affix-wrapper,
+.ant-input-number,
+.ant-input-number-affix-wrapper,
+.ant-picker {
+  min-height: var(--input-h);
+}
+
+.ant-input-affix-wrapper > input.ant-input {
+  min-height: 0;
+}
+
+.ant-select-single:not(.ant-select-customize-input) .ant-select-selector {
+  min-height: var(--input-h);
+  align-items: center;
+}
+
+/* 自定义按钮也要有稳定的焦点环与可点击面积 */
+.map-ctl-btn,
+.fp-ctl,
+.suggest-chip,
+.filter-chip,
+.dc-link {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.map-ctl-btn:focus-visible,
+.fp-ctl:focus-visible,
+.suggest-chip:focus-visible,
+.filter-chip:focus-visible,
+.dc-link:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.map-ctl-btn {
+  display: inline-flex;
+  min-height: var(--control-h-sm);
+  align-items: center;
+  gap: 4px;
+  border: none;
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  padding: 6px 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: inherit;
+  white-space: nowrap;
+}
+
+.map-ctl-btn:hover {
+  color: var(--blue);
+  background: var(--surface);
+}
+
+.map-ctl-btn.active {
+  color: #ffffff;
+  background: var(--grad-primary);
+  font-weight: 700;
+}
+
+.map-ctl-btn.tour {
+  border-radius: var(--radius-control);
+  border: 1px solid var(--lg-border);
+  background: var(--surface);
+  box-shadow: 0 4px 14px rgba(31, 41, 92, 0.1);
+}
+
+.map-ctl-btn.tour.active {
+  color: #ffffff;
+  background: linear-gradient(135deg, #ff9500, #ffcc00);
+  animation: tourGlow 1.6s ease-in-out infinite;
+}
+
+.fp-ctl-group {
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.fp-ctl {
+  display: inline-flex;
+  min-height: var(--control-h-sm);
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 7px 12px;
+  border-radius: var(--radius-control);
+  cursor: pointer;
+  box-shadow: 0 6px 20px rgba(31, 41, 92, 0.12);
+  transition:
+    background 0.18s ease,
+    color 0.18s ease,
+    transform 0.18s ease;
+}
+
+.fp-ctl-group .fp-ctl {
+  box-shadow: none;
+  background: transparent;
+  border-color: transparent;
+}
+
+.fp-ctl:hover {
+  transform: translateY(-1px);
+}
+
+.fp-ctl.active {
+  background: var(--primary);
+  border-color: rgba(255, 255, 255, 0.5);
+  color: #fff;
+}
+
+.fp-ctl.tour {
+  background: rgba(0, 122, 255, 0.92);
+  border-color: rgba(255, 255, 255, 0.6);
+  color: #fff;
+}
+
+.fp-ctl.tour.active {
+  background: var(--danger);
+}
+
+/* 卡片右上角的「全部 ×→」是 12.5px 小字，且卡片底可能是灰面：
+   用 --accent-text 而不是 --accent（见令牌注释里的实测对比度） */
+
+.dc-link {
+  color: var(--accent-text);
+  font-size: 12.5px;
+}
+
+.suggest-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: var(--control-h-sm);
+  padding: 6px 14px;
+  transition: all 0.25s cubic-bezier(0.34, 1.4, 0.64, 1);
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(31, 41, 92, 0.06);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  font-size: 12px;
+  /* 语义是按钮：清掉 UA 样式，外观与原来的 span 一致 */
+  font-family: inherit;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.suggest-chip:hover {
+  border-color: rgba(0, 122, 255, 0.4);
+  transform: translateY(-2px) scale(1.03);
+  box-shadow: 0 6px 18px rgba(0, 122, 255, 0.15);
+  background: var(--accent-weak);
+  color: var(--accent);
+}
+
+/* ---------- 微交互增强 ---------- */
+
+/* 加载点动画（替代 Spin，用于按钮内） */
+
+.btn-loading-dots {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+}
+
+.btn-loading-dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: pulseDot 1s ease-in-out infinite;
+}
+
+.btn-loading-dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.btn-loading-dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+/* suggest-chip 的选中态：多选偏好/优化目标用 */
+
+.suggest-chip.active {
+  background: var(--accent-weak);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.tc-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  margin-top: 6px;
+  padding-top: 4px;
+  border-top: 1px dashed var(--border);
+}
+
+.tc-actions .ant-btn {
+  height: 24px;
+  padding: 0 8px;
+  font-size: 11.5px;
+}

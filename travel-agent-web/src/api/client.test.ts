@@ -11,6 +11,7 @@ import {
   http,
   isAuthExpired,
   readPagination,
+  request,
   shouldRetryMe,
   unwrapApiResponse,
 } from './client';
@@ -60,6 +61,56 @@ describe('api client 响应处理', () => {
 
     expect(logout).not.toHaveBeenCalled();
     expect((globalThis as any).window.location.href).toBe('/current');
+  });
+
+  it('skipAuthRedirect 的 401 不登出、不跳转，仍作为普通错误抛给调用方', async () => {
+    await expect(
+      handleResponseError({
+        config: { url: '/auth/me', method: 'delete', skipAuthRedirect: true },
+        response: { status: 401, data: { message: '密码错误' } },
+      }),
+    ).rejects.toThrow('密码错误');
+
+    expect(useAuthStore.getState().token).toBe('token-123');
+    expect(useAuthStore.getState().user).toEqual(DEMO_USER);
+    expect((globalThis as any).window.location.href).toBe('/current');
+  });
+
+  it('skipAuthRedirect 经 axios 配置透传到错误对象：真实请求的 401 也不登出', async () => {
+    const originalAdapter = (http.defaults as any).adapter;
+    (http.defaults as any).adapter = async (config: any) => {
+      throw {
+        config,
+        response: { status: 401, data: { message: '密码错误' }, headers: {} },
+      };
+    };
+    try {
+      await expect(
+        request({
+          url: '/auth/me',
+          method: 'delete',
+          data: { password: 'wrong' },
+          skipAuthRedirect: true,
+        }),
+      ).rejects.toMatchObject({ status: 401, message: '密码错误' });
+
+      expect(useAuthStore.getState().token).toBe('token-123');
+      expect((globalThis as any).window.location.href).toBe('/current');
+    } finally {
+      (http.defaults as any).adapter = originalAdapter;
+    }
+  });
+
+  it('显式 skipAuthRedirect=false 时，非登录接口 401 仍登出并跳转', async () => {
+    await expect(
+      handleResponseError({
+        config: { url: '/trips', skipAuthRedirect: false },
+        response: { status: 401, data: { message: '登录状态已过期' } },
+      }),
+    ).rejects.toThrow('登录状态已过期');
+
+    expect(useAuthStore.getState().token).toBeNull();
+    expect((globalThis as any).window.location.href).toBe('/login');
   });
 
   it('其它接口返回 401 时登出并跳转登录页', async () => {

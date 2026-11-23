@@ -140,3 +140,63 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* P1-G：主流程只留用户语言；技术信息放进「详情与诊断」折叠区 */
+.kb-details {
+  width: 100%;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--text-3);
+}
+
+.kb-details summary {
+  cursor: pointer;
+  color: var(--text-3);
+  font-weight: 500;
+}
+
+.kb-details[open] > span {
+  display: block;
+  margin-top: 4px;
+  padding: 6px 8px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  overflow-wrap: anywhere;
+}
+
+.kb-hit-meta .kb-details {
+  flex-basis: 100%;
+}
+
+.kb-version-meta .kb-details {
+  margin-top: 2px;
+}
+
+/* 攻略查询 / 历史版本失败：与成功内容区分，并保留重试入口 */
+.knowledge-grid .run-error-box,
+.dash-card > .run-error-box {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--danger);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+
+/* 窄屏：历史版本行的按钮换行，不把行撑出横向滚动 */
+@media (max-width: 720px) {
+  .kb-version-row {
+    align-items: flex-start;
+  }
+
+  .kb-version-meta {
+    flex-basis: 100%;
+  }
+
+  .kb-version-row .ant-btn {
+    flex: 1 1 auto;
+  }
+}

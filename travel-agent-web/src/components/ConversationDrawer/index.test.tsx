@@ -12,6 +12,8 @@ import { useAgentStore } from '../../store/agentStore';
 const api = vi.hoisted(() => ({
   listConversations: vi.fn(),
   getConversationMessages: vi.fn(),
+  renameConversation: vi.fn(),
+  deleteConversation: vi.fn(),
 }));
 
 vi.mock('../../api/agent', async (importOriginal) => {
@@ -20,6 +22,8 @@ vi.mock('../../api/agent', async (importOriginal) => {
     ...actual,
     listConversations: api.listConversations,
     getConversationMessages: api.getConversationMessages,
+    renameConversation: api.renameConversation,
+    deleteConversation: api.deleteConversation,
   };
 });
 
@@ -72,6 +76,8 @@ afterEach(() => {
   cleanup();
   api.listConversations.mockReset();
   api.getConversationMessages.mockReset();
+  api.renameConversation.mockReset();
+  api.deleteConversation.mockReset();
 });
 
 describe('ConversationDrawer · 会话作用域（V21）', () => {
@@ -201,5 +207,93 @@ describe('ConversationDrawer · 最近会话列表（§8.6）', () => {
 
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(api.listConversations).not.toHaveBeenCalled();
+  });
+});
+
+describe('ConversationDrawer · 改名与删除（V23）', () => {
+  it('改名：内联输入 → 保存后按服务端结果重新拉列表', async () => {
+    api.renameConversation.mockResolvedValue({ conversationId: 'conv-1', title: '杭州两日游' });
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: '重命名「帮我规划杭州周末」' }));
+    const input = screen.getByLabelText('会话名称') as HTMLInputElement;
+    expect(input.value).toBe('帮我规划杭州周末');
+
+    fireEvent.change(input, { target: { value: '杭州两日游' } });
+    // 第二次拉列表返回改名后的标题（服务端截断/折叠空白后可能和输入略有差异，一切以它为准）
+    api.listConversations.mockResolvedValue([
+      {
+        conversationId: 'conv-1',
+        title: '杭州两日游',
+        lastMessageAt: '2026-11-20T10:00:00',
+        messageCount: 4,
+        scope: 'assistant',
+      },
+    ]);
+    fireEvent.click(screen.getByRole('button', { name: /^保\s*存$/ }));
+
+    await waitFor(() =>
+      expect(api.renameConversation).toHaveBeenCalledWith('conv-1', '杭州两日游'),
+    );
+    expect(await screen.findByText('杭州两日游')).toBeTruthy();
+    expect(api.listConversations).toHaveBeenCalledTimes(2);
+  });
+
+  it('改名传空串：交给服务端恢复自动标题，并如实提示', async () => {
+    api.renameConversation.mockResolvedValue({ conversationId: 'conv-1', title: null });
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: '重命名「帮我规划杭州周末」' }));
+    fireEvent.change(screen.getByLabelText('会话名称'), { target: { value: '   ' } });
+    fireEvent.click(screen.getByRole('button', { name: /^保\s*存$/ }));
+
+    await waitFor(() => expect(api.renameConversation).toHaveBeenCalledWith('conv-1', ''));
+    expect(await screen.findByText(/已恢复自动标题/)).toBeTruthy();
+  });
+
+  it('取消改名：回到列表，不发任何请求', async () => {
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: '重命名「帮我规划杭州周末」' }));
+    fireEvent.click(screen.getByRole('button', { name: /^取\s*消$/ }));
+
+    await waitFor(() => expect(screen.queryByLabelText('会话名称')).toBeNull());
+    expect(api.renameConversation).not.toHaveBeenCalled();
+  });
+
+  it('删除非当前会话：确认后从列表消失，不切换当前会话', async () => {
+    useAgentStore.setState({ conversationId: 'conv-1' });
+    api.deleteConversation.mockResolvedValue(undefined);
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: '删除「记一下明天办签证」' }));
+    // Popconfirm 的确认按钮文案是「删除」，与行内图标按钮的 aria-label 区分开
+    fireEvent.click(await screen.findByRole('button', { name: /^删\s*除$/ }));
+
+    await waitFor(() => expect(api.deleteConversation).toHaveBeenCalledWith('conv-2'));
+    expect(useAgentStore.getState().conversationId).toBe('conv-1');
+  });
+
+  it('删掉当前正在聊的会话：自动开一段新会话，不往已删除的历史里继续追加', async () => {
+    useAgentStore.setState({ conversationId: 'conv-2' });
+    api.deleteConversation.mockResolvedValue(undefined);
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: '删除「记一下明天办签证」' }));
+    fireEvent.click(await screen.findByRole('button', { name: /^删\s*除$/ }));
+
+    await waitFor(() => expect(api.deleteConversation).toHaveBeenCalledWith('conv-2'));
+    await waitFor(() => expect(useAgentStore.getState().conversationId).not.toBe('conv-2'));
+  });
+
+  it('删除失败：给出提示且列表保持原样', async () => {
+    api.deleteConversation.mockRejectedValue(new Error('网络开小差了'));
+    renderDrawer();
+
+    fireEvent.click(await screen.findByRole('button', { name: '删除「记一下明天办签证」' }));
+    fireEvent.click(await screen.findByRole('button', { name: /^删\s*除$/ }));
+
+    expect(await screen.findByText('网络开小差了')).toBeTruthy();
+    expect(screen.getByText('记一下明天办签证')).toBeTruthy();
   });
 });
