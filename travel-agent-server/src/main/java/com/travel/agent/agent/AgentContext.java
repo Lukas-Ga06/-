@@ -98,6 +98,15 @@ public class AgentContext {
     private volatile boolean cancelled;
 
     /**
+     * 本轮意图识别出的「其他未执行的独立请求」（P0-B 多意图提示）。
+     *
+     * <p>为空表示不需要提示；非空时最终回复（REST 响应与 SSE complete 事件）与会话落库
+     * 都会在末尾追加一次明确说明，不能静默只做一半，也不能重复追加。
+     */
+    @JsonIgnore
+    private List<String> alsoRequested = List.of();
+
+    /**
      * 本轮端到端时间预算（P1）。
      *
      * <p>由 {@code AgentController} 在请求入口创建（同步 /chat 与 SSE 共用同一份语义），

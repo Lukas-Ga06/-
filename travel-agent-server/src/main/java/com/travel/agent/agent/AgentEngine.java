@@ -233,6 +233,11 @@ public class AgentEngine {
             // FR-01：上一轮是需求追问时，「上海」「三天」这类短回答续到同一次规划里，
             // 而不是落进 CHITCHAT 把追问状态丢掉（改问别的意图则不劫持，按新意图处理）
             intent = resumeRequirementCollection(ctx, intent);
+            // P0-B 多意图：把「其余独立请求」挂到上下文，complete/finish 两处（REST 与 SSE 共用）
+            // 据此在最终回复末尾追加一次用户可见提示；为空时保持回复原样。
+            if (intent != null) {
+                ctx.setAlsoRequested(intent.getAlsoRequested());
+            }
             if (abortIfCancelled(ctx, "after-intent")) {
                 return aborted(ctx);
             }
@@ -313,6 +318,7 @@ public class AgentEngine {
                     .status(AgentDtos.STATUS_FAILED)
                     .message(e.getMessage())
                     .build();
+            MultiIntentNotices.attach(ctx.getAlsoRequested(), rejected);
             ctx.emit("error", Map.of("message", rejected.getMessage()));
             ctx.emit("complete", rejected);
             return finish(ctx, rejected, "REJECTED");
@@ -326,6 +332,7 @@ public class AgentEngine {
                     // 内部异常细节只进日志，不返回给用户
                     .message("抱歉，处理请求时出现问题，请稍后重试或换一种说法")
                     .build();
+            MultiIntentNotices.attach(ctx.getAlsoRequested(), failed);
             ctx.emit("error", Map.of("message", failed.getMessage()));
             ctx.emit("complete", failed);
             return finish(ctx, failed, "ERROR");
@@ -418,6 +425,9 @@ public class AgentEngine {
         // 预算降级的说明必须在返回给用户之前补上（handler 自己发的 complete 事件可能已先到，
         // 所以 complete() 与 finish() 两处都要挂，靠前缀幂等避免重复）
         attachBudgetNotice(ctx, result);
+        // P0-B 多意图提示：与预算提示同一套「complete 与 finish 都挂、前缀幂等」策略，
+        // 保证 REST 返回值、SSE complete 事件与会话落库三处一致且只出现一次。
+        MultiIntentNotices.attach(ctx.getAlsoRequested(), result);
         try {
             conversationService.appendReply(ctx.getUserId(), ctx.getConversationId(), ctx.getTurnSeq(),
                     result == null ? null : result.getMessage(), intent, ctx.getScope());
@@ -740,6 +750,8 @@ public class AgentEngine {
                 .target(IntentResult.TARGET_NONE)
                 .constraints(intent.getConstraints())
                 .slots(parsed)
+                // 续槽轮次同样保留「其余未执行请求」：模型可能在补槽回答里一并提了别的事
+                .alsoRequested(intent.getAlsoRequested())
                 .build();
     }
 
@@ -911,6 +923,8 @@ public class AgentEngine {
     private AgentDtos.AgentResult complete(AgentContext ctx, AgentDtos.AgentResult result) {
         // 预算降级提示必须在 complete 事件之前挂上：SSE 客户端拿到的最终结果要与同步接口一致
         attachBudgetNotice(ctx, result);
+        // P0-B：多意图提示同样要在事件发出前挂上，否则 SSE 用户看不到「另外的请求没执行」
+        MultiIntentNotices.attach(ctx.getAlsoRequested(), result);
         ctx.emit("complete", result);
         return result;
     }

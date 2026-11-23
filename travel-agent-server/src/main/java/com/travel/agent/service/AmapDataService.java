@@ -47,7 +47,8 @@ import java.util.concurrent.atomic.AtomicReference;
  *   <li>本类记录**最近一次真实路径调用的成败**（{@link #routeVerified()} / {@link #routeLastError()}），
  *       由 {@link RouteService} 与 {@code /api/system/status} 如实自报——配置了不等于可用（ADR-006）；</li>
  *   <li>QPS 限流做**一次**退避重试（200~400ms 带抖动）：高德的限流多是瞬时窗口，重试一次即可，
- *       重试仍失败才降级。</li>
+ *       重试仍失败才降级。MCP 与 REST 两个分支同口径（MCP 返回文本里的 10021 /
+ *       CUQPS_HAS_EXCEEDED_THE_LIMIT 同样触发一次退避）；</li>
  * </ul>
  *
  * ToolRegistry 用 ObjectProvider 懒解析：避免 ToolRegistry→CalculateRouteTool→RouteService→本类→ToolRegistry 构造环。
@@ -154,7 +155,7 @@ public class AmapDataService {
         AgentTool mcp = mcpTool("maps_text_search");
         if (mcp != null) {
             try {
-                Object res = mcp.execute(args("keywords", keywords, "city", city, "types", types));
+                Object res = executeMcpWithQpsRetry(mcp, args("keywords", keywords, "city", city, "types", types), "POI 搜索");
                 List<AmapPoi> pois = parsePois(asJson(res), max);
                 if (!pois.isEmpty()) {
                     return pois;
@@ -202,26 +203,66 @@ public class AmapDataService {
         String origin = coord(from[1], from[0]);
         String destination = coord(to[1], to[0]);
         AgentTool mcp = mcpTool(mcpSuffix);
+        String mcpFailure = null;
         if (mcp != null) {
             try {
-                Object res = mcp.execute(args("origin", origin, "destination", destination));
+                Object res = executeMcpWithQpsRetry(mcp, args("origin", origin, "destination", destination), "路径");
                 AmapRoute route = parseRoute(asJson(res));
                 if (route != null) {
                     // MCP 也是真实数据源：成功即视为「已验证」，可对外自报 amap
                     markRouteCallSucceeded();
                     return route;
                 }
-                log.warn("高德 MCP 路径无可用结果（status/route.paths 缺失），退回 REST");
+                mcpFailure = isQpsLimited(res) ? "高德 MCP 被限流（infocode=10021）" : "高德 MCP 路径无可用结果";
+                log.warn("{}，退回 REST", mcpFailure);
             } catch (Exception e) {
+                mcpFailure = "高德 MCP 路径失败";
                 log.warn("高德 MCP 路径失败（{}），退回 REST", ErrorSummary.describe(e));
             }
         }
         if (!amapKeyUsable()) {
-            String reason = mcp != null ? "高德 MCP 调用失败且未配置 AMAP_KEY" : "未配置 AMAP_KEY 或高德 MCP";
+            String reason = mcp != null
+                    ? (mcpFailure == null ? "高德 MCP 调用失败" : mcpFailure) + "且未配置 AMAP_KEY"
+                    : "未配置 AMAP_KEY 或高德 MCP";
             markRouteCallFailed(reason);
             return null;
         }
         return restDirection(restPath, origin, destination);
+    }
+
+    /**
+     * MCP 分支的限流重试（P0-B，与 REST 分支同口径）：
+     * 高德 MCP 的限流表现为返回文本/JSON 里带 {@code infocode=10021} 或
+     * {@code CUQPS_HAS_EXCEEDED_THE_LIMIT}；退避 220~400ms 重试一次，仍失败交给调用方退回 REST。
+     *
+     * <p>只对「可预期的瞬时限流」重试：其它失败（Key 无效、参数错误）重试不会变好，
+     * 日志保持 WARN 并说明是限流重试，不打 ERROR 堆栈（避免排障时把限流误判成系统故障）。
+     */
+    private Object executeMcpWithQpsRetry(AgentTool mcp, Map<String, Object> args, String scene) {
+        Object first = mcp.execute(args);
+        if (!isQpsLimited(first)) {
+            return first;
+        }
+        long delay = nextQpsRetryDelayMs();
+        log.warn("高德 MCP {} 被 QPS 限流（infocode=10021 CUQPS_HAS_EXCEEDED_THE_LIMIT），{}ms 后重试一次",
+                scene, delay);
+        if (!sleepQuietly(delay)) {
+            return first;
+        }
+        Object retry = mcp.execute(args);
+        if (isQpsLimited(retry)) {
+            log.warn("高德 MCP {} 重试仍被 QPS 限流（infocode=10021），退回 REST / 降级", scene);
+        }
+        return retry;
+    }
+
+    /** 返回内容里是否出现高德限流标识（10021 / CUQPS_HAS_EXCEEDED_THE_LIMIT） */
+    static boolean isQpsLimited(Object result) {
+        if (result == null) {
+            return false;
+        }
+        String text = String.valueOf(result);
+        return text.contains(INFOCODE_QPS_LIMIT) || text.contains("CUQPS_HAS_EXCEEDED_THE_LIMIT");
     }
 
     /**

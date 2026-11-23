@@ -3,6 +3,7 @@ package com.travel.agent.tool.impl;
 import com.travel.agent.service.TravelCatalogService;
 import com.travel.agent.tool.AgentTool;
 import com.travel.agent.tool.RiskLevel;
+import com.travel.agent.tool.ToolArgs;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -33,11 +34,19 @@ public class SearchHotelTool implements AgentTool {
     }
 
     @Override
+    public List<ToolParameter> getParameters() {
+        return List.of(
+                new ToolParameter("city", true, "string", "城市"),
+                new ToolParameter("preferSubway", false, "boolean", "是否优先近地铁"),
+                new ToolParameter("maxPrice", false, "number", "每晚价格上限"));
+    }
+
+    @Override
     public Object execute(Map<String, Object> args) {
-        var city = catalogService.requireCity((String) args.getOrDefault("city", ""));
-        boolean preferSubway = Boolean.TRUE.equals(args.get("preferSubway"));
-        BigDecimal maxPrice = args.get("maxPrice") == null ? null
-                : new BigDecimal(String.valueOf(args.get("maxPrice")));
+        var city = catalogService.requireCity(ToolArgs.string(args, "city", ""));
+        boolean preferSubway = Boolean.TRUE.equals(ToolArgs.booleanValue(args, "preferSubway"));
+        Double maxPriceValue = ToolArgs.doubleValue(args, "maxPrice");
+        BigDecimal maxPrice = maxPriceValue == null ? null : BigDecimal.valueOf(maxPriceValue);
         List<?> hotels = catalogService.searchHotels(city, preferSubway, maxPrice, 5);
         return hotels;
     }

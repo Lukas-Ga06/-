@@ -5,9 +5,11 @@ import com.travel.agent.service.BudgetService;
 import com.travel.agent.service.ItineraryService;
 import com.travel.agent.tool.AgentTool;
 import com.travel.agent.tool.RiskLevel;
+import com.travel.agent.tool.ToolArgs;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
 import java.util.Map;
 
 /** calculate_budget：预算计算 */
@@ -34,8 +36,13 @@ public class CalculateBudgetTool implements AgentTool {
     }
 
     @Override
+    public List<ToolParameter> getParameters() {
+        return List.of(new ToolParameter("tripId", true, "number", "行程 ID"));
+    }
+
+    @Override
     public Object execute(Map<String, Object> args) {
-        Long tripId = ((Number) args.get("tripId")).longValue();
+        long tripId = ToolArgs.requireLong(args, "tripId");
         AgentDtos.BudgetSummary summary = budgetService.summarize(itineraryService.listEntities(tripId));
         return summary;
     }

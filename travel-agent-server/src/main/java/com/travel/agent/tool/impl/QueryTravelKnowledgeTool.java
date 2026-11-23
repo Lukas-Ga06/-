@@ -4,6 +4,7 @@ import com.travel.agent.rag.RagCitation;
 import com.travel.agent.rag.RagService;
 import com.travel.agent.tool.AgentTool;
 import com.travel.agent.tool.RiskLevel;
+import com.travel.agent.tool.ToolArgs;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -44,25 +45,27 @@ public class QueryTravelKnowledgeTool implements AgentTool {
     }
 
     @Override
+    public List<ToolParameter> getParameters() {
+        return List.of(
+                new ToolParameter("query", true, "string", "检索词"),
+                new ToolParameter("city", false, "string", "城市"),
+                new ToolParameter("topK", false, "number", "返回条数 1-8"),
+                new ToolParameter("userId", false, "number", "用户 ID（通常不需要）"));
+    }
+
+    @Override
     public Object execute(Map<String, Object> args) {
-        String query = args.get("query") == null ? "" : String.valueOf(args.get("query")).trim();
-        String city = args.get("city") == null ? null : String.valueOf(args.get("city")).trim();
-        int topK = args.get("topK") == null ? DEFAULT_TOP_K : parseTopK(args.get("topK"));
+        String query = ToolArgs.string(args, "query", "");
+        String city = ToolArgs.string(args, "city");
+        Long topKValue = ToolArgs.longValue(args, "topK");
+        int topK = topKValue == null ? DEFAULT_TOP_K
+                : (int) Math.max(1, Math.min(topKValue, MAX_TOP_K));
         if (query.isEmpty()) {
             return List.of();
         }
-        Long userId = args.get("userId") instanceof Number number ? number.longValue() : null;
+        Long userId = ToolArgs.longValue(args, "userId");
         List<RagCitation> hits = ragService.searchWithCitations(query, city, userId, topK);
         return hits.stream().map(QueryTravelKnowledgeTool::toMap).toList();
-    }
-
-    private static int parseTopK(Object raw) {
-        try {
-            int value = Integer.parseInt(String.valueOf(raw));
-            return Math.max(1, Math.min(value, MAX_TOP_K));
-        } catch (NumberFormatException e) {
-            return DEFAULT_TOP_K;
-        }
     }
 
     private static Map<String, Object> toMap(RagCitation citation) {

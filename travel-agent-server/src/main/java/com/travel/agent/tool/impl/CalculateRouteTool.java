@@ -4,9 +4,11 @@ import com.travel.agent.model.RouteInfo;
 import com.travel.agent.service.RouteService;
 import com.travel.agent.tool.AgentTool;
 import com.travel.agent.tool.RiskLevel;
+import com.travel.agent.tool.ToolArgs;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
 import java.util.Map;
 
 /** calculate_route：路线计算 */
@@ -32,11 +34,20 @@ public class CalculateRouteTool implements AgentTool {
     }
 
     @Override
+    public List<ToolParameter> getParameters() {
+        return List.of(
+                new ToolParameter("fromLat", true, "number", "起点纬度"),
+                new ToolParameter("fromLng", true, "number", "起点经度"),
+                new ToolParameter("toLat", true, "number", "终点纬度"),
+                new ToolParameter("toLng", true, "number", "终点经度"));
+    }
+
+    @Override
     public Object execute(Map<String, Object> args) {
-        double fromLat = ((Number) args.get("fromLat")).doubleValue();
-        double fromLng = ((Number) args.get("fromLng")).doubleValue();
-        double toLat = ((Number) args.get("toLat")).doubleValue();
-        double toLng = ((Number) args.get("toLng")).doubleValue();
+        double fromLat = ToolArgs.requireDouble(args, "fromLat");
+        double fromLng = ToolArgs.requireDouble(args, "fromLng");
+        double toLat = ToolArgs.requireDouble(args, "toLat");
+        double toLng = ToolArgs.requireDouble(args, "toLng");
         RouteInfo info = routeService.route(fromLat, fromLng, toLat, toLng);
         return info;
     }

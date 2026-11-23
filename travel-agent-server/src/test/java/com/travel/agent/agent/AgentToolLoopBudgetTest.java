@@ -131,8 +131,11 @@ class AgentToolLoopBudgetTest {
         AgentToolLoop.LoopResult result = loop.run(ctx, "收集上海事实", ALLOWED, 4);
         long elapsedMs = (System.nanoTime() - started) / 1_000_000L;
 
-        assertThat(result.completed()).isFalse();
-        assertThat(result.summary()).as("必须如实说明是时间预算耗尽").contains("预算");
+        assertThat(result.completed())
+                .as("P0-B：已有成功观察时按部分完成收尾，不再记成研究失败").isTrue();
+        assertThat(result.partial()).isTrue();
+        assertThat(result.summary()).as("必须如实说明是时间上限").contains("时间上限").contains("已收集 1 条可用事实");
+        assertThat(result.notes()).as("已查到的事实保留给下游").hasSize(1);
         assertThat(result.steps()).as("预算只够走完第一步").hasSize(1);
         assertThat(llm.calls.get()).as("第二步不应再发起 LLM 调用").isEqualTo(1);
         assertThat(llm.timeouts).singleElement().satisfies(timeout ->

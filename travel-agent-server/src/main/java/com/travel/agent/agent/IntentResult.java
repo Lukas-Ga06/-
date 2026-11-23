@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
 import java.util.Map;
 
 /** Intent Agent 输出：用户到底想干什么 */
@@ -41,7 +42,21 @@ public class IntentResult {
      */
     private RequirementSlots slots;
 
+    /**
+     * 同一条消息里还包含、但本轮<b>不执行</b>的其他独立请求（P0-B，最多 3 条、每条 ≤40 字）。
+     *
+     * <p>当前实现仍然只处理最重要的一个意图；这份清单只用于在最终回复里明确告知
+     * 「另外你提到的 X 这次没有执行」，避免静默只做一半。仅 LLM 路径产出，规则兜底保持空。
+     */
+    @Builder.Default
+    private List<String> alsoRequested = List.of();
+
     /** INVOKE_TOOL：要调用的 MCP 工具名（mcp_*）与参数 */
     private String toolName;
     private Map<String, Object> toolArgs;
+
+    /** null 安全的读取：手工构造/反序列化可能把该字段留空，调用方不需要到处判空 */
+    public List<String> getAlsoRequested() {
+        return alsoRequested == null ? List.of() : alsoRequested;
+    }
 }

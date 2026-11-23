@@ -4,6 +4,7 @@ import com.travel.agent.dto.ItineraryDtos;
 import com.travel.agent.service.ItineraryService;
 import com.travel.agent.tool.AgentTool;
 import com.travel.agent.tool.RiskLevel;
+import com.travel.agent.tool.ToolArgs;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -33,8 +34,13 @@ public class GetItineraryTool implements AgentTool {
     }
 
     @Override
+    public List<ToolParameter> getParameters() {
+        return List.of(new ToolParameter("tripId", true, "number", "行程 ID"));
+    }
+
+    @Override
     public Object execute(Map<String, Object> args) {
-        Long tripId = ((Number) args.get("tripId")).longValue();
+        long tripId = ToolArgs.requireLong(args, "tripId");
         List<ItineraryDtos.ItineraryItemDTO> items = itineraryService.listByTrip(tripId);
         return items;
     }
