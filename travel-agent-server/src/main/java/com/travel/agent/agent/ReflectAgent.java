@@ -4,6 +4,7 @@ import com.travel.agent.entity.ItineraryItem;
 import com.travel.agent.entity.Trip;
 import com.travel.agent.model.RouteInfo;
 import com.travel.agent.model.WeatherInfo;
+import com.travel.agent.model.WeatherLookup;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -27,9 +28,10 @@ import java.util.Map;
  * <p>「转场不够」用 {@link RouteInfo#driveMinutes()} 与两个安排之间的真实空档比较——
  * 规划产物里的交通方式口径就是驾车/打车，所以按驾车时长判定才与预算里那笔打车费一致。
  *
- * <p>天气约束只在<b>真实预报</b>下算硬约束：{@code travel.weather.real=false} 或真实预报查询失败降级时
- * 得到的是确定性模拟数据（{@link WeatherInfo#isSimulated()}），拿模拟的「小雨」去强制改用户行程
- * 等于拿假数据做决策（ADR-006 的延续），此时只给 MEDIUM 提示。
+ * <p>天气约束只在<b>真实预报</b>下算硬约束：拿不到真实天气时 {@link PlanInspector#weatherByDay} 返回
+ * {@code available=false}，此时只能如实提示「未获取真实天气（原因），本次未做雨天/户外校验」，
+ * 不能凭不存在的事实判 HIGH，更不能拿模拟的「小雨」去强制改用户行程（ADR-006 的延续）。
+ * 模拟天气只可能在 {@code travel.weather.simulation=true}（仅测试/离线演示）下出现，此时只给 MEDIUM 提示并标注「模拟天气」。
  */
 @Component
 @RequiredArgsConstructor
@@ -132,17 +134,25 @@ public class ReflectAgent {
     }
 
     private void reviewWeather(AgentPlan plan, Trip trip, List<PlanIssue> issues, List<String> warnings) {
-        Map<Integer, WeatherInfo> weatherByDay = inspector.weatherByDay(plan, trip);
+        Map<Integer, WeatherLookup> weatherByDay = inspector.weatherByDay(plan, trip);
         if (weatherByDay.isEmpty()) {
             return;
         }
         Map<Integer, List<ItineraryItem>> itemsByDay = inspector.effectiveItemsByDay(plan, trip);
         int found = 0;
-        for (Map.Entry<Integer, WeatherInfo> entry : weatherByDay.entrySet()) {
+        for (Map.Entry<Integer, WeatherLookup> entry : weatherByDay.entrySet()) {
             if (found >= MAX_WEATHER_ISSUES) {
                 break;
             }
-            WeatherInfo weather = entry.getValue();
+            WeatherLookup lookup = entry.getValue();
+            if (lookup == null || !lookup.available()) {
+                // 拿不到真实天气：如实说「本次没做校验」，不能凭不存在的事实判 HIGH（也进不了 issues）
+                String reason = lookup == null ? "响应不可用" : lookup.message();
+                warnings.add("Day " + entry.getKey() + " 未获取真实天气（" + reason + "），本次未做雨天/户外校验");
+                found++;
+                continue;
+            }
+            WeatherInfo weather = lookup.info();
             if (!likelyRainy(weather)) {
                 continue;
             }
@@ -154,17 +164,17 @@ public class ReflectAgent {
             if (outdoor.isEmpty()) {
                 continue;
             }
-            // 逐条判断来源：真实预报才允许作为硬约束；降级出来的模拟数据只能提示
-            boolean real = !weather.isSimulated();
+            // 逐条判断来源：真实预报才允许作为硬约束；模拟数据（仅测试开关）只能提示
+            boolean simulated = weather.isSimulated();
             String titles = outdoor.stream().map(t -> "「" + t + "」")
                     .collect(java.util.stream.Collectors.joining("、"));
             String message = "Day " + entry.getKey() + " 预报" + weather.condition()
-                    + "（降雨概率 " + weather.rainProbability() + "%" + (real ? "" : "，模拟天气") + "），"
+                    + "（降雨概率 " + weather.rainProbability() + "%" + (simulated ? "，模拟天气" : "") + "），"
                     + "仍安排了户外景点" + titles
-                    + (real ? "，建议换成室内景点" : "；真实预报接入后会自动改为室内安排");
+                    + (simulated ? "；真实预报接入后会自动改为室内安排" : "，建议换成室内景点");
             // 模拟天气只作提示：拿假数据强制改行程，等于把估算伪装成事实（ADR-006）
             issues.add(new PlanIssue(PlanIssue.TYPE_WEATHER_OUTDOOR,
-                    real ? PlanIssue.SEVERITY_HIGH : PlanIssue.SEVERITY_MEDIUM, message));
+                    simulated ? PlanIssue.SEVERITY_MEDIUM : PlanIssue.SEVERITY_HIGH, message));
             warnings.add(message);
             found++;
         }

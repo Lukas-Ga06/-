@@ -6,6 +6,7 @@ import com.travel.agent.entity.ItineraryItem;
 import com.travel.agent.model.CityCatalog;
 import com.travel.agent.model.RouteInfo;
 import com.travel.agent.model.WeatherInfo;
+import com.travel.agent.model.WeatherLookup;
 import com.travel.agent.service.RouteService;
 import com.travel.agent.service.TravelCatalogService;
 import com.travel.agent.service.WeatherService;
@@ -43,8 +44,9 @@ class PlanRepairServiceTest {
     private static WeatherService rainyWeather() {
         return new WeatherService(new WeatherProperties(), null) {
             @Override
-            public WeatherInfo forecast(String city, LocalDate date, boolean mentionRain) {
-                return new WeatherInfo(city, date, "小雨", 85, 12, 18, WeatherInfo.SOURCE_REAL);
+            public WeatherLookup forecast(String city, LocalDate date) {
+                return WeatherLookup.available(
+                        new WeatherInfo(city, date, "小雨", 85, 12, 18, WeatherInfo.SOURCE_REAL));
             }
         };
     }

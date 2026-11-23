@@ -175,7 +175,7 @@ class ToolLayerTest {
         assertParams(new SearchHotelTool(null), "city", "preferSubway", "maxPrice");
         assertParams(new SearchRestaurantTool(null), "city", "nearLat", "nearLng");
         assertParams(new CalculateRouteTool(null), "fromLat", "fromLng", "toLat", "toLng");
-        assertParams(new QueryWeatherTool(null), "city", "date", "mentionRain");
+        assertParams(new QueryWeatherTool(null), "city", "date");
         assertParams(new GetItineraryTool(null), "tripId");
         assertParams(new CalculateBudgetTool(null, null), "tripId");
         assertParams(new QueryTravelKnowledgeTool(null), "query", "city", "topK", "userId");

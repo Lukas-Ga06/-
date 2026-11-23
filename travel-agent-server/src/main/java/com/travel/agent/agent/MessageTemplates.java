@@ -43,11 +43,27 @@ public final class MessageTemplates {
         return sb.toString();
     }
 
+    /**
+     * 没有可用真实天气时的修改文案：<b>不提天气</b>。
+     * 拿不到真实天气就绝不写「因为下雨」——那会让用户以为做过天气判断（ADR-006）。
+     */
+    public static String modify(List<String> replacements, int day) {
+        return modifyText(null, replacements);
+    }
+
+    /** 有真实预报时的修改文案（调用方不得传 null：没有天气时走 {@link #modify(List, int)}） */
     public static String modify(WeatherInfo weather, List<String> replacements, int day) {
+        return modifyText(weather, replacements);
+    }
+
+    /** 唯一实现：{@code weather} 为 null 表示本轮没有可用天气，此时不写任何天气结论 */
+    private static String modifyText(WeatherInfo weather, List<String> replacements) {
         StringBuilder sb = new StringBuilder();
         if (weather != null && weather.isRainy()) {
             sb.append("明天").append(weather.city()).append("预计").append(weather.condition())
-                    .append("（降雨概率 ").append(weather.rainProbability()).append("%），");
+                    .append("（降雨概率 ").append(weather.rainProbability())
+                    // 模拟天气只在测试/离线演示开关下出现，文案必须自报来源
+                    .append(weather.isSimulated() ? "%，模拟天气" : "%").append("），");
         }
         sb.append("建议调整：").append(String.join("，", replacements)).append("。");
         sb.append("请在方案对比中确认修改。");

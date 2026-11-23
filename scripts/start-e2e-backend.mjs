@@ -227,7 +227,10 @@ async function main() {
     '--travel.rate-limit.store=memory',
     '--travel.llm.enabled=false',
     '--travel.embedding.enabled=false',
-    '--travel.weather.real=false',
+    // 天气：产品路径没有模拟兜底；e2e 要可重复，显式打开「仅测试/离线演示」的模拟开关。
+    // 依赖天气的修改被明确拒绝（503）这条产品语义由 WeatherDependentModificationTest 守住，
+    // 不靠 e2e 联网运气。
+    '--travel.weather.simulation=true',
     '--travel.mcp.enabled=false',
     '--travel.amap.key=',
     '--travel.photos.store=local',

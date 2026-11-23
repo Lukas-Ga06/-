@@ -33,7 +33,9 @@ import java.util.Map;
  *   <li>{@code routeProvider}（现行口径，仅 amap|estimated）、{@code routeConfigured}（配了 Key 或 MCP）、
  *       {@code amapVerified}（最近一次真实路径调用成功）、{@code routeLastError}（失败原因，含 infocode，不含 Key）；</li>
  *   <li>{@code mcpEnabled} / {@code mcpConnected} / {@code mcpToolCount} / {@code mcpServers}
- *       / {@code mcpLastError} / {@code mcpHint}（MCP 接入状态，P0-A）/ {@code amapMcpToolCount}。</li>
+ *       / {@code mcpLastError} / {@code mcpHint}（MCP 接入状态，P0-A）/ {@code amapMcpToolCount}；</li>
+ *   <li>{@code weatherProvider}（仅 open-meteo|simulated|unavailable）/ {@code weatherLastError}
+ *       （最近一次真实失败原因，不含密钥）/ {@code weatherHint}（P0 数据源自报：产品路径无模拟天气）。</li>
  * </ul>
  * 只配了 Key 但一次都没成功调用过时，{@code routeProvider} 必须是 estimated——估算不能伪装成实时（ADR-006）。
  */
@@ -63,6 +65,11 @@ public class SystemController {
     private final ToolRegistry toolRegistry;
     /** P0-A：启动后异步探测的模型可用性（null=尚未校验，不阻塞状态接口） */
     private final LlmModelProbe llmModelProbe;
+    /**
+     * 天气来源自报（ADR-006 延续）：产品路径只认真实预报。
+     * provider 只可能是 open-meteo|simulated|unavailable，模拟只在测试/离线演示开关下出现。
+     */
+    private final com.travel.agent.service.WeatherService weatherService;
 
     @GetMapping("/status")
     public ApiResponse<Map<String, Object>> status() {
@@ -105,6 +112,14 @@ public class SystemController {
         status.put("amapVerified", routeVerified);
         status.put("routeLastError", routeLastError);
         status.put("routeHint", routeHint(routeProvider, routeConfigured, routeLastError));
+
+        // 天气来源自报：产品路径永不使用模拟天气，拿不到真实预报就是 unavailable；
+        // 依赖天气的行程修改会被明确拒绝，而不是拿模拟数据把流程演下去。
+        String weatherProvider = weatherService.provider();
+        String weatherLastError = weatherService.lastError();
+        status.put("weatherProvider", weatherProvider);
+        status.put("weatherLastError", weatherLastError);
+        status.put("weatherHint", weatherHint(weatherProvider, weatherLastError));
 
         // P0-A：MCP 接入状态。mcpConnected 只在「桥接已启动且至少一个 server 连接成功」时为 true；
         // 大模型可用的外部工具数来自桥接快照，高德语义工具数来自适配层（两者口径不同，分开报）。
@@ -166,6 +181,23 @@ public class SystemController {
         }
         return "MCP 已接入 " + mcp.toolCount() + " 个外部工具"
                 + (amapMcpToolCount > 0 ? "（其中高德地图 " + amapMcpToolCount + " 个）" : "");
+    }
+
+    /**
+     * 天气提示文案：必须与 weatherProvider 口径一致。
+     * 模拟天气只在测试/离线演示开关下出现，且必须明确写出来；不可用时给出最近一次失败原因。
+     */
+    private static String weatherHint(String weatherProvider, String weatherLastError) {
+        if ("open-meteo".equals(weatherProvider)) {
+            return "真实天气：Open-Meteo（免费）";
+        }
+        if ("simulated".equals(weatherProvider)) {
+            return "模拟天气（仅测试/演示开关开启）";
+        }
+        if (weatherLastError != null && !weatherLastError.isBlank()) {
+            return "未获取到真实天气：" + weatherLastError;
+        }
+        return "未获取到真实天气：尚未成功连接 Open-Meteo";
     }
 
     /** 路线提示文案：必须与 routeProvider 口径一致，不许在降级时仍宣称「使用高德真实路径」 */

@@ -184,7 +184,10 @@ public class ExecutorAgent {
         // 天气驱动的替换写成 WEATHER 事件（source=weather），其余写入 AGENT_ADJUST（source=agent）。
         if (!plan.getOperations().isEmpty()) {
             Object weather = plan.getExtras() == null ? null : plan.getExtras().get("weather");
-            boolean weatherDriven = weather instanceof com.travel.agent.model.WeatherInfo info && info.isRainy();
+            // extras 里只有真实预报（见 PlannerAgent#putRealWeather）；这里再守一道：
+            // 模拟天气不得被写成「天气变化调整行程」的事件事实。
+            boolean weatherDriven = weather instanceof com.travel.agent.model.WeatherInfo info
+                    && !info.isSimulated() && info.isRainy();
             tripEventService.record(trip.getId(), null,
                     weatherDriven
                             ? com.travel.agent.entity.TripEvent.TYPE_WEATHER

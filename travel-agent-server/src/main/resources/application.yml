@@ -144,9 +144,16 @@ travel:
     # 留空则自动退回兜底路径（大模型直接生成坐标，约 6-15 秒）。也可用环境变量 AMAP_KEY 覆盖。
     key: ${AMAP_KEY:}
   weather:
-    # 真实天气（Open-Meteo，免费无需 Key）：设 WEATHER_REAL=true 开启；
-    # 网络失败或超出预报范围（过去 / 16 天外）自动降级为确定性模拟数据
-    real: ${WEATHER_REAL:false}
+    # 产品路径没有模拟天气：默认只走 Open-Meteo 真实预报（免费、无需 Key）。
+    # 拿不到真实天气就是「不可用」——依赖天气的行程修改会被明确拒绝（status=FAILED，业务码 503，含原因），
+    # 普通规划照常出方案，但审核与文案会如实写「未获取真实天气（原因），本次未做雨天/户外校验」。
+    # 模拟仅用于测试/离线演示：显式设 WEATHER_SIMULATION=true 才返回确定性模拟数据，状态接口会如实自报 simulated。
+    simulation: ${WEATHER_SIMULATION:false}
+    # 失败负缓存秒数：离线时一次三日游审核会查 3 次天气，避免每次都等一轮连接超时（0=关闭负缓存）
+    failure-cache-seconds: ${WEATHER_FAILURE_CACHE_SECONDS:60}
+    # Open-Meteo 地址可配置：测试用 WireMock 指向本地，业务代码不再硬编码外网域名
+    geocode-base-url: ${WEATHER_GEOCODE_BASE_URL:https://geocoding-api.open-meteo.com/v1/search}
+    forecast-base-url: ${WEATHER_FORECAST_BASE_URL:https://api.open-meteo.com/v1/forecast}
   mcp:
     # MCP（Model Context Protocol）工具生态：启动时把外部 MCP server 的工具注册进 ToolRegistry（只读）。
     # 默认关闭；接入后模型可经 INVOKE_TOOL 调用 mcp_<server>_<tool>。单个 server 失败只告警、不影响启动。
@@ -208,7 +215,8 @@ travel:
   llm:
     # 统一 LLM 接口：走 OpenAI-compatible API（DeepSeek / Qwen / OpenAI 均可）。
     # API Key 只能通过环境变量 LLM_API_KEY 注入，仓库内不得保留任何真实 Key。
-    # 未配置或调用失败（如余额不足、网络异常）时自动降级为规则引擎，功能不受影响。
+    # 未配置或调用失败（如余额不足、网络异常）时自动降级为规则规划器 + 模板回复：
+    # 主流程仍可跑通，但意图/结构化规划能力弱于模型——这是「可选增强」，不是等价替代。
     enabled: ${LLM_ENABLED:true}
     base-url: ${LLM_BASE_URL:https://api.deepseek.com/v1}
     api-key: ${LLM_API_KEY:}
@@ -223,7 +231,7 @@ travel:
     # 默认开启；无外网/排障环境可设 false，此时状态页的 llmModelAvailable 保持 null（未校验）。
     model-probe-enabled: ${LLM_MODEL_PROBE_ENABLED:true}
     # 每用户每日 LLM 调用上限（意图识别/规划/润色/回顾总结等全部计入）；0 = 不限制。
-    # 超限自动降级规则引擎，体验无中断；计数落库（llm_quota_usage），多实例共享
+    # 超限后请求不失败，回复改走规则规划器/模板；计数落库（llm_quota_usage），多实例共享
     quota-daily-limit: ${LLM_DAILY_QUOTA:0}
   embedding:
     # 真实 Embedding：enabled=true 时 RAG 用 OpenAI 兼容 /embeddings 端点（SiliconFlow/智谱/OpenAI 等），

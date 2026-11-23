@@ -11,6 +11,7 @@ import com.travel.agent.service.AmapDataService;
 import com.travel.agent.service.LlmQuotaService;
 import com.travel.agent.service.PriceReferenceService;
 import com.travel.agent.service.RouteService;
+import com.travel.agent.service.WeatherService;
 import com.travel.agent.tool.ToolRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -45,6 +46,7 @@ class SystemControllerStatusTest {
     private final AmapMcpAdapter amapMcpAdapter = new AmapMcpAdapter();
     private final ToolRegistry toolRegistry = new ToolRegistry(List.of());
     private final LlmModelProbe llmModelProbe = mock(LlmModelProbe.class);
+    private final WeatherService weatherService = mock(WeatherService.class);
 
     private SystemController controller(AmapDataService amap) {
         when(llmProperties.getQuotaDailyLimit()).thenReturn(0);
@@ -52,9 +54,12 @@ class SystemControllerStatusTest {
         when(mcpToolBridge.status()).thenReturn(
                 new McpToolBridge.McpStatusSnapshot(false, false, 0, List.of(), null));
         when(llmModelProbe.status()).thenReturn(new LlmModelProbe.ModelCheck(null, null, false));
+        // 默认：真实天气尚未成功（没有一次成功调用就不许自报 open-meteo）
+        when(weatherService.provider()).thenReturn("unavailable");
         return new SystemController(llmProperties, rateLimitProperties,
                 llmQuotaService, amapProperties, new RouteService(amap), llmRuntimeStatus,
-                new PriceReferenceService(), mcpToolBridge, amapMcpAdapter, toolRegistry, llmModelProbe);
+                new PriceReferenceService(), mcpToolBridge, amapMcpAdapter, toolRegistry, llmModelProbe,
+                weatherService);
     }
 
     private static AmapDataService amap(boolean configured, boolean verified, String lastError) {
@@ -205,6 +210,36 @@ class SystemControllerStatusTest {
 
         assertThat(data.get("llmModelAvailable")).isNull();
         assertThat(data.get("llmModelCheckPending")).isEqualTo(true);
+    }
+
+    @Test
+    @DisplayName("天气自报：真实预报成功才宣称 Open-Meteo；模拟只在开关下出现且明示")
+    void reportsWeatherProviderHonestly() {
+        // 先建 controller：controller() 会重置默认桩，桩必须在其后设置
+        SystemController controller = controller(amap(false, false, null));
+
+        // 最近一次真实调用成功 → 可以宣称真实天气
+        when(weatherService.provider()).thenReturn("open-meteo");
+        when(weatherService.lastError()).thenReturn(null);
+        Map<String, Object> real = data(controller);
+        assertThat(real.get("weatherProvider")).isEqualTo("open-meteo");
+        assertThat(real.get("weatherLastError")).isNull();
+        assertThat((String) real.get("weatherHint")).isEqualTo("真实天气：Open-Meteo（免费）");
+
+        // 模拟开关（仅测试/离线演示）：必须明示，不能伪装成真实预报
+        when(weatherService.provider()).thenReturn("simulated");
+        Map<String, Object> simulated = data(controller);
+        assertThat(simulated.get("weatherProvider")).isEqualTo("simulated");
+        assertThat((String) simulated.get("weatherHint")).contains("模拟天气");
+
+        // 拿不到真实天气：hint 必须带原因，不宣称真实天气
+        when(weatherService.provider()).thenReturn("unavailable");
+        when(weatherService.lastError()).thenReturn("网络不可达");
+        Map<String, Object> down = data(controller);
+        assertThat(down.get("weatherProvider")).isEqualTo("unavailable");
+        assertThat(down.get("weatherLastError")).isEqualTo("网络不可达");
+        assertThat((String) down.get("weatherHint"))
+                .isEqualTo("未获取到真实天气：网络不可达");
     }
 
     @Test

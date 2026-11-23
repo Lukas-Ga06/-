@@ -103,8 +103,10 @@ services:
       # 知识库版本化：除 ACTIVE 外额外保留的历史版本块数（默认 2）
       RAG_CHUNK_VERSION_RETENTION: ${RAG_CHUNK_VERSION_RETENTION:-2}
       # ---------- 外部数据源 ----------
-      # 可选能力：真实天气 / 高德 / 大模型 / 渠道入口（留空则功能降级，不影响启动）
-      WEATHER_REAL: ${WEATHER_REAL:-false}
+      # 可选能力：高德 / 大模型 / 渠道入口（留空则功能降级，不影响启动）
+      # 天气默认只走 Open-Meteo 真实预报（免费、无需 Key）：拿不到就是不可用，不降级模拟。
+      # WEATHER_SIMULATION 仅供测试/离线演示，生产保持 false（状态接口会自报 simulated）。
+      WEATHER_SIMULATION: ${WEATHER_SIMULATION:-false}
       AMAP_KEY: ${AMAP_KEY:-}
       MCP_ENABLED: ${MCP_ENABLED:-false}
       # 高德 MCP server 用的「Web 服务」Key，与上面的 AMAP_KEY 不是同一个变量（见 docs/guide/mcp-amap.md）

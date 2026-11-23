@@ -4,12 +4,14 @@ import com.travel.agent.dto.AgentDtos;
 import com.travel.agent.dto.ItineraryDtos;
 import com.travel.agent.entity.ItineraryItem;
 import com.travel.agent.entity.Trip;
+import com.travel.agent.exception.BusinessException;
 import com.travel.agent.model.Attraction;
 import com.travel.agent.model.CityCatalog;
 import com.travel.agent.llm.LlmProperties;
 import com.travel.agent.model.Hotel;
 import com.travel.agent.model.Restaurant;
 import com.travel.agent.model.WeatherInfo;
+import com.travel.agent.model.WeatherLookup;
 import com.travel.agent.rag.RagCitation;
 import com.travel.agent.rag.RagService;
 import com.travel.agent.service.BudgetService;
@@ -25,6 +27,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -396,9 +399,19 @@ public class PlannerAgent {
                 ? "（你提到的日期不在行程 " + trip.getStartDate() + " ~ " + trip.getEndDate()
                         + " 内，已按 Day " + scopeDay + " 处理）"
                 : "";
-        boolean mentionRain = MessageParser.mentions(message, "雨");
-        WeatherInfo weather = (WeatherInfo) tools.invoke(ctx, "query_weather",
-                draftsSupport.buildArgs(new HashMap<>(), "city", city.name(), "date", targetDate.toString(), "mentionRain", mentionRain));
+        // 天气：只认真实预报。依赖天气的修改（消息里提到雨/天气）拿不到真实天气就明确拒绝——
+        // 用模拟天气改行程等于把假数据当事实（ADR-006），用户看到的「因为下雨换成室内」会是编出来的。
+        WeatherLookup lookup = (WeatherLookup) tools.invoke(ctx, "query_weather",
+                Map.of("city", city.name(), "date", targetDate.toString()));
+        if (lookup == null) {
+            lookup = WeatherLookup.unavailable(WeatherLookup.REASON_BAD_RESPONSE);
+        }
+        if (!lookup.available() && MessageParser.mentions(message, "雨", "天气", "下雨", "雪", "台风")) {
+            throw new BusinessException(503, "没拿到 " + city.name() + " " + chineseDate(targetDate)
+                    + " 的真实天气（" + lookup.message() + "）。为避免用模拟天气改错行程，本次没有生成修改方案；"
+                    + "可以稍后重试，或直接告诉我换成哪些室内景点。");
+        }
+        WeatherInfo weather = lookup.available() ? lookup.info() : null;
 
         // LLM 结构化修改先行：模型在现有行程与候选清单内做替换/增删，失败回落规则路径。
         // P1：剩余预算不足时直接走规则路径（改一项的规则替换是确定性的、毫秒级完成），并留下降级痕迹。
@@ -516,7 +529,7 @@ public class PlannerAgent {
         }
 
         Map<String, Object> extras = new HashMap<>();
-        extras.put("weather", weather);
+        putRealWeather(extras, weather);
         extras.put("replacements", replacements);
         extras.put("day", lastTarget != null ? lastTarget.getDayIndex() : firstDay);
         extras.put("citations", citations);
@@ -535,6 +548,27 @@ public class PlannerAgent {
                         + "替换方案：" + String.join("，", replacements))
                 .extras(extras)
                 .build();
+    }
+
+    /**
+     * 只有真实预报才写进 extras：模拟/不可用的天气不得进入方案。
+     * extras.weather 是「天气驱动」的下游判据（ExecutorAgent 写 WEATHER 事件、回复文案说「因为下雨」），
+     * 一旦允许模拟或空值混进去，用户会看到一条没有事实依据的天气结论。
+     */
+    private static void putRealWeather(Map<String, Object> extras, WeatherInfo weather) {
+        if (weather != null && !weather.isSimulated()) {
+            extras.put("weather", weather);
+        }
+    }
+
+    /** 给用户看的日期：同年只写月日，跨年补上年份（避免「1月2日」歧义） */
+    static String chineseDate(LocalDate date) {
+        if (date == null) {
+            return "";
+        }
+        return date.getYear() == LocalDate.now().getYear()
+                ? date.format(DateTimeFormatter.ofPattern("M月d日"))
+                : date.format(DateTimeFormatter.ofPattern("yyyy年M月d日"));
     }
 
     // ==================== V2.2 研究循环（FR-03 自主工具调用） ====================
@@ -742,7 +776,7 @@ public class PlannerAgent {
         }
         int day = focusDay != null ? focusDay : 1;
         Map<String, Object> extras = new HashMap<>();
-        extras.put("weather", weather);
+        putRealWeather(extras, weather);
         extras.put("replacements", replacements);
         extras.put("day", day);
         String warnings = parse.warnings().isEmpty() ? ""

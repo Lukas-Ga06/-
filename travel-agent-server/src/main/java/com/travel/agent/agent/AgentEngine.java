@@ -844,7 +844,10 @@ public class AgentEngine {
             List<String> replacements = plan.getExtras().get("replacements") instanceof List<?> list
                     ? list.stream().map(String::valueOf).toList() : List.of();
             int day = plan.getExtras().get("day") instanceof Integer d ? d : 1;
-            return MessageTemplates.modify(weather, replacements, day);
+            // 没有可用真实天气时不能传 null 给「带天气」的模板：走不带天气的文案，绝不写「因为下雨」
+            return weather == null
+                    ? MessageTemplates.modify(replacements, day)
+                    : MessageTemplates.modify(weather, replacements, day);
         }
         return plan.getReasoning();
     }

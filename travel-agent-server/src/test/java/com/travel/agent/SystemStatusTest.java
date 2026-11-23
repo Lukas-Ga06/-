@@ -40,6 +40,10 @@ class SystemStatusTest extends IntegrationTestSupport {
                 .andExpect(jsonPath("$.data.llmProvider").value(nullValue()))
                 .andExpect(jsonPath("$.data.llmModelAvailable").value(nullValue()))
                 .andExpect(jsonPath("$.data.llmModelCheckPending").value(false))
+                // 天气自报（P0）：测试 profile 只跑模拟天气，状态接口必须如实说「模拟」而不是真实预报
+                .andExpect(jsonPath("$.data.weatherProvider").value("simulated"))
+                .andExpect(jsonPath("$.data.weatherLastError").value(nullValue()))
+                .andExpect(jsonPath("$.data.weatherHint").value(org.hamcrest.Matchers.containsString("模拟天气")))
                 .andReturn();
 
         String body = result.getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
