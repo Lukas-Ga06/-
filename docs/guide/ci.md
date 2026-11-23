@@ -1,6 +1,6 @@
 # CI 门禁：每个 job 做什么、本地怎么复现、失败怎么处理
 
-> 状态：当前事实 | 适用版本：0.1.0（GitHub Actions / JDK 17 / Node 20） | 最后验证：2026-11-22 | 事实来源：`.github/workflows/ci.yml`、`.github/workflows/codeql.yml`、`.github/workflows/visual-baseline.yml`、`.github/dependabot.yml`、`.gitleaks.toml`、`lychee.toml`、`travel-agent-web/package.json`、`travel-agent-server/pom.xml`
+> 状态：当前事实 | 适用版本：0.1.0（GitHub Actions / JDK 17 / Node 20） | 最后验证：2026-11-23 | 事实来源：`.github/workflows/ci.yml`、`.github/workflows/codeql.yml`、`.github/workflows/visual-baseline.yml`、`.github/dependabot.yml`、`.gitleaks.toml`、`lychee.toml`、`travel-agent-web/package.json`、`travel-agent-server/pom.xml`
 
 ## 1. job 总览
 
@@ -48,6 +48,25 @@
 | 视觉回归 | 已接 CI，**观察模式** | 基线文件名带平台后缀；仓库现有 11 张是 `-chromium-win32.png`。Linux 基线需用 `.github/workflows/visual-baseline.yml` 在固定 Playwright 容器里生成并提交（见第 3 节 visual），`visual` job 检测到 `-chromium-linux.png` 后才真正比较 |
 
 `e2e-device` 转正（去掉 `continue-on-error`）的复盘期限：**2026-12-06**。
+
+### 1.3 CI 自动门禁 vs 人工验收
+
+CI 只证明「不联网、无真实 Key 时也能正确失败并自报」。**它不能证明真实外部依赖可用**，
+下面这些项必须在有 Key/有网络的环境里人工验收，CI 绿了不代表它们通过：
+
+| 验收项 | CI 能否自动覆盖 | 为什么 | 人工验收方式 |
+| --- | --- | --- | --- |
+| 规则规划器闭环、确认/撤销、预算与足迹口径 | ✅ 自动 | 确定性逻辑，隔离后端可跑 | — |
+| 天气不可用时的拒绝语义（503、不生成方案） | ✅ 自动 | 单测直接构造「不可用 + 原因」，不依赖网络 | `WeatherDependentModificationTest` |
+| **天气真实预报可用** | ❌ 人工 | e2e 用 `WEATHER_SIMULATION=true` 隔离外呼，`WeatherServiceTest` 也只覆盖 WireMock 解析——都**不证明能连上真实 Open-Meteo** | 部署后看 `/api/system/status` 的 `weatherProvider=open-meteo` 与 `weatherHint` |
+| **LLM 真实可用** | ❌ 人工 | CI 不持有 `LLM_API_KEY`，只验回落规则规划器 | 配 Key 后跑 [真实模型验收](v2.2-iteration.md) 流程并留存证据 |
+| **高德 POI / 路线真实可用** | ❌ 人工 | 需要真实 `AMAP_KEY` 且有 QPS 配额 | `.e2e/amap-real-key-probe.ps1`，结果写进 `docs/review/` |
+| 移动端真机（Android） | ❌ 人工 | CI 只有 WebKit/iPhone 预设，模拟 ≠ 真机 | 按 [发布检查单](../operations/launch-checklist.md) §5.1 跑真机矩阵 |
+| 视觉回归基线 | ⚠️ 半自动 | 仓库基线是 `-chromium-win32.png`；Linux 基线需在固定容器里生成并提交 | `.github/workflows/visual-baseline.yml` 出图 + 人工 review diff |
+| 生产部署配置（密钥、`DEMO_ACCOUNT=false`、`WEATHER_SIMULATION=false`） | ❌ 人工 | CI 用的是隔离配置 | 按 [生产配置](../operations/production-config.md) 逐项核对 `/api/system/status` |
+
+判定规则：**CI 失败 = 不能合并**；**上表 ❌ 项未人工验收 = 不能算「能力可用」**，只能算「代码路径存在」。
+对外介绍与发布说明必须按 [能力边界与默认口径](capability-boundaries.md) 表述，不得用 CI 结果替代真实依赖验收。
 
 ## 2. 本地一次跑完全部快速门禁
 

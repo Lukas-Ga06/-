@@ -26,6 +26,10 @@ const LOADER_PATH = join(ROOT, 'src', 'components', 'FootprintMap', 'maplibreLoa
 const BUDGET = {
   assetJs: 800_000,
   entryJs: 600_000,
+  // 首屏 CSS（index.html 里 rel=stylesheet 的部分，含 antd reset + global.css 合并产物）。
+  // 用途：守住「样式按职责拆分、页面私有规则随路由 chunk 加载」这条结构，而不是比字节。
+  // 2026-11-23 实测 57,156 B；拆分前 global.css 直接 import 的源文件合计 104,669 B。
+  entryCss: 65_536,
   echarts: 600_000,
   maplibreMainGzip: 300_000,
   maplibreWorkerGzip: 160_000,
@@ -73,6 +77,20 @@ function entryScriptUrls(html) {
   return [...urls]
     .map((url) => url.split('?')[0].split('#')[0])
     .filter((url) => url.startsWith('/') && ['.js', '.mjs'].includes(extname(url)));
+}
+
+/** 解析 index.html 里首屏直接加载的样式（rel=stylesheet），去重后返回本地路径 */
+function entryStyleUrls(html) {
+  const urls = new Set();
+  for (const match of html.matchAll(/<link\b[^>]*>/g)) {
+    const tag = match[0];
+    if (!/\brel="stylesheet"/.test(tag)) continue;
+    const href = /\bhref="([^"]+)"/.exec(tag);
+    if (href) urls.add(href[1]);
+  }
+  return [...urls]
+    .map((url) => url.split('?')[0].split('#')[0])
+    .filter((url) => url.startsWith('/') && extname(url) === '.css');
 }
 
 /** 从 workbox 生成的 sw.js 里取出 precache 清单（precacheAndRoute([...], {})） */
@@ -229,6 +247,31 @@ function main() {
       );
     } else {
       pass('index.html 不引用 vendor/maplibre', '地图引擎只在渲染地图时按需加载');
+    }
+
+    // ---- 7. index.html 首屏 CSS ≤ 65,536 B ----
+    const styleFiles = entryStyleUrls(html).map((url) => join(DIST, url));
+    const styleMissing = styleFiles.filter((file) => !existsSync(file));
+    const styleTotal = styleFiles
+      .filter((file) => existsSync(file))
+      .reduce((sum, file) => sum + statSync(file).size, 0);
+    console.log('\nindex.html 首屏直接加载的 CSS：');
+    for (const file of styleFiles) {
+      console.log(
+        `  ${existsSync(file) ? bytes(statSync(file).size).padStart(12) : '缺 失'.padStart(12)}  ${file.split(sep).slice(-1)[0]}`,
+      );
+    }
+    if (styleMissing.length > 0) {
+      fail('首屏 CSS 引用可解析', `${styleMissing.length} 个文件缺失`, '确认 dist 构建完整');
+    }
+    if (styleTotal <= BUDGET.entryCss) {
+      pass(`首屏 CSS ≤ ${bytes(BUDGET.entryCss)}`, `合计 ${bytes(styleTotal)}`);
+    } else {
+      fail(
+        `首屏 CSS ≤ ${bytes(BUDGET.entryCss)}`,
+        `合计 ${bytes(styleTotal)}`,
+        '把页面私有规则移回 src/pages/<Page>/<page>.css（随路由 chunk 加载），并确认 global.css 只保留跨页共享规则',
+      );
     }
   }
 

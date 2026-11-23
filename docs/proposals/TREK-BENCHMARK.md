@@ -1,5 +1,9 @@
 # 对标 TREK 的改进提案
 
+> **2026-11-23 口径变更**：本文是 2026-11-16 的提案，原文保留。文中 `WeatherService` 的「模拟兜底」
+> 与 `WEATHER_REAL=true` 已不存在：天气改为默认走 Open-Meteo 真实预报、失败即「不可用 + 原因」，
+> 模拟只在 `WEATHER_SIMULATION=true`（仅测试/离线演示）下出现。当前口径见 [能力边界](../guide/capability-boundaries.md) §3。
+
 > 状态：未落地 | 日期：2026-11-16 | 说明：提案未排期，内容仅作对标分析与结构性缺口讨论；不代表当前版本承诺，当前事实见 [docs/guide](../guide/README.md)。
 
 > 对象仓库：`liketrek/TREK`（AGPLv3，NestJS 11 + React 19 + SQLite 自托管旅行规划 PWA，v5.1.0）

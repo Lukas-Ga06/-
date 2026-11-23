@@ -16,11 +16,13 @@
 - **`WEATHER_REAL` 环境变量被 `WEATHER_SIMULATION` 取代**（默认 `false`）。语义反转：
   不再是「要不要真实天气」，而是「只给测试开模拟」。生产保持 `false`。
 - **下线 `/ui-demo` 组件厨房**，删除仅它使用的 `DraggableList` / `Collapse` 及其孤儿样式。
-  自研基础组件改由单测 + 页面 e2e 覆盖；路由从 20 条降到 19 条。
+  自研基础组件改由单测 + 页面 e2e 覆盖；`/ui-demo` 路由随之删除，路由 **21 → 20 条**（其余 20 条全部保留）。
 - **样式按职责收敛**：`global.css` 从「一个大文件」拆成固定 `@import` 顺序的
   `tokens / shell / buttons / cards / status / shared / components / animations` + 页面私有 CSS。
   页面私有大段（足迹、时间轴、地图控制条、首页列表等）迁回各自 `pages/<Page>/<page>.css`；
-  删掉死规则与和 `tokens.css` 重复的 antd 覆盖。首屏源 CSS 95,980 → 78,219 B（−18.5%）。
+  删掉死规则与和 `tokens.css` 重复的 antd 覆盖。首屏源 CSS（`global.css` 直接 import 的文件合计）
+  **104,669 → 85,019 B（−18.8%）**；构建产物首屏 CSS **57,156 B**（gzip9 11,671 B），
+  已由 `check-bundle-budget.mjs` 以 **≤ 65,536 B** 的预算守住，防止页面私有规则回流首屏。
 - **规划页 / 行程页拆分**：`pages/Planner/index.tsx` 935 → 359 行、`pages/Trip/index.tsx` 669 → 421 行；
   步骤视图、工作区、页脚、抽屉、撤销条拆到各自 `components/` 子目录。行为与 DOM 契约不变
   （测试零改动，视觉基线 11/11 像素一致）。
@@ -43,6 +45,15 @@
 - README 重写「核心能力」为「默认具备 / 显式开启的增强」，演示闭环标注「本地 H2，非生产数据」，
   天气步骤写明失败会拒绝；`docs/guide/{deployment,external-dependencies,api-reference,frontend,getting-started}.md`、
   `docs/DEVELOPMENT.md`、法务文档与 `.env.production.example` / `docker-compose.yml` 同步新口径。
+- getting-started 增加 `/api/system/status` 自查片段（用演示账号取 cookie），让新人能直接分辨
+  `open-meteo` / `unavailable` / `simulated` 三种天气口径。
+- [CI 门禁](guide/ci.md) 新增 §1.3「CI 自动门禁 vs 人工验收」：逐项说明哪些能力 CI **不能**证明
+  （真实天气外呼、真实 LLM/高德 Key、Android 真机、Linux 视觉基线），并规定「CI 绿 ≠ 能力可用」。
+- 修正法务口径：`privacy-policy` 不再写天气「未配置走模拟」；`operations/alerts.yml` 的降级告警说明
+  改为「路线/POI 回落估算、天气不可用则依赖天气的修改被 503 拒绝」，与代码一致。
+- 历史快照保留原文、只加「口径变更说明」：`design/v2.2-gap-analysis-backend.md`、
+  `review/2026-11-19-provider-rag-decision.md`、`proposals/TREK-BENCHMARK.md` 中的 `WEATHER_REAL` 表述均加注日期与现口径链接。
+- `frontend-performance.md` 的包体预算表补充**首屏 CSS**一项，并刷新首屏 JS / precache 实测值到当前构建。
 
 ### 四、为什么
 

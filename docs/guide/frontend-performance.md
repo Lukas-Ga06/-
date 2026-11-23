@@ -1,6 +1,6 @@
 # 前端性能：地图包体与运行时按需加载
 
-> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.12 / Node 20） | 最后验证：2026-11-19 | 事实来源：travel-agent-web/vite.config.ts、travel-agent-web/src/components/FootprintMap/、travel-agent-web/scripts/check-bundle-budget.mjs、本次 `npm run build` / `npm run build:check` / `npm test` 实测产物
+> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.12 / Node 20） | 最后验证：2026-11-23 | 事实来源：travel-agent-web/vite.config.ts、travel-agent-web/src/components/FootprintMap/、travel-agent-web/scripts/check-bundle-budget.mjs、本次 `npm run build` / `npm run build:check` / `npm test` 实测产物
 
 > 面向：要改前端、改构建或排查「地图/图表拖慢首屏」的同学。
 > 结论先行：**地图引擎不再进入 Rollup 的 import 图**，改为页面真正渲染地图时从带版本号的自托管目录按需 `import()`；
@@ -16,8 +16,9 @@
 | --- | --- | --- |
 | Rollup 地图 chunk | `maps-*.js` **1,068.35 kB**（gzip 292.76 kB），触发 Vite >800 kB 告警 | **不存在**；地图引擎移出 import 图 |
 | 地图引擎传输 | 随 `maps` chunk 进入首屏/预缓存 | 运行时按需：主模块 **1,106,041 B / gzip9 299,604 B**；worker **550,754 B / gzip9 158,020 B** |
-| PWA precache | 66 entries，**3,062.74 KiB（≈2.99 MiB）**，含整个 maps chunk | 65 entries，**2,070,880 B（≈1.97 MiB）**，不含 `vendor/maplibre/**` |
-| 首屏 JS（index.html 直接加载） | 入口 `index-*.js` 563.95 kB（gzip 183.87 kB） | 入口 563,919 B + `registerSW.js` 134 B = **564,053 B**（gzip9 183,505 B） |
+| PWA precache | 66 entries，**3,062.74 KiB（≈2.99 MiB）**，含整个 maps chunk | 2.20 MiB（82 项），不含 `vendor/maplibre/**`（2026-11-23 复测；此后新增的懒加载页面 chunk 计入总数） |
+| 首屏 JS（index.html 直接加载） | 入口 `index-*.js` 563.95 kB（gzip 183.87 kB） | 596,977 B + `registerSW.js` 134 B = **597,111 B**（gzip9 193,787 B） |
+| 首屏 CSS（index.html 直接加载） | 单文件 `pages.css` 合计 **95,980 B** | **57,156 B**（gzip9 11,671 B），页面私有规则随路由 chunk 加载（2026-11-23 拆分后复测） |
 | ECharts chunk | `echarts-*.js` 550.48 kB | 550,477 B，仍独立分块、只被图表页懒加载 |
 | 地图样式 | `maps-*.css` 71,505 B 随 maps chunk | 懒加载 CSS chunk 71,505 B，不进 `index.html` |
 | 构建告警 | `Some chunks are larger than 800 kB` | 无 |
@@ -97,12 +98,13 @@
 
 | 预算项 | 阈值 | 当前实测 | 说明 |
 | --- | --- | --- | --- |
-| `assets/*.js` 单文件 | ≤ 800,000 B | 最大 563,919 B | 与 Vite `chunkSizeWarningLimit: 800` 对齐；vendor 不算在内 |
-| index.html 首屏 JS | ≤ 600,000 B | 564,053 B | module script + modulepreload，去重后求和 |
+| `assets/*.js` 单文件 | ≤ 800,000 B | 最大 596,977 B | 与 Vite `chunkSizeWarningLimit: 800` 对齐；vendor 不算在内 |
+| index.html 首屏 JS | ≤ 600,000 B | 597,111 B | module script + modulepreload，去重后求和 |
+| index.html 首屏 CSS | ≤ 65,536 B | 57,156 B | `rel=stylesheet` 去重求和；守住「页面私有规则随路由 chunk 加载」，拆分前单文件口径为 95,980 B |
 | ECharts chunk | ≤ 600,000 B | 550,477 B | 图表必须保持独立分块，否则无法单独设预算 |
 | 地图主模块 gzip | ≤ 300,000 B | 299,604 B | gzip **level 9** 口径 |
 | 地图 worker gzip | ≤ 160,000 B | 158,020 B | 同上 |
-| PWA precache 总量 | ≤ 2.3 MiB | 1.97 MiB（65 项） | 从 `dist/sw.js` 的 precache 清单求和 |
+| PWA precache 总量 | ≤ 2.3 MiB | 2.20 MiB（82 项） | 从 `dist/sw.js` 的 precache 清单求和 |
 | `index.html` 引用地图 vendor | 必须为 0 | 0 | 出现即说明地图又回到首屏 |
 
 gzip 口径说明：脚本用 `zlib.gzipSync(..., { level: 9 })`，与 `rollup-plugin-visualizer` 的 `gzipSize` 一致，
