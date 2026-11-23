@@ -21,6 +21,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -115,6 +116,17 @@ class McpBridgeTest {
                 assertTrue(tool.getDescription().contains("参数: query*"));
                 assertEquals("stub-result about 京都", tool.execute(Map.of("query", "京都")));
                 assertFalse(registry.register(tool), "同名工具不允许重复注册");
+
+                // P0-A：状态快照如实暴露「启用了 / 连上了 / 注册了几个工具」
+                McpToolBridge.McpStatusSnapshot snapshot = bridge.status();
+                assertTrue(snapshot.enabled());
+                assertTrue(snapshot.running());
+                assertEquals(1, snapshot.toolCount());
+                assertEquals(1, snapshot.servers().size());
+                assertTrue(snapshot.servers().get(0).connected());
+                assertEquals("stub", snapshot.servers().get(0).name());
+                assertEquals(1, snapshot.servers().get(0).toolCount());
+                assertEquals(null, snapshot.lastError());
             } finally {
                 bridge.stop();
             }
@@ -164,6 +176,41 @@ class McpBridgeTest {
         McpToolBridge bridge = new McpToolBridge(props, registry, MAPPER);
         bridge.start();
         assertTrue(registry.all().isEmpty(), "接入失败的 server 不应注册任何工具");
+
+        // P0-A：失败原因进入状态快照（运维不用翻启动日志就知道 MCP 没生效）
+        McpToolBridge.McpStatusSnapshot snapshot = bridge.status();
+        assertTrue(snapshot.enabled());
+        assertTrue(snapshot.running());
+        assertEquals(0, snapshot.toolCount());
+        assertEquals(1, snapshot.servers().size());
+        assertFalse(snapshot.servers().get(0).connected());
+        assertEquals(0, snapshot.servers().get(0).toolCount());
+        assertNotNull(snapshot.lastError());
+        assertFalse(snapshot.lastError().isBlank());
+        bridge.stop();
+    }
+
+    @Test
+    void disabledBridgeReportsDisabledSnapshotWithoutConnecting() {
+        McpProperties props = new McpProperties();
+        props.setEnabled(false);
+        McpProperties.Server configured = new McpProperties.Server();
+        configured.setName("amap");
+        props.setServers(List.of(configured));
+
+        ToolRegistry registry = new ToolRegistry(List.of());
+        McpToolBridge bridge = new McpToolBridge(props, registry, MAPPER);
+        bridge.start();
+
+        McpToolBridge.McpStatusSnapshot snapshot = bridge.status();
+        assertFalse(snapshot.enabled());
+        assertFalse(snapshot.running());
+        assertEquals(0, snapshot.toolCount());
+        assertEquals(1, snapshot.servers().size());
+        assertEquals("amap", snapshot.servers().get(0).name());
+        assertFalse(snapshot.servers().get(0).connected());
+        assertNull(snapshot.lastError());
+        assertTrue(registry.all().isEmpty());
         bridge.stop();
     }
 }

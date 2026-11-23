@@ -212,10 +212,16 @@ travel:
     enabled: ${LLM_ENABLED:true}
     base-url: ${LLM_BASE_URL:https://api.deepseek.com/v1}
     api-key: ${LLM_API_KEY:}
-    model: ${LLM_MODEL:deepseek-chat}
+    # 默认模型按当前真实 Key 的 GET /models 清单确认过（deepseek-flash / deepseek-v4-pro）。
+    # 换 provider 或换模型必须先用 GET {base-url}/models 核对：配置的模型不存在时启动 WARN，
+    # 并在 /api/system/status 的 llmModelAvailable / llmModelError 里如实显示，不会静默当可用。
+    model: ${LLM_MODEL:deepseek-flash}
     temperature: ${LLM_TEMPERATURE:0.4}
     connect-timeout-ms: ${LLM_CONNECT_TIMEOUT_MS:5000}
     read-timeout-ms: ${LLM_READ_TIMEOUT_MS:30000}
+    # P0-A：应用就绪后异步探测 GET {base-url}/models（超时 ≤3s），检查配置模型是否存在。
+    # 默认开启；无外网/排障环境可设 false，此时状态页的 llmModelAvailable 保持 null（未校验）。
+    model-probe-enabled: ${LLM_MODEL_PROBE_ENABLED:true}
     # 每用户每日 LLM 调用上限（意图识别/规划/润色/回顾总结等全部计入）；0 = 不限制。
     # 超限自动降级规则引擎，体验无中断；计数落库（llm_quota_usage），多实例共享
     quota-daily-limit: ${LLM_DAILY_QUOTA:0}

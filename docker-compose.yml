@@ -1,6 +1,7 @@
-# AI 个人助理 · 全栈一键部署
+# AI 旅行助手 · 全栈一键部署
 # 用法：JWT_SECRET=$(openssl rand -base64 48) docker compose up -d --build
 # 密钥类变量一律经环境变量注入，仓库内不保存任何真实 Key。
+# 生产变量清单与轮换说明见 docs/operations/production-config.md，模板见 .env.production.example。
 # 本地开发用 MySQL/Redis 基础设施见 docker-compose.infra.yml。
 
 services:
@@ -22,44 +23,122 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # 多实例限流计数：RATE_LIMIT_STORE=redis 时由全部后端实例共享配额。
+  # Redis 故障时代码 fail-open（放行并告警），不会把整站拖死；单实例部署也可设 memory。
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
   backend:
     build: ./travel-agent-server
     depends_on:
       mysql:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
+      # ---------- 数据库 / 缓存 ----------
       SPRING_PROFILES_ACTIVE: mysql
       MYSQL_HOST: mysql
       MYSQL_PORT: "3306"
       MYSQL_DATABASE: travel_agent
       MYSQL_USERNAME: travel
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-travel_pw}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+      # ---------- 时区 / 安全 ----------
+      # TimeZoneConfig 在启动后 setDefault，JDBC 建连却发生在更早：容器 TZ 必须一起钉住，
+      # 否则 LocalDate 在 UTC runner/容器上会整体偏一天（见 Dockerfile 注释与部署文档）。
+      TZ: ${TZ:-Asia/Shanghai}
+      APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Shanghai}
       # 必配：openssl rand -base64 48；不配则每次重启生成一次性密钥，全体用户掉线
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
-      # 生产建议关闭公开弱密码演示账号
-      DEMO_ACCOUNT: ${DEMO_ACCOUNT:-false}
-      # 可选能力：真实天气 / 高德 / 大模型 / 渠道入口（留空则功能降级，不影响启动）
-      WEATHER_REAL: ${WEATHER_REAL:-false}
-      AMAP_KEY: ${AMAP_KEY:-}
-      LLM_API_KEY: ${LLM_API_KEY:-}
-      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com/v1}
-      LLM_MODEL: ${LLM_MODEL:-deepseek-chat}
-      MCP_ENABLED: ${MCP_ENABLED:-false}
-      # 高德 MCP server 用的「Web 服务」Key，与上面的 AMAP_KEY 不是同一个变量（见 docs/guide/mcp-amap.md）
-      AMAP_MAPS_API_KEY: ${AMAP_MAPS_API_KEY:-}
-      # 知识库版本化：除 ACTIVE 外额外保留的历史版本块数（默认 2）
-      RAG_CHUNK_VERSION_RETENTION: ${RAG_CHUNK_VERSION_RETENTION:-2}
-      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
-      CHANNEL_WEBHOOK_ENABLED: ${CHANNEL_WEBHOOK_ENABLED:-false}
-      CHANNEL_WEBHOOK_SECRET: ${CHANNEL_WEBHOOK_SECRET:-}
-      # Cookie 属性：经 https/域名访问时设 true
+      JWT_EXPIRE_HOURS: ${JWT_EXPIRE_HOURS:-72}
+      TICKET_TTL_SECONDS: ${TICKET_TTL_SECONDS:-300}
+      # HTTPS/域名部署必须 true；纯 http 快速体验保持 false，否则浏览器不保存 Secure Cookie
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      # 生产建议关闭公开弱密码演示账号；改成 false 不会删除已创建的 demo 账号
+      DEMO_ACCOUNT: ${DEMO_ACCOUNT:-false}
+      # 生产必须 false：H2 控制台是 sa 空密码的匿名入口（mysql profile 下默认即关闭）
+      H2_CONSOLE_ENABLED: ${H2_CONSOLE_ENABLED:-false}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:8081}
       # 限流客户端 IP 只信受信代理：仅当后端只经 nginx 反代可达时才安全（默认未开放 ports）。
       # 172.16.0.0/12 覆盖 Docker 默认桥接网段；若临时放开 backend 端口直连调试，应设空值，
       # 否则直连方可用伪造 X-Forwarded-For 绕过限流。
       RATE_LIMIT_TRUSTED_PROXIES: ${RATE_LIMIT_TRUSTED_PROXIES:-172.16.0.0/12}
-      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:8081}
-      INVOICE_DIR: /app/data/invoices
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+      RATE_LIMIT_STORE: ${RATE_LIMIT_STORE:-redis}
+      RATE_LIMIT_AUTH: ${RATE_LIMIT_AUTH:-10}
+      RATE_LIMIT_AGENT: ${RATE_LIMIT_AGENT:-30}
+      RATE_LIMIT_UPLOAD: ${RATE_LIMIT_UPLOAD:-60}
+      RATE_LIMIT_DEFAULT: ${RATE_LIMIT_DEFAULT:-600}
+      RATE_LIMIT_SESSION: ${RATE_LIMIT_SESSION:-60}
+      RATE_LIMIT_WINDOW_SECONDS: ${RATE_LIMIT_WINDOW_SECONDS:-300}
+      # ---------- LLM / Embedding ----------
+      LLM_ENABLED: ${LLM_ENABLED:-true}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com/v1}
+      # 2026-11-22 用当前 Key 的 GET /models 核对：可用 deepseek-flash / deepseek-v4-pro。
+      # 换 provider 必须重新核对；模型缺失时 /api/system/status 的 llmModelAvailable=false。
+      LLM_MODEL: ${LLM_MODEL:-deepseek-flash}
+      LLM_MODEL_PROBE_ENABLED: ${LLM_MODEL_PROBE_ENABLED:-true}
+      LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.4}
+      LLM_CONNECT_TIMEOUT_MS: ${LLM_CONNECT_TIMEOUT_MS:-5000}
+      LLM_READ_TIMEOUT_MS: ${LLM_READ_TIMEOUT_MS:-30000}
+      # 每用户每日调用上限，0=不限；生产建议设正值，超限自动降级规则引擎
+      LLM_DAILY_QUOTA: ${LLM_DAILY_QUOTA:-0}
+      EMBEDDING_ENABLED: ${EMBEDDING_ENABLED:-false}
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-https://api.siliconflow.cn/v1}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-m3}
+      RAG_MIN_SCORE: ${RAG_MIN_SCORE:-0.05}
+      # 知识库版本化：除 ACTIVE 外额外保留的历史版本块数（默认 2）
+      RAG_CHUNK_VERSION_RETENTION: ${RAG_CHUNK_VERSION_RETENTION:-2}
+      # ---------- 外部数据源 ----------
+      # 可选能力：真实天气 / 高德 / 大模型 / 渠道入口（留空则功能降级，不影响启动）
+      WEATHER_REAL: ${WEATHER_REAL:-false}
+      AMAP_KEY: ${AMAP_KEY:-}
+      MCP_ENABLED: ${MCP_ENABLED:-false}
+      # 高德 MCP server 用的「Web 服务」Key，与上面的 AMAP_KEY 不是同一个变量（见 docs/guide/mcp-amap.md）
+      AMAP_MAPS_API_KEY: ${AMAP_MAPS_API_KEY:-}
+      # ---------- 照片存储 ----------
+      # local=backend-data 卷；s3=对象存储（多实例共享）。s3 缺少 bucket/ak/sk 会启动失败。
+      PHOTOS_STORE: ${PHOTOS_STORE:-local}
+      PHOTO_MAX_PER_TRIP: ${PHOTO_MAX_PER_TRIP:-200}
+      PHOTO_MAX_BYTES_PER_USER: ${PHOTO_MAX_BYTES_PER_USER:-524288000}
+      TRAVEL_PHOTOS_S3_ENDPOINT: ${S3_ENDPOINT:-}
+      TRAVEL_PHOTOS_S3_REGION: ${S3_REGION:-us-east-1}
+      TRAVEL_PHOTOS_S3_BUCKET: ${S3_BUCKET:-}
+      TRAVEL_PHOTOS_S3_ACCESS_KEY: ${S3_ACCESS_KEY:-}
+      TRAVEL_PHOTOS_S3_SECRET_KEY: ${S3_SECRET_KEY:-}
+      # ---------- Agent 预算 / 会话 ----------
+      AGENT_BUDGET_ENABLED: ${AGENT_BUDGET_ENABLED:-true}
+      AGENT_BUDGET_TOTAL_MS: ${AGENT_BUDGET_TOTAL_MS:-30000}
+      CONVERSATION_HISTORY_LIMIT: ${CONVERSATION_HISTORY_LIMIT:-10}
+      CONVERSATION_RETENTION_DAYS: ${CONVERSATION_RETENTION_DAYS:-7}
+      # ---------- 渠道入口 ----------
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      CHANNEL_WEBHOOK_ENABLED: ${CHANNEL_WEBHOOK_ENABLED:-false}
+      CHANNEL_WEBHOOK_SECRET: ${CHANNEL_WEBHOOK_SECRET:-}
+      WECHAT_OA_TOKEN: ${WECHAT_OA_TOKEN:-}
+      WECHAT_OA_APPID: ${WECHAT_OA_APPID:-}
+      WECHAT_OA_SECRET: ${WECHAT_OA_SECRET:-}
+      # JVM 堆/GC 参数（Dockerfile ENTRYPOINT 消费）
+      JAVA_OPTS: ${JAVA_OPTS:-}
+      # 容器日志轮转：json-file 默认无上限，长期运行会占满磁盘
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     volumes:
       - backend-data:/app/data
     # 如需后端直连调试可放开端口；默认只经 web 反代
@@ -78,8 +157,14 @@ services:
       - backend
     ports:
       - "8081:80"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: unless-stopped
 
 volumes:
   mysql-data:
+  redis-data:
   backend-data:

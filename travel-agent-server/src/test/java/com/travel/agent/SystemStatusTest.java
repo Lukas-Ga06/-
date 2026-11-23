@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MvcResult;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -29,6 +30,16 @@ class SystemStatusTest extends IntegrationTestSupport {
                 .andExpect(jsonPath("$.data.routeConfigured").value(false))
                 .andExpect(jsonPath("$.data.amapVerified").value(false))
                 .andExpect(jsonPath("$.data.timezone").value("Asia/Shanghai"))
+                // P0-A：MCP 接入状态与模型探测字段必须存在，且口径不伪装（LLM 未配置时模型可用性为 null）
+                .andExpect(jsonPath("$.data.mcpEnabled").isBoolean())
+                .andExpect(jsonPath("$.data.mcpConnected").isBoolean())
+                .andExpect(jsonPath("$.data.mcpToolCount").isNumber())
+                .andExpect(jsonPath("$.data.amapMcpToolCount").isNumber())
+                .andExpect(jsonPath("$.data.mcpServers").isArray())
+                .andExpect(jsonPath("$.data.mcpHint").isString())
+                .andExpect(jsonPath("$.data.llmProvider").value(nullValue()))
+                .andExpect(jsonPath("$.data.llmModelAvailable").value(nullValue()))
+                .andExpect(jsonPath("$.data.llmModelCheckPending").value(false))
                 .andReturn();
 
         String body = result.getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);

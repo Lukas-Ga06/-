@@ -22,14 +22,13 @@ RUN apt-get update \
 WORKDIR /app
 COPY --from=build /build/target/travel-agent-server-0.1.0.jar app.jar
 
-# 数据卷：H2 文件库 / 行程照片 / 发票（compose 挂卷持久化）
+# 数据卷：H2 文件库 / 行程照片（compose 挂卷持久化）
 RUN mkdir -p /app/data && chown -R 1000:1000 /app
 USER 1000
 VOLUME ["/app/data"]
 
 ENV TZ=Asia/Shanghai \
     APP_TIMEZONE=Asia/Shanghai \
-    INVOICE_DIR=/app/data/invoices \
     JAVA_OPTS=""
 EXPOSE 8080
 HEALTHCHECK --interval=15s --timeout=5s --start-period=60s --retries=5 \

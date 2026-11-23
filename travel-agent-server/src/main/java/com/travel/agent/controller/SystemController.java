@@ -1,10 +1,14 @@
 package com.travel.agent.controller;
 
-import com.travel.agent.dto.ApiResponse;
 import com.travel.agent.config.AmapProperties;
 import com.travel.agent.config.RateLimitProperties;
+import com.travel.agent.dto.ApiResponse;
+import com.travel.agent.llm.LlmModelProbe;
 import com.travel.agent.llm.LlmProperties;
 import com.travel.agent.llm.LlmRuntimeStatus;
+import com.travel.agent.mcp.AmapMcpAdapter;
+import com.travel.agent.mcp.McpToolBridge;
+import com.travel.agent.tool.ToolRegistry;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -12,6 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.ZoneId;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -20,11 +25,15 @@ import java.util.Map;
  * 之所以需要它：未配置 LLM_API_KEY 时 Agent 会静默降级为规则引擎、未配置 AMAP_KEY 时
  * 城市定位会退到 OSM，使用者容易误以为"AI 不能联网/不会规划"。这里只返回布尔与说明，不泄露任何密钥。
  *
- * <p>自报口径（V2.2 验收 P2/P5）：**「配置了」与「真的能用」分开报**——
+ * <p>自报口径（V2.2 验收 P2/P5 + P0-A）：
  * <ul>
  *   <li>{@code llmConfigured}（配置里有 Key）/ {@code llmVerified}（最近一次真实调用成功）；</li>
+ *   <li>{@code llmProvider}（base-url 的 host，不含 Key/路径）/ {@code llmModelAvailable}
+ *       （启动探测 /models 的结论，null=尚未校验）/ {@code llmModelError} / {@code llmModelCheckPending}；</li>
  *   <li>{@code routeProvider}（现行口径，仅 amap|estimated）、{@code routeConfigured}（配了 Key 或 MCP）、
- *       {@code amapVerified}（最近一次真实路径调用成功）、{@code routeLastError}（失败原因，含 infocode，不含 Key）。</li>
+ *       {@code amapVerified}（最近一次真实路径调用成功）、{@code routeLastError}（失败原因，含 infocode，不含 Key）；</li>
+ *   <li>{@code mcpEnabled} / {@code mcpConnected} / {@code mcpToolCount} / {@code mcpServers}
+ *       / {@code mcpLastError} / {@code mcpHint}（MCP 接入状态，P0-A）/ {@code amapMcpToolCount}。</li>
  * </ul>
  * 只配了 Key 但一次都没成功调用过时，{@code routeProvider} 必须是 estimated——估算不能伪装成实时（ADR-006）。
  */
@@ -46,6 +55,14 @@ public class SystemController {
      * 与 routeProvider 口径一致——没有的能力不许在状态页上宣称。
      */
     private final com.travel.agent.service.PriceReferenceService priceReferenceService;
+    /** P0-A：MCP 接入状态快照（启用/连接/工具数/每 server 最近错误） */
+    private final McpToolBridge mcpToolBridge;
+    /** P0-A：高德 MCP 语义工具发现（只读，不调用远端） */
+    private final AmapMcpAdapter amapMcpAdapter;
+    /** P0-A：注册表用于统计已接入的高德 MCP 工具数 */
+    private final ToolRegistry toolRegistry;
+    /** P0-A：启动后异步探测的模型可用性（null=尚未校验，不阻塞状态接口） */
+    private final LlmModelProbe llmModelProbe;
 
     @GetMapping("/status")
     public ApiResponse<Map<String, Object>> status() {
@@ -60,6 +77,14 @@ public class SystemController {
         status.put("llmHint", llm
                 ? "已接入大模型：意图识别、方案生成与文案润色走模型"
                 : "未配置 LLM_API_KEY：当前为规则引擎模式（功能完整，超纲目的地与生僻说法识别较弱）");
+
+        // P0-A：provider 只暴露 host（不含协议/路径/Key）；模型是否可用由启动探测给出，
+        // null 表示「还没校验」（未配置 Key / 探测未开启 / 探测请求失败），不能当成可用。
+        LlmModelProbe.ModelCheck modelCheck = llmModelProbe.status();
+        status.put("llmProvider", llm ? llmProperties.providerHost() : null);
+        status.put("llmModelAvailable", llm ? modelCheck.available() : null);
+        status.put("llmModelError", llm ? modelCheck.error() : null);
+        status.put("llmModelCheckPending", llm && modelCheck.pending());
 
         status.put("amapConfigured", amap);
         status.put("geoProvider", amap ? "amap" : "osm");
@@ -81,6 +106,19 @@ public class SystemController {
         status.put("routeLastError", routeLastError);
         status.put("routeHint", routeHint(routeProvider, routeConfigured, routeLastError));
 
+        // P0-A：MCP 接入状态。mcpConnected 只在「桥接已启动且至少一个 server 连接成功」时为 true；
+        // 大模型可用的外部工具数来自桥接快照，高德语义工具数来自适配层（两者口径不同，分开报）。
+        McpToolBridge.McpStatusSnapshot mcp = mcpToolBridge.status();
+        boolean mcpConnected = mcp.running() && mcp.servers().stream().anyMatch(McpToolBridge.McpServerStatus::connected);
+        int amapMcpToolCount = amapMcpAdapter.discover(toolRegistry).size();
+        status.put("mcpEnabled", mcp.enabled());
+        status.put("mcpConnected", mcpConnected);
+        status.put("mcpToolCount", mcp.toolCount());
+        status.put("mcpServers", mcpServers(mcp));
+        status.put("mcpLastError", mcp.lastError());
+        status.put("mcpHint", mcpHint(mcp, amapMcpToolCount));
+        status.put("amapMcpToolCount", amapMcpToolCount);
+
         // 价格数据来源：只有本地参考估算（reference-estimate），没有实时房价/库存提供商。
         // priceHint 必须与之一致——前端据此在价格旁固定展示「参考价」与免责声明。
         status.put("priceProvider", priceReferenceService.provider());
@@ -97,6 +135,37 @@ public class SystemController {
             status.put("llmQuotaLimit", llmProperties.getQuotaDailyLimit());
         }
         return ApiResponse.ok(status);
+    }
+
+    /** 每个 MCP server 的接入结果（name/connected/toolCount/lastError），前端可直接渲染诊断卡 */
+    private static List<Map<String, Object>> mcpServers(McpToolBridge.McpStatusSnapshot mcp) {
+        return mcp.servers().stream().map(server -> {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("name", server.name());
+            row.put("connected", server.connected());
+            row.put("toolCount", server.toolCount());
+            row.put("lastError", server.lastError());
+            return row;
+        }).toList();
+    }
+
+    /** MCP 提示文案：与 mcpEnabled / mcpConnected / mcpToolCount 口径一致，不夸大接入状态 */
+    private static String mcpHint(McpToolBridge.McpStatusSnapshot mcp, int amapMcpToolCount) {
+        if (!mcp.enabled()) {
+            return "MCP 未启用（travel.mcp.enabled=false）：仅使用内置工具";
+        }
+        boolean anyConnected = mcp.running()
+                && mcp.servers().stream().anyMatch(McpToolBridge.McpServerStatus::connected);
+        if (mcp.toolCount() == 0) {
+            if (mcp.lastError() != null && !mcp.lastError().isBlank()) {
+                return "MCP 已启用但接入失败（" + mcp.lastError() + "）：当前没有外部工具可用";
+            }
+            return anyConnected
+                    ? "MCP 已连接服务器但没有注册任何工具：仅使用内置工具"
+                    : "MCP 已启用但当前没有已连接服务器：仅使用内置工具";
+        }
+        return "MCP 已接入 " + mcp.toolCount() + " 个外部工具"
+                + (amapMcpToolCount > 0 ? "（其中高德地图 " + amapMcpToolCount + " 个）" : "");
     }
 
     /** 路线提示文案：必须与 routeProvider 口径一致，不许在降级时仍宣称「使用高德真实路径」 */

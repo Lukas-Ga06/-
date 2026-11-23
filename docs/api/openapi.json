@@ -1203,6 +1203,14 @@
         },
         "type" : "object"
       },
+      "DeleteAccountRequest" : {
+        "properties" : {
+          "password" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "DiffChange" : {
         "properties" : {
           "cost" : {
@@ -3247,6 +3255,31 @@
       }
     },
     "/api/auth/me" : {
+      "delete" : {
+        "operationId" : "deleteMe",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/DeleteAccountRequest"
+              }
+            }
+          }
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ApiResponseVoid"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "auth-controller" ]
+      },
       "get" : {
         "operationId" : "me",
         "responses" : {

@@ -4,6 +4,8 @@ import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
+import java.net.URI;
+
 /** LLM 统一配置：不把具体模型写死，换模型只改配置文件 */
 @Data
 @Component
@@ -17,6 +19,11 @@ public class LlmProperties {
     private double temperature = 0.4;
     private int connectTimeoutMs = 5000;
     private int readTimeoutMs = 30000;
+    /**
+     * 启动后是否异步探测 {@code GET {baseUrl}/models}（P0-A）：默认开启。
+     * 关闭后状态页的 llmModelAvailable 保持 null（未校验），排障/无外网环境可显式关掉。
+     */
+    private boolean modelProbeEnabled = true;
     /** 每用户每日 LLM 调用次数上限；0 = 不限制（UserContext 取不到用户的系统调用不受限） */
     private int quotaDailyLimit = 0;
 
@@ -30,5 +37,20 @@ public class LlmProperties {
 
     public boolean usable() {
         return enabled && apiKey != null && !apiKey.isBlank();
+    }
+
+    /**
+     * base-url 的 host（不含协议、路径、查询串与 Key），状态页用它展示 provider。
+     * 解析失败返回 null——绝不把完整地址（可能带内网/凭据信息）暴露出去。
+     */
+    public String providerHost() {
+        if (baseUrl == null || baseUrl.isBlank()) {
+            return null;
+        }
+        try {
+            return URI.create(baseUrl.trim()).getHost();
+        } catch (RuntimeException e) {
+            return null;
+        }
     }
 }
