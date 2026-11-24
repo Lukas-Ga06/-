@@ -1,6 +1,8 @@
 package com.travel.agent.agent;
 
 import com.travel.agent.entity.Trip;
+import com.travel.agent.service.CityAtlas;
+import com.travel.agent.util.CityNames;
 
 import java.math.BigDecimal;
 import java.time.DayOfWeek;
@@ -84,43 +86,53 @@ public final class MessageParser {
     /**
      * 从消息中粗略猜测目的地名（目录外城市联网查询、需求槽位都依赖它）。
      *
-     * <p>只做「像不像城市名」的启发式：优先命中「X日游 / 去X玩 / 目的地：X / X行程」等句式，
-     * 并过滤掉「帮我规划」「这次行程」这类被句式误伤的动词/限定词。猜不出来返回 null——
-     * 槽位缺目的地时交给 Agent 追问，绝不在这里编一个城市。
+     * <p>2026-11-24 修正（灰度期真实用户撞到的脏目的地）：
+     * <ul>
+     *   <li>先剥「从 A 出发去/到 B」「A 出发的 B」的出发地从句，避免把出发地当目的地
+     *       （「北京出发去西安」曾抽成北京、「南京出发去扬州镇江」曾抽成「州镇江的」）；</li>
+     *   <li>优先取「去/到/前往…」后面的城市名，再退回「X 日游/周末游」前的城市；</li>
+     *   <li>先认 {@link CityAtlas#knownNames()} 里的已知城市，再退回 2-4 字启发式，
+     *       并剥掉「的/吃/玩/发去」这类残留（「成都吃」→成都、「张家界的」→张家界）；</li>
+     *   <li>两个真城市粘在一起（「扬州镇江」「大理丽江」）取第一个：单次只能规划一个城市，
+     *       宁可落到一个真实城市，也不产出「州镇江的」这种查无此城的串；</li>
+     *   <li>猜不出来返回 null——槽位缺目的地时交给 Agent 追问，绝不在这里编一个城市。</li>
+     * </ul>
      */
     public static String guessCityName(String text) {
         if (text == null || text.isBlank()) {
             return null;
         }
-        // 1) 「上海三日游 / 杭州周末游 / 亲子游」：取触发词前面最近的 2-4 个汉字，
-        //    再剥掉「帮我规划/安排」这类动词前缀——正则从左往右会先吞进「规划上海」，
-        //    所以这里手动取后缀而不是让正则去猜边界。
-        Matcher tripWord = Pattern.compile("([0-9一二两三四五六七八]+日游|周末游|亲子游|游)").matcher(text);
-        while (tripWord.find()) {
-            String city = cityBefore(text, tripWord.start());
+        String destinationText = CityNames.stripOriginClause(text);
+
+        Matcher explicit = EXPLICIT_DESTINATION.matcher(destinationText);
+        if (explicit.find()) {
+            String city = cleanCityCandidate(explicit.group(1));
             if (city != null) {
                 return city;
             }
         }
-        String[] patterns = {
-                // 「去石家庄玩 / 去成都旅行」
-                "去([\\u4e00-\\u9fa5]{2,4}?)(?:玩|旅行|旅游|看看|逛|的|出差)",
-                // 「去北京两天」：城市名后紧跟天数（避免把城市和天数一起吞掉）
-                "去\\s*([\\u4e00-\\u9fa5]{2,4}?)(?=[0-9一二两三四五六七八九十]+[天日人])",
-                // 结构化表单：「目的地：上海」
-                "目的地\\s*[:：]\\s*([\\u4e00-\\u9fa5]{2,4})",
-                // 「到/在/飞 + 城市 + 玩/待/过」
-                "(?:到|在|飞)\\s*([\\u4e00-\\u9fa5]{2,4}?)(?:玩|旅行|旅游|待|过|出差)",
-                // 「上海行程 / 上海旅游 / 上海旅行」
-                "([\\u4e00-\\u9fa5]{2,4}?)(?:的)?(?:行程|旅行|旅游|出差)",
-                // 「去北京」这类句尾/标点前结束的写法
-                "去\\s*([\\u4e00-\\u9fa5]{2,4}?)(?=[，,。；;！!？?\\s]|$)"
-        };
-        for (String pattern : patterns) {
-            Matcher m = Pattern.compile(pattern).matcher(text);
+
+        Matcher goTo = GO_TO_CITY.matcher(destinationText);
+        while (goTo.find()) {
+            String city = cleanCityCandidate(goTo.group(1));
+            if (city != null) {
+                return city;
+            }
+        }
+
+        Matcher tripWord = TRIP_WORD.matcher(destinationText);
+        while (tripWord.find()) {
+            String city = cityBefore(destinationText, tripWord.start());
+            if (city != null) {
+                return city;
+            }
+        }
+
+        for (String pattern : FALLBACK_CITY_PATTERNS) {
+            Matcher m = Pattern.compile(pattern).matcher(destinationText);
             while (m.find()) {
-                String city = stripLeading(m.group(1));
-                if (isCityLike(city)) {
+                String city = cleanCityCandidate(m.group(1));
+                if (city != null) {
                     return city;
                 }
             }
@@ -128,17 +140,95 @@ public final class MessageParser {
         return null;
     }
 
-    /** 取 end 位置之前最近的 2-4 个汉字，剥掉动词前缀后像城市名就返回 */
+    /** 取 end 位置之前最近的一段文字，按城市名规则清洗；这是「X 日游」句式的落点 */
     private static String cityBefore(String text, int end) {
-        int from = Math.max(0, end - 4);
-        String before = text.substring(from, end);
-        for (int len = Math.min(4, before.length()); len >= 2; len--) {
-            String city = stripLeading(before.substring(before.length() - len));
-            if (isCityLike(city)) {
-                return city;
+        int from = Math.max(0, end - 14);
+        return cleanCityCandidate(text.substring(from, end));
+    }
+
+    /**
+     * 把一段「像城市名但可能带前后缀」的文本清洗成城市名。
+     * 清洗顺序：取开头连续汉字 → 剥动词前缀 → 已知城市前缀 → 剥天数与尾部助词/动词
+     * → 剥地理后缀（群岛/古城…）→ 2-4 字启发式兜底。
+     */
+    private static String cleanCityCandidate(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        Matcher run = LEADING_HAN.matcher(raw.trim());
+        if (!run.find()) {
+            return null;
+        }
+        String candidate = stripLeading(run.group(1));
+        // 先认已知城市：「成都吃四天」「张家界的」「扬州镇江」都会在这里得到真实城市
+        String known = longestKnownPrefix(candidate);
+        if (known != null) {
+            return known;
+        }
+        candidate = DAY_IN_TEXT.matcher(candidate).replaceAll("");
+        candidate = stripTrailingModifiers(candidate);
+        candidate = stripLeading(candidate);
+        if (candidate.isBlank() || isAllChineseNumeral(candidate)) {
+            return null;
+        }
+        String geo = stripGeoSuffix(candidate);
+        if (geo != null && isCityLike(geo)) {
+            return geo;
+        }
+        if (candidate.length() >= 2 && candidate.length() <= 4 && isCityLike(candidate)) {
+            return candidate;
+        }
+        return null;
+    }
+
+    /** 已知城市里最长的前缀；没有返回 null */
+    private static String longestKnownPrefix(String text) {
+        String best = null;
+        for (String name : CityAtlas.knownNames()) {
+            if (text.startsWith(name) && (best == null || name.length() > best.length())) {
+                best = name;
+            }
+        }
+        return best;
+    }
+
+    /** 剥尾部助词/动词/场景词（可叠加：「成都吃」→成都、「雪乡的」→雪乡） */
+    private static String stripTrailingModifiers(String text) {
+        String city = text;
+        boolean changed = true;
+        while (changed) {
+            changed = false;
+            for (String suffix : TRAILING_MODIFIERS) {
+                if (city.length() > suffix.length() && city.endsWith(suffix)) {
+                    city = city.substring(0, city.length() - suffix.length());
+                    changed = true;
+                    break;
+                }
+            }
+        }
+        return city;
+    }
+
+    /** 剥地理后缀（「舟山群岛」→舟山）；没有命中返回 null */
+    private static String stripGeoSuffix(String text) {
+        for (String suffix : GEO_SUFFIXES) {
+            if (text.length() > suffix.length() + 1 && text.endsWith(suffix)) {
+                return text.substring(0, text.length() - suffix.length());
             }
         }
         return null;
+    }
+
+    private static boolean isAllChineseNumeral(String text) {
+        if (text.isEmpty()) {
+            return false;
+        }
+        for (int i = 0; i < text.length(); i++) {
+            if (CN_NUMERALS.indexOf(text.charAt(i)) < 0) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /** 剥掉「帮我/规划/去」这类紧贴城市名的动词前缀（可能叠了好几层） */
@@ -148,7 +238,7 @@ public final class MessageParser {
         while (changed) {
             changed = false;
             for (String prefix : CITY_VERB_PREFIXES) {
-                if (city.length() > prefix.length() && city.startsWith(prefix)) {
+                if (city.length() >= prefix.length() + 2 && city.startsWith(prefix)) {
                     city = city.substring(prefix.length());
                     changed = true;
                     break;
@@ -161,16 +251,43 @@ public final class MessageParser {
     /** 城市名前后常粘连的动词/限定词（按长度从长到短剥） */
     private static final java.util.List<String> CITY_VERB_PREFIXES = java.util.List.of(
             "请帮我", "帮我", "我想", "我们", "我的", "规划", "安排", "计划", "这次", "下次",
-            "一趟", "去", "到", "在", "飞", "游", "请", "想", "来");
+            "一趟", "前往", "出发", "从", "自", "由", "的", "了", "着", "过",
+            "去", "到", "在", "飞", "游", "请", "想", "来", "发");
 
+    /** 尾部常见的场景/修饰词（不是城市名的一部分） */
+    private static final java.util.List<String> TRAILING_MODIFIERS = java.util.List.of(
+            "周末", "亲子", "假期", "假日", "旅行", "旅游", "出游", "出行", "出差", "海边", "海岛",
+            "的", "地", "得", "了", "着", "过", "玩", "吃", "逛", "看", "住", "待", "游");
+
+    private static final java.util.List<String> GEO_SUFFIXES = java.util.List.of(
+            "风景区", "国家公园", "度假区", "景区", "群岛", "半岛", "古城", "古镇");
+
+    private static final Pattern EXPLICIT_DESTINATION = Pattern.compile(
+            "目的地\\s*[:：]\\s*([\\u4e00-\\u9fa5]{2,12})");
+    private static final Pattern GO_TO_CITY = Pattern.compile(
+            "(?:去|到|前往|飞往|抵达|赶赴)\\s*([\\u4e00-\\u9fa5]{2,12})");
+    private static final Pattern TRIP_WORD = Pattern.compile(
+            "([0-9一二两三四五六七八九十]+日游|周末游|亲子游|游)");
+    private static final Pattern LEADING_HAN = Pattern.compile("^([\\u4e00-\\u9fa5]{2,12})");
+    private static final Pattern DAY_IN_TEXT = Pattern.compile(
+            "[0-9一二两三四五六七八九十]+(?:天|日)(?:一夜|晚)?");
+    private static final String CN_NUMERALS = "零一二两三四五六七八九十百千万";
+    private static final String[] FALLBACK_CITY_PATTERNS = {
+            "(?:到|在|飞)\\s*([\\u4e00-\\u9fa5]{2,4}?)(?:玩|旅行|旅游|待|过|出差)",
+            "([\\u4e00-\\u9fa5]{2,4}?)(?:的)?(?:行程|旅行|旅游|出差)"
+    };
 
     /** 「像城市名」：2-4 个汉字且不是被句式误伤的动词/限定词 */
     private static boolean isCityLike(String candidate) {
-        if (candidate == null || candidate.length() < 2 || candidate.length() > 4) {
+        if (candidate == null) {
+            return false;
+        }
+        String city = CityNames.normalize(candidate);
+        if (city.length() < 2 || city.length() > 4 || !CityNames.isPlausibleName(city)) {
             return false;
         }
         for (String stop : CITY_STOPWORDS) {
-            if (candidate.contains(stop)) {
+            if (city.contains(stop)) {
                 return false;
             }
         }
@@ -205,6 +322,8 @@ public final class MessageParser {
             "我们", "我的", "这次", "下次", "一趟", "整个", "行程", "旅行", "旅游", "出行",
             "出游", "目的地", "周末", "今天", "明天", "后天", "下周", "本周", "附近", "周边",
             "国内", "国外", "几天", "玩耍", "小孩子", "一天", "两天", "三天", "四天", "五天",
+            "带小孩", "孩子", "一家", "老人", "父母", "学生", "海边", "海岛", "群岛", "半岛",
+            "古城", "古镇", "景区", "度假",
             "预算", "花费", "消费", "天气", "地铁", "酒店", "民宿", "亲子", "美食", "景点", "门票");
 
     /**

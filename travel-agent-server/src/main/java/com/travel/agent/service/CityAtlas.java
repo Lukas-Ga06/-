@@ -114,6 +114,14 @@ public class CityAtlas {
             Map.entry("稻城", new double[]{29.0376, 100.2982}));
 
     /**
+     * 图集里的城市名（不可变）。给自然语言目的地抽取做「已知城市」词表：
+     * 先认已知城市，再退回 2-4 字启发式，避免把「北京出发去西安」抽成北京。
+     */
+    public static java.util.Set<String> knownNames() {
+        return CITIES.keySet();
+    }
+
+    /**
      * 解析城市坐标：名称归一（去“市/地区/特别行政区/自治州”后缀）后精确匹配；
      * 未精确命中时走共享匹配规则 {@link CityNames#longestMatch}（如 “杭州西湖” → 杭州）。
      *

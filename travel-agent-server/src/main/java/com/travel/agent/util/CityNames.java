@@ -1,7 +1,10 @@
 package com.travel.agent.util;
 
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * 城市名匹配规则（纯静态、无 Spring 依赖、可单测）。
@@ -27,6 +30,28 @@ public final class CityNames {
      */
     private static final String[] SUFFIXES = {"特别行政区", "自治州", "地区", "市"};
 
+    /**
+     * 真实城市名里不会出现的字：句尾助词、常见动词、出发动词残留。
+     *
+     * <p>用来把「成都吃」「张家界的」「发去厦门」「州镇江的」这类从自然语言里裁出来的脏串挡在
+     * 联网查询与目录注册之前。只收确定不会出现在城市名里的字——「来」「和」「安」等
+     * 会误伤来宾/和田/安阳，故意不收。
+     */
+    private static final String NON_CITY_CHARS = "的了着过吃玩逛看住待发去想帮请";
+
+    /** 首字禁用集：介词/出发残留/行政后缀残片；「山南」等真实城市不受影响。 */
+    private static final String NON_CITY_LEADING = "的了着过从自由于去想帮请发州市县区镇乡村街路岛";
+
+    /** 超过 4 字只认这些真实长地名（归一化后的写法），避免把「营口鲅鱼圈」当城市。 */
+    private static final Set<String> LONG_CITY_NAMES = Set.of(
+            "巴音郭楞蒙古", "博尔塔拉蒙古", "克孜勒苏柯尔克孜", "伊犁哈萨克", "大兴安岭", "锡林郭勒");
+
+    /** 「从 A 出发去/到 B」「A 出发的 B」：出发地不是目的地，先整段剥掉。 */
+    private static final Pattern ORIGIN_FROM = Pattern.compile(
+            "^(?:.*?)(?:从|自|由)\\s*[\\u4e00-\\u9fa5]{2,4}\\s*(?:出发|启程|动身)\\s*(?:的|地)?\\s*(?:去|到|前往|飞往|赶赴)?\\s*");
+    private static final Pattern ORIGIN_BARE = Pattern.compile(
+            "^(?:.*?)[\\u4e00-\\u9fa5]{2,4}\\s*(?:出发|启程|动身)\\s*(?:的|地)?\\s*(?:去|到|前往|飞往|赶赴)?\\s*");
+
     private CityNames() {
     }
 
@@ -46,6 +71,58 @@ public final class CityNames {
             }
         }
         return normalized;
+    }
+
+    /**
+     * 城市名「像不像真的」的最低门槛：2-8 个汉字、不含句尾助词/动词残留、首字不是介词或行政后缀残片。
+     *
+     * <p>这是防脏数据用的<b>保守校验</b>，不是地理知识：它只负责把「成都吃」「张家界的」
+     * 「发去厦门」「州镇江的」「营口鲅鱼圈」这类明显不是城市名的串挡住，不对「扬州镇江」
+     * 这种两个真城市粘在一起的写法下结论（多城市拆分由抽取层处理）。
+     */
+    public static boolean isPlausibleName(String raw) {
+        String name = normalize(raw);
+        if (name.isEmpty()) {
+            return false;
+        }
+        int length = name.codePointCount(0, name.length());
+        if (length < 2 || length > 8) {
+            return false;
+        }
+        if (length > 4 && !LONG_CITY_NAMES.contains(name)) {
+            return false;
+        }
+        for (int i = 0; i < name.length(); ) {
+            int codePoint = name.codePointAt(i);
+            if (!Character.UnicodeScript.of(codePoint).equals(Character.UnicodeScript.HAN)) {
+                return false;
+            }
+            i += Character.charCount(codePoint);
+        }
+        for (int i = 0; i < NON_CITY_CHARS.length(); i++) {
+            if (name.indexOf(NON_CITY_CHARS.charAt(i)) >= 0) {
+                return false;
+            }
+        }
+        return NON_CITY_LEADING.indexOf(name.charAt(0)) < 0;
+    }
+
+    /**
+     * 去掉「从 A 出发去/到」「A 出发的」里的出发地从句，只留下目的地一侧的文本。
+     *
+     * <p>例：「从南京出发去扬州镇江的两日游」→「扬州镇江的两日游」；
+     * 「北京出发去西安的十一五日游」→「西安的十一五日游」；「上海出发的杭州周末游」→「杭州周末游」。
+     * 没有出发句式时原样返回（不会碰「我在广州，想去成都」这类写法）。
+     */
+    public static String stripOriginClause(String text) {
+        if (text == null || text.isBlank()) {
+            return text;
+        }
+        String stripped = ORIGIN_FROM.matcher(text).replaceFirst("");
+        if (stripped.isBlank() || stripped.equals(text)) {
+            stripped = ORIGIN_BARE.matcher(text).replaceFirst("");
+        }
+        return stripped.isBlank() ? text : stripped;
     }
 
     /**

@@ -8,6 +8,7 @@ import com.travel.agent.llm.LlmClient;
 import com.travel.agent.llm.LlmMessage;
 import com.travel.agent.tool.AgentTool;
 import com.travel.agent.tool.ToolRegistry;
+import com.travel.agent.util.CityNames;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -133,7 +134,8 @@ public class IntentAgent {
                 constraints = new HashMap<>();
             }
             String destination = node.path("destination").asText("").trim();
-            if (!destination.isBlank() && !"null".equalsIgnoreCase(destination)) {
+            if (!destination.isBlank() && !"null".equalsIgnoreCase(destination)
+                    && CityNames.isPlausibleName(destination)) {
                 constraints.put("destination", destination);
             }
             IntentResult.IntentResultBuilder builder = IntentResult.builder()
@@ -163,7 +165,8 @@ public class IntentAgent {
             return null;
         }
         String destination = node.path("destination").asText("").trim();
-        if (destination.isBlank() || "null".equalsIgnoreCase(destination)) {
+        if (destination.isBlank() || "null".equalsIgnoreCase(destination)
+                || !CityNames.isPlausibleName(destination)) {
             destination = null;
         }
         int days = node.path("days").asInt(0);
