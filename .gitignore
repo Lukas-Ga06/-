@@ -28,6 +28,8 @@ travel-agent-server/data/
 !.tools/flyway-repair/
 
 # ---- 本地密钥（绝不入库）----
+# .env 是 docker compose 的生产变量文件（模板见 .env.production.example），本地填真实密钥后绝不入库
+.env
 .env.local
 *.env.local
 
