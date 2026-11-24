@@ -1,6 +1,6 @@
 # 生产配置清单与模板（P0-A）
 
-> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.12 / MySQL 8.4 / Node 20） | 最后验证：2026-11-22 | 事实来源：`travel-agent-server/src/main/resources/application.yml`、`application-mysql.yml`、`docker-compose.yml`、`travel-agent-server/Dockerfile`、`travel-agent-web/Dockerfile`、`travel-agent-web/nginx.conf`、`SecurityConfig.java`、`SystemController.java`、`.env.production.example`
+> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.16 / MySQL 8.4 / Node 20） | 最后验证：2026-11-22 | 事实来源：`travel-agent-server/src/main/resources/application.yml`、`application-mysql.yml`、`docker-compose.yml`、`travel-agent-server/Dockerfile`、`travel-agent-web/Dockerfile`、`travel-agent-web/nginx.conf`、`SecurityConfig.java`、`SystemController.java`、`.env.production.example`
 
 本文是 P0-A 的配置面交付：把生产必须显式设定的变量、每个密钥的权限/配额/轮换方式、未配置时的**预期行为**、以及容器部署的真实透传边界写成一份可审计清单。模板在仓库根 [`.env.production.example`](../../.env.production.example)。
 

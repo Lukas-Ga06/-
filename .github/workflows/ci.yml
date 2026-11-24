@@ -281,6 +281,9 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           exit-code: '1'
+          # 临时豁免（Spring 6.2.x 两条 CRITICAL，上游 6.2.20 尚未发布）：
+          # 条目与到期见 travel-agent-server/.trivyignore.yaml，流程见 docs/guide/ci.md §6。
+          trivyignores: travel-agent-server/.trivyignore.yaml
 
   e2e:
     name: E2E / Playwright smoke（后端 H2 + 前端 preview）

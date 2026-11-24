@@ -1,0 +1,18 @@
+# Trivy 临时豁免 —— 流程与到期复核见 docs/guide/ci.md §6。
+#
+# 只豁免「上游 6.2.x 修复版本尚未发布」的两条 Spring Framework CRITICAL；
+# 其余 HIGH / CRITICAL 仍然阻断（severity + exit-code 未改）。
+vulnerabilities:
+  - id: CVE-2026-47884
+    statement: >-
+      Spring MVC XsltView 的 SSRF/RCE。本项目是纯 JSON API：15 个 @RestController，
+      没有 @Controller / ViewResolver / XsltView，也没有任何 XSLT 资源，
+      漏洞前提（/** 映射经 XsltView 渲染且视图名未显式指定）不成立。
+      上游修复 Spring Framework 6.2.20 尚未发布（Maven Central 最新 6.2.19，Boot 3.5.16 带 6.2.19）；
+      Boot 4 / Spring 7 属主版本升级，另行立项。
+    expired_at: 2026-12-31
+  - id: CVE-2026-47890
+    statement: >-
+      Spring MVC/WebFlux 在 SSE + view fragment 下的流损坏。本项目 SSE 用 SseEmitter 直接写文本事件，
+      不涉及 view fragment / 视图渲染，攻击前提不成立；与上一条同源，修复版本 6.2.20 同样尚未发布。
+    expired_at: 2026-12-31

@@ -1,6 +1,6 @@
 # 前端结构与页面说明（travel-agent-web）
 
-> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.12 / Node 20） | 最后验证：2026-11-19 | 事实来源：travel-agent-web/src/、travel-agent-web/vite.config.ts、travel-agent-web/package.json
+> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.16 / Node 20） | 最后验证：2026-11-19 | 事实来源：travel-agent-web/src/、travel-agent-web/vite.config.ts、travel-agent-web/package.json
 
 > 面向**要改界面的前端开发者**（路由、组件、两大链路）与**参与评审的产品/设计同学**（页面清单、交互约定）。
 > 内容基于 `travel-agent-web/` 当前 HEAD 的真实源码，路径均可直接打开。

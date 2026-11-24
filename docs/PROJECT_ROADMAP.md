@@ -2,7 +2,7 @@
 
 > 快照日期：2026-11-22（Asia/Shanghai）  
 > 当前分支：`fix/session-isolation-sse-source-key`  1be23f2  
-> 适用版本：0.1.0 / Spring Boot 3.5.12 / Java 17 / React 18 / Node 20
+> 适用版本：0.1.0 / Spring Boot 3.5.16 / Java 17 / React 18 / Node 20
 
 本文是当前项目的执行口径。它把“代码已经实现”“自动化已经验证”“真实外部服务已经验证”和“可以公网发布”分开，避免把已完成工作重复排期，也避免把本地模拟通过误写成生产就绪。
 

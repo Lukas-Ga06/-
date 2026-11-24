@@ -368,7 +368,7 @@ schema 单一权威（`V1__baseline.sql` + V13 双方言 + V14(H2 配额唯一�
 更早：结构化规划线上指标；`@MockBean` → `@MockitoBean`；e2e 挂 CI；结构化规划表单 + `POST /api/agent/stream`；
 PWA app shell 预缓存；会话记忆、方案润色、真实天气、httpOnly Cookie、Flyway、路书 PDF、多渠道入口、
 MCP 生态、LLM 结构化规划与配额、真实 Embedding、限流 Redis 计数、照片 S3、按天预算偏差、
-Spring Boot 3.5.12、全栈 Docker 化。）
+Spring Boot 3.5.16、全栈 Docker 化。）
 
 ## 迁移脚本约定（第十批更新）
 

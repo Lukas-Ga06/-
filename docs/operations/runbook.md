@@ -1,7 +1,7 @@
 # 故障处理手册（Runbook）：travel-agent 告警处置
 
 - **文档性质**：On-call 处置手册，与 `docs/operations/alerts.yml` 一一对应
-- **适用版本**：`travel-agent-server` 0.1.0（Spring Boot 3.5.12，V2.2 HEAD）
+- **适用版本**：`travel-agent-server` 0.1.0（Spring Boot 3.5.16，V2.2 HEAD）
 - **最后更新**：2026-11-22（新增附录 A/B/C：日志脱敏、限流与配额验证、告警矩阵补充）
 - **关联**：[可观测性/SLO](../guide/observability.md) ｜ [告警规则](alerts.yml) ｜ [Dashboard](grafana-travel-agent.json)
 - **对应关系**：每个 `## N. AlertName` 就是 `alerts.yml` 里 `runbook_url` 的小节锚点（`#N-alertname-pX`），改标题必须同步改 YAML。

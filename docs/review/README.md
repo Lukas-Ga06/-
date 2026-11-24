@@ -1,6 +1,6 @@
 # 评审与验收快照（Review Snapshots）
 
-> 状态：目录规范 | 适用版本：0.1.0（Spring Boot 3.5.12 / Node 20） | 最后验证：2026-11-19 | 事实来源：docs/review/、docs/guide/documentation.md
+> 状态：目录规范 | 适用版本：0.1.0（Spring Boot 3.5.16 / Node 20） | 最后验证：2026-11-19 | 事实来源：docs/review/、docs/guide/documentation.md
 
 本目录保存**带日期的评审 / 验收 / 决策快照**。快照回答「当时用什么环境、验了什么、结论是什么」，**不代表当前版本的行为保证**；当前事实一律以 [docs/guide](../guide/README.md) 为准。
 

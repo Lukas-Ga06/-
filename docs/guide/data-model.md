@@ -1,6 +1,6 @@
 # 数据模型与表结构
 
-> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.12 / Node 20） | 最后验证：2026-11-19 | 事实来源：travel-agent-server/src/main/java/com/travel/agent/entity/、travel-agent-server/src/main/resources/db/migration/、sql/init.sql
+> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.16 / Node 20） | 最后验证：2026-11-19 | 事实来源：travel-agent-server/src/main/java/com/travel/agent/entity/、travel-agent-server/src/main/resources/db/migration/、sql/init.sql
 
 本文面向**要改表结构、写查询或做数据迁移**的开发者，说明 AI 智能旅行助手（`travel-agent-server`）的持久化设计：**19 个 JPA 实体对应 19 张映射表**，另有 **6 张已代码下线的旧模块表**（数据保留、不再映射），库内共 **25 张表**，以及字段、索引、跨表约定与 Flyway 迁移策略。
 

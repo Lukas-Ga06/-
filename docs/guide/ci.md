@@ -177,6 +177,14 @@ gitleaks 放行范围只有三类：测试专用固定 JWT 密钥（正则精确
    - 任何豁免都要在本次 PR 里同步更新对应文档。
 3. 豁免只减不增，季度复核一次。
 
+### 6.1 当前生效的豁免
+
+| 起始 | 门禁 | 条目 | 为什么现在不能修 | 到期 | 解除条件 |
+| --- | --- | --- | --- | --- | --- |
+| 2026-11-24 | Trivy（`Security / 依赖漏洞`） | `CVE-2026-47884`、`CVE-2026-47890`（Spring Framework 6.2.19，CRITICAL） | 上游 6.2.x 修复版本 **6.2.20 尚未发布**（Maven Central 最新 6.2.19，Boot 3.5.16 带 6.2.19；Boot 4 / Spring 7 属主版本升级，另立项）。两条的利用前提（`XsltView` 视图渲染 / SSE view fragment）在本项目纯 JSON API 中不存在：15 个 `@RestController`、无 `@Controller`、无 `ViewResolver`、无 XSLT 资源，SSE 用 `SseEmitter` 直接写文本事件 | 2026-12-31 | 升级到含 Spring Framework 6.2.20 的 Boot 3.5.x 后，删除 `travel-agent-server/.trivyignore.yaml` 对应条目并回收本行 |
+
+豁免文件：`travel-agent-server/.trivyignore.yaml`（结构化条目，含 `statement` 与 `expired_at`），由 `ci.yml` 的 Trivy step 通过 `trivyignores` 传入。**severity 与 exit-code 未改**，其余 HIGH/CRITICAL 仍然阻断。
+
 ## 7. Dependabot 策略
 
 - 每周一 04:30（Asia/Shanghai）提 Maven 与 npm 的 minor/patch 分组 PR；GitHub Actions 每月一次。

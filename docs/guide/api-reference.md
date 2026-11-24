@@ -1,6 +1,6 @@
 # REST API 参考
 
-> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.12 / Node 20） | 最后验证：2026-11-19 | 事实来源：`travel-agent-server/src/main/java/com/travel/agent/controller/`、`dto/`、`docs/api/openapi.json`
+> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.16 / Node 20） | 最后验证：2026-11-19 | 事实来源：`travel-agent-server/src/main/java/com/travel/agent/controller/`、`dto/`、`docs/api/openapi.json`
 
 > **机器契约入口**：`GET /v3/api-docs` 是字段/类型/必填约束的事实来源，入库快照为 [`docs/api/openapi.json`](../api/openapi.json)，前端类型由它生成。快照的生成、校验与破坏性变更流程见 [api-contract.md](api-contract.md)。本文负责人读语义（业务规则、字段口径、错误码、示例）；两者冲突时，字段类型以 OpenAPI 快照为准，业务语义以本文为准。
 

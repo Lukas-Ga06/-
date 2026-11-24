@@ -1,6 +1,6 @@
 # 代码结构手册（Code Structure）
 
-> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.12 / Node 20） | 最后验证：2026-11-19 | 事实来源：travel-agent-server/src/main/java/com/travel/agent/、travel-agent-web/src/
+> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.16 / Node 20） | 最后验证：2026-11-19 | 事实来源：travel-agent-server/src/main/java/com/travel/agent/、travel-agent-web/src/
 
 > 目的：让「新功能该放哪个包、哪个类」有唯一答案，让新接手的同学 10 分钟建立代码地图。
 > 本手册随「代码框架整理」引入，与源码同步维护；与代码不一致时**以代码为准**，并在同一次改动里修文档。
