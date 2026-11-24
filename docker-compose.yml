@@ -70,10 +70,11 @@ services:
       # 生产必须 false：H2 控制台是 sa 空密码的匿名入口（mysql profile 下默认即关闭）
       H2_CONSOLE_ENABLED: ${H2_CONSOLE_ENABLED:-false}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:8081}
-      # 限流客户端 IP 只信受信代理：仅当后端只经 nginx 反代可达时才安全（默认未开放 ports）。
-      # 172.16.0.0/12 覆盖 Docker 默认桥接网段；若临时放开 backend 端口直连调试，应设空值，
-      # 否则直连方可用伪造 X-Forwarded-For 绕过限流。
-      RATE_LIMIT_TRUSTED_PROXIES: ${RATE_LIMIT_TRUSTED_PROXIES:-172.16.0.0/12}
+      # 限流客户端 IP 只信「compose 内置 nginx」这一个固定地址（见文件底部 networks.ipam）。
+      # 不要把整个 Docker 网段（如 172.16.0.0/12）填进来：那样宿主机/容器来源的请求会全部
+      # 被当成受信跳而塌成 nginx 一个桶（2026-11-23 实测），一个滥用者可锁死其他人。
+      # 非 compose 部署改成你自己反代的确切 IP；临时放开 backend 端口直连调试时留空。
+      RATE_LIMIT_TRUSTED_PROXIES: ${RATE_LIMIT_TRUSTED_PROXIES:-172.31.240.10/32}
       RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
       RATE_LIMIT_STORE: ${RATE_LIMIT_STORE:-redis}
       RATE_LIMIT_AUTH: ${RATE_LIMIT_AUTH:-10}
@@ -122,6 +123,10 @@ services:
       TRAVEL_PHOTOS_S3_BUCKET: ${S3_BUCKET:-}
       TRAVEL_PHOTOS_S3_ACCESS_KEY: ${S3_ACCESS_KEY:-}
       TRAVEL_PHOTOS_S3_SECRET_KEY: ${S3_SECRET_KEY:-}
+      # MinIO 等兼容端点通常要求 path-style；AWS S3 保持 false
+      TRAVEL_PHOTOS_S3_PATH_STYLE: ${S3_PATH_STYLE:-false}
+      # 仅用于不返回校验头的兼容网关；AWS/MinIO 保持 true
+      TRAVEL_PHOTOS_S3_CHECKSUM_VALIDATION: ${S3_CHECKSUM_VALIDATION:-true}
       # ---------- Agent 预算 / 会话 ----------
       AGENT_BUDGET_ENABLED: ${AGENT_BUDGET_ENABLED:-true}
       AGENT_BUDGET_TOTAL_MS: ${AGENT_BUDGET_TOTAL_MS:-30000}
@@ -160,12 +165,25 @@ services:
       - backend
     ports:
       - "8081:80"
+    networks:
+      default:
+        # 固定 IP 只为限流：RATE_LIMIT_TRUSTED_PROXIES 用 /32 精确信任 nginx，
+        # 其他容器/宿主机来源仍按各自源 IP 分桶。改这个地址必须同步改上面的变量。
+        ipv4_address: 172.31.240.10
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
     restart: unless-stopped
+
+networks:
+  default:
+    # 固定子网只为给 nginx 一个可被 /32 信任的地址。同一宿主机并行部署多套本 compose 时，
+    # 每套要换不同 subnet/ipv4_address，并同步覆盖 RATE_LIMIT_TRUSTED_PROXIES，否则会地址池冲突。
+    ipam:
+      config:
+        - subnet: 172.31.240.0/24
 
 volumes:
   mysql-data:

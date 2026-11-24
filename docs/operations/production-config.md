@@ -49,7 +49,7 @@ Windows PowerShell 生成密钥的方式（不使用 `Get-Random` 充当密钥�
 | `H2_CONSOLE_ENABLED` | **是（生产 false）** | `false` | `false` | 否 | `true` 会把 `/h2-console/**` 加进**免认证白名单**（`SecurityConfig`）；生产必须关闭 |
 | `CORS_ALLOWED_ORIGINS` | **是（收敛域名）** | 本地 5173/4173 两套 | `https://your-domain.example.com` | 否 | 逗号分隔；带 `allowCredentials=true`，**不能填 `*`**（Spring 会拒绝） |
 | `RATE_LIMIT_ENABLED` | **是（保持 true）** | `true` | `true` | 否 | 限流总开关；关掉等于放弃登录爆破/刷模型保护 |
-| `RATE_LIMIT_TRUSTED_PROXIES` | 反代部署必填 | 空 | `172.16.0.0/12`（compose 默认） | 否 | 只信受信代理；默认空 = 不读 `X-Forwarded-For`，反代后所有请求会按代理 IP 共用桶 |
+| `RATE_LIMIT_TRUSTED_PROXIES` | 反代部署必填 | 空 | `172.31.240.10/32`（compose 内置 nginx 的固定地址） | 否 | 只信受信代理；默认空 = 不读 `X-Forwarded-For`，反代后所有请求会按代理 IP 共用桶 |
 | `MYSQL_ROOT_PASSWORD` | **是（首次启动前）** | `travel_root_pw` | `<强随机口令>` | **是** | 仅 compose 面变量；同时用于 `mysqladmin ping` 健康检查，数据卷初始化后改值会导致 unhealthy |
 | `MYSQL_PASSWORD` | **是（首次启动前）** | yml `root` / compose `travel_pw` | `<强随机口令>` | **是** | 业务账号密码；初始化后再改不会修改既有账号 |
 

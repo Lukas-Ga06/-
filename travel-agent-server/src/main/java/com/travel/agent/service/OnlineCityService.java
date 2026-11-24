@@ -77,12 +77,18 @@ public class OnlineCityService {
     /** 获取城市目录：内置目录未命中时联网生成（内存 24h + 本地文件 7 天） */
     public CityCatalog getOrLoad(String rawName) {
         String name = cleanName(rawName);
-        if (name.isEmpty() || GENERIC_WORDS.contains(name)) {
+        if (name.isEmpty() || GENERIC_WORDS.contains(name) || !CityNames.isPlausibleName(name)) {
+            // 「成都吃」「州镇江的」「发去厦门」这类自然语言裁剪残片绝不能进联网生成：
+            // 模型会顺着名字编出一整套“城市目录”，再被注册成正式城市。
+            log.info("拒绝无效城市名: {}", rawName);
             return null;
         }
-        // 模糊命中缓存（"石家庄市" ↔ "石家庄"）
+        // 模糊命中缓存（"石家庄市" ↔ "石家庄"）；跳过历史遗留的脏城市名
         for (CacheEntry entry : cache.values()) {
             String known = entry.city().name();
+            if (!CityNames.isPlausibleName(known)) {
+                continue;
+            }
             if (matchesCity(known, name)) {
                 return entry.city();
             }
@@ -92,12 +98,15 @@ public class OnlineCityService {
             return entry.city();
         }
         CityCatalog cached = diskCache.load(name);
-        if (cached != null) {
+        if (cached != null && CityNames.isPlausibleName(cached.name())) {
             log.info("命中本地城市缓存: {}", cached.name());
             // 文件缓存命中：回填内存与内置目录即可，不必再写一次盘
             travelCatalogService.register(cached);
             cache.put(name, new CacheEntry(cached, Instant.now()));
             return cached;
+        }
+        if (cached != null) {
+            log.warn("丢弃本地缓存里的脏城市名: {}", cached.name());
         }
         CityCatalog city = geoLocator.amapUsable() ? loadViaAmap(name) : null;
         if (city == null) {
@@ -109,7 +118,7 @@ public class OnlineCityService {
     /** 轻量定位：仅解析城市坐标（高德优先，Nominatim 兜底），不生成完整目录。失败返回 null。 */
     public double[] quickLocate(String rawName) {
         String name = cleanName(rawName);
-        if (name.isEmpty() || GENERIC_WORDS.contains(name)) {
+        if (name.isEmpty() || GENERIC_WORDS.contains(name) || !CityNames.isPlausibleName(name)) {
             return null;
         }
         return geoLocator.locateCity(name);
@@ -212,12 +221,19 @@ public class OnlineCityService {
      * 达标则注册进内置目录 + 落盘并回填内存缓存，返回 true。
      */
     private boolean acceptIfUsable(String name, CityCatalog catalog) {
+        if (catalog == null || !CityNames.isPlausibleName(catalog.name())) {
+            log.warn("在线城市目录名字不可信，丢弃: {}", catalog == null ? null : catalog.name());
+            return false;
+        }
         if (catalog.attractions().size() < MIN_ATTRACTIONS
                 || catalog.hotels().isEmpty()
                 || catalog.restaurants().size() < MIN_RESTAURANTS) {
             return false;
         }
-        adopt(name, catalog);
+        // 以请求名作为规范名：目录内容是按 name 生成/定位的，模型回写的 name 可能是
+        // 多城市拼接或别字；落库的必须是用户可再次检索到的确定城市名。
+        CityCatalog canonical = new CityCatalog(name, catalog.attractions(), catalog.hotels(), catalog.restaurants());
+        adopt(name, canonical);
         return true;
     }
 

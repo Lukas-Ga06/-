@@ -10,6 +10,7 @@ import com.travel.agent.model.Restaurant;
 import com.travel.agent.util.CityNames;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 
@@ -28,6 +29,7 @@ import java.util.stream.Collectors;
  */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class TravelCatalogService {
 
     private final ObjectMapper objectMapper;
@@ -50,6 +52,12 @@ public class TravelCatalogService {
 
     /** 注册联网生成的城市目录（同名不重复），注册后所有搜索工具立即可用 */
     public void register(CityCatalog catalog) {
+        // 联网目录是模型生成的：只接受「像城市名」的名字，避免把「成都吃」「州镇江的」
+        // 这类从自然语言里裁出来的脏串注册成正式城市，污染 matchCity 与「本地已开通」列表。
+        if (catalog == null || !CityNames.isPlausibleName(catalog.name())) {
+            log.warn("拒绝注册可疑城市目录: {}", catalog == null ? null : catalog.name());
+            return;
+        }
         boolean exists = cities.stream().anyMatch(c -> c.name().equals(catalog.name()));
         if (!exists) {
             cities.add(catalog);
@@ -73,10 +81,15 @@ public class TravelCatalogService {
         if (text == null || text.isBlank() || cities.isEmpty()) {
             return null;
         }
-        List<String> names = cities.stream().map(CityCatalog::name).toList();
-        String matched = CityNames.longestMatch(text, names);
+        // 先剥出发地从句：「北京出发去西安」应匹配西安，不能因为整句里先出现北京就选北京
+        String destinationText = CityNames.stripOriginClause(text);
+        List<String> names = cities.stream()
+                .map(CityCatalog::name)
+                .filter(CityNames::isPlausibleName)
+                .toList();
+        String matched = CityNames.longestMatch(destinationText, names);
         if (matched == null) {
-            matched = nearestCityName(text, names);
+            matched = nearestCityName(destinationText, names);
         }
         return matched == null ? null : cityByName(matched);
     }

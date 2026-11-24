@@ -20,6 +20,7 @@ import software.amazon.awssdk.core.retry.RetryPolicy;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
@@ -66,7 +67,12 @@ public class S3PhotoStore implements PhotoStore {
     }
 
     private static S3Client buildClient(S3Properties props) {
-        var builder = S3Client.builder().region(Region.of(props.getRegion()));
+        // 默认保留 SDK 的尾校验（AWS/MinIO 正常返回校验头）；只有不返回校验头的兼容网关
+        // 才通过 travel.photos.s3.checksum-validation=false 显式关闭，避免把成功上传误判为失败。
+        var builder = S3Client.builder().region(Region.of(props.getRegion()))
+                .serviceConfiguration(S3Configuration.builder()
+                        .checksumValidationEnabled(props.isChecksumValidation())
+                        .build());
         if (props.getEndpoint() != null && !props.getEndpoint().isBlank()) {
             builder.endpointOverride(URI.create(props.getEndpoint()));
         }
@@ -78,7 +84,8 @@ public class S3PhotoStore implements PhotoStore {
         if (props.getApiCallTimeoutMs() != null) {
             overrides.apiCallTimeout(Duration.ofMillis(props.getApiCallTimeoutMs()));
         }
-        return builder.overrideConfiguration(overrides.build())
+        return builder.forcePathStyle(props.isPathStyle())
+                .overrideConfiguration(overrides.build())
                 .credentialsProvider(StaticCredentialsProvider.create(
                         AwsBasicCredentials.create(props.getAccessKey(), props.getSecretKey())))
                 .build();

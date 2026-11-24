@@ -114,6 +114,31 @@ class CityMatchTest {
         assertThat(catalog.matchCity("南京")).isNull();
     }
 
+    @Test
+    @DisplayName("目录匹配：先剥出发地，不能把「北京出发去西安」匹配成北京")
+    void catalogMatchIgnoresOriginCity() {
+        TravelCatalogService catalog = catalog();
+        assertThat(catalog.matchCity("从南京出发去杭州")).isNotNull()
+                .extracting(CityCatalog::name).isEqualTo("杭州");
+        assertThat(catalog.matchCity("北京出发去上海")).isNotNull()
+                .extracting(CityCatalog::name).isEqualTo("上海");
+        // 出发地在目录内、目的地在目录外：不能退回出发地
+        assertThat(catalog.matchCity("北京出发去西安")).isNull();
+        assertThat(catalog.matchCity("从上海出发去南京")).isNull();
+    }
+
+    @Test
+    @DisplayName("目录注册：脏城市名不进入目录，也不出现在匹配候选里")
+    void registerRejectsDirtyCityNames() {
+        TravelCatalogService catalog = catalog();
+        catalog.register(new CityCatalog("成都吃", java.util.List.of(), java.util.List.of(), java.util.List.of()));
+        catalog.register(new CityCatalog("州镇江的", java.util.List.of(), java.util.List.of(), java.util.List.of()));
+
+        assertThat(catalog.cities()).extracting(CityCatalog::name)
+                .doesNotContain("成都吃", "州镇江的");
+        assertThat(catalog.matchCity("成都吃四天")).isNull();
+    }
+
     private TravelCatalogService catalog() {
         TravelCatalogService catalog = new TravelCatalogService(new ObjectMapper(), new RouteService());
         catalog.load();

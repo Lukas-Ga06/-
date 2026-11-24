@@ -15,6 +15,9 @@ on:
 
 permissions:
   contents: read
+  # CodeQL action 需要读 workflow run 做遥测/状态上报；缺它会在 SARIF 导出后
+  # 以「Resource not accessible by integration」+ configuration error 收尾。
+  actions: read
   security-events: write
 
 jobs:
@@ -66,3 +69,7 @@ jobs:
         uses: github/codeql-action/analyze@v3
         with:
           category: '/language:${{ matrix.language }}'
+          # 私有仓库未开通 GitHub Advanced Security 时，code scanning 上传会以
+          # 「Code scanning is not enabled for this repository」失败（2026-11-24 实测）。
+          # 默认只做分析、不上传；开通 GHAS 后把仓库变量 CODEQL_UPLOAD 设为 true 即恢复上传。
+          upload: ${{ vars.CODEQL_UPLOAD == 'true' }}

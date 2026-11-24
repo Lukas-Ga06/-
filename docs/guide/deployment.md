@@ -135,6 +135,8 @@ PHOTOS_STORE=local
 # S3_BUCKET=
 # S3_ACCESS_KEY=
 # S3_SECRET_KEY=
+# S3_PATH_STYLE=false          # MinIO 等兼容端点通常要 true（bucket 放路径）
+# S3_CHECKSUM_VALIDATION=true  # 不返回 MD5/CRC32 校验头的网关才改 false
 # 知识库历史版本块保留数（除 ACTIVE 版本外额外保留几个历史版本；0 = 只留 ACTIVE）
 RAG_CHUNK_VERSION_RETENTION=2
 TELEGRAM_BOT_TOKEN=
@@ -656,7 +658,7 @@ MySQL = `migration` + `migration-mysql`），否则工具会算出不同的 reso
 | `/api/` 反代 | `proxy_pass http://backend:8080;` + `proxy_http_version 1.1` | 服务名即 compose 服务名 |
 | **SSE** | `proxy_buffering off; proxy_cache off;` | 不关缓冲 → 事件被攒批，聊天面板「半天不出字」或一闪出一整段 |
 | 超时 | `proxy_read_timeout 3600s; proxy_send_timeout 3600s;` | `SseEmitter` 超时 180 秒，但长连接与后续事件不可被 60 秒默认值截断 |
-| 透传头 | `Host` / `X-Real-IP` / `X-Forwarded-For` / `X-Forwarded-Proto` | `RateLimitFilter` **默认完全不读 `X-Forwarded-For`**，直接用 TCP 源地址计数；只有配置了 `RATE_LIMIT_TRUSTED_PROXIES`（命中受信代理）才从右往左取第一个非受信地址。反代部署必须同时配该变量，否则所有请求按代理 IP 共用一个桶 |
+| 透传头 | `Host` / `X-Real-IP` / `X-Forwarded-For` / `X-Forwarded-Proto` | `RateLimitFilter` **默认完全不读 `X-Forwarded-For`**，直接用 TCP 源地址计数；只有配置了 `RATE_LIMIT_TRUSTED_PROXIES`（命中受信代理）才从右往左取第一个非受信地址。反代部署必须同时配该变量，且填**反代自己的确切地址**（compose 内置 nginx 固定为 `172.31.240.10/32`）；填整个私网段（如 `172.16.0.0/12`）会把该网段来源全当受信跳，塌成一个桶 |
 | SPA 回退 | `try_files $uri $uri/ /index.html;` | React Router 深链刷新不 404 |
 | 静态缓存 | `/assets/` `expires 30d` + `immutable`；`= /index.html` `no-cache` | 带 hash 的资源长缓存，入口不缓存（保证版本切换立刻生效） |
 | 访问日志 | `log_format without_args` 只记 `$request_method $uri $server_protocol`（**不含查询串**），`access_log /var/log/nginx/access.log without_args` | 照片原图 / SSE 用 `?ticket=` 做短期票据；默认 `$request` 会把票据写进 `docker compose logs web`。`log_format` 已修正为 **`http` 上下文（位于 `server {` 之前）**；**仍缺 `nginx -t` / 真实容器验证** |

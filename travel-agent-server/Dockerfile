@@ -31,7 +31,10 @@ ENV TZ=Asia/Shanghai \
     APP_TIMEZONE=Asia/Shanghai \
     JAVA_OPTS=""
 EXPOSE 8080
+# 必须是纯 exec form：把 `|| exit 1` 接在 JSON 数组后面会让 Docker 退化成 shell 形式，
+# 容器里的 /bin/sh 会去找名为 `[curl,` 的命令（实测报 `/bin/sh: 1: [curl,: not found`），
+# healthcheck 永久 unhealthy。curl -f 失败时本身就以非零码退出，不需要兜底。
 HEALTHCHECK --interval=15s --timeout=5s --start-period=60s --retries=5 \
-    CMD ["curl", "-fsS", "http://localhost:8080/actuator/health"] || exit 1
+    CMD ["curl", "-fsS", "http://localhost:8080/actuator/health"]
 
 ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]

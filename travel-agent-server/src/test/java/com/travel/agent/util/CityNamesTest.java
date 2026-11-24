@@ -128,4 +128,42 @@ class CityNamesTest {
         assertThat(CityNames.nearest("杭", CATALOG, 1)).isEmpty();
         assertThat(CityNames.nearest("杭洲", null, 1)).isEmpty();
     }
+
+    @Test
+    @DisplayName("isPlausibleName：挡住自然语言残片，保留真实城市与长地名")
+    void plausibleNameRejectsFragments() {
+        assertThat(CityNames.isPlausibleName("成都")).isTrue();
+        assertThat(CityNames.isPlausibleName("张家界")).isTrue();
+        assertThat(CityNames.isPlausibleName("乌鲁木齐")).isTrue();
+        assertThat(CityNames.isPlausibleName("呼和浩特")).isTrue();
+        assertThat(CityNames.isPlausibleName("巴音郭楞蒙古自治州")).isTrue();
+        // 来宾不会被首字规则误杀（「来」是常见动词，但也是真实城市首字）
+        assertThat(CityNames.isPlausibleName("来宾")).isTrue();
+
+        assertThat(CityNames.isPlausibleName("成都吃")).isFalse();
+        assertThat(CityNames.isPlausibleName("州镇江的")).isFalse();
+        assertThat(CityNames.isPlausibleName("发去厦门")).isFalse();
+        assertThat(CityNames.isPlausibleName("张家界的")).isFalse();
+        assertThat(CityNames.isPlausibleName("雪乡的")).isFalse();
+        assertThat(CityNames.isPlausibleName("泉州的")).isFalse();
+        assertThat(CityNames.isPlausibleName("营口鲅鱼圈")).isFalse();
+        assertThat(CityNames.isPlausibleName("预算")).isTrue(); // 词义过滤在抽取层，不在这里做
+        assertThat(CityNames.isPlausibleName("")).isFalse();
+        assertThat(CityNames.isPlausibleName(null)).isFalse();
+    }
+
+    @Test
+    @DisplayName("stripOriginClause：剥掉出发地从句，只留目的地")
+    void stripOriginClauseKeepsDestination() {
+        assertThat(CityNames.stripOriginClause("从南京出发去扬州镇江的两日游"))
+                .isEqualTo("扬州镇江的两日游");
+        assertThat(CityNames.stripOriginClause("北京出发去西安的十一五日游"))
+                .isEqualTo("西安的十一五日游");
+        assertThat(CityNames.stripOriginClause("上海出发的杭州周末两日游"))
+                .isEqualTo("杭州周末两日游");
+        // 没有出发句式时原样返回
+        assertThat(CityNames.stripOriginClause("我在广州，想去成都吃四天"))
+                .isEqualTo("我在广州，想去成都吃四天");
+        assertThat(CityNames.stripOriginClause(null)).isNull();
+    }
 }

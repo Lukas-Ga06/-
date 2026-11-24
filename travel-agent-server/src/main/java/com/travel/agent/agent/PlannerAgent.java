@@ -19,6 +19,7 @@ import com.travel.agent.service.ItineraryService;
 import com.travel.agent.service.OperationHistoryService;
 import com.travel.agent.service.TravelCatalogService;
 import com.travel.agent.tool.ToolInvoker;
+import com.travel.agent.util.CityNames;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -91,6 +92,7 @@ public class PlannerAgent {
         if (city == null) {
             String supported = catalog.cities().stream()
                     .map(CityCatalog::name)
+                    .filter(CityNames::isPlausibleName)
                     .collect(java.util.stream.Collectors.joining("、"));
             return emptyPlan(intent, null, trip, unsupportedCityMessage(
                     guessRequestedCity(message), supported, llmProperties.usable()));
@@ -850,7 +852,7 @@ public class PlannerAgent {
     /** 从 LLM 约束或消息句式中提取目录外城市名 */
     private String onlineCityName(IntentResult intent, String message) {
         Object dest = intent.getConstraints() == null ? null : intent.getConstraints().get("destination");
-        if (dest instanceof String s && !s.isBlank()) {
+        if (dest instanceof String s && CityNames.isPlausibleName(s)) {
             return s.trim();
         }
         return MessageParser.guessCityName(message);
@@ -872,17 +874,9 @@ public class PlannerAgent {
 
     /** 粗略提取用户提到的目的地名（仅用于"暂不支持"提示文案） */
     private String guessRequestedCity(String message) {
-        var m = java.util.regex.Pattern
-                .compile("([\\u4e00-\\u9fa5]{2,4}?)(?:[0-9一二两三四五六七八]+日游|周末游|亲子游|游)")
-                .matcher(message);
-        if (m.find()) {
-            return m.group(1);
-        }
-        var m2 = java.util.regex.Pattern.compile("去([\\u4e00-\\u9fa5]{2,4})").matcher(message);
-        if (m2.find()) {
-            return m2.group(1);
-        }
-        return "该目的地";
+        // 与规划使用同一套抽取规则，避免提示里再出现「州镇江的」「营口鲅鱼」这类脏串。
+        String city = MessageParser.guessCityName(message);
+        return city == null ? "该目的地" : city;
     }
 
     static String unsupportedCityMessage(String requested, String supported, boolean llmUsable) {
