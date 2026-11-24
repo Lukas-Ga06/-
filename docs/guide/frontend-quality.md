@@ -125,8 +125,11 @@ npx vitest run src/store/agentStore   # 或 `npx vitest` 交互式 watch
 - 命令：`npm run test:visual`（比较，失败会在 `test-results/` 留下 expected/actual/diff）、
   `npm run test:visual:update`（**有意**改视觉时重生成基线，必须人工看一遍图片 diff 再提交）。
 
-**为什么默认不进 CI**：基线文件名带平台后缀（如 `-chromium-win32`），Windows 与 Linux 的字体渲染不同，
-同一张图无法跨平台复用。要进 CI 需要容器化或按平台各存一套基线；在那之前它只作为本地与发布前的人工回归工具。
+**CI 里的两套基线**：基线文件名带平台后缀，Windows 与 Linux 的字体渲染不同，同一张图无法跨平台复用。
+2026-11-24 起仓库同时保存两套：`-chromium-win32`（Windows 本机人工回归）与 `-chromium-linux`
+（由 [visual-baseline.yml](../../.github/workflows/visual-baseline.yml) 在 Playwright 固定容器 `v1.64.1-jammy`
+生成，保证生成与比较用同一镜像）。CI 的 `visual` job 检测到 Linux 基线后由「跳过」转为逐像素比较，
+目前仍是观察项（`continue-on-error: true`），观察稳定后再转硬门禁。
 
 拆分前后的验收方式：先在拆前代码上生成基线，再拆分、重建、用**同一套基线**比较 ——
 11/11 像素一致才算「等价迁移」，详见 [阶段 E 第二刀快照](../review/2026-11-21-stage-e-css-split-visual.md)。

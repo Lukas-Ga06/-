@@ -80,7 +80,7 @@
 | 真实 Embedding | 未做质量验收，评估集基线仍是哈希向量 | ❌ 手工验收，未进门禁 |
 | 真实高德 / MCP | 有 Key 时做过限流与降级核对；跨城同名 POI、polyline 实线、长期配额未验 | ❌ 手工验收，未进门禁 |
 | 真实 S3 兼容存储 | 2026-11-24 用本地 S3 协议桩验通上传/读回/删除；真实 MinIO/AWS/OSS 凭证、HTTPS、版本控制未验（[复验 §4](../review/2026-11-24-gray-release-blockers.md#4-s3)） | ❌ 手工验收，未进门禁 |
-| 真机 iOS / MySQL 生产迁移 / Linux 视觉基线 | 见 [2026-11-22 P0 执行快照](../review/2026-11-22-p0-execution.md) §4 | ❌ 发布前仍待关闭 |
+| Android 真机 / Linux 视觉基线 | Linux 视觉基线 2026-11-24 已生成并提交（11 张，CI `visual` job 转比较、仍观察）；Android 真机见 [上线清单](../operations/launch-checklist.md) §5.1 | Android 真机 ❌ 发布前仍待关闭；Linux 基线 ✅ |
 
 **因此：CI 全绿只能证明「离线可回归」，不能证明「真实世界可用」。** 上线分级（内部演示 / 受控灰度 / 公网 v1）以 P0 执行快照 §5 为准。
 

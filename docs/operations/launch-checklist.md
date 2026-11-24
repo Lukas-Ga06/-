@@ -26,7 +26,7 @@
 | 前端依赖 | `travel-agent-web/node_modules` 已安装 | 门禁不用重新 `npm ci` |
 | 视觉基线 | 只有 `*-win32.png`，无 `*-chromium-linux.png` | 阶段 2.2 仍缺 Linux 基线 |
 
-> **2026-11-24 复核**：阶段 0 已收口 —— PR [#17](https://github.com/Lukas-Ga06/-/pull/17) 合入 `main`（`7eadbd1`），tag `v0.1.1`；剩余阻断项见 §2（序号 4/6/7/8/9/12 为外部或门禁项）。
+> **2026-11-24 复核**：阶段 0 已收口 —— PR [#17](https://github.com/Lukas-Ga06/-/pull/17) 合入 `main`（`7eadbd1`），tag `v0.1.1`；同日 11 张 Linux 视觉基线已生成并提交（§2 第 8 项）。剩余阻断项见 §2（序号 4/6/7/9/12）。
 
 ## 1. 上线分级判断
 
@@ -34,7 +34,7 @@
 | --- | --- | --- |
 | A 内部演示 | **具备** | 无；构建必须串行，不要并发共享 `target` |
 | B 受控灰度 | **未具备** | 高德 MCP Key、GitHub 安全开关、告警值班 |
-| C 公网 v1 | **未具备** | B 全部 + Android 真机、Linux 视觉基线、法务/许可证、回滚演练 |
+| C 公网 v1 | **未具备** | B 全部 + Android 真机、法务/许可证、回滚演练；Linux 视觉基线已完成（§2 第 8 项） |
 
 代码侧完成度不低：639 个后端用例、537 个前端用例、隔离 E2E 桌面 14/14、设备 22/22（依据见 [执行快照](../review/2026-11-22-p0-execution.md)）。真正的距离是**这些绿灯全部来自 Windows 本机**，而生产是 Linux 容器 + 真实 MySQL + 真机 + 真实外部服务。
 
@@ -49,7 +49,7 @@
 | 5 | 真实 LLM 压测 | **已完成并修正（2026-11-24）**：20 连重跑 15 planned + 5 asked_back + **0 failed**、零 429、中位 30.9 s、花费 ¥0.64；旧版 run-18 假绿已修 | 高德 MCP Key 仍为空，`10021` 退避与降级告警待验 | 我 | ✅ |
 | 6 | 高德真实边界 | **REST 已实测**：20 并发复现 9 次 `10021`，跨城同名 POI 与 polyline 正常；MCP Key 未验 | 生产 Web 服务 Key + MCP `AMAP_MAPS_API_KEY` 复验 | 我 / 你 | 0.5d |
 | 7 | **Android 真机**（原 iPhone） | 只有 WebKit 模拟 | 两台真机跑 §5.1 矩阵并留证 | 你 | 0.5d |
-| 8 | Linux 视觉基线 | 只有 win32 快照 | 跑 `visual-baseline.yml`，提交 linux 基线 | 我（需 Actions） | 2h |
+| 8 | Linux 视觉基线 | ✅ **已完成（2026-11-24）**：`visual-baseline.yml` 在 Playwright 固定容器生成 11 张 `*-chromium-linux.png` 并提交；CI `visual` job 检测到基线后由「跳过」转为逐像素比较（仍 `continue-on-error` 观察） | 观察稳定后转硬门禁 | ✅ | — |
 | 9 | 法务与许可证 | 5 处占位 + 留存期待确认 + LICENSE 专有 | 法务替换、生效日期、隐私页上线 | 你 | 外部 |
 | 10 | 账号级数据导出 | **已完成**：`GET /api/auth/me/export` + 个人中心入口；JSON 快照，照片只给清单（H2 契约测试） | 上线前补一次 MySQL 实机复核 | 我 | ✅ |
 | 11 | JWT 注销复用 | **已完成（V24）**：JWT 带 `uid` + `token_version`，注销先版本 +1 再删用户 | 上线后旧 token 整体失效一次，需在发布记录/公告写明；无需禁用近期注销名 | 我 | ✅ |
@@ -192,7 +192,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/mysql-it.ps1
 
 ### 5.2 Linux 视觉基线
 
-跑 `visual-baseline.yml` 生成并提交 `*-chromium-linux.png`，`visual` job 转硬门禁；`e2e-device` 观察期到 **2026-12-06** 再决定是否转正。
+✅ **已完成（2026-11-24）**：`visual-baseline.yml` 在 Playwright 固定容器 `v1.64.1-jammy` 生成 11 张
+`*-chromium-linux.png` 并随 PR 提交（run 45381999718）；`visual` job 已由「跳过」转为逐像素比较，
+仍保持 `continue-on-error` 观察，转硬门禁与 `e2e-device` 一起在 **2026-12-06** 复盘时决定。
 
 ### 5.3 法务、许可与数据导出
 

@@ -45,7 +45,7 @@
 | 移动端 WebKit | 已进 CI，**观察模式** | 隔离后端已解决外部污染；剩余风险是共享 runner 上 WebKit 与耗时阈值的抖动。转正条件：连续 2 周无「只有 CI 红、本地绿」，且 PR 模板写明「WebKit 模拟 ≠ iOS 真机」 |
 | 弱网 / 离线 | 已进 CI，**观察模式** | 依赖 `Network.emulateNetworkConditions`（仅 Chromium）；断言是耗时阈值（用例按 ≤20s，实测 8.3s，约 2.4 倍余量），共享 runner 上需观察波动 |
 | 多端并发 | 已进 CI，**观察模式** | 两个独立 `browserContext` 同账号并发；依赖后端关限流（隔离后端已关） |
-| 视觉回归 | 已接 CI，**观察模式** | 基线文件名带平台后缀；仓库现有 11 张是 `-chromium-win32.png`。Linux 基线需用 `.github/workflows/visual-baseline.yml` 在固定 Playwright 容器里生成并提交（见第 3 节 visual），`visual` job 检测到 `-chromium-linux.png` 后才真正比较 |
+| 视觉回归 | 已接 CI，**观察模式** | 2026-11-24 起仓库有两套基线：`-chromium-win32.png`（本机人工回归）与 `-chromium-linux.png`（`.github/workflows/visual-baseline.yml` 在固定 Playwright 容器生成，本次 run 45381999718）；`visual` job 检测到 Linux 基线后已由「跳过」转为逐像素比较，稳定后再摘 `continue-on-error` |
 
 `e2e-device` 转正（去掉 `continue-on-error`）的复盘期限：**2026-12-06**。
 
@@ -62,7 +62,7 @@ CI 只证明「不联网、无真实 Key 时也能正确失败并自报」。**�
 | **LLM 真实可用** | ❌ 人工 | CI 不持有 `LLM_API_KEY`，只验回落规则规划器 | 配 Key 后跑 [真实模型验收](v2.2-iteration.md) 流程并留存证据 |
 | **高德 POI / 路线真实可用** | ❌ 人工 | 需要真实 `AMAP_KEY` 且有 QPS 配额 | `.e2e/amap-real-key-probe.ps1`，结果写进 `docs/review/` |
 | 移动端真机（Android） | ❌ 人工 | CI 只有 WebKit/iPhone 预设，模拟 ≠ 真机 | 按 [发布检查单](../operations/launch-checklist.md) §5.1 跑真机矩阵 |
-| 视觉回归基线 | ⚠️ 半自动 | 仓库基线是 `-chromium-win32.png`；Linux 基线需在固定容器里生成并提交 | `.github/workflows/visual-baseline.yml` 出图 + 人工 review diff |
+| 视觉回归基线 | ✅ 自动比较（Linux 基线） | Linux 基线已入库（11 张，Playwright `v1.64.1-jammy` 生成），CI 用同一镜像逐像素比较；重新生成仍需人工触发 | 有意改视觉时跑 `.github/workflows/visual-baseline.yml` 并人工 review 图片 diff |
 | 生产部署配置（密钥、`DEMO_ACCOUNT=false`、`WEATHER_SIMULATION=false`） | ❌ 人工 | CI 用的是隔离配置 | 按 [生产配置](../operations/production-config.md) 逐项核对 `/api/system/status` |
 
 判定规则：**CI 失败 = 不能合并**；**上表 ❌ 项未人工验收 = 不能算「能力可用」**，只能算「代码路径存在」。
