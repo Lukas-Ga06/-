@@ -84,7 +84,7 @@ http_server_requests_seconds_count{...,status="429",uri="/api/trips/map"} 111
 
 ## 5. 判读与发现
 
-1. **两条规则都真的会响**，且只有它们响：其余 16 条规则全程 inactive，没有连带误报；`TravelLowHistogramMissing` 也没误报（histogram 已开）。
+1. **两条规则都真的会响**，且只有它们响：其余 16 条规则全程 inactive，没有连带误报；`TravelLowHistogramMissing` 没误报（HTTP histogram 已开）。顺带核对出文档与规则的一处不一致：该规则实际只查 `absent(http_server_requests_seconds_bucket)`，而 `observability.md` §4 原表写成「`agent_stage_seconds_bucket` 或 `http_server_requests_seconds_bucket`」，已按实际改正——`agent.stage` / `llm.latency` 的 histogram 缺失不会触发规则，只能巡检确认。
 2. **`TravelExternalProviderDegraded` 的「首个 firing 延迟」实测 16 分 26 秒**（持续降级 20:03:37 → firing 20:20:03）：`rate[15m]` 要先在窗口里攒够 0.2 次/秒，`for: 15m` 再等 15 分钟。也就是说这条 P1 的语义是「已经持续降级」，不是「刚开始降级」。对「当天处置」够用，但**不要**把它当早期预警；要更早发现需要另一条短窗口规则（例如 `increase(external_degraded_total[5m]) > 60`），本次不改阈值，只把延迟写进口径。
 3. **分母守卫按设计工作**：`TravelExternalDegradedHigh` 用 `clamp_min(http_server_requests_seconds_count, 1e-9)` + `and sum(...) > 0`，抓取端点自身的流量不会把比率稀释到阈值以下（实测 ratio 稳定在 0.93 左右，阈值 0.05）。
 4. **抓取凭证是运行期依赖**：`/actuator/prometheus` 需要 Bearer JWT，token 与 `JWT_SECRET` 绑定。本机若不固定密钥，**任何一次重启都会让监控哑掉**（不是告警逻辑问题，是采集链路问题）。生产 compose 已强制注入 `JWT_SECRET`；临时环境复现监控必须显式给固定值。

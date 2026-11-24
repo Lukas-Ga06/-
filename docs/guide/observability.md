@@ -122,7 +122,7 @@ curl -s -H "Authorization: Bearer $TOKEN" 'http://127.0.0.1:8080/actuator/metric
 | `TravelConfirmConflictHigh` | info | 30m | 确认冲突率 > 2% |
 | `TravelSseAbnormalDisconnectHigh` | critical | 10m | SSE `error\|timeout` / 流请求数 > 1% |
 | `TravelSseClientAbortHigh` | warning | 30m | SSE `complete` / 流请求数 > 10% |
-| `TravelLowHistogramMissing` | warning | 15m | `absent(agent_stage_seconds_bucket)` 或 `absent(http_server_requests_seconds_bucket)` |
+| `TravelLowHistogramMissing` | warning | 15m | `absent(http_server_requests_seconds_bucket)`（只兜 HTTP；`agent.stage` / `llm.latency` 的 histogram 缺失不在规则覆盖内，巡检时人工确认） |
 | `TravelExternalDegradedHigh` | warning | 10m | 外部降级 / 请求数 > 5% |
 | `TravelExternalProviderDegraded` | warning | 15m | 单 provider 每秒降级 > 0.2 |
 | `TravelHttpLatencyP95High` | warning | 10m | HTTP P95（排除 SSE）> 800ms |
@@ -299,7 +299,7 @@ curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/actuator/prometh
 2. **SLO 阈值是初值**：规划可用率 99.5%、SSE 中断 1%、RAG 命中 30%、成本 2 USD/h 需用第一周真实数据回填。
 3. **成本单价默认 0**：不配置就永远没有成本数据；这是刻意选择（不虚报）。
 4. **`sse.disconnects` 存在重复计数**：同一次断连可能记 `complete`（控制器）+ `cancelled`（引擎）。SLO 已按 reason 分开，不要求总和。
-5. **P95 依赖 histogram**：`percentiles-histogram` 未开启时 P95 告警静默失效，`TravelLowHistogramMissing` 专门兜这个坑。
+5. **P95 依赖 histogram**：`percentiles-histogram` 未开启时 P95 告警静默失效，`TravelLowHistogramMissing` 专门兜这个坑——但**只兜 `http.server.requests` 一条**（`absent(http_server_requests_seconds_bucket)`），`agent.stage` / `llm.latency` 缺失不会触发规则，需要巡检时人工确认（2026-11-24 实跑时核对过表达式与规则的差异）。
 6. **多实例聚合**：`travel.llm.cost.usd` 按实例累加，成本看板用 `sum by (instance)` 还是全局 `sum` 取决于部署拓扑；告警阈值 2 USD/h 是按单实例写的。
 ---
 
