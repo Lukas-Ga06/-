@@ -418,7 +418,7 @@
       "id": 7,
       "type": "timeseries",
       "title": "外部依赖降级速率（按 provider）",
-      "description": "指标由 T3 韧性任务交付（external_degraded_total）。未合入前该面板为空。",
+      "description": "external_degraded_total（已实跑，2026-11-24）；按 provider 的降级速率，持续 > 0.2 次/秒会触发 TravelExternalProviderDegraded。",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"

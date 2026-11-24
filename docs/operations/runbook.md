@@ -192,12 +192,12 @@ tail -f logs/travel-agent-server.log
 
 ## 7. TravelExternalDegradedHigh (P1)
 
-> 指标 `external_degraded_total{provider,reason}` 由 T3 韧性任务交付。**未合入前本告警不会触发**，Dashboard 对应面板为空，这属于已知缺口（见 observability.md §9）。
+> 已实跑（2026-11-24）：高德持续 `connection_error` 下 `TravelExternalDegradedHigh`（`for: 10m`）与 `TravelExternalProviderDegraded{provider="amap"}`（`for: 15m`）均真实 firing 并在降级停止后恢复，见[演练快照](../review/2026-11-24-amap-degradation-alert-drill.md)。单 provider 那条从降级开始到 firing 实测 ≈16 分钟（`rate[15m]` + `for: 15m`），是「已持续降级」而非早期预警。
 
 **现象**：外部依赖降级率 > 5%（每次 HTTP 请求的降级次数），或单 provider 持续 > 0.2 次/秒。用户表现：天气/路线/POI 变成估算值，方案质量下降但请求仍成功。
 
 **排查**：
-1. `sum by (provider, reason) (rate(external_degraded_total[10m]))` 定位是哪一家、什么原因（timeout / http_5xx / circuit_open / no_key）。
+1. `sum by (provider, reason) (rate(external_degraded_total[10m]))` 定位是哪一家、什么原因。`reason` 词表固定为 `timeout` / `rate_limited` / `server_error` / `bad_response` / `connection_error`（高德的 `10021` QPS 超限与 `INVALID_USER_KEY` 都是 HTTP 200 + `status=0`，归入 `bad_response`）。
 2. 对应 Key/额度：高德 Key 是否失效（`AMAP_KEY`）、天气源（Open-Meteo）是否可达、LLM 配额是否耗尽。
 3. 是否只有外部网络故障（出网/DNS/代理）→ 用 `curl` 从容器内验证。
 4. `no_key` 类降级说明配置缺失（部署问题），不是上游故障。

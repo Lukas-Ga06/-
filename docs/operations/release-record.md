@@ -18,6 +18,20 @@
 
 ---
 
+## 2026-11-24 · 依赖升级与告警收口（`5898e66`，未发布）
+
+| 字段 | 内容 |
+| --- | --- |
+| 版本 / commit | `5898e66`（PR [#20](https://github.com/Lukas-Ga06/-/pull/20) 合并提交）；tag `v0.1.1` 仍指 `7eadbd1` |
+| 环境变量版本 | 无新增必填项。依赖变化：`spring-boot-starter-parent` 3.5.12 → **3.5.16**（Spring Framework 6.2.19、Micrometer **1.15.12**）、`jackson-bom` → **2.21.7**；`.trivyignore.yaml` 新增两条有期限豁免 |
+| 迁移版本 | 无迁移变化：仍为 V24（MySQL 23 条 `success`，V14 为 H2 专属），forward-only 不变 |
+| 门禁链接 | 本机 `mvn -B clean verify` **649 tests / 0 failures / 0 errors / 3 skipped**、Checkstyle 0；main push CI（[run 45387837146](https://github.com/Lukas-Ga06/-/actions/runs/45387837146)）success |
+| 真实 provider 验收 | 沿用 2026-11-23/24：高德 REST 已实测、MCP `AMAP_MAPS_API_KEY` 未验、LLM 20 连 0 failed、S3 仅本地协议桩 |
+| 监控告警 | **新增（2026-11-24）**：`TravelExternalProviderDegraded{provider="amap"}` 与 `TravelExternalDegradedHigh` 在持续高德降级下真实 firing 并在降级停止后恢复，见[演练快照](../review/2026-11-24-amap-degradation-alert-drill.md)；与 2026-11-23 的 `TravelAgentServerDown` 实跑共同覆盖「进程挂了」与「单个外部依赖长期降级」两类 |
+| 已知风险 | ① Spring Framework 两条 CRITICAL 为有期限豁免（`.trivyignore.yaml`，`expired_at: 2026-12-31`；上游修复 6.2.20 未发布，利用前提在本项目纯 JSON API 中不成立）；② 灰度值班人未定；③ 真机、法务、GitHub 四个安全开关、高德 MCP Key、真实 S3 仍未完成 |
+| 回滚 | 回退到 `7eadbd1`（tag `v0.1.1`）；本次无迁移变化，无需恢复数据库 |
+| 结论 | 依赖库 CVE 已修（两条 CRITICAL 有期限豁免）+ 外部依赖告警已实跑；**仍不构成发布**，灰度阻断项以上线清单为准 |
+
 ## 2026-11-24 · 灰度阻断项合入 main（检查点 v0.1.1，未发布）
 
 | 字段 | 内容 |

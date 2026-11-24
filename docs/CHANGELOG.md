@@ -2,6 +2,19 @@
 
 按主题记录行为变化。**第四节是最需要注意的**：其中几项改变了原有的使用习惯。
 
+## 可观测性：高德降级告警实跑（2026-11-24）
+
+- **两条外部依赖告警首次真跑通**：持续高德降级下 `TravelExternalProviderDegraded{provider="amap"}`
+  （`rate[15m] > 0.2`、`for: 15m`）与 `TravelExternalDegradedHigh`（降级率 > 5%、`for: 10m`）
+  都从 pending 进入 firing，停止降级后回落 inactive。证据见[演练快照](review/2026-11-24-amap-degradation-alert-drill.md)。
+- 计数口径复核：`/api/trips/map` 请求数与 `external_degraded_total` 1:1，无重复计数；
+  Grafana 面板（`travel-agent-slo`）能读到同一条曲线。
+- **口径修正**：`observability.md` §9、`runbook.md` §7、Dashboard 面板描述里「external.degraded 由 T3 交付 /
+  未合入前告警不会触发」全部过期，已改为「已实跑」；`reason` 词表按代码实际
+  （`timeout` / `rate_limited` / `server_error` / `bad_response` / `connection_error`）改正。
+- 未改任何阈值、`for` 窗口、抓取配置或告警退出码；未覆盖真实高德断供 / Key 失效（本次注入的是
+  `connection_error`）与值班通知路由（#12 的剩余项）。
+
 ## 安全升级：Spring Boot 3.5.16 + Jackson 2.21.7（Trivy 新库，2026-11-24）
 
 > 由 `main` push 的 Trivy 扫描暴露：同一提交在 PR 的 security job 上是绿的，合并后
