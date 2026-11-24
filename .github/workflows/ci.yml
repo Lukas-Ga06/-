@@ -285,6 +285,32 @@ jobs:
           # 条目与到期见 travel-agent-server/.trivyignore.yaml，流程见 docs/guide/ci.md §6。
           trivyignores: travel-agent-server/.trivyignore.yaml
 
+  # 密钥扫描：平台侧 Secret scanning 之外再加一道**本地可复现**的门禁。
+  # 用固定版本 CLI 而不是第三方 action：版本与校验和都钉死，扫描范围与「改公开前扫全历史」
+  # 和文档里的本地命令逐字一致（gitleaks git --log-opts=--all -c .gitleaks.toml）。
+  secret-scan:
+    name: Security / gitleaks 密钥扫描
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 全历史：只取浅克隆会让「更早提交里漏过的密钥」永远看不见。
+          fetch-depth: 0
+
+      - name: gitleaks（全历史 + 仓库配置）
+        env:
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          set -euo pipefail
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -o gitleaks.tar.gz
+          echo "${GITLEAKS_SHA256}  gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf gitleaks.tar.gz gitleaks
+          ./gitleaks version
+          # --redact：命中内容不写进日志；--all：扫所有 ref 可达提交。
+          # 放行项只在 .gitleaks.toml 里按具体测试值/占位符声明，不按目录整体排除。
+          ./gitleaks git --redact --no-banner --log-opts="--all" -c .gitleaks.toml
+
   e2e:
     name: E2E / Playwright smoke（后端 H2 + 前端 preview）
     runs-on: ubuntu-latest
