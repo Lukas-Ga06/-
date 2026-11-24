@@ -51,4 +51,6 @@
 | [2026-11-22-mcp-live-and-fr03.md](2026-11-22-mcp-live-and-fr03.md) | 2026-11-22 | 高德 MCP 12 工具的逐项业务输出核对 + FR-03 真模型复跑 | 12/12 工具真实可用（2 个上游参数被丢弃已定位到源码）；FR-03 真模型打通（mcp_amap_maps_weather 被模型自主选用），暴露 4 个缺口：内置工具缺参数名、研究循环不给 FINAL、MCP 路线分支无 10021 重试、状态页不报 MCP |
 | [2026-11-22-p0-execution.md](2026-11-22-p0-execution.md) | 2026-11-22 | P0-A/P0-B/P0-C/P0-D 与 P1-E/P1-G 的代码、门禁、隔离 E2E、账号注销与 UI 收口 | 隔离 E2E 桌面 14/14、设备 22/22，后端 617 / 前端 532 用例全绿；真实 MySQL 备份演练、真实 iOS、法务与 GitHub 安全设置仍未完成 |
 
+| [2026-11-24-amap-degradation-alert-drill.md](2026-11-24-amap-degradation-alert-drill.md) | 2026-11-24 | 高德降级告警实跑：Prometheus 规则在持续连接失败下的 pending → firing → 恢复 | `TravelExternalProviderDegraded{provider="amap"}` 与 `TravelExternalDegradedHigh` 均真实 firing 并恢复；1 请求 = 1 次降级（1:1）；首个 firing 延迟 ≈16 分钟；真实高德断供/Key 失效与值班路由仍未覆盖 |
+
 新增快照后请同步本表，并运行 `node scripts/docs-check.mjs` 校验链接。完整文档规则见 [文档生命周期](../guide/documentation.md)。

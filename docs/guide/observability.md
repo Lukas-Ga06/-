@@ -133,6 +133,8 @@ curl -s -H "Authorization: Bearer $TOKEN" 'http://127.0.0.1:8080/actuator/metric
 | `TravelRagHitRateLow` | warning | 30m | RAG 命中率 < 30%（样本 ≥ 10） |
 | `TravelRateLimitFailOpen` | warning | 15m | `ratelimit_failopen_total` 持续增长（Redis 限流失效） |
 
+> **单 provider 降级告警的实际延迟**：`TravelExternalProviderDegraded` 用 `rate(external_degraded_total[15m]) > 0.2` 且 `for: 15m`，从降级开始到 firing 实测约 **16 分钟**（2026-11-24 实跑，见[演练快照](../review/2026-11-24-amap-degradation-alert-drill.md)）。它表达的是「已持续降级」，不要当早期预警用；要更早发现需要另加短窗口规则（当前未加，阈值与 `for` 未改）。
+
 ---
 
 ## 5. 抓取配置
@@ -293,7 +295,7 @@ curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/actuator/prometh
 
 ## 9. 已知限制与后续
 
-1. **`external.degraded` 由 T3 交付**：本文档与 Dashboard/告警按 `external_degraded_total{provider,reason}` 约定写好；T3 未合入前相应面板为空、`TravelExternalDegradedHigh` 不会触发（不会误报，但也没有覆盖）。
+1. **`external.degraded` 已实跑（2026-11-24）**：`external_degraded_total{provider,reason}` 由高德 / LLM / Embedding / 天气 / Redis / S3 各自失败路径写入；`TravelExternalProviderDegraded` 与 `TravelExternalDegradedHigh` 已在持续高德降级下真实 firing 并恢复，见[演练快照](../review/2026-11-24-amap-degradation-alert-drill.md)。注意单 provider 那条的首个 firing 延迟实测 ≈16 分钟（`rate[15m]` + `for: 15m`），它是「已持续降级」的告警，不是早期预警。
 2. **SLO 阈值是初值**：规划可用率 99.5%、SSE 中断 1%、RAG 命中 30%、成本 2 USD/h 需用第一周真实数据回填。
 3. **成本单价默认 0**：不配置就永远没有成本数据；这是刻意选择（不虚报）。
 4. **`sse.disconnects` 存在重复计数**：同一次断连可能记 `complete`（控制器）+ `cancelled`（引擎）。SLO 已按 reason 分开，不要求总和。
@@ -316,3 +318,5 @@ curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/actuator/prometh
 | 告警规则 | `python -c "import yaml; ..."`（promtool 不可用） | 8 组 18 条规则，每条含 `alert/expr/for/labels.severity/annotations(summary,description,runbook_url)` |
 | Dashboard | `python -m json.tool docs/operations/grafana-travel-agent.json` | 合法 JSON，14 个面板 |
 | Runbook 锚点 | 脚本比对 `alerts.yml`/本文档引用的 `runbook.md#...` 与 `runbook.md` 标题 | 16 个引用锚点全部命中（0 broken） |
+
+> **2026-11-24 补充**：高德降级告警实跑 —— `TravelExternalProviderDegraded{provider="amap"}`（`for: 15m`）与 `TravelExternalDegradedHigh`（`for: 10m`）在持续降级下 pending → firing，停止降级后回落 inactive；`/api/trips/map` 请求数与 `external_degraded_total` 1:1。见[演练快照](../review/2026-11-24-amap-degradation-alert-drill.md)。

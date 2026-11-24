@@ -41,4 +41,4 @@ curl -s "https://restapi.amap.com/v3/direction/driving?origin=121.4737,31.2304&d
 ## 5. 证据
 
 - 本次输出来自本机实时调用，未入库（Key 敏感）；关键结果已抄录在上表。
-- 相关的应用侧降级与状态自报：`/api/system/status` 的 `amapConfigured/geoProvider/routeProvider`、`external_degraded_total{provider="amap"}`（告警 `TravelExternalProviderDegraded`，15 分钟窗口，本次未实跑）。
+- 相关的应用侧降级与状态自报：`/api/system/status` 的 `amapConfigured/geoProvider/routeProvider`、`external_degraded_total{provider="amap"}`（告警 `TravelExternalProviderDegraded`，15 分钟窗口；**该告警已于 2026-11-24 单独实跑**，见[演练快照](2026-11-24-amap-degradation-alert-drill.md)）。
