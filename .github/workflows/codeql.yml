@@ -15,6 +15,9 @@ on:
 
 permissions:
   contents: read
+  # CodeQL action 需要读 workflow run 做遥测/状态上报；缺它会在 SARIF 导出后
+  # 以「Resource not accessible by integration」+ configuration error 收尾。
+  actions: read
   security-events: write
 
 jobs:
