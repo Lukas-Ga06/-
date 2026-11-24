@@ -18,6 +18,21 @@
 
 ---
 
+## 2026-11-24 · 灰度阻断项合入 main（检查点 v0.1.1，未发布）
+
+| 字段 | 内容 |
+| --- | --- |
+| 版本 / commit | `7eadbd1`（PR [#17](https://github.com/Lukas-Ga06/-/pull/17) 合并提交，父 `5e5b809` + `da81878`）；tag `v0.1.1` |
+| 环境变量版本 | 无新增必填项。默认值变化：`RATE_LIMIT_TRUSTED_PROXIES=172.31.240.10/32`；新增 `TRAVEL_PHOTOS_S3_PATH_STYLE`（默认 false）、`TRAVEL_PHOTOS_S3_CHECKSUM_VALIDATION`（默认 true）；`CODEQL_UPLOAD` 控制 CodeQL 上传（未开通 GHAS 时只分析不上传） |
+| 迁移版本 | 无新增迁移：仍为 V24，MySQL 23 条 `success`（V14 为 H2 专属），forward-only 不变 |
+| 门禁链接 | PR #17 的 11 项 check-runs 全绿（含 `Analyze (java-kotlin)` / `Analyze (javascript-typescript)`）；main push CI（[run 45379874333](https://github.com/Lukas-Ga06/-/actions/runs/45379874333)）通过 |
+| 真实 provider 验收 | LLM 20 连：15 planned + 5 asked_back + 0 failed + 0 unknown，中位 30.9 s，余额 10.27 → 9.63（≈ ¥0.64），见[快照](../review/2026-11-24-gray-release-blockers.md) §1；高德 REST 已实测、MCP `AMAP_MAPS_API_KEY` 未验；S3 仅本地协议桩 |
+| 备份恢复时间 | 沿用 2026-11-23 演练：48.8 MB / 28 表恢复 5.06 s、应用启动 12.75 s，RTO ≈18 s（本次未重跑） |
+| 监控告警 | 沿用 2026-11-23 实跑（后端掉线 3 分钟 `TravelAgentServerDown` 真实 firing）；高德降级告警仍未实跑 |
+| 已知风险 | 真机、法务、高德 MCP Key、真实 S3 端点、GitHub 四个安全开关仍未完成；`e2e-device` 观察期至 2026-12-06 |
+| 回滚 | 回退到 `5e5b809`（tag `v0.1.0`）；本次无破坏性迁移，无需恢复数据库 |
+| 结论 | 灰度阻断项（压测假绿 / 目的地抽取 / 限流身份 / S3 兼容 / 容器 healthcheck）已落地 `main`；**受控灰度仍缺外部验收**，不构成发布。 |
+
 ## 2026-11-23 · 灰度前检查点（未发布）
 
 | 字段 | 内容 |
