@@ -123,6 +123,10 @@ services:
       TRAVEL_PHOTOS_S3_BUCKET: ${S3_BUCKET:-}
       TRAVEL_PHOTOS_S3_ACCESS_KEY: ${S3_ACCESS_KEY:-}
       TRAVEL_PHOTOS_S3_SECRET_KEY: ${S3_SECRET_KEY:-}
+      # MinIO 等兼容端点通常要求 path-style；AWS S3 保持 false
+      TRAVEL_PHOTOS_S3_PATH_STYLE: ${S3_PATH_STYLE:-false}
+      # 仅用于不返回校验头的兼容网关；AWS/MinIO 保持 true
+      TRAVEL_PHOTOS_S3_CHECKSUM_VALIDATION: ${S3_CHECKSUM_VALIDATION:-true}
       # ---------- Agent 预算 / 会话 ----------
       AGENT_BUDGET_ENABLED: ${AGENT_BUDGET_ENABLED:-true}
       AGENT_BUDGET_TOTAL_MS: ${AGENT_BUDGET_TOTAL_MS:-30000}
@@ -175,6 +179,8 @@ services:
 
 networks:
   default:
+    # 固定子网只为给 nginx 一个可被 /32 信任的地址。同一宿主机并行部署多套本 compose 时，
+    # 每套要换不同 subnet/ipv4_address，并同步覆盖 RATE_LIMIT_TRUSTED_PROXIES，否则会地址池冲突。
     ipam:
       config:
         - subnet: 172.31.240.0/24

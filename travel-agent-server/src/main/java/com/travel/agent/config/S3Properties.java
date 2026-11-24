@@ -18,6 +18,22 @@ public class S3Properties {
     private String secretKey = "";
 
     /**
+     * 是否强制 path-style（bucket 放在 URL 路径里，而不是 {@code bucket.endpoint} 子域名）。
+     *
+     * <p>MinIO 以及部分 S3 兼容网关必须用 path-style；AWS S3 默认 virtual-hosted-style。
+     * 之前没有这个开关，MinIO 这类端点会因为 {@code bucket.127.0.0.1} 无法解析而失败。
+     */
+    private boolean pathStyle = false;
+
+    /**
+     * 是否校验对象存储返回的 MD5/CRC32 尾校验头（默认 true，与 SDK 默认一致）。
+     *
+     * <p>少数 S3 兼容网关不返回校验头，SDK 会把「上传成功」误判成校验失败；这类部署可显式关掉。
+     * AWS S3 / 主流 MinIO 保持 true，不要为了绕过一个端点全局降级完整性校验。
+     */
+    private boolean checksumValidation = true;
+
+    /**
      * AWS SDK 最大重试次数；{@code null} = 沿用 SDK 默认（3 次重试）。
      *
      * <p>生产默认不改 SDK 语义；降级测试把它设为 0，让 5xx 一次性失败而不是重试三次拖长用例。
