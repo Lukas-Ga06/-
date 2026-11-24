@@ -157,8 +157,13 @@ oasdiff breaking /tmp/openapi-base.json docs/api/openapi.json --fail-on ERR
 | dependency-review | PR | `fail-on-severity: high`，只评新增依赖 | 升级到修复版本，或说明为何必须引入并申请豁免 |
 | `npm audit --audit-level=high` | push/PR | high + critical | 升级/low-risk fix；无修复版本时评估替代依赖 |
 | Trivy（Maven 依赖） | push/PR | CRITICAL,HIGH，`ignore-unfixed` | 升级依赖；确实无修复版本则记录风险与到期时间 |
-| CodeQL | push/PR/每周 | security-and-quality | 按告警修复；确认为误报时在代码里加抑制注释并说明 |
+| CodeQL | push/PR/每周 | security-and-quality | 私有仓库未开通 GHAS 时只分析不上传（`CODEQL_UPLOAD` 变量控制）；开通后按告警修复，误报加抑制注释并说明 |
 | gitleaks | 由 `.gitleaks.toml` 驱动 | 默认全仓 + 精确放行 | 真实密钥泄露：立即轮换 → 清理历史 → 复盘 |
+
+> CodeQL 的 SARIF 上传依赖 GitHub Advanced Security。本仓库（私有）未开通时，workflow 默认
+> `upload=false`：照常做 Java/TS 分析，但不发布 code scanning 告警；开通 GHAS 后把仓库变量
+> `CODEQL_UPLOAD` 设为 `true` 即可恢复上传。2026-11-24 实测未开通时上传会报
+> `Code scanning is not enabled for this repository`。
 
 gitleaks 放行范围只有三类：测试专用固定 JWT 密钥（正则精确匹配）、文档占位符目录、本地 `.env.local` 与验收证据目录（`.gitignore` 已排除，存在时也不该阻断）。**不要**把整个 `src/` 或 `docs/` 加进 paths 放行。
 
