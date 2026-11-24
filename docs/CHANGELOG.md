@@ -2,6 +2,41 @@
 
 按主题记录行为变化。**第四节是最需要注意的**：其中几项改变了原有的使用习惯。
 
+## 灰度阻断项：压测假绿、目的地抽取、限流身份（2026-11-24）
+
+### 一、行为变化
+
+- **20 连压测不再假绿**：结果分 `planned / asked_back / failed / unknown` 四类，
+  只有 `confirmation` 或 `tripId` 才算规划成功；`failed`/`unknown` 任一非空即 `exit 1`。
+  旧证据重分类后 run-18 从「成功」纠正为失败（正文是「没能为『州镇江的』生成行程」）。
+- **目的地抽取不再产出脏城市名**：先剥「从 A 出发去/到 B」，再按已知城市词表取目的地；
+  「成都吃」「发去厦门」「张家界的」「雪乡的」「泉州的」「州镇江的」等 13 轮错误/失败
+  全部改为真实城市（西安/成都/厦门/张家界/雪乡/泉州/扬州…），多城市取第一个。
+- **脏城市名不再污染全局目录**：`CityNames.isPlausibleName` + 注册/联网/缓存三重校验，
+  「本地已开通」列表不再出现「成都吃」「发去厦门」这类模型编出来的城市。
+- **限流只信任 nginx 固定地址**：compose 默认网络固定为 `172.31.240.0/24`，web 固定
+  `172.31.240.10`，`RATE_LIMIT_TRUSTED_PROXIES` 默认 `172.31.240.10/32`。
+  修复前信任整个 `172.16.0.0/12`，私网来源全部塌成 nginx 一个桶。
+- S3 兼容存储：新增 path-style 与尾校验开关（默认关闭 path-style、开启校验），
+  用本地 S3 协议桩验通上传/读回/删除全链路；真实 MinIO/AWS/OSS 凭证与 HTTPS 仍未验，
+  见 [灰度阻断项复验 §4](review/2026-11-24-gray-release-blockers.md#4-s3)。
+
+### 二、接口与配置
+
+- 无 API 变更、无数据库迁移。
+- `docker-compose.yml` 新增固定网络/nginx 地址；`RATE_LIMIT_TRUSTED_PROXIES` 默认值收窄。
+- `.env.production.example`、`docs/operations/production-config.md`、`docs/guide/deployment.md`
+  同步「填反代确切 IP，禁止填整个私网段」的口径。
+
+### 三、测试与门禁
+
+- 新增 `MessageParserCityTest`（20 条压测消息 + 旧句式）与
+  `RateLimitTrustedProxyTest.onlyConfiguredProxyAddressIsTrusted`；
+  后端全量 `mvn -B test` **648 tests，0 failures，3 skipped**。
+- 真实模型 20 连重跑：**15 planned + 5 asked_back + 0 failed + 0 unknown**，零 429，
+  中位 30.9 s，余额 10.27 → 9.63（≈ ¥0.64）。
+- 容器限流实测：4 个不同源 IP 各自 10 次 401 后 429，伪造 XFF 不产生计数键。
+
 ## 账号级数据导出（数据可携带）（2026-11-23）
 
 ### 一、行为变化

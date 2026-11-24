@@ -96,14 +96,23 @@ Docker 因此退化成 shell 形式，容器内 `/bin/sh` 去找名为 `[curl,` 
 | 耗时 | min **2,663 ms** ／ median **31,389 ms** ／ max **45,569 ms** |
 | 实际花费 | 余额 **¥10.66 → ¥10.27**，即 **¥0.39** |
 
-关于 6 轮「快 + COMPLETED」：不是绕过人工确认，而是**槽位不足主动反问**——响应里
+关于 6 轮「快 + COMPLETED」：**其中 5 轮**是槽位不足主动反问——响应里
 `planId=null`、`confirmation=null`、`missingSlots=["partySize"]`，正文是「开始规划前，还需要确认：
-几个人一起…」。没有发生任何写操作，因此不需要确认门；`NEED_CONFIRMATION` 的 14 轮都正常生成了待确认方案。
+几个人一起…」。没有发生任何写操作，不等于规划成功；`NEED_CONFIRMATION` 的 14 轮都正常生成了待确认方案。
+
+**第 6 轮（run-18）不是反问，是假绿**：正文是「抱歉，暂时没能为「州镇江的」生成行程」，
+`confirmation=null`、`tripId=null`，却因为 `status=COMPLETED` 被旧脚本记成成功、红线报 0。
+2026-11-24 已把压测判定改为 planned/asked_back/failed/unknown 四分类，并对旧证据重分类：
+planned 14 ｜ asked_back 5 ｜ **failed 1（run-18）**。同时修掉「州镇江的」背后的目的地抽取问题，
+20 连重跑为 15 planned + 5 asked_back + 0 failed。详见
+[灰度阻断项复验](2026-11-24-gray-release-blockers.md)。
 
 ## 4. 仍未验证
 
-- **S3**（`PHOTOS_STORE=local`）：需要端点、桶名、access key / secret 才能验。
+- **S3**（`PHOTOS_STORE=local`）：见 [灰度阻断项复验 §4](2026-11-24-gray-release-blockers.md#4-s3)（2026-11-24 回填）。
 - **H2 console 的「404」口径**：实际是后端 401、nginx 200 SPA。要么改验收口径，要么给安全链加一个
   显式 404 规则（避免用 401/SPA 掩盖「路径不存在」）。
 - **高德 MCP**：`AMAP_MAPS_API_KEY` 为空，`10021` 退避与降级告警仍只有 REST 侧证据。
-- **限流按真实客户端隔离**：见 §2.2，需从公网源 IP 复验。
+- **限流按真实客户端隔离**：**2026-11-24 已修复并复验**——compose 只信任 nginx 固定地址
+  `172.31.240.10/32`，四个不同源 IP 各自 10 次后 429，伪造 XFF 不产生计数键；见
+  [灰度阻断项复验 §3](2026-11-24-gray-release-blockers.md#3-限流复验)。公网源 IP 仍未直接测。

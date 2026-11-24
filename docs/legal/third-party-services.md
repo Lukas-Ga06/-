@@ -59,7 +59,7 @@
 
 ## 6. S3 兼容对象存储（可选）
 
-- **触发**：`PHOTOS_STORE=s3`；`.env` 填 `S3_ENDPOINT/S3_REGION/S3_BUCKET/S3_ACCESS_KEY/S3_SECRET_KEY`，compose 映射为 `TRAVEL_PHOTOS_S3_*`；`max-retries` / `api-call-timeout-ms` 等细项才需 `SPRING_APPLICATION_JSON`。
+- **触发**：`PHOTOS_STORE=s3`；`.env` 填 `S3_ENDPOINT/S3_REGION/S3_BUCKET/S3_ACCESS_KEY/S3_SECRET_KEY`，compose 映射为 `TRAVEL_PHOTOS_S3_*`；MinIO 等兼容端点再加 `S3_PATH_STYLE=true`，不返回校验头的网关才把 `S3_CHECKSUM_VALIDATION` 改 false；`max-retries` / `api-call-timeout-ms` 等细项才需 `SPRING_APPLICATION_JSON`。
 - **出站内容**：照片二进制与对象键（扁平 UUID + 扩展名，**不含用户/行程前缀**）。
 - **权限建议**：只授予目标 bucket 的 Put/Get/Head/Delete；开启版本控制与生命周期；禁止公共读。
 - **失败语义**：配置缺失启动失败；写失败 500、读 404/500，均向用户明示，不静默丢文件。
