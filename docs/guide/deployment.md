@@ -1,12 +1,12 @@
 # 部署与运维
 
-> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.12 / Node 20） | 最后验证：2026-11-19 | 事实来源：docker-compose.yml、docker-compose.infra.yml、travel-agent-server/Dockerfile、travel-agent-web/Dockerfile、travel-agent-web/nginx.conf、travel-agent-server/src/main/resources/application*.yml
+> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.16 / Node 20） | 最后验证：2026-11-19 | 事实来源：docker-compose.yml、docker-compose.infra.yml、travel-agent-server/Dockerfile、travel-agent-web/Dockerfile、travel-agent-web/nginx.conf、travel-agent-server/src/main/resources/application*.yml
 
 > 面向负责上线与运维的同学：从一台干净的服务器把「AI 智能旅行助手」跑起来，并知道它坏了怎么查、数据怎么备。
 > 全部命令、服务名、端口、变量名均取自仓库当前 HEAD 的 **源码**（`docker-compose.yml`、两个 Dockerfile、
 > `nginx.conf`、`application*.yml` 与 Java 类），可以直接复制执行。
 
-本文适用版本：`travel-agent-server` 0.1.0 / Spring Boot 3.5.12，`travel-agent-web` 0.1.0。
+本文适用版本：`travel-agent-server` 0.1.0 / Spring Boot 3.5.16，`travel-agent-web` 0.1.0。
 
 ---
 
@@ -33,7 +33,7 @@
 ```mermaid
 graph LR
     U["浏览器 / PWA<br/>https://your-domain"] -->|"443 → 8081"| N["web（nginx:1.27-alpine）<br/>SPA 静态资源 + /api 反代<br/>SSE 关缓冲"]
-    N -->|"proxy_pass http://backend:8080"| B["backend（Spring Boot 3.5.12 / JRE 17）<br/>/api/** + /actuator/health<br/>SPRING_PROFILES_ACTIVE=mysql"]
+    N -->|"proxy_pass http://backend:8080"| B["backend（Spring Boot 3.5.16 / JRE 17）<br/>/api/** + /actuator/health<br/>SPRING_PROFILES_ACTIVE=mysql"]
     B -->|"jdbc:mysql://mysql:3306/travel_agent"| M[("mysql:8.4<br/>utf8mb4")]
     B -->|"/app/data"| V[("卷 backend-data<br/>照片 / 在线城市缓存 / H2 兜底文件")]
     M --- MV[("卷 mysql-data")]
@@ -624,7 +624,7 @@ MySQL = `migration` + `migration-mysql`），否则工具会算出不同的 reso
 | **真实 MySQL `8.0.46`**（本机，**不是 8.4**） | ① 全新库 `V1..V13` 13 个迁移 + `validate` 通过（21 表，启动 14.6s）；② 存量库（`flyway.target=10` 模拟现网）→ 只增量 V11/V12/V13 + `validate` 通过；③ `V8` 幂等：先手工建唯一键再跑，走「已存在 → 跳过」分支，无 `Duplicate key name` |
 | H2（2.3.232，`MODE=MySQL`） | 全新库 `V1..V13(h2)` + `validate` 通过；**现有 dev 库副本**升级只增量 V13(h2)（全部 `IF NOT EXISTS` 空转）+ `validate` 通过 |
 
-遗留风险两条：① **Flyway 对 8.4 的官方支持滞后**：Spring Boot 3.5.12 带的 Flyway 在连 8.4.10 时打印
+遗留风险两条：① **Flyway 对 8.4 的官方支持滞后**：Spring Boot 3.5.16 带的 Flyway 在连 8.4.10 时打印
 `MySQL 8.4 is newer than this version of Flyway ... latest supported version of MySQL is 8.1`（仅 WARN）；验收当时 17 个迁移
 与 `validate` 全部通过（V19 为后续增量），说明 DDL 未踩到差异，但升级 8.4 前建议顺手升级 Flyway（或显式接受该告警）；② 极端旧库若
 `health_record.weight` 还是 `DECIMAL(5,1)`、`operation_history.before_state`/`after_state` 还是 `JSON`，`validate` 会报

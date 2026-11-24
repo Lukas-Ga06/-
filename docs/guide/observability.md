@@ -1,6 +1,6 @@
 # 可观测性：SLO、指标字典、告警与 Dashboard
 
-> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.12 / Micrometer Prometheus registry） | 最后验证：2026-11-19 | 事实来源：`travel-agent-server/src/main/java/com/travel/agent/observability/TravelMetrics.java`、`.../agent/AgentStageTimer.java`、`travel-agent-server/src/main/resources/application.yml`、`docs/operations/`
+> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.16 / Micrometer Prometheus registry） | 最后验证：2026-11-19 | 事实来源：`travel-agent-server/src/main/java/com/travel/agent/observability/TravelMetrics.java`、`.../agent/AgentStageTimer.java`、`travel-agent-server/src/main/resources/application.yml`、`docs/operations/`
 
 - **负责范围**：核心指标定义、SLO 与告警阈值、Prometheus 抓取、Grafana Dashboard、日志字段约定
 - **关联文件**：[告警规则](../operations/alerts.yml) ｜ [Grafana Dashboard](../operations/grafana-travel-agent.json) ｜ [故障手册](../operations/runbook.md)

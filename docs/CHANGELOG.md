@@ -2,6 +2,39 @@
 
 按主题记录行为变化。**第四节是最需要注意的**：其中几项改变了原有的使用习惯。
 
+## 安全升级：Spring Boot 3.5.16 + Jackson 2.21.7（Trivy 新库，2026-11-24）
+
+> 由 `main` push 的 Trivy 扫描暴露：同一提交在 PR 的 security job 上是绿的，合并后
+> Trivy 漏洞库更新，才扫出新公布的 CVE；不是本轮功能改动引入的问题。
+
+### 已修
+
+- **Micrometer 两个 HIGH DoS**（`micrometer-core` 1.15.10）：
+  `CVE-2026-40983`（特制 gRPC 请求）、`CVE-2026-40984`（特制 HTTP 请求），**1.15.12** 修复。
+- **Jackson 三个 HIGH**（`jackson-databind` 2.21.4）：`CVE-2026-68497`（XML datatype 数字解析 CPU DoS）、
+  `CVE-2026-91776`（类型缓存无界增长 DoS）、`CVE-2026-91777`，**2.21.7** 修复。
+- 处置：`spring-boot-starter-parent` 3.5.12 → **3.5.16**（同一 3.5.x 补丁线，无代码改动；
+  BOM 带 `micrometer` **1.15.12**、`spring-framework` 6.2.19、`flyway-core` 11.7.2 不变），
+  并显式覆盖 `<jackson-bom.version>` = **2.21.7**。
+
+### 临时豁免（上游修复未发布）
+
+Spring Framework **6.2.19** 命中两条 CRITICAL：`CVE-2026-47884`（`XsltView` SSRF/RCE）、
+`CVE-2026-47890`（SSE + view fragment 流损坏）。修复版本 **6.2.20 尚未发布**
+（Maven Central 最新 6.2.19；Boot 4 / Spring 7 属主版本升级另立项）。
+两条的利用前提在本项目纯 JSON API 中不成立：15 个 `@RestController`，无 `@Controller` /
+`ViewResolver` / XSLT 资源，SSE 用 `SseEmitter` 直接写文本事件。
+按 [CI §6.1](guide/ci.md#61-当前生效的豁免) 记录：条目在 `travel-agent-server/.trivyignore.yaml`，
+`expired_at: 2026-12-31`，修复版本发布并升级后删除。
+
+### 门禁
+
+- 本地 `mvn -B clean verify` **649 tests / 0 failures / 0 errors / 3 skipped**，
+  Checkstyle 0、SpotBugs 通过（2026-11-24）。
+- Trivy 阈值不变（`CRITICAL,HIGH` + `ignore-unfixed` + 退出码 1）；豁免只针对上述两条，
+  其余 CVE 仍然阻断。
+- 文档：当前事实文档里的「Spring Boot 3.5.12」统一改为 3.5.16；历史快照与旧 CHANGELOG 条目保持原文。
+
 ## 灰度阻断项：压测假绿、目的地抽取、限流身份（2026-11-24）
 
 ### 一、行为变化

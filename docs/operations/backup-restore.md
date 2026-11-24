@@ -1,6 +1,6 @@
 # 备份、恢复与迁移演练（P0-D）
 
-> 状态：**已在真实 MySQL 8.4 完成一次备份→恢复→校验演练（2026-11-23，单机合成数据，见 §7.2）；生产类环境与照片/S3 仍未演练** | 适用版本：MySQL 8.4 / Flyway V1–V24 / Spring Boot 3.5.12 | 最后核对：2026-11-23 | 事实来源：`docker-compose.yml`、`travel-agent-server/src/main/resources/db/`、`application-mysql.yml`、`docs/guide/mysql-migration.md`、`docs/guide/deployment.md` §10、[路线图](../PROJECT_ROADMAP.md) P0-D
+> 状态：**已在真实 MySQL 8.4 完成一次备份→恢复→校验演练（2026-11-23，单机合成数据，见 §7.2）；生产类环境与照片/S3 仍未演练** | 适用版本：MySQL 8.4 / Flyway V1–V24 / Spring Boot 3.5.16 | 最后核对：2026-11-23 | 事实来源：`docker-compose.yml`、`travel-agent-server/src/main/resources/db/`、`application-mysql.yml`、`docs/guide/mysql-migration.md`、`docs/guide/deployment.md` §10、[路线图](../PROJECT_ROADMAP.md) P0-D
 
 ## 0. 结论与边界（先看这里）
 

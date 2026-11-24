@@ -1,11 +1,11 @@
 # 快速上手（新人 onboarding）
 
-> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.12 / Node 20） | 最后验证：2026-11-23 | 事实来源：travel-agent-server/pom.xml、travel-agent-server/run-dev.ps1、travel-agent-web/package.json、docker-compose.infra.yml
+> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.16 / Node 20） | 最后验证：2026-11-23 | 事实来源：travel-agent-server/pom.xml、travel-agent-server/run-dev.ps1、travel-agent-web/package.json、docker-compose.infra.yml
 
 > 从零把项目跑起来：装环境 → 启动后端 → 启动前端 → 走通一条完整演示链路 → 知道遇到问题去哪里查。
 > 全流程基于仓库当前 HEAD 的真实脚本与配置，命令可直接复制执行。
 
-本文适用版本：以仓库当前 HEAD 为准（`travel-agent-server` 0.1.0 / Spring Boot 3.5.12，前端 0.1.0）。
+本文适用版本：以仓库当前 HEAD 为准（`travel-agent-server` 0.1.0 / Spring Boot 3.5.16，前端 0.1.0）。
 
 ---
 

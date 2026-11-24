@@ -1,6 +1,6 @@
 # 能力边界与默认口径
 
-> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.12 / Node 20） | 最后验证：2026-11-23 | 事实来源：`travel-agent-server/src/main/resources/application.yml`、`src/main/java/com/travel/agent/{agent,rag,service}/`、`travel-agent-web/src/`、`docs/review/2026-11-22-real-model-acceptance.md`
+> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.16 / Node 20） | 最后验证：2026-11-23 | 事实来源：`travel-agent-server/src/main/resources/application.yml`、`src/main/java/com/travel/agent/{agent,rag,service}/`、`travel-agent-web/src/`、`docs/review/2026-11-22-real-model-acceptance.md`
 
 本文回答一个容易被 README 的「核心能力」列表盖住的问题：**不配置任何 Key 时，产品实际是什么？** 结论先说：
 

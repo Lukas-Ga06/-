@@ -2,7 +2,7 @@
 
 以旅行为唯一核心场景的 AI 智能旅行助手：行前规划 → 行中调整 → 行后回顾；记账、备忘、日程、照片与知识库都归属旅行域。
 
-**技术栈**：Spring Boot 3.5.12 / Java 17（Agent Engine + RAG + Tools）· React 18 + TypeScript + Vite 6 / Node 20
+**技术栈**：Spring Boot 3.5.16 / Java 17（Agent Engine + RAG + Tools）· React 18 + TypeScript + Vite 6 / Node 20
 **核心闭环**：自然语言 → Agent 规划 → 工具执行 → RAG 引用 → Diff → 用户确认 → 落库 → 打卡 / 回顾 / 撤销
 
 > **默认体验先说清楚**：不配置任何 Key 时，产品是「**规则规划器 + 内置目录 + 本地估算**」；

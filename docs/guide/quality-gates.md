@@ -1,6 +1,6 @@
 # 质量门禁（后端发布前必须通过）
 
-> 状态：当前事实 | 适用版本：0.1.0 / Spring Boot 3.5.12（Java 17） | 最后验证：2026-11-20 | 事实来源：`travel-agent-server/pom.xml`、`travel-agent-server/config/`（`checkstyle/checkstyle.xml`、`checkstyle/suppressions.xml`、`spotbugs-exclude.xml`）、`travel-agent-server/.mvn/jvm.config`、`travel-agent-server/src/main/resources/application.yml`
+> 状态：当前事实 | 适用版本：0.1.0 / Spring Boot 3.5.16（Java 17） | 最后验证：2026-11-20 | 事实来源：`travel-agent-server/pom.xml`、`travel-agent-server/config/`（`checkstyle/checkstyle.xml`、`checkstyle/suppressions.xml`、`spotbugs-exclude.xml`）、`travel-agent-server/.mvn/jvm.config`、`travel-agent-server/src/main/resources/application.yml`
 
 一句话导读：`mvn -B verify` 是后端唯一的发布门禁——单元/集成测试 + JaCoCo 覆盖率门槛 + Checkstyle + SpotBugs，任一不过即 BUILD FAILURE；真实 MySQL 迁移与前端门禁见 [mysql-migration.md](mysql-migration.md)、[frontend-quality.md](frontend-quality.md)，CI 编排见 [ci.md](ci.md)。
 
