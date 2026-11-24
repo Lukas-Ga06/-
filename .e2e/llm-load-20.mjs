@@ -55,7 +55,8 @@ const MESSAGES = [
 ];
 
 // 明显不像城市名的字符：句尾助词 / 动词 / 连词 / 出发动词残留
-const SUSPECT_CITY_CHARS = /[的吃玩逛看住待了在和与发去来到想帮请规划安排的着过]/;
+// 注意不要收「安」「排」：它们会把「西安」误判成脏城市（旧版把「安排」拆成字符类的坑）
+const SUSPECT_CITY_CHARS = /[的吃玩逛看住待了和与发去来到想帮请规划着过]/;
 
 const STAMP = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
 
@@ -169,7 +170,7 @@ if (CLASSIFY_ONLY) {
   }
   const results = files.map((f) => applyClassification(JSON.parse(readFileSync(`${OUT_DIR}/${f}`, 'utf8'))));
   const summary = summarize(results, { base: 'reclassified', startedAt: 'reclassified', runs: results.length });
-  writeFileSync(`${OUT_DIR}/summary-reclassified.json`, JSON.stringify(summary, null, 2));
+  writeFileSync(`${OUT_DIR}/${process.env.CLASSIFY_OUT || 'summary-reclassified.json'}`, JSON.stringify(summary, null, 2));
   console.log('run | http | status | outcome | city | elapsed');
   for (const r of results) {
     console.log(
@@ -185,7 +186,7 @@ if (CLASSIFY_ONLY) {
   console.log(`反问轮次（合法终态，非成功）: ${summary.askedBackRuns.length ? summary.askedBackRuns.join(',') : '无'}`);
   console.log(`脏城市名轮次: ${summary.citySuspectRuns.length ? summary.citySuspectRuns.map((x) => `#${x.run}=${x.city}`).join(', ') : '无'}`);
   console.log(`红线（failed=0 且 unknown=0）: ${summary.redLinePassed ? 'PASS' : 'FAIL'}`);
-  console.log(`重分类证据: ${OUT_DIR}/summary-reclassified.json`);
+  console.log(`重分类证据: ${OUT_DIR}/${process.env.CLASSIFY_OUT || 'summary-reclassified.json'}`);
   process.exit(summary.redLinePassed ? 0 : 1);
 }
 
