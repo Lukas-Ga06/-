@@ -2,6 +2,31 @@
 
 按主题记录行为变化。**第四节是最需要注意的**：其中几项改变了原有的使用习惯。
 
+## 收口：H2 控制台验收口径 + 开发 MySQL 镜像对齐（2026-11-24）
+
+- **H2 控制台「404」口径作废**：默认 `H2_CONSOLE_ENABLED=false` 时，`/h2-console/` 由认证入口拦下返回
+  **401 JSON**（`H2ConsoleAccessTest` 断言），经 nginx 则走 SPA 回退返回 200 首页——两者都不暴露控制台。
+  上线清单 §4.3 第 5 项、`DEVELOPMENT.md` 部署注意事项 4、`getting-started.md` 排错表、`deployment.md`
+  加固表与 `api-reference.md` 免登录白名单表已按实际行为改写；代码侧本就是条件式放行（仅
+  `H2_CONSOLE_ENABLED=true` 时进白名单），**未改任何 Java/前端代码**。
+- **开发库镜像对齐生产**：`docker-compose.infra.yml` 的 `mysql:8.0` → **`mysql:8.4`**（与
+  `docker-compose.yml` 同 tag），关闭[上线清单风险 R3](operations/launch-checklist.md) 的版本漂移。
+  已有 8.0 数据卷首次用 8.4 启动属**不可回退**升级，[部署文档 §6.2](guide/deployment.md) 写明
+  「先备份或删卷重建」两种处置；本地不设 collation（继承 8.4 默认 `utf8mb4_0900_ai_ci`），
+  与生产显式 `utf8mb4_unicode_ci` 的差异也已记在该处。
+- 顺带纠正 `deployment.md` §6.2 里「infra compose 仍把 `sql/init.sql` 挂到 `docker-entrypoint-initdb.d/`」
+  的过期描述：该挂载已随「Flyway 单一权威」移除，现只剩 `mysql-data` 卷。
+- **8.4 冷启动已实测（2026-11-24）**：Docker daemon 拉起后，用独立 project 起 `docker-compose.infra.yml`
+  的 `mysql:8.4`（新卷，**8.4.13**；`travel_agent` 空库），`MySqlFlywayMigrationTest` 在同一实例上
+  **成功应用 23 条迁移到 v24**、1 test / 0 failures（8.09 s）。证据见
+  [冷启动快照](review/2026-11-24-infra-mysql84-cold-start.md)。Flyway 对 8.4 报
+  「support has not been tested（支持到 8.1）」的提示属已知项，不影响迁移结果。
+- **GitHub 安全开关已全部开启（2026-11-24）**：仓库改为 Public 后，Dependency graph、Code scanning
+  （advanced workflow，SARIF 已入库，67 条告警待分诊）、Secret scanning + Push protection、
+  `main` 分支保护（9 个必需检查 + 必须 PR + 禁 force push/删除）均生效，
+  `scripts/github-security-settings.mjs` 复核 4/4；推送拦截仍待隔天复测。
+  `dependency-review` 的 `continue-on-error` 由紧随其后的独立 PR 删除，并用测试 PR 验证它会真正拦截。
+
 ## 可观测性：高德降级告警实跑（2026-11-24）
 
 - **两条外部依赖告警首次真跑通**：持续高德降级下 `TravelExternalProviderDegraded{provider="amap"}`

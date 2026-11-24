@@ -324,7 +324,7 @@ antd 侧同步切 `darkAlgorithm`（`main.tsx` 的 `PALETTE`）。
 2. **生产部署设 `DEMO_ACCOUNT=false`**——否则启动时会自动创建公开弱密码账号 demo/demo123（`DataInitializer`）；
 3. schema 变更走 Flyway（`db/migration/V*__`）；存量库首次启动会自动 baseline。
    `ddl-auto` 仍是 `update`，待全面审计后可切 `validate`；
-4. `/h2-console/**` 在默认 profile 下是放行的，生产 profile（mysql）已关闭 H2 控制台，但建议同时从 `SecurityConfig` 的放行列表中移除；
+4. `/h2-console/**` **不再常驻白名单**：只有 `H2_CONSOLE_ENABLED=true` 时才被 `SecurityConfig` 放行；默认关闭时匿名请求由认证入口拦下返回 `401`（`H2ConsoleAccessTest` 断言），生产保持默认即可；
 5. `PendingPlanStore` 已落库（`pending_plan` 表，TTL 30 分钟），多实例与重启都不会丢待确认方案；
    若换成 Redis，注意保持"归属校验 + 过期清理"这两条语义；
 6. 前端生产构建需自行提供 API base（当前 `baseURL` 为 `/api`，由网关或 nginx 反向代理到后端 8080）；
