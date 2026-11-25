@@ -1,6 +1,6 @@
 # CI 门禁：每个 job 做什么、本地怎么复现、失败怎么处理
 
-> 状态：当前事实 | 适用版本：0.1.0（GitHub Actions / JDK 17 / Node 20） | 最后验证：2026-11-23 | 事实来源：`.github/workflows/ci.yml`、`.github/workflows/codeql.yml`、`.github/workflows/visual-baseline.yml`、`.github/dependabot.yml`、`.gitleaks.toml`、`lychee.toml`、`travel-agent-web/package.json`、`travel-agent-server/pom.xml`
+> 状态：当前事实 | 适用版本：0.1.0（GitHub Actions / JDK 17 / Node 20） | 最后验证：2026-11-25 | 事实来源：`.github/workflows/ci.yml`、`.github/workflows/codeql.yml`、`.github/workflows/visual-baseline.yml`、`.github/dependabot.yml`、`.gitleaks.toml`、`lychee.toml`、`travel-agent-web/package.json`、`travel-agent-server/pom.xml`
 
 ## 1. job 总览
 
@@ -11,7 +11,8 @@
 | `frontend` | push/PR | typecheck / lint / format / 覆盖率 / 包体预算 / 契约类型漂移 | `cd travel-agent-web && npm run typecheck && npm run lint && npm run format:check && npm run test:coverage && node scripts/check-core-coverage.mjs && npm run build:check && npm run api:check` |
 | `contract` | push/PR | OpenAPI 快照无漂移；PR 上 oasdiff 破坏性变更 | 见第 4 节 |
 | `docs` | push/PR | 相对链接存在、文档命令真实可用、lychee 本地链接 | `node scripts/docs-check.mjs` |
-| `security` | push/PR | 依赖漏洞（dependency-review / npm audit / Trivy） | 见第 5 节 |
+| `security` | push/PR | 依赖漏洞（dependency-review【硬门禁】/ npm audit / Trivy） | 见第 5 节 |
+| `secret-scan` | push/PR | gitleaks 全历史密钥扫描（固定 8.30.1 + SHA-256，命中即失败） | 见第 5 节 |
 | `e2e` | push/PR | Playwright **14 条**（Chromium 桌面）：登录/建行程/路书/PWA 资源、地图引擎运行时加载、**5 个页面的 axe 无障碍扫描（critical/serious 必须为 0）**、**1 条隔离自证**；后端是独立 H2 内存库 + LLM/MCP/AMAP 全关 | `cd travel-agent-web && npm run e2e:isolated` |
 | `e2e-device` | push/PR | **观察中（`continue-on-error: true`，不阻塞合并）**：移动端 WebKit/iPhone 预设 3 条 + CDP 弱网/离线 3 条 + 多端并发 2 条（连同 13 条主冒烟，共 21 条），同样跑隔离后端 | `cd travel-agent-web && npm run e2e:device:isolated` |
 | `visual` | push/PR | 11 张截图逐像素比较（`maxDiffPixelRatio: 0`）；**仅有 Linux 基线时比较**，当前 `continue-on-error: true` 观察 | `cd travel-agent-web && npm run test:visual`（需 Linux 基线，见第 3 节 visual） |
@@ -154,18 +155,22 @@ oasdiff breaking /tmp/openapi-base.json docs/api/openapi.json --fail-on ERR
 
 | 检查 | 触发 | 阈值 | 处置 |
 | --- | --- | --- | --- |
-| dependency-review | PR | `fail-on-severity: high`，只评新增依赖 | 升级到修复版本，或说明为何必须引入并申请豁免 |
+| dependency-review | PR | `fail-on-severity: high`，只评新增依赖；**2026-11-25 起无 `continue-on-error`，为硬门禁** | 升级到修复版本，或说明为何必须引入并申请豁免 |
 | `npm audit --audit-level=high` | push/PR | high + critical | 升级/low-risk fix；无修复版本时评估替代依赖 |
 | Trivy（Maven 依赖） | push/PR | CRITICAL,HIGH，`ignore-unfixed` | 升级依赖；确实无修复版本则记录风险与到期时间 |
-| CodeQL | push/PR/每周 | security-and-quality | 私有仓库未开通 GHAS 时只分析不上传（`CODEQL_UPLOAD` 变量控制）；开通后按告警修复，误报加抑制注释并说明 |
-| gitleaks | 由 `.gitleaks.toml` 驱动 | 默认全仓 + 精确放行 | 真实密钥泄露：立即轮换 → 清理历史 → 复盘 |
+| CodeQL | push/PR/每周 | security-and-quality | 公开仓库已上传 SARIF；67 条告警分诊中，误报加抑制注释并说明 |
+| gitleaks | push/PR（`secret-scan` job） | 全历史 `--log-opts=--all`，固定 8.30.1 + SHA-256，命中即失败 | 真实密钥泄露：立即轮换 → 清理历史 → 复盘 |
 
-> CodeQL 的 SARIF 上传依赖 GitHub Advanced Security。本仓库（私有）未开通时，workflow 默认
-> `upload=false`：照常做 Java/TS 分析，但不发布 code scanning 告警；开通 GHAS 后把仓库变量
-> `CODEQL_UPLOAD` 设为 `true` 即可恢复上传。2026-11-24 实测未开通时上传会报
-> `Code scanning is not enabled for this repository`。
+> CodeQL 的 SARIF 上传依赖 GitHub Advanced Security。仓库自 2026-11-24 改为 **Public** 后，
+> code scanning 与上传均免费可用：仓库变量 `CODEQL_UPLOAD` 已设为 `true`，`codeql.yml` 的
+> `upload` 条件成立，main 上的分析结果已入库（67 条 open 告警待分诊）。
+> 历史背景：私有 Free 仓库时上传会报 `Code scanning is not enabled for this repository`，
+> 当时靠 `upload: ${{ vars.CODEQL_UPLOAD == 'true' }}` 保持 workflow 绿但不上传。
 
-gitleaks 放行范围只有三类：测试专用固定 JWT 密钥（正则精确匹配）、文档占位符目录、本地 `.env.local` 与验收证据目录（`.gitignore` 已排除，存在时也不该阻断）。**不要**把整个 `src/` 或 `docs/` 加进 paths 放行。
+gitleaks 放行范围只有四类，全部是**精确值或本地文件**：测试专用固定 JWT 密钥、明确占位词、
+2026-11-25 首次 CI 实跑后逐条核实的 7 条历史测试值/占位/文档示例（见
+[安全设置清单 §2.6](../operations/github-security-settings.md)），以及本地 `.env.local` 与验收证据目录
+（`.gitignore` 已排除，存在时也不该阻断）。**不要**把整个 `src/` 或 `docs/` 加进 paths 放行。
 
 ## 6. 临时豁免流程
 

@@ -2,6 +2,23 @@
 
 按主题记录行为变化。**第四节是最需要注意的**：其中几项改变了原有的使用习惯。
 
+## 安全门禁收口：dependency-review 硬门禁、CI gitleaks、SECURITY.md、推送拦截实测（2026-11-25）
+
+- **dependency-review 转为硬门禁**：仓库改 Public 并开启 Dependency graph 后，删除 `ci.yml` 里
+  `continue-on-error: true`；PR #24 的 job 日志确认步骤真实执行（不是跳过），一次性负向 PR #27 加入
+  `minimist@1.2.5` 后 `Security / 依赖漏洞` 变红（红在兜底的 `npm audit`：1 critical），验证后关闭未合并。
+- **CI 增加 gitleaks 全历史扫描**：PR #25 新增 `secret-scan` job（gitleaks 8.30.1，下载后 SHA-256 校验，
+  `--log-opts=--all -c .gitleaks.toml`）；首次实跑命中 7 条历史测试值/占位/文档示例，已按精确值放行，
+  复扫 0 命中。
+- **补齐 `SECURITY.md`**：PR #26 增加根目录政策，指向已开启的 Private vulnerability reporting
+  （`GET /private-vulnerability-reporting` → `{"enabled":true}`），并写明响应预期与不在范围。
+- **Push protection 拦截已验证**：「开关已开、拦截未验证」作废。一次性分支推送多 provider 假凭据时，
+  Slack / Stripe 格式被 `GH013` + `PUSH PROTECTION` 拒绝并定位到 commit/path；伪造 `ghp_` 未被拦是
+  GitHub 对自身 token 的有效性判断，不代表开关失效。详见
+  [安全设置清单 §2.6](operations/github-security-settings.md)。
+- **分支保护**：必需检查从 9 项增至 **10** 项（新增 `Security / gitleaks 密钥扫描`）。
+- 剩余：67 条 CodeQL 告警分诊（单独批次）。
+
 ## 收口：H2 控制台验收口径 + 开发 MySQL 镜像对齐（2026-11-24）
 
 - **H2 控制台「404」口径作废**：默认 `H2_CONSOLE_ENABLED=false` 时，`/h2-console/` 由认证入口拦下返回

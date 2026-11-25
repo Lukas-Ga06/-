@@ -48,6 +48,7 @@ const REQUIRED_CHECKS = [
   'Contract / OpenAPI 快照一致 + 破坏性变更',
   'Docs / 链接与命令引用校验',
   'Security / 依赖漏洞',
+  'Security / gitleaks 密钥扫描',
   'E2E / Playwright smoke（后端 H2 + 前端 preview）',
   'Analyze (java-kotlin)',
   'Analyze (javascript-typescript)',

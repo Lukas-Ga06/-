@@ -1,6 +1,6 @@
 # GitHub 仓库安全设置清单（人工操作）
 
-> 状态：**已完成（2026-11-24）**：仓库已改为 **Public**，Dependency graph、Code scanning（advanced workflow，SARIF 已入库）、Secret scanning + Push protection、`main` 分支保护（9 个必需检查 + 必须 PR + 禁 force push/删除）全部开启并经 REST API 复核 4/4 | 最后核对：2026-11-24 | 事实来源：`scripts/github-security-settings.mjs`、`.github/workflows/ci.yml`、`.github/workflows/codeql.yml`、`docs/guide/ci.md`、GitHub REST API 实测
+> 状态：**已完成（2026-11-25）**：仓库已改为 **Public**；Dependency graph、Code scanning（advanced workflow，SARIF 已入库，67 条告警待分诊）、Secret scanning + Push protection（**推送拦截已实测**）、`main` 分支保护（**10** 个必需检查，含 gitleaks + 必须 PR + 禁 force push/删除）、Private vulnerability reporting + `SECURITY.md`、CI gitleaks 与 dependency-review 硬门禁全部落地；`scripts/github-security-settings.mjs` 复核 4/4 | 最后核对：2026-11-25 | 事实来源：`scripts/github-security-settings.mjs`、`.github/workflows/ci.yml`、`.github/workflows/codeql.yml`、`docs/guide/ci.md`、GitHub REST API 实测
 
 本文是 GitHub 后台的可勾选清单，供仓库管理员按步骤开启依赖图、Dependabot、Code scanning、Secret scanning 与分支保护，并判断何时可以把 `dependency-review` 的 `continue-on-error` 去掉。
 
@@ -12,11 +12,11 @@
 | --- | --- | --- |
 | 工作流 | `ci.yml`、`codeql.yml`、`visual-baseline.yml`（人工触发生成 Linux 视觉基线） | `.github/workflows/` 目录 |
 | CodeQL workflow | 已存在：push/PR 到 `main` + 每周一 03:17 UTC；`java-kotlin`、`javascript-typescript`；`security-and-quality` | `codeql.yml` |
-| Dependency review | 已配置，但带 `continue-on-error: true`（未启用 Dependency graph 时跳过） | `ci.yml` 的 `security` job |
+| Dependency review | ✅ **硬门禁**（2026-11-25 起删除 `continue-on-error`；步骤实跑证据与负向验证见 §5） | `ci.yml` 的 `security` job |
 | `e2e-device` | `continue-on-error: true`（观察中，不阻塞） | `ci.yml` |
 | `visual` | `continue-on-error: true`；仓库现有基线是 Windows 版，需先用 `visual-baseline.yml` 生成 Linux 基线才真正比较 | `ci.yml`、`visual-baseline.yml` |
 | Dependabot | 已配置 maven / npm / github-actions 每周检查，只提 PR 不自动合并 | `dependabot.yml` |
-| 密钥扫描 | 仓库有 `.gitleaks.toml`，但 **CI 中没有 gitleaks 步骤**；GitHub Secret scanning 已核对为**不可用**（见下行），当前无平台侧扫描 | `.gitleaks.toml`、`ci.yml` |
+| 密钥扫描 | ✅ 平台侧 Secret scanning + Push protection 已开启（拦截实测见 §2.4）；CI 已加 `gitleaks` 全历史扫描（8.30.1，SHA-256 校验），与本地/改公开前的命令一致 | `.gitleaks.toml`、`ci.yml` 的 `secret-scan` job |
 | Actions 生产密钥 | 当前 workflow 未引用生产密钥（MySQL service 用作业内固定口令） | 三个 workflow |
 | 仓库可见性 / 订阅 | **Public**（2026-11-24 由 Private 改为公开）+ 个人 Free：公开仓库的分支保护、Code scanning、Secret scanning 均免费可用 | `PATCH /repos/Lukas-Ga06/-` → `private:false, visibility:"public"`；`security_and_analysis` 出现 secret_scanning 两项 |
 | 改公开前的历史扫描 | **已扫描**：gitleaks v8.30.1 全分支全历史 166 commits / 8.61 MB，7 条命中**全部为测试值或占位**（`MCP_ENABLED=true`、两个 local-only 的 base64 测试 JWT、`INVALID_RESILIENCE_TEST_KEY_0001`、文档里的 `eyJ...xxx` 示例 token）；无 AWS/GitHub PAT/私钥类命中 | `gitleaks git . --log-opts=--all -c .gitleaks.toml`；默认规则集复核结果相同 |
@@ -24,9 +24,9 @@
 | Dependabot alerts | **已开启** | `GET /repos/Lukas-Ga06/-/vulnerability-alerts` → 204（2026-11-24） |
 | Dependabot security updates | **已开启且未暂停** | `GET /repos/Lukas-Ga06/-/automated-security-fixes` → `{"enabled": true, "paused": false}`（2026-11-24） |
 | Code scanning | **已开启**（advanced workflow + SARIF 入库；仓库变量 `CODEQL_UPLOAD=true`）；已产生 **67 条 open 告警**（high 16 / medium 10 / note 33 / warning 7 / error 1） | 复跑 `run 45396658700`（attempt 2）成功；`GET /code-scanning/analyses` 显示 2026-11-24 入库 `java-kotlin` 64 条、`javascript-typescript` 3 条结果，`error` 为空；`GET /code-scanning/alerts?state=open` → 67 |
-| Secret scanning / Push protection | 开关**已开启**；扫描告警与推送拦截**尚未观察到生效**（见 §2.4 实测） | `security_and_analysis` → `secret_scanning.status=enabled`、`secret_scanning_push_protection.status=enabled`；5 次一次性推送未被拦截、`/secret-scanning/alerts` 仍为空（2026-11-24） |
+| Secret scanning / Push protection | ✅ 已开启，且 **推送拦截已实测生效**（2026-11-25：Slack/Stripe 格式被 `GH013` 拒绝；伪造 `ghp_` 未被拦的原因见 §2.6.1） | `secret_scanning.status=enabled`、`secret_scanning_push_protection.status=enabled`；复测记录见 §2.6.1 |
 | 分支保护 / Ruleset | **已写入**（classic 分支保护；`main`，9 个必需检查，`strict`，`enforce_admins`，禁 force push 与删除） | `PUT /repos/Lukas-Ga06/-/branches/main/protection` → 200，`GET` 复核一致（2026-11-24） |
-| Private vulnerability reporting | 未开启（已不再受订阅限制，需要时一条 API 即可） | `GET /repos/Lukas-Ga06/-/private-vulnerability-reporting` → 404（2026-11-24） |
+| Private vulnerability reporting | ✅ 已开启，并由根目录 `SECURITY.md` 指向该渠道 | `GET /private-vulnerability-reporting` → `{"enabled":true}`（2026-11-25） |
 
 ## 1. 前置确认
 
@@ -68,13 +68,39 @@
 
 - [x] 开启 **Secret scanning**：已开启。仓库改 Public 时 GitHub 自动开启，`PATCH` 复核 200（`security_and_analysis.secret_scanning.status=enabled`）。
 - [x] 开启 **Push protection**：开关已开启（`secret_scanning_push_protection.status=enabled`）。
-- [ ] 推送拦截实测：**未能证明生效**（2026-11-24）。用 5 个一次性分支各推一条明显假凭据——AWS 文档示例 Key、随机 `AKIA` Key、伪 PEM、畸形 `ghp_` Token、`ssh-keygen` 真实生成的 OpenSSH 私钥——GitHub **全部接收**，且 60 秒内 `GET /secret-scanning/alerts` 仍为 0 条；每次推送后分支已立即删除。结论按「开关已开、拦截未验证」记录，**不写成已验证**。建议隔天复测一次（或由人工在网页用 GitHub 提供的样例串确认）。
-- [x] 历史补偿措施保留：改公开前已用 gitleaks 扫过全历史（§0）；CI 里的 gitleaks 步骤仍**缺失**（需单独 PR）。在平台侧扫描尚未观察到告警的情况下，**本地 gitleaks 是当前唯一可靠的门禁**，建议优先补上。
+- [x] 推送拦截实测：**已验证生效（2026-11-25）**。在一次性分支上提交一组多 provider 格式的假凭据后 `git push`，被 GitHub 以 **`GH013` + `GITHUB PUSH PROTECTION` + “Push cannot contain secrets”** 拒绝，并逐条指出 `Slack API Token` 与 `Stripe API Key` 的 commit/path；推送未到达远端，分支已删除。复测细节与一个**反例**（格式正确的伪造 `ghp_` token 未被拦，因 GitHub 对自身 token 有额外有效性判断，不代表开关失效）见 §2.6.1。
+- [x] 历史补偿措施保留：改公开前已用 gitleaks 扫过全历史（§0）；2026-11-25 起 CI 的 `secret-scan` job 对每个 PR 跑同一套 gitleaks 全历史扫描，7 条历史命中已逐条核实并在 `.gitleaks.toml` 按精确值放行（见 §2.6.2）。
 
-### 2.5 Private vulnerability reporting（建议）
+### 2.5 Private vulnerability reporting
 
-- [ ] 开启 **Private vulnerability reporting**：**不可用**（`GET /repos/Lukas-Ga06/-/private-vulnerability-reporting` → 404，私有 Free 仓库同受订阅限制）。
-- [ ] 在 `SECURITY.md` 或 README 写明报告渠道（当前仓库没有 `SECURITY.md`，可作为后续补充；订阅不可用时至少要有公开渠道）。
+- [x] 开启 **Private vulnerability reporting**：已开启（`GET /repos/Lukas-Ga06/-/private-vulnerability-reporting` → `{"enabled":true}`，2026-11-25）。
+- [x] 在 `SECURITY.md` 写明报告渠道：根目录 [SECURITY.md](../../SECURITY.md) 指向该私密渠道，并写明响应预期、不在范围与凭据处理口径。
+
+## 2.6 2026-11-25 复测记录
+
+### 2.6.1 Push protection（从「未验证」转为「已验证」）
+
+在一次性的 `test/push-protection-2026-11-25` 分支上提交含假凭据的文本文件，连续两次推送：
+
+| 次 | 内容 | 结果 |
+| --- | --- | --- |
+| 1 | 伪造但格式正确的 `ghp_` + 36 位字母数字（GitHub PAT 形态） | **被接受**（exit 0）；60–75 秒后 `/secret-scanning/alerts` 仍为 0 条。GitHub 对自身 token 会做有效性判断，明显无效的伪造 token 不触发拦截——这**不是**开关失效的证据 |
+| 2 | 追加 AWS `AKIA…`、fine-grained `github_pat_…`、Slack `xoxb-…`、Stripe `sk_live_…` 四种格式 | **被拒绝**：`remote: error: GH013: Repository rule violations found` → `GITHUB PUSH PROTECTION` → `Push cannot contain secrets`，逐条列出 `Slack API Token`（`push-protection-probe.txt:5`）与 `Stripe API Key`（`…:6`） |
+
+结论：**推送拦截确实生效**，「开关已开、拦截未验证」这条记录到此关闭。一次性分支与本地分支均已删除，未合并任何内容。
+
+### 2.6.2 CI gitleaks 的 7 条历史命中
+
+`secret-scan` job 第一次实跑命中 7 条（168 commits / 8.65 MB），逐条核实**全部是测试值/占位/文档示例**：
+
+| 文件 | 内容 | 判断 |
+| --- | --- | --- |
+| `.env.production.example:109` | `MCP_ENABLED=true` | `generic-api-key` 误判布尔开关 |
+| `.e2e/dark/start-instance.mjs:26`、`.e2e/resilience/manage-instance.mjs:30` | base64 JWT secret（值本身写明 local-only） | 本地测试用 |
+| `.e2e/acceptance/evidence/resilience.json:766`、`docs/review/2026-11-19-resilience.md:155` | `INVALID_RESILIENCE_TEST_KEY_0001` | 显式无效占位 |
+| `docs/guide/api-reference.md:142,156` | `eyJhbGciOiJIUzI1NiJ9.xxx` | 文档示例 token |
+
+已按「精确值放行、不做目录级豁免」原则写入 `.gitleaks.toml`；本地复扫 0 命中，CI 转绿。
 
 ## 3. Settings → Branches → 分支保护（main）
 
@@ -93,6 +119,7 @@
 | ✅ | `Contract / OpenAPI 快照一致 + 破坏性变更` |
 | ✅ | `Docs / 链接与命令引用校验` |
 | ✅ | `Security / 依赖漏洞` |
+| ✅ | `Security / gitleaks 密钥扫描`（2026-11-25 起，见 §2.6.2） |
 | ✅ | `E2E / Playwright smoke（后端 H2 + 前端 preview）` |
 | ✅ | `Analyze (java-kotlin)` |
 | ✅ | `Analyze (javascript-typescript)` |
@@ -105,7 +132,7 @@
 - [ ] （建议）勾选 **Require linear history**，或在团队约定里说明不强制（脚本未开，保持团队约定）。
 - [ ] （可选）**Require signed commits** 视团队密钥管理能力决定。
 - [x] 验证（直接 push）：`git push origin main` 被拒——`GH006: Protected branch update failed`，附「Changes must be made through a pull request」与「9 of 9 required status checks are expected」（2026-11-24 实测；用空提交验证后已 `reset --soft` 回滚，未留痕）。
-- [ ] 验证（PR 流程）：还需一个真实 PR 确认「缺检查时不能合并、检查全绿后能合并」——下次开 PR 时顺手记录。
+- [x] 验证（PR 流程，2026-11-25）：#23–#26 四个 PR 都必须在检查全绿后才能合并；`strict` 使落后于 `main` 的分支先 `update-branch` 并重跑检查（#24/#25/#26 各经历一次），符合「必须 PR + 必须最新 + 必需检查」的预期。
 
 ## 4. Settings → Actions → General（建议）
 
@@ -116,6 +143,8 @@
 - [ ] 验证：新建一个无权限 PR，确认 workflow 使用只读 token。
 
 ## 5. `dependency-review` 的 `continue-on-error` 何时可以删除
+
+> **已完成（2026-11-25）**：`continue-on-error` 已删除（PR #24），并在 #24 的 job 日志里确认步骤真实执行（`Dependency review did not detect any vulnerable packages with severity level "high" or higher.`，不是跳过）。#27 作为一次性负向测试 PR 引入 `minimist@1.2.5`，`Security / 依赖漏洞` job 变红——红在兜底的 `npm audit`（`1 critical`），dependency-review 本身在本次扫描里未判 high+（PR head 的依赖图快照时序问题，已记录在 #27 评论）；验证后 PR 已关闭、未合并。下面「删除条件 / 步骤」保留为执行记录。
 
 当前代码（`ci.yml` → `security` job）：
 
@@ -150,12 +179,13 @@
 | Dependabot alerts | 同上 | ✅ Enabled（已有 3 条 medium 告警） | 2026-11-24 | `GET /vulnerability-alerts` → 204；`GET /dependabot/alerts?state=open` → 3 |
 | Dependabot security updates | 同上 | ✅ Enabled（未暂停） | 2026-11-24 | `GET /automated-security-fixes` → `{"enabled":true,"paused":false}` |
 | Code scanning（advanced） | 同上 + Actions | ✅ Enabled，SARIF 已入库，67 条 open 告警 | 2026-11-24 | `GET /code-scanning/analyses` → 2026-11-24 两条分析（java 64 / js 3，`error` 空）；`GET /code-scanning/alerts?state=open` → 67 |
-| Secret scanning | 同上 | ✅ 开关 Enabled / ⚠️ 扫描告警未观察到 | 2026-11-24 | `secret_scanning.status=enabled`；`GET /secret-scanning/alerts` → 200 且为空（含 5 次一次性推送后） |
-| Push protection | 同上 | ✅ 开关 Enabled / ⚠️ 拦截未验证（5 次探测均未拦） | 2026-11-24 | `secret_scanning_push_protection.status=enabled`；探测分支推送均 success（分支已删） |
-| 分支保护 | Settings → Branches | ✅ 已写入（strict + 9 个必需检查 + 禁 force push/删除 + 对管理员生效） | 2026-11-24 | `PUT /branches/main/protection` → 200；`GET` 复核一致 |
-| Private vulnerability reporting | Settings → Code security | ⬜ 未开启（已不受订阅限制，需要时一条 API） | 2026-11-24 | `GET /private-vulnerability-reporting` → 404 |
+| Secret scanning | 同上 | ✅ 开关 Enabled；推送拦截已验证（§2.6.1） | 2026-11-25 | `secret_scanning.status=enabled`；拦截实测见 §2.6.1 |
+| Push protection | 同上 | ✅ **拦截已验证**（`GH013` 拒绝 Slack/Stripe 格式） | 2026-11-25 | `secret_scanning_push_protection.status=enabled`；探测推送被拒，分支未落远端 |
+| 分支保护 | Settings → Branches | ✅ 已写入（strict + **10** 个必需检查 + 禁 force push/删除 + 对管理员生效） | 2026-11-25 | `PUT /branches/main/protection` → 200；`GET` 复核一致 |
+| Private vulnerability reporting | Settings → Code security | ✅ Enabled + `SECURITY.md` 指向私密渠道 | 2026-11-25 | `GET /private-vulnerability-reporting` → `{"enabled":true}` |
 | Actions 权限 | Settings → Actions → General | ⬜ 本次未核对 | `[ ]` | 见 §4，需人工确认 default workflow 权限 |
-| dependency-review 转硬门禁 | `ci.yml` | ⬜ 未执行（条件 1 满足，2–4 需测试 PR） | 2026-11-24 | §5 条件 1 达成；其余待办 |
+| dependency-review 转硬门禁 | `ci.yml` | ✅ 已执行（PR #24；#27 负向验证后关闭） | 2026-11-25 | 步骤实跑日志 + #27 的 job 变红 |
+| CI gitleaks | `ci.yml` | ✅ 已执行（`secret-scan` job，8.30.1 + SHA-256） | 2026-11-25 | 7 条历史命中按精确值放行，复扫 0 命中（§2.6.2） |
 
 ## 7. 未完成 / 不在本任务范围
 
@@ -164,16 +194,16 @@
 | 仓库可见性 | **已改为 Public**（2026-11-24；改前 gitleaks 全历史扫描，命中项均为测试值/占位） |
 | Dependency graph / Dependabot alerts / security updates | **已完成并核对**（2026-11-24） |
 | Code scanning | **已开启**：高级 workflow + SARIF 入库；已有 **67 条 open 告警**待分诊 |
-| Secret scanning / Push protection | 开关**已开启**；扫描告警与推送拦截**未观察到生效**，按「未验证」记录，待隔天复测（见 §2.4） |
-| 分支保护（main） | **已写入并复核**：strict + 9 个必需检查 + 禁 force push/删除 + 对管理员生效 |
+| Secret scanning / Push protection | 开关**已开启**且**推送拦截已验证**（2026-11-25，§2.6.1）；平台告警仍为 0 条（拦截发生在入库前，属预期） |
+| 分支保护（main） | **已写入并复核**：strict + **10** 个必需检查（含 gitleaks）+ 禁 force push/删除 + 对管理员生效 |
 | 改用 CodeQL Default setup | **未执行且不建议**：与高级 workflow 互斥，需先删 `codeql.yml`，且默认套件弱于现在的 `security-and-quality` |
-| 67 条 CodeQL 告警的分诊 | **未执行**：需单独批次；CodeQL check 不会因告警变红，要"有告警就不许合并"需另配 |
-| 删除 `dependency-review` 的 `continue-on-error` | **未执行**（需单独 PR + 测试 PR 验证证据；条件 1 已满足） |
-| 在 CI 增加 gitleaks 步骤 | **当前不存在**；平台侧扫描尚未观察生效前，这是主要的补偿手段 |
+| 67 条 CodeQL 告警的分诊 | **进行中**：分诊记录与修复单列批次（`docs/review/2026-11-25-codeql-triage.md`）；CodeQL check 不会因告警变红，要"有告警就不许合并"需另配 |
+| 删除 `dependency-review` 的 `continue-on-error` | **已完成（2026-11-25，#24）**：步骤实跑 + #27 负向验证后关闭 |
+| 在 CI 增加 gitleaks 步骤 | **已完成（2026-11-25，#25）**：`secret-scan` job，8.30.1 + SHA-256，7 条历史命中精确放行（§2.6.2） |
 | `e2e-device` 转硬门禁 | **未执行**（观察期） |
 | `visual` 转硬门禁 | **未执行**：Linux 基线已提交，仍在观察稳定性 |
-| `SECURITY.md` | **不存在**，建议补充漏洞报告渠道（Private vulnerability reporting 也未开启） |
-| 本文档与 `scripts/github-security-settings.mjs` 的改动 | **未提交**：`main` 现已要求走 PR + 9 项必需检查，这两处改动需要单独开 PR |
+| `SECURITY.md` | **已完成（2026-11-25，#26）**：根目录文件指向已开启的 Private vulnerability reporting |
+| 本文档与 `scripts/github-security-settings.mjs` 的改动 | **已提交（2026-11-25 同步 PR）**：`REQUIRED_CHECKS` 增加 gitleaks，合并后 `--apply` 写入 10 项必需检查 |
 
 ## 8. 核对与解锁（一条命令）
 
@@ -198,6 +228,16 @@ node scripts/github-security-settings.mjs --apply   # 写入：Dependency graph�
 | 公开前历史扫描 | gitleaks v8.30.1，全分支全历史（`--log-opts=--all`），仓库自带 `.gitleaks.toml` + 默认规则集双跑 | 166 commits / 8.61 MB，7 条命中全部为测试值或占位；无 AWS/GitHub PAT/私钥类命中 |
 | 开启 | `PATCH` 仓库安全设置 + `PUT` 分支保护 + `POST` 仓库变量 `CODEQL_UPLOAD=true` | 全部 2xx/201 |
 | 复核 | `node scripts/github-security-settings.mjs` | 4/4，退出码 0 |
+
+### 8.2 2026-11-25 收口记录
+
+| 步骤 | 做法 | 结果 |
+| --- | --- | --- |
+| dependency-review 硬门禁 | PR #24 删除 `continue-on-error`；#27 一次性负向 PR 引入 `minimist@1.2.5` 验证 | #24 合并；#27 的 `Security / 依赖漏洞` job 变红后关闭（红在 npm audit 兜底） |
+| CI gitleaks | PR #25 增加 `secret-scan` job（8.30.1 + SHA-256） | 合并；首次实跑 7 条历史命中按精确值放行后转绿 |
+| SECURITY.md | PR #26 增加根目录政策并指向 PVR | 合并；PVR 已开启 |
+| push protection 复测 | 一次性分支推送多 provider 假凭据 | Slack/Stripe 格式被 `GH013` 拒绝；见 §2.6.1 |
+| 必需检查 | 本同步 PR 更新 `REQUIRED_CHECKS` 后 `--apply` | 10 个必需检查（新增 `Security / gitleaks 密钥扫描`） |
 
 > 许可提醒：仓库现在**公开可见**，但 `LICENSE` 仍是专有许可——公开只改变了可见性，不授予他人使用、复制、修改的权利。若打算真正开源，需要另行更换许可证。
 
