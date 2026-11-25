@@ -239,9 +239,8 @@ public class AgentEngine {
             }
             // P0-B 多意图：把「其余独立请求」挂到上下文，complete/finish 两处（REST 与 SSE 共用）
             // 据此在最终回复末尾追加一次用户可见提示；为空时保持回复原样。
-            if (intent != null) {
-                ctx.setAlsoRequested(intent.getAlsoRequested());
-            }
+            // 上面的 null 兜底已保证 intent 非空，这里不再套 if（否则是死判断，CodeQL useless-null-check）。
+            ctx.setAlsoRequested(intent.getAlsoRequested());
             if (abortIfCancelled(ctx, "after-intent")) {
                 return aborted(ctx);
             }
