@@ -151,10 +151,14 @@ public class AgentContext {
             return;
         }
         long remaining = getBudget().remainingMs();
-        budgetDegradations.add(new BudgetDegradation(stage, detail, remaining));
-        log.warn("Agent 预算耗尽触发降级: runId={} stage={} remainingMs={} detail={}",
-                runId, stage, remaining, detail);
-        emit("budget_degraded", Map.of("stage", stage, "detail", detail, "remainingMs", remaining));
+        // 第二阶段：时间没到点但花费触顶时，降级文案必须说清「是哪个花费项到顶、用了多少/上限多少」。
+        // 只追加不覆盖：调用方给的是阶段语义（「跳过审核」），花费原因是在它之上的补充说明。
+        String exhausted = getBudget().spend().describeExhaustion();
+        String fullDetail = exhausted.isEmpty() ? detail : detail + "（花费预算：" + exhausted + "）";
+        budgetDegradations.add(new BudgetDegradation(stage, fullDetail, remaining));
+        log.warn("Agent 预算耗尽触发降级: runId={} stage={} remainingMs={} spend={} detail={}",
+                runId, stage, remaining, getBudget().spend().summary(), fullDetail);
+        emit("budget_degraded", Map.of("stage", stage, "detail", fullDetail, "remainingMs", remaining));
     }
 
     /** 本轮是否发生过预算降级（收尾提示 / 追踪任务 / 单测断言用） */

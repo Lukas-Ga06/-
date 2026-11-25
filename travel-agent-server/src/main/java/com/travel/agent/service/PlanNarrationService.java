@@ -1,5 +1,6 @@
 package com.travel.agent.service;
 
+import com.travel.agent.agent.AgentBudget;
 import com.travel.agent.llm.LlmClient;
 import com.travel.agent.llm.LlmMessage;
 import lombok.RequiredArgsConstructor;
@@ -32,11 +33,25 @@ public class PlanNarrationService {
 
     /** 润色失败/不可用时原样返回模板，调用方无需判空 */
     public String polish(String template) {
+        return polish(template, AgentBudget.unlimited());
+    }
+
+    /**
+     * 带预算的润色：调用经 {@link AgentBudget#chat}，与其它 Agent 阶段共用同一套
+     * 「读超时封顶 + 花费记账」口径。
+     *
+     * <p>为什么保留 {@code POLISH_READ_TIMEOUT_MS}：润色是锦上添花，不能为了记账把它
+     * 退化成全局 30s；预算只会在「剩余时间更少」时进一步压低它，不会放大。
+     *
+     * @param budget 本轮预算；{@code null} 等价于不限量（渠道/单测）
+     */
+    public String polish(String template, AgentBudget budget) {
         if (template == null || template.isBlank() || !llmClient.available()) {
             return template;
         }
+        AgentBudget effective = budget == null ? AgentBudget.unlimited() : budget;
         try {
-            String polished = llmClient.chat(List.of(
+            String polished = effective.chat(llmClient, List.of(
                     LlmMessage.system("你是旅行助理的文案编辑。只输出润色后的中文正文，不要任何解释、前后缀或 Markdown 代码块。"),
                     LlmMessage.user(PROMPT + template)), 0.4, POLISH_READ_TIMEOUT_MS);
             if (polished == null) {

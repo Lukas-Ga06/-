@@ -342,17 +342,32 @@ docker compose down -v                # ⚠️ 连卷一起删：MySQL 数据与
 | `EMBEDDING_MODEL` | `BAAI/bge-m3` | 可选 | Embedding 模型名 | `BAAI/bge-m3`；**换模型需清空 `rag_document`/`rag_chunk`/`rag_document_version` 重建** |
 | `RAG_MIN_SCORE` | `0.05` | 可选 | RAG 检索最低相似度阈值；低于该值的命中不进入回答/引用 | 0.05 |
 
-### 5.3.1 Agent 主链路时间预算（V2.2 收口）
+### 5.3.1 Agent 主链路预算：时间（V2.2 收口）+ 花费（第二阶段）
 
 | 变量 | 默认值 | 是否必需 | 作用 | 未配置时的行为 |
 | --- | --- | --- | --- | --- |
-| `AGENT_BUDGET_ENABLED` | `true` | 可选 | 是否给 `/api/agent/chat` 与 `/api/agent/stream` 创建端到端时间预算 | 默认开启；设 `false` 完全回退旧行为（不建 deadline、所有阶段检查放行） |
+| `AGENT_BUDGET_ENABLED` | `true` | 可选 | 是否给 `/api/agent/chat` 与 `/api/agent/stream` 创建端到端预算（时间 + 花费） | 默认开启；设 `false` 完全回退旧行为（不建 deadline、不建花费预算、所有阶段检查放行） |
 | `AGENT_BUDGET_TOTAL_MS` | `30000` | 可选 | 端到端总预算（毫秒），含排队时间；**耗尽不报错**，按 ADR-002 降级（intent→规则、research 跳过、结构化规划→规则规划、审核跳过） | 30 秒 |
+| `AGENT_SPEND_ENABLED` | `true` | 可选 | 是否叠加花费预算（调用次数/工具次数/重试/token/费用） | 默认开启；设 `false` 只保留时间预算 |
+| `AGENT_SPEND_MAX_LLM_CALLS` | `30` | 可选 | 单轮 LLM 调用次数上限（含失败/超时尝试）；正常一轮约 8–15 次 | 30 次 |
+| `AGENT_SPEND_MAX_TOOL_CALLS` | `200` | 可选 | 单轮工具调用次数上限；确定性规划每天约 8 次工具（7 天行程 60+），这里拦的是工具风暴 | 200 次 |
+| `AGENT_SPEND_MAX_RETRIES` | `5` | 可选 | 单轮重试次数上限（结构化规划带反馈重试 + 审核重规划） | 5 次 |
+| `AGENT_SPEND_MAX_TOKENS` | `200000` | 可选 | 单轮 token 总量上限（输入+输出，取自供应商 `usage`，缺失不计、不估算） | 20 万 |
+| `AGENT_SPEND_MAX_COST_USD` | `1.0` | 可选 | 单轮估算费用上限（美元）；**只在配置了 LLM 单价时才可能触发** | 1.00 美元 |
 
 预算耗尽时的可观测面：回复里明确写「跳过审核/研究、结果未经完整校验，可稍后重试」；SSE 发 `budget_degraded` 事件；
-日志 WARN 带 `runId` 与剩余预算；运行追踪多一条 `taskType=DEGRADE` 任务。
+日志 WARN 带 `runId`、剩余预算与花费摘要；运行追踪多一条 `taskType=DEGRADE` 任务；每轮收尾还有一条
+`Agent 本轮花费: ... exhausted=...` INFO 日志与 `travel.agent.spend{result,limit}` 指标。
 调大该值不会让请求变慢失控——单次 LLM 读超时也会被压到「剩余预算」以内；但**审核阶段内部的外部调用
 （高德算路 6s / 天气 5s / MCP 工具）仍受各自超时约束**，不受预算收紧，这是已知边界。
+
+花费预算的三条边界（第二阶段）：
+- **token/费用是软上限**：次数类在发起前判定，token 与费用只能从响应里读到，因此一次在途调用可能刚越过上限，
+  越界量被「一次调用」封顶，下一次调用一定被拒。
+- **费用上限需要真实价目表**：`LLM_PROMPT_PRICE_PER_1K_USD` / `LLM_COMPLETION_PRICE_PER_1K_USD` 为 0 时费用恒为 0，
+  该项不会误伤——绝不用猜测单价卡用户请求。
+- **工具触顶是降级不是失败**：超预算的工具调用直接跳过（返回 null，规划侧按「查不到」处理：少排一个点、
+  路线成本记 0），并在回复里说明；**不会**把整轮请求打成 FAILED。
 
 ### 5.3.2 可靠执行链路（P0）
 
@@ -471,9 +486,9 @@ docker compose down -v                # ⚠️ 连卷一起删：MySQL 数据与
 | S3 映射（compose 转 `TRAVEL_PHOTOS_S3_*`） | 7 | `S3_ENDPOINT` `S3_REGION` `S3_BUCKET` `S3_ACCESS_KEY` `S3_SECRET_KEY` `S3_PATH_STYLE` `S3_CHECKSUM_VALIDATION` |
 | 数据库与其他 | 11 | `SPRING_PROFILES_ACTIVE` `MYSQL_HOST` `MYSQL_PORT` `MYSQL_DATABASE` `MYSQL_USERNAME` `MYSQL_PASSWORD` `MCP_ENABLED` `RAG_CHUNK_VERSION_RETENTION` `JAVA_OPTS` `TZ` `H2_CONSOLE_ENABLED` |
 | 会话记忆 | 2 | `CONVERSATION_HISTORY_LIMIT` `CONVERSATION_RETENTION_DAYS` |
-| Agent 时间预算 | 2 | `AGENT_BUDGET_ENABLED` `AGENT_BUDGET_TOTAL_MS` |
+| Agent 预算（时间 + 花费） | 8 | `AGENT_BUDGET_ENABLED` `AGENT_BUDGET_TOTAL_MS` `AGENT_SPEND_ENABLED` `AGENT_SPEND_MAX_LLM_CALLS` `AGENT_SPEND_MAX_TOOL_CALLS` `AGENT_SPEND_MAX_RETRIES` `AGENT_SPEND_MAX_TOKENS` `AGENT_SPEND_MAX_COST_USD` |
 | 可靠执行链路（P0） | 8 | `PENDING_PLAN_LEASE_MINUTES` `PENDING_PLAN_SWEEP_INTERVAL_MS` `OUTBOX_DISPATCH_INTERVAL_MS` `OUTBOX_BATCH_SIZE` `OUTBOX_DISPATCHING_LEASE_MINUTES` `OUTBOX_MAX_ATTEMPTS` `OUTBOX_BASE_BACKOFF_SECONDS` `OUTBOX_MAX_BACKOFF_SECONDS` |
-| **合计** | **81** | 应用侧 67（两份 yml 去重）+ 3 个前端构建期变量 + 4 个仅 Docker 面变量（`MYSQL_ROOT_PASSWORD`、`SPRING_PROFILES_ACTIVE`、`JAVA_OPTS`、`TZ`）+ 7 个 S3 映射输入 |
+| **合计** | **87** | 应用侧 73（两份 yml 去重）+ 3 个前端构建期变量 + 4 个仅 Docker 面变量（`MYSQL_ROOT_PASSWORD`、`SPRING_PROFILES_ACTIVE`、`JAVA_OPTS`、`TZ`）+ 7 个 S3 映射输入 |
 
 > 口径提示：`TESSERACT_CMD`、`TESSDATA_PREFIX`、`INVOICE_DIR`、`INVOICE_STORE` 已随发票/OCR 退役删除，不再是有效配置项；`INVOICE_DIR` 也已从 `docker-compose.yml` / Dockerfile 移除。
 > `SPRING_DATA_REDIS_HOST` / `SPRING_DATA_REDIS_PORT` 由 compose 固定为内置 `redis` 服务，属内部连接项，不计入用户变量；外部 Redis 才需要 override。
@@ -482,16 +497,16 @@ docker compose down -v                # ⚠️ 连卷一起删：MySQL 数据与
 
 | 来源 | 数量 | 说明 |
 | --- | --- | --- |
-| `application.yml` 的 `${VAR:default}` 占位 | 62 | P0 可靠链路新增 8 个（`PENDING_PLAN_*` / `OUTBOX_*`）后按 active 行重新核对（`AMAP_KEY` 只在 `travel.amap.key`，`AMAP_MAPS_API_KEY` 只在 `travel.mcp.servers[].env`） |
+| `application.yml` 的 `${VAR:default}` 占位 | 68 | 第二阶段新增 6 个花费预算占位（`AGENT_SPEND_*`）后重新核对（P0 可靠链路新增 8 个；`AMAP_KEY` 只在 `travel.amap.key`，`AMAP_MAPS_API_KEY` 只在 `travel.mcp.servers[].env`） |
 | `application-mysql.yml` 的占位 | 5 | `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_DATABASE` / `MYSQL_USERNAME` / `MYSQL_PASSWORD` |
-| 两份 yml 合计（去重） | **67** | P0 删除发票/OCR 配置、新增可靠链路占位后重新核对 |
+| 两份 yml 合计（去重） | **73** | P0 删除发票/OCR 配置、新增可靠链路与花费预算占位后重新核对 |
 | Java 代码内独立 env 占位 | **0** | 主代码不再有独立 env 占位（`@Value` 只读配置项默认值） |
 | 仅由 `docker-compose.yml` / Dockerfile 提供 | 4 | `MYSQL_ROOT_PASSWORD`、`TZ`、`SPRING_PROFILES_ACTIVE`、`JAVA_OPTS`（后端 `ENTRYPOINT` 消费） |
 | S3 映射输入 | 7 | `S3_*` → `TRAVEL_PHOTOS_S3_*`（`docker-compose.yml` 的 `environment` 右侧，含 `S3_PATH_STYLE` / `S3_CHECKSUM_VALIDATION`） |
 | 前端构建期变量 | 3 | `VITE_AMAP_KEY`、`VITE_AMAP_SECURITY_CODE`、`VITE_FOOTPRINT_BASEMAP` |
 | `System.getenv` 直接读取 | **0** | 全仓库主代码没有 `System.getenv`（测试代码只用 `System.getProperty`） |
 
-对账：67（yml 去重）+ 3（前端构建期）+ 4（仅 Docker 面）+ 7（S3 映射）= **81**。复核命令：
+对账：73（yml 去重）+ 3（前端构建期）+ 4（仅 Docker 面）+ 7（S3 映射）= **87**。复核命令：
 
 ```bash
 grep -rhoE '\$\{[A-Z0-9_]+' travel-agent-server/src/main/resources/application*.yml | sed 's/^..//' | sort -u | wc -l

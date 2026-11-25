@@ -6,6 +6,10 @@
 >
 > **2026-11-25 补记**：P0 可靠执行链路（确认租约/栅栏、事务性 Outbox、运行状态落库、SSE 事件持久化与续传）
 > 已在 `feat/p0-reliability` 落地，四阶段映射见 §1.1；§2–§4 的完成度仍以 2026-11-22/23 基线为准，未随本次交付重算。
+>
+> **2026-11-25 第二阶段补记**：统一花费预算（`AgentSpend`：LLM 调用次数 / 工具次数 / 重试 / token / 估算费用）
+> 已在同一分支落地，叠加在既有 deadline 预算上；MCP 逐 server 治理仍待办。证据见
+> [花费预算验收记录](review/2026-11-25-spend-budget.md)，状态见 §1.1 第二阶段行。
 
 本文是当前项目的执行口径。它把“代码已经实现”“自动化已经验证”“真实外部服务已经验证”和“可以公网发布”分开，避免把已完成工作重复排期，也避免把本地模拟通过误写成生产就绪。
 
@@ -46,7 +50,7 @@
 | 阶段 | 提案主题 | 仓库真实状态（2026-11-25） | 本次交付 | 排期依据 |
 | --- | --- | --- | --- | --- |
 | **第一阶段：核心可靠性（P0）** | 持久化状态机、PendingPlan 生命周期与崩溃恢复、Confirm 并发/事务安全、Outbox、SSE 断线恢复 | **5/5 已落地**：`agent_run` 状态/心跳/阶段历史 + `ABANDONED` 恢复；`pending_plan` 租约 + 提交栅栏；`plan_outbox` 与投递器；`agent_run_event` + 帧 id/`Last-Event-ID`/续传端点；前端自动续传一次。后端完整 `mvn verify`、前端全部门禁与隔离 E2E 已在本次通过；真实 MySQL 以 CI 为准 | 本次只交付本阶段 | [现实核对 §2/§4/§5](review/2026-11-25-p0-checklist-reality-check.md)；实现与验证见 [P0 可靠链路评审](review/2026-11-25-p0-reliability.md) |
-| **第二阶段：Agent 能力增强** | 多维预算、MCP 治理、旅行数据真实性、审核风险规则、局部重规划、Undo 补偿 | 已有主体：`AgentBudget` 截止时间/阶段预算、`McpToolBridge` 只读桥接、`ReflectAgent`/`PlanReviewLoop`、行中锁定、`OperationHistoryService` 撤销。待补：统一花费口径（token/工具次数/$）、MCP 逐 server 熔断与白名单；其余按真实缺口补，不重写 | **未开始（仍待办）** | [现实核对 §3/§8 第 6–7 项](review/2026-11-25-p0-checklist-reality-check.md)：这两项是「可控 Agent 系统」的真实缺口，规模 M |
+| **第二阶段：Agent 能力增强** | 多维预算、MCP 治理、旅行数据真实性、审核风险规则、局部重规划、Undo 补偿 | **统一花费预算已落地（2026-11-25）**：`AgentSpend` 叠加在 deadline 上（LLM 调用次数 / 工具次数 / 重试 / token / 估算费用），token 取自供应商 `usage`、缺失不估算；触顶走既有降级语义（回复 + `budget_degraded` + DEGRADE 任务 + `travel.agent.spend` 指标），工具触顶是「跳过并降级」而不是把请求打成 FAILED。已有主体：`McpToolBridge` 只读桥接、`ReflectAgent`/`PlanReviewLoop`、行中锁定、`OperationHistoryService` 撤销。待补：MCP 逐 server 白名单/熔断/配额/审计；真实 Embedding 与 POI 质量验收；局部重规划与 Reflect 风险规则按缺口补 | **花费预算已交付；MCP 治理未开始** | [花费预算验收记录](review/2026-11-25-spend-budget.md)；[现实核对 §3/§8 第 6–7 项](review/2026-11-25-p0-checklist-reality-check.md) |
 | **第三阶段：工程化** | CI/质量门禁、可观测性、真实 MySQL、真机与合规 | 已落地：`mvn verify` + 命名发布验收、前端门禁、CodeQL/Trivy/gitleaks、告警路由与送达演练（2026-11-25）。待补：OpenTelemetry（当前零依赖）、真实 Android 真机、真实告警渠道/值班人、法务占位、GitHub 安全设置 | **未开始（仍待办）** | [现实核对 §8 第 8 项](review/2026-11-25-p0-checklist-reality-check.md)（OTel，M）；真机与外部输入项见本文 §5 |
 | **第四阶段：产品智能化** | 实时库存/价格、长期偏好记忆、个性化 RAG、回顾增强 | 真实旅行数据链路（天气/POI/路线/预算/足迹）已基本真实化；待补：真实 Embedding provider 的质量与成本、跨旅行长期偏好画像、OTA 实时房态/库存需服务商授权。均属 P2，不阻断 v1 | **未开始（仍待办）** | [现实核对 §8 末段](review/2026-11-25-p0-checklist-reality-check.md)：剩余主要是真实 Embedding 与流量成本，不属于 v1 阻断项；P2 边界见本文 §3 |
 

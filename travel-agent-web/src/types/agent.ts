@@ -134,12 +134,12 @@ export type TaskReceiver =
   | 'executor-agent'
   | 'reflect-agent'
   | 'tool-invoker'
-  /** 预算守卫：时间预算耗尽时落一条 DEGRADE 任务（后端契约 AgentEngine.BUDGET_TASK_TYPE） */
+  /** 预算守卫：时间或花费预算耗尽时落一条 DEGRADE 任务（后端契约 AgentEngine.BUDGET_TASK_TYPE） */
   | 'budget-guard';
 
 /**
  * REPLAN 是 V2.2 FR-06 新增的任务类型：审核发现 HIGH 问题后的一次有限重规划。
- * DEGRADE 是 P1 时间预算的降级留痕：summary 写明哪个阶段因预算被跳过。
+ * DEGRADE 是预算降级的留痕：summary 写明哪个阶段因哪种预算（时间 / 花费）被跳过。
  */
 export type TaskType =
   'INTENT' | 'RESEARCH' | 'PLAN' | 'PREVIEW' | 'REVIEW' | 'REPLAN' | 'TOOL' | 'COMMIT' | 'DEGRADE';

@@ -33,6 +33,15 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
     private RestClient client;
     private final Map<Integer, RestClient> timeoutClients = new ConcurrentHashMap<>();
 
+    /**
+     * 本线程最近一次调用解析到的 usage（花费预算用）：{@link #takeLastUsage()} 一次性消费。
+     *
+     * <p>用 ThreadLocal 而不是字段：同一个客户端被多个会话并发共享，字段会被别的请求覆盖，
+     * 记出来的花费随机串到别人头上。调用是同步的，写和读都在同一线程上，ThreadLocal 足够
+     * 且不需要加锁；每次 {@code doChat} 入口先清空，失败/跳过不会残留上一次的用量。
+     */
+    private final ThreadLocal<LlmUsage> lastUsage = new ThreadLocal<>();
+
     private synchronized RestClient client() {
         if (client == null) {
             client = buildClient(props.getReadTimeoutMs());
@@ -72,6 +81,8 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
 
     private String doChat(List<LlmMessage> messages, double temperature, RestClient target) {
         long startedAt = System.nanoTime();
+        // 清空上一次残留：本次调用没有 usage 时，读侧必须拿到「没有」而不是上一轮的用量
+        lastUsage.remove();
         try {
             List<Map<String, String>> msgs = messages.stream()
                     .map(m -> Map.of("role", m.role(), "content", m.content()))
@@ -131,10 +142,19 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
             if (prompt <= 0 && completion <= 0) {
                 return;
             }
+            // 花费预算的一次性用量出口：与指标同时记录，但两者互不依赖
+            lastUsage.set(new LlmUsage(prompt, completion));
             travelMetrics.recordLlmUsage(prompt, completion);
         } catch (RuntimeException e) {
             log.debug("解析 LLM usage 失败: {}", e.getMessage());
         }
+    }
+
+    @Override
+    public LlmUsage takeLastUsage() {
+        LlmUsage usage = lastUsage.get();
+        lastUsage.remove();
+        return usage == null ? LlmUsage.NONE : usage;
     }
 
     @Override

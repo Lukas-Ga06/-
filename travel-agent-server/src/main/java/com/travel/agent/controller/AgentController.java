@@ -652,7 +652,8 @@ public class AgentController {
         ctx.setSelectedElement(request.getSelectedElement());
         ctx.setMapCenter(request.getMapCenter());
         // P1：同步 /chat 与 SSE 两个入口共用同一套预算语义（从这里开始计时，含排队时间）
-        ctx.setBudget(budgetProperties.newBudget(llmProperties.getReadTimeoutMs()));
+        // 第二阶段：时间预算 + 花费预算（token/工具/重试/费用）由同一份配置一次性创建
+        ctx.setBudget(budgetProperties.newBudget(llmProperties));
         return ctx;
     }
 

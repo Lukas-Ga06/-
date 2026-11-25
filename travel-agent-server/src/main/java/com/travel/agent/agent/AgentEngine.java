@@ -99,7 +99,7 @@ public class AgentEngine {
     /** 预算降级追踪任务类型：任务列表里一眼可见「本轮发生过预算降级」（对外契约，单测据此断言） */
     public static final String BUDGET_TASK_TYPE = "DEGRADE";
     /** 用户可见的预算降级提示前缀（幂等判断用：complete 与 finish 都会走到提示逻辑） */
-    static final String BUDGET_NOTICE_PREFIX = "⏳ 时间预算";
+    static final String BUDGET_NOTICE_PREFIX = "⏳ 本轮预算";
 
     /** 降级阶段的用户可读文案：不写内部术语（review/REPLAN），说人话并点明「没做什么」 */
     private static final Map<String, String> BUDGET_STAGE_LABELS = Map.of(
@@ -433,6 +433,8 @@ public class AgentEngine {
 
     /** 出口统一落一条助手消息（也吃掉 null message 的返回），异常时同样不挡主流程 */
     private AgentDtos.AgentResult finish(AgentContext ctx, AgentDtos.AgentResult result, String intent) {
+        // 第二阶段：本轮花费收尾（所有正常/异常出口都经 finish，保证每轮恰好记一次）
+        recordSpend(ctx);
         // 预算降级的说明必须在返回给用户之前补上（handler 自己发的 complete 事件可能已先到，
         // 所以 complete() 与 finish() 两处都要挂，靠前缀幂等避免重复）
         attachBudgetNotice(ctx, result);
@@ -449,6 +451,25 @@ public class AgentEngine {
     }
 
     // ==================== P1 端到端时间预算：用户提示与追踪留痕 ====================
+
+    /**
+     * 本轮花费收尾：一条 INFO 日志（按 runId 可回查）+ 一个低基数指标（可按 limit 告警）。
+     *
+     * <p>为什么不落库：{@code agent_run} 没有花费列，加列要新迁移且需要真实 MySQL 验证；
+     * 在列迁移落地之前，日志 + 指标已经能回答「这一轮花了多少、有没有到顶、卡在哪一项」。
+     * 未启用花费预算的入口（渠道/单测）不打这条日志——避免刷屏且没有任何信息量。
+     */
+    private void recordSpend(AgentContext ctx) {
+        AgentSpend spend = ctx.getBudget().spend();
+        if (!spend.isEnabled()) {
+            return;
+        }
+        AgentSpend.Snapshot snapshot = spend.snapshot();
+        log.info("Agent 本轮花费: runId={} userId={} {} exhausted={}",
+                ctx.getRunId(), ctx.getUserId(), spend.summary(),
+                snapshot.exhausted() == null ? "none" : snapshot.exhausted().tag());
+        travelMetrics.spendOutcome(snapshot);
+    }
 
     /**
      * 把预算降级写进用户可见的回复（message + warnings）。
@@ -480,15 +501,34 @@ public class AgentEngine {
         }
     }
 
-    /** 「预算耗尽 → 降级了哪个阶段」的用户可读说明（同一阶段只出现一次） */
+    /**
+     * 「预算耗尽 → 降级了哪个阶段」的用户可读说明（同一阶段只出现一次）。
+     *
+     * <p>第二阶段起有两种预算：时间与花费。文案必须说清是哪一种到顶——
+     * 把「token 用满」写成「30s 超时」是撒谎，用户会据此做出错误判断（以为重试就能好）。
+     */
     private static String budgetNoticeLine(AgentContext ctx) {
         String stages = ctx.getBudgetDegradations().stream()
                 .map(d -> BUDGET_STAGE_LABELS.getOrDefault(d.stage(), d.stage()))
                 .distinct()
                 .collect(java.util.stream.Collectors.joining("、"));
-        return BUDGET_NOTICE_PREFIX + "（" + String.format(java.util.Locale.ROOT, "%.1f",
-                ctx.getBudget().totalMs() / 1000.0) + "s）已用尽，为保证按时返回做了降级："
-                + stages + "。本次结果未经完整校验，可稍后重试获取完整结果。";
+        AgentBudget budget = ctx.getBudget();
+        String spendReason = budget.spend().describeExhaustion();
+        StringBuilder line = new StringBuilder(BUDGET_NOTICE_PREFIX);
+        if (budget.isExhausted()) {
+            // 时间真的到点（remainingMs<=0）：保留原有的秒数说明，测试与文档都按它读
+            line.append("：时间预算（")
+                    .append(String.format(java.util.Locale.ROOT, "%.1f", budget.totalMs() / 1000.0))
+                    .append("s）");
+            line.append(spendReason.isEmpty() ? "已用尽" : "与花费预算（" + spendReason + "）已用尽");
+        } else if (!spendReason.isEmpty()) {
+            line.append("：花费预算（").append(spendReason).append("）已用尽");
+        } else {
+            // 剩余时间够总预算但不够某个阶段的下限（典型：研究单步 100ms 的余量判定）
+            line.append("：剩余预算不足以完成全部阶段");
+        }
+        return line.append("，为保证可控返回做了降级：").append(stages)
+                .append("。本次结果未经完整校验，可稍后重试获取完整结果。").toString();
     }
 
     /**
@@ -502,8 +542,10 @@ public class AgentEngine {
             return;
         }
         try {
+            // 第二阶段：detail 里已经写明「时间不够」还是「哪个花费项到顶」，追踪任务照抄，
+            // 不再统一写成「预算耗尽」——排障时要能直接从任务列表区分两种预算。
             String summary = ctx.getBudgetDegradations().stream()
-                    .map(d -> d.stage() + "：预算耗尽降级（剩余 " + d.remainingMs() + "ms）")
+                    .map(d -> d.stage() + "：" + d.detail() + "（剩余 " + d.remainingMs() + "ms）")
                     .collect(java.util.stream.Collectors.joining("；"));
             String taskId = traceService.startTask(ctx.getRunId(), ctx.getUserId(),
                     BUDGET_TASK_RECEIVER, BUDGET_TASK_TYPE);
@@ -670,8 +712,9 @@ public class AgentEngine {
         final AgentPlan planned = outcome != null && outcome.attempts() > 0 ? outcome.plan() : candidate;
         // 模板事实 + 模型润色（必须在审核/修复之后，数字才是最终值）。
         // P1：润色是锦上添花且要再调一次模型——预算不够就用模板原文，并留下降级痕迹。
-        if (ctx.getBudget().allows(AgentBudget.MIN_NARRATION_MS)) {
-            preview.setMessage(planNarrationService.polish(composePlanMessage(planned)));
+        // 第二阶段：这里的门禁同时覆盖时间与花费（token/调用次数触顶时润色同样不该发）。
+        if (ctx.getBudget().allowsLlmCall(AgentBudget.MIN_NARRATION_MS)) {
+            preview.setMessage(planNarrationService.polish(composePlanMessage(planned), ctx.getBudget()));
         } else {
             ctx.recordBudgetDegradation(AgentBudget.STAGE_NARRATION, "预算耗尽，跳过文案润色（使用模板文案）");
             preview.setMessage(composePlanMessage(planned));
@@ -889,12 +932,16 @@ public class AgentEngine {
         }
         // P1：预算耗尽时不再发起外部工具调用（MCP/HTTP 可能很慢）；如实告诉用户「没查」，
         // 而不是返回一个空的「已查询」——那等于伪造一次外部查询（ADR-002 / ADR-006）。
-        if (!ctx.getBudget().allows(AgentBudget.MIN_TOOL_MS)) {
-            ctx.recordBudgetDegradation(AgentBudget.STAGE_TOOL, "预算耗尽，未执行外部工具查询");
+        // 第二阶段：花费预算（工具次数）触顶是同一语义的另一半——同样不能假装查过了。
+        AgentSpend spend = ctx.getBudget().spend();
+        boolean timeAllowed = ctx.getBudget().allows(AgentBudget.MIN_TOOL_MS);
+        if (!timeAllowed || !spend.allowsToolCall()) {
+            String reason = timeAllowed ? "花费预算" : "时间预算";
+            ctx.recordBudgetDegradation(AgentBudget.STAGE_TOOL, reason + "耗尽，未执行外部工具查询");
             return complete(ctx, AgentDtos.AgentResult.builder()
                     .intent(intent.getIntent())
                     .status(AgentDtos.STATUS_COMPLETED)
-                    .message("⏳ 时间预算已用尽，本次没有执行外部工具「" + toolName + "」的查询，请稍后重试。")
+                    .message("⏳ " + reason + "已用尽，本次没有执行外部工具「" + toolName + "」的查询，请稍后重试。")
                     .warnings(new ArrayList<>())
                     .build());
         }

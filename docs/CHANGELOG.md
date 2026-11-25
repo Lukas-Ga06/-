@@ -2,6 +2,29 @@
 
 按主题记录行为变化。**第四节是最需要注意的**：其中几项改变了原有的使用习惯。
 
+## 第二阶段：Agent 统一花费预算（2026-11-25）
+
+- **新增花费预算 `AgentSpend`，叠加在既有时间预算上**：单轮上限覆盖 LLM 调用次数、工具调用次数、重试次数、
+  token 总量与估算费用；任一到顶都按 ADR-002 既有语义降级（回复 + SSE `budget_degraded` + DEGRADE 任务），
+  **不报错、不伪造结果**。入口在 `AgentBudget.chat`（唯一 LLM 出口）与 `ToolInvoker.invoke`（唯一工具出口），
+  新增阶段自动计费，不依赖调用方自觉。
+- **token 只认供应商 `usage`**：`LlmClient#takeLastUsage` 返回解析到的真实用量（一次性消费），
+  缺失即不计；费用上限只在配置了 `LLM_PROMPT_PRICE_PER_1K_USD` / `LLM_COMPLETION_PRICE_PER_1K_USD`
+  时才可能触发，绝不用猜测单价卡请求。
+- **工具触顶是降级而不是失败**：超预算的工具调用直接跳过（返回 `null`，规划侧按「查不到」处理：少排一个点、
+  路线成本记 0），回复里写明「花费预算耗尽，未执行工具」。这一条是本批修掉的真实坑：最初实现选择抛异常，
+  结果一次正常三日游规划（内部工具调用 20+）被打成 `FAILED`，由 `AgentBudgetIntegrationTest` 当场抓到。
+- **默认值按真实用量校准**：`max-llm-calls=30`（正常一轮 8–15）、`max-tool-calls=200`（确定性规划每天约 8 次工具，
+  7 天行程 60+）、`max-retries=5`、`max-tokens=200000`、`max-cost-usd=1.0`。默认值拦失控循环，不是给正常请求设 SLO。
+- **可观测**：新增 `travel.agent.spend{result=within|exhausted, limit=none|llm_calls|tool_calls|retries|tokens|cost}`
+  指标；每轮收尾一条 `Agent 本轮花费: runId=... llm=... tool=... tokens=... cost=...` INFO 日志；
+  DEGRADE 任务摘要改为带具体原因（「时间不够」还是「哪一项花费到顶」）；用户文案区分「时间预算」与「花费预算」。
+- **配置**：新增 6 个 `AGENT_SPEND_*` 变量（`application.yml`、`docker-compose.yml`、`.env.production.example`、
+  部署/生产配置文档同步）。`application.yml` 占位 62→68，环境变量合计 81→87。
+- 边界（未验证/未覆盖，详见[验收记录](review/2026-11-25-spend-budget.md)）：每轮花费**不落库**（需新迁移，暂用日志 + 指标）；
+  另有 4 处辅助调用（知识问答 `RagService#answer`、城市目录 `OnlineCityService` 两条路径、行程回顾 `TripReviewService`）
+  仍是单发、不经 Agent 预算（润色 `PlanNarrationService` 本批已接入）；真实供应商的 token 记账未在测试环境跑过（测试不触网）。
+
 ## 安全门禁收口：dependency-review 硬门禁、CI gitleaks、SECURITY.md、推送拦截实测（2026-11-25）
 
 - **dependency-review 转为硬门禁**：仓库改 Public 并开启 Dependency graph 后，删除 `ci.yml` 里

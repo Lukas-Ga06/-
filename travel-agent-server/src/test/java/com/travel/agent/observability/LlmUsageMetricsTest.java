@@ -3,6 +3,7 @@ package com.travel.agent.observability;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.travel.agent.llm.LlmProperties;
+import com.travel.agent.llm.LlmUsage;
 import com.travel.agent.llm.OpenAiCompatibleLlmClient;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.DisplayName;
@@ -103,5 +104,33 @@ class LlmUsageMetricsTest {
 
         assertThat(tokens("prompt")).isEqualTo(100.0);
         assertThat(registry.find(TravelMetrics.LLM_COST_USD).counter()).isNull();
+    }
+
+    // ==================== 第二阶段：花费预算的用量出口 ====================
+
+    @Test
+    @DisplayName("usage 同时挂到 takeLastUsage：花费预算能读到真实用量，且只读一次")
+    void exposesUsageOnceForSpendBudget() throws Exception {
+        OpenAiCompatibleLlmClient client = client();
+        ReflectionTestUtils.invokeMethod(client, "recordUsage", objectMapper.readTree("""
+                {"choices":[{"message":{"content":"ok"}}],
+                 "usage":{"prompt_tokens":1200,"completion_tokens":300}}
+                """));
+
+        assertThat(client.takeLastUsage()).isEqualTo(new LlmUsage(1200, 300));
+        assertThat(client.takeLastUsage())
+                .as("一次性消费：同一个用量不能被两轮预算重复记账")
+                .isEqualTo(LlmUsage.NONE);
+    }
+
+    @Test
+    @DisplayName("没有 usage 时不产生用量：花费预算不会凭空给带价格的调用记账")
+    void noUsageMeansNoSpendAccounting() throws Exception {
+        OpenAiCompatibleLlmClient client = client();
+        ReflectionTestUtils.invokeMethod(client, "recordUsage", objectMapper.readTree("""
+                {"choices":[{"message":{"content":"ok"}}]}
+                """));
+
+        assertThat(client.takeLastUsage()).isEqualTo(LlmUsage.NONE);
     }
 }

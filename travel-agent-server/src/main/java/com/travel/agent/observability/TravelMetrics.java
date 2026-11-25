@@ -1,5 +1,6 @@
 package com.travel.agent.observability;
 
+import com.travel.agent.agent.AgentSpend;
 import com.travel.agent.llm.LlmProperties;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -32,6 +33,8 @@ import org.springframework.stereotype.Component;
  *       <td>type=prompt|completion</td></tr>
  *   <tr><td>travel.llm.cost.usd</td><td>travel_llm_cost_usd_total</td><td>counter</td>
  *       <td>无（金额累加，单位美元）</td></tr>
+ *   <tr><td>travel.agent.spend</td><td>travel_agent_spend_total</td><td>counter</td>
+ *       <td>result=within|exhausted、limit=none|llm_calls|tool_calls|retries|tokens|cost</td></tr>
  * </table>
  *
  * <p>既有指标不重复造轮子（见 {@code docs/guide/observability.md}）：
@@ -53,6 +56,11 @@ public class TravelMetrics {
     public static final String LLM_TOKENS = "travel.llm.tokens";
     /** LLM 成本估算（美元累加）：单价未配置时完全不记录，避免用 0 或过期价目表虚报 */
     public static final String LLM_COST_USD = "travel.llm.cost.usd";
+    /**
+     * 单轮花费预算结果（每轮 Agent 调用 +1）：result=within / exhausted。
+     * exhausted 时用 limit 指出卡在哪一项——这是「预算是不是设得太紧」的唯一低基数依据。
+     */
+    public static final String AGENT_SPEND = "travel.agent.spend";
 
     public static final String RESULT_SUCCESS = "success";
     public static final String RESULT_DEGRADED = "degraded";
@@ -63,6 +71,12 @@ public class TravelMetrics {
 
     public static final String TOKEN_PROMPT = "prompt";
     public static final String TOKEN_COMPLETION = "completion";
+
+    /** 花费预算结果：本轮没触顶 / 触顶后按降级语义收尾 */
+    public static final String SPEND_WITHIN = "within";
+    public static final String SPEND_EXHAUSTED = "exhausted";
+    /** 没触顶时的 limit tag 取值：保持 tag 始终存在，PromQL 不必处理缺 tag 的序列 */
+    public static final String SPEND_LIMIT_NONE = "none";
 
     private final MeterRegistry meterRegistry;
     private final LlmProperties llmProperties;
@@ -125,6 +139,22 @@ public class TravelMetrics {
         }
     }
 
+    /**
+     * 记一轮 Agent 调用的花费结果（第二阶段）：没触顶记 within，触顶记 exhausted 并带上触顶项。
+     *
+     * <p>为什么只记「结果」而不把用了多少 token/多少钱当 tag：那是无界数值（每秒都在变），
+     * 进 tag 就是基数炸弹。用量本身由 {@code travel.llm.tokens} / {@code travel.llm.cost.usd}
+     * 解释，这里只回答「有多少轮被预算截断、卡在哪一项」。
+     */
+    public void spendOutcome(AgentSpend.Snapshot snapshot) {
+        if (snapshot == null) {
+            return;
+        }
+        String result = snapshot.exhausted() == null ? SPEND_WITHIN : SPEND_EXHAUSTED;
+        String limit = snapshot.exhausted() == null ? SPEND_LIMIT_NONE : snapshot.exhausted().tag();
+        count(AGENT_SPEND, "result", result, "limit", limit, 1.0);
+    }
+
     private void count(String name, String tagKey, String tagValue, double amount) {
         if (amount <= 0 || tagValue == null) {
             return;
@@ -135,6 +165,20 @@ public class TravelMetrics {
         } catch (RuntimeException e) {
             // 指标故障绝不影响主流程
             log.debug("记录指标失败: name={} {}={} err={}", name, tagKey, tagValue, e.getMessage());
+        }
+    }
+
+    /** 双 tag 计数：两个 tag 都是枚举型（result/limit），基数受控 */
+    private void count(String name, String tagKey1, String tagValue1, String tagKey2, String tagValue2,
+                       double amount) {
+        if (amount <= 0 || tagValue1 == null || tagValue2 == null) {
+            return;
+        }
+        try {
+            meterRegistry.counter(name, tagKey1, tagValue1, tagKey2, tagValue2).increment(amount);
+        } catch (RuntimeException e) {
+            log.debug("记录指标失败: name={} {}={} {}={} err={}",
+                    name, tagKey1, tagValue1, tagKey2, tagValue2, e.getMessage());
         }
     }
 

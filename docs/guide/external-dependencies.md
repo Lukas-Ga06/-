@@ -68,6 +68,9 @@ sum by (provider) (rate(external_degraded_total[5m])) > 0.2
 
 - 配置：`travel.llm.base-url` / `connect-timeout-ms`（默认 5000）/ `read-timeout-ms`（默认 30000，`application.yml` 用 `LLM_CONNECT_TIMEOUT_MS` / `LLM_READ_TIMEOUT_MS` 覆盖）。
 - 单次调用还可带独立读超时：`AgentBudget.chat` 在端到端预算（`travel.agent.budget.*`，默认 30s）开启时把读超时压到「配置值与剩余预算的较小者」，避免最后一个阶段越过 deadline。
+- 花费口径（第二阶段）：`AgentBudget.chat` 同时是**唯一的 LLM 花费记账口**——调用次数与响应 `usage` 里的 token 计入 `AgentSpend`，
+  单项到顶即拒绝下一次调用并按降级语义收尾（`travel.agent.spend`）。响应没有 `usage` 时不记 token（不估算）；
+  费用上限只在 `LLM_PROMPT_PRICE_PER_1K_USD` / `LLM_COMPLETION_PRICE_PER_1K_USD` 配了真实单价时才可能触发。
 - 重试：**0**。`OpenAiCompatibleLlmClient.chat` 失败即返回 `null`。
 - 降级链：`OpenAiCompatibleLlmClient` → `null`；`DelegatingLlmClient` 在未配置/配额耗尽/真实调用失败时同样返回 `null`（分别记 `llm.calls{result=skipped|quota|failed}`）；上层 `AgentEngine`/`StructuredPlanner` 用 `MessageTemplates` 的模板化输出继续回复。
 - 用户提示：无错误文案（`application.yml` 注释口径：「未配置或调用失败……自动降级为规则规划器 + 模板回复：主流程仍可跑通，但能力弱于模型」）。`/api/system/status` 的 `llmVerified` 会如实显示最近一次真实调用失败（`LlmRuntimeStatus`）。

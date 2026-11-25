@@ -127,8 +127,14 @@ curl -sS -H "Authorization: Bearer $LLM_API_KEY" "$LLM_BASE_URL/models"
 | `S3_SECRET_KEY` | `PHOTOS_STORE=s3` 时必填 | 空 | `<secret-key>` | **是** | compose 映射为 `TRAVEL_PHOTOS_S3_SECRET_KEY` |
 | `TZ` | **是** | Dockerfile `Asia/Shanghai` | `Asia/Shanghai` | 否 | 容器时区；compose 已透传，MySQL 另由 compose 固定 |
 | `APP_TIMEZONE` | **是** | `Asia/Shanghai` | `Asia/Shanghai` | 否 | 应用时区，钉死 JVM 默认时区；compose 已透传（Dockerfile 另有同值默认） |
-| `AGENT_BUDGET_ENABLED` | 否 | `true` | `true` | 否 | 端到端预算开关 |
+| `AGENT_BUDGET_ENABLED` | 否 | `true` | `true` | 否 | 端到端预算总开关（时间 + 花费） |
 | `AGENT_BUDGET_TOTAL_MS` | 否 | `30000` | `30000` | 否 | 总预算；耗尽按 ADR-002 降级并标注，不报错 |
+| `AGENT_SPEND_ENABLED` | 否 | `true` | `true` | 否 | 花费预算开关（调用次数/工具/重试/token/费用） |
+| `AGENT_SPEND_MAX_LLM_CALLS` | 否 | `30` | `30` | 否 | 单轮 LLM 调用次数上限（含失败尝试） |
+| `AGENT_SPEND_MAX_TOOL_CALLS` | 否 | `200` | `200` | 否 | 单轮工具调用次数上限；拦工具风暴，不是日常用量 |
+| `AGENT_SPEND_MAX_RETRIES` | 否 | `5` | `5` | 否 | 单轮重试上限（结构化规划重试 + 审核重规划） |
+| `AGENT_SPEND_MAX_TOKENS` | 否 | `200000` | `200000` | 否 | 单轮 token 上限，来自供应商 `usage`（缺失不估算） |
+| `AGENT_SPEND_MAX_COST_USD` | 否 | `1.0` | `1.0` | 否 | 单轮费用上限；仅当配置了 LLM 单价时可能触发 |
 | `CONVERSATION_HISTORY_LIMIT` | 否 | `10` | `10` | 否 | 喂给模型的最近消息条数 |
 | `CONVERSATION_RETENTION_DAYS` | 否 | `7` | `7` | 否 | 会话消息保留天数 |
 | `RAG_CHUNK_VERSION_RETENTION` | 否 | `2` | `2` | 否 | 知识块历史版本保留数；compose 已透传 |

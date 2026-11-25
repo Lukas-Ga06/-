@@ -141,6 +141,14 @@ public class StructuredPlanner {
             log.info("新行程结构化规划不再重试：剩余预算不足（{}ms）", budget.remainingMs());
             return first;
         }
+        // 第二阶段（花费预算）：重试是花费放大器——每次都带着更长的反馈提示词再问一遍。
+        // 重试次数触顶就保留首轮结果（已解析出的部分条目仍然可用），不再多问一次。
+        if (!budget.spend().allowsRetry()) {
+            count("new_trip", "fallback");
+            log.info("新行程结构化规划不再重试：{}", budget.spend().describeExhaustion());
+            return first;
+        }
+        budget.spend().recordRetry();
         NewTripParse second = attemptNewTrip(city, draft, message, history, researchNotes, budget, feedbackOf(first));
         if (second != null && second.ok()) {
             count("new_trip", "after_retry");
@@ -390,6 +398,13 @@ public class StructuredPlanner {
             log.info("行程修改结构化规划不再重试：剩余预算不足（{}ms）", budget.remainingMs());
             return first;
         }
+        // 第二阶段（花费预算）：与新建同口径，重试次数触顶就保留首轮结果
+        if (!budget.spend().allowsRetry()) {
+            count("modification", "fallback");
+            log.info("行程修改结构化规划不再重试：{}", budget.spend().describeExhaustion());
+            return first;
+        }
+        budget.spend().recordRetry();
         ModificationParse second = attemptModification(city, items, startDate, weatherHint, message, history,
                 budget, feedbackOf(first));
         if (second != null && second.ok()) {

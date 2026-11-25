@@ -72,6 +72,12 @@ public class DelegatingLlmClient implements LlmClient {
         return null;
     }
 
+    /** usage 由真实客户端解析，委托类原样透传（跳过/配额不足时它没有写用量，读到的就是 NONE） */
+    @Override
+    public LlmUsage takeLastUsage() {
+        return openAiClient.takeLastUsage();
+    }
+
     @Override
     public boolean available() {
         return openAiClient.available();

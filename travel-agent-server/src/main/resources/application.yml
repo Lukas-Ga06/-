@@ -135,6 +135,21 @@ travel:
       # 端到端总预算（毫秒，默认 30s）。注意：复杂多日行程的合法长规划也可能接近该值，
       # 预算不够时不会失败，而是降级并明确告知「未经审核，可稍后重试」。
       total-ms: ${AGENT_BUDGET_TOTAL_MS:30000}
+      # 第二阶段：叠加在时间预算上的「花费预算」。时间有界、花费无界——同样的 30s 里，
+      # 研究循环换参数重试、结构化规划带反馈重试、工具连发都能把 token 与调用次数放大数倍，
+      # 而 deadline 到点时这些钱已经花掉了。任一项到顶都按同一套降级语义收尾（如实告知，不伪造结果）。
+      # 取值口径：负数 = 不设限，0 = 一次都不允许。默认值刻意宽松（拦失控循环，不给正常请求设 SLO）。
+      spend:
+        enabled: ${AGENT_SPEND_ENABLED:true}
+        # 正常一轮约 8–15 次 LLM 调用；30 次只拦「循环里停不下来」的情况
+        max-llm-calls: ${AGENT_SPEND_MAX_LLM_CALLS:30}
+        # 确定性规划每天约 8 次工具，7 天行程合法用量 60+；200 次拦的是工具风暴，不是日常用量
+        max-tool-calls: ${AGENT_SPEND_MAX_TOOL_CALLS:200}
+        max-retries: ${AGENT_SPEND_MAX_RETRIES:5}
+        max-tokens: ${AGENT_SPEND_MAX_TOKENS:200000}
+        # 费用上限只在 travel.llm.prompt-price-per-1k-usd / completion-price-per-1k-usd
+        # 配了真实单价后才可能触发；未配价目表时费用恒为 0，不会拿猜测的单价卡请求。
+        max-cost-usd: ${AGENT_SPEND_MAX_COST_USD:1.0}
   conversation:
     # 会话记忆：按「用户 + conversationId」保留最近 N 条**消息**（不是轮数；一轮问答 = 2 条），
     # 喂给 LLM 做指代消解（「那把第二天的酒店也换掉」）。历史只参与意图识别，不进入规划产物。
