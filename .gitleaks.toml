@@ -14,9 +14,20 @@ description = '测试专用固定密钥、文档占位符与本地文件：均�
 # 1) 测试专用固定 JWT 密钥。application-test.yml 与 README 都明示「仅测试用」，
 #    生产密钥一律通过环境变量注入；这里按完整字符串精确放行，不按规则 id 整体关闭。
 # 2) 明显的占位值（文档/示例/测试桩），不参与高熵判定。
+# 3) 2026-11-24 第一次在 CI 跑全历史时逐条核过的 7 条历史命中（judged non-secret）：
+#    - .env.production.example 的 `MCP_ENABLED=true` 被 generic-api-key 误判为密钥（布尔开关）；
+#    - 两个只用于本地 .e2e 实例的 base64 JWT_SECRET，值本身写明 local-only；
+#    - `INVALID_RESILIENCE_TEST_KEY_0001`（显式无效占位，出现在 .e2e 证据与 docs/review）；
+#    - `docs/guide/api-reference.md` 里的 `eyJhbGciOiJIUzI1NiJ9.xxx` 示例 token。
+#    全部按精确值放行，不做目录级豁免；将来真出现真实密钥仍会命中。
 regexes = [
   '''zH5p\+FxWgj8rMvkAbh49f7lG7jON\+493C\+/qTaxuJ4I92t\+NNB0QA\+fdyB4VQYf9''',
   '''(?i)(your[-_]?api[-_]?key|placeholder|dummy|changeme|example[-_]?key)''',
+  '''MCP_ENABLED=true''',
+  '''ZGFyay1tb2RlLXZlcmlmeS1qd3Qtc2VjcmV0LWxvY2FsLW9ubHktMDE=''',
+  '''cmVzaWxpZW5jZS10ZXN0LWp3dC1zZWNyZXQtZm9yLWxvY2FsLW9ubHktMDE=''',
+  '''INVALID_RESILIENCE_TEST_KEY_0001''',
+  '''eyJhbGciOiJIUzI1NiJ9\.xxx''',
 ]
 
 # 本地密钥文件与验收证据目录：真实 Key 依赖 .gitignore 不入库；

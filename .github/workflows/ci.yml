@@ -245,14 +245,13 @@ jobs:
 
       # PR 上只对新增依赖做漏洞评审，避免历史存量债务把每个 PR 都卡死。
       #
-      # continue-on-error：dependency-review 需要仓库启用 Dependency graph；
-      # 未启用时它直接报 "Dependency review is not supported on this repository"。
-      # 该开关只能在仓库设置里打开（API 不可用），所以这里降级为「不可用时跳过」，
-      # 不让一个仓库配置项把整条 PR 门禁卡死。真正的依赖门禁仍是下面的 npm audit 与 Trivy。
-      # 启用 Dependency graph 后请删掉 continue-on-error，让它变回硬门禁。
+      # 2026-11-24 起仓库已改为 Public 并开启 Dependency graph（SBOM 可读），
+      # dependency-review 不再需要 continue-on-error 兜底：缺开关时它会以
+      # "not supported on this repository" 直接失败，而这正是应该被看见的信号。
+      # 原注释里的「启用 Dependency graph 后删掉 continue-on-error」已于本 PR 执行；
+      # 真正的依赖门禁仍是下面的 npm audit 与 Trivy，这里补齐「PR 新增依赖」这一层。
       - name: Dependency review（PR 新增依赖）
         if: github.event_name == 'pull_request'
-        continue-on-error: true
         uses: actions/dependency-review-action@v4
         with:
           fail-on-severity: high
@@ -284,6 +283,32 @@ jobs:
           # 临时豁免（Spring 6.2.x 两条 CRITICAL，上游 6.2.20 尚未发布）：
           # 条目与到期见 travel-agent-server/.trivyignore.yaml，流程见 docs/guide/ci.md §6。
           trivyignores: travel-agent-server/.trivyignore.yaml
+
+  # 密钥扫描：平台侧 Secret scanning 之外再加一道**本地可复现**的门禁。
+  # 用固定版本 CLI 而不是第三方 action：版本与校验和都钉死，扫描范围与「改公开前扫全历史」
+  # 和文档里的本地命令逐字一致（gitleaks git --log-opts=--all -c .gitleaks.toml）。
+  secret-scan:
+    name: Security / gitleaks 密钥扫描
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 全历史：只取浅克隆会让「更早提交里漏过的密钥」永远看不见。
+          fetch-depth: 0
+
+      - name: gitleaks（全历史 + 仓库配置）
+        env:
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          set -euo pipefail
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -o gitleaks.tar.gz
+          echo "${GITLEAKS_SHA256}  gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf gitleaks.tar.gz gitleaks
+          ./gitleaks version
+          # --redact：命中内容不写进日志；--all：扫所有 ref 可达提交。
+          # 放行项只在 .gitleaks.toml 里按具体测试值/占位符声明，不按目录整体排除。
+          ./gitleaks git --redact --no-banner --log-opts="--all" -c .gitleaks.toml
 
   e2e:
     name: E2E / Playwright smoke（后端 H2 + 前端 preview）

@@ -1,6 +1,6 @@
 # 上线执行清单（Android 真机口径）
 
-> 状态：执行清单（计划文档，不是验收快照）｜最后更新：2026-11-23｜事实来源：[上线路线图](../PROJECT_ROADMAP.md)、[P0/P1 执行快照](../review/2026-11-22-p0-execution.md)、2026-11-23 本机环境核对
+> 状态：执行清单（计划文档，不是验收快照）｜最后更新：2026-11-24｜事实来源：[上线路线图](../PROJECT_ROADMAP.md)、[P0/P1 执行快照](../review/2026-11-22-p0-execution.md)、[GitHub 安全设置清单](github-security-settings.md)、2026-11-24 本机环境核对
 > 本文把"真实 iOS Safari"这一 v1 硬阻断替换为"真实 Android 设备"；**不修改任何源码、配置或测试用例**。
 
 ## 0. 口径变更（先读这段）
@@ -33,7 +33,7 @@
 | 级别 | 现在 | 主要卡点 |
 | --- | --- | --- |
 | A 内部演示 | **具备** | 无；构建必须串行，不要并发共享 `target` |
-| B 受控灰度 | **未具备** | 高德 MCP Key、GitHub 安全开关、告警值班 |
+| B 受控灰度 | **未具备** | 高德 MCP Key、告警值班 |
 | C 公网 v1 | **未具备** | B 全部 + Android 真机、法务/许可证、回滚演练；Linux 视觉基线已完成（§2 第 8 项） |
 
 代码侧完成度不低：639 个后端用例、537 个前端用例、隔离 E2E 桌面 14/14、设备 22/22（依据见 [执行快照](../review/2026-11-22-p0-execution.md)）。真正的距离是**这些绿灯全部来自 Windows 本机**，而生产是 Linux 容器 + 真实 MySQL + 真机 + 真实外部服务。
@@ -44,8 +44,8 @@
 | --- | --- | --- | --- | --- | --- |
 | 1 | 成果未落地 | ✅ **已完成（2026-11-24）**：PR [#17](https://github.com/Lukas-Ga06/-/pull/17) 已合入 `main`（`7eadbd1`）并打 tag `v0.1.1`；PR 的 11 项 check-runs 全绿，main push CI（[run 45379874333](https://github.com/Lukas-Ga06/-/actions/runs/45379874333)）通过 | — | ✅ | — |
 | 2 | 真实 MySQL 8.4 | **已完成（2026-11-23）**：全量 23 条迁移 + 备份恢复演练实测（48.8 MB 恢复 5.06 s）；RTO/RPO 目标值仍待业务确认 | — | ✅ | — |
-| 3 | 容器冷启动 | **已完成（2026-11-24 补充）**：全栈起停 + 限流按真实源 IP 分桶；S3 用本地协议桩验通上传/读回/删除（真实端点与凭证未验）；H2「404」口径仍不符 | 真实 S3 端点验收；H2 验收口径需改 | 我 | ✅（真实 S3 待凭证） |
-| 4 | GitHub 安全开关 | `dependency-review` 仍 `continue-on-error` | 开 4 个开关 → 删标记 → 分支保护 | 你 | 10min |
+| 3 | 容器冷启动 | **已完成（2026-11-24 补充）**：全栈起停 + 限流按真实源 IP 分桶；S3 用本地协议桩验通上传/读回/删除（真实端点与凭证未验）；H2 控制台口径已按实测改为「API 401 / 经 nginx 为 SPA 首页」，不再要求 404；infra compose 的 `mysql:8.4` 新卷冷启动 + 23 条 Flyway 迁移已实测（[快照](../review/2026-11-24-infra-mysql84-cold-start.md)） | 真实 S3 端点验收 | 我 | ✅（真实 S3 待凭证） |
+| 4 | GitHub 安全开关 | ✅ **已完成（2026-11-24）**：仓库改为 Public（公开前用 gitleaks 扫过全历史，7 条命中均为测试值/占位）；Dependency graph、Code scanning（advanced workflow，SARIF 已入库，67 条告警待分诊）、Secret scanning + Push protection（开关已开，**推送拦截未验证**）、`main` 分支保护（9 个必需检查 + 必须 PR + 禁 force push/删除）全部开启，`scripts/github-security-settings.mjs` 复核 4/4。详见 [github-security-settings.md](github-security-settings.md) | 剩余：67 条告警分诊、删 `dependency-review` 的 `continue-on-error`（需测试 PR）、隔天复测推送拦截 | 你 | 完成 |
 | 5 | 真实 LLM 压测 | **已完成并修正（2026-11-24）**：20 连重跑 15 planned + 5 asked_back + **0 failed**、零 429、中位 30.9 s、花费 ¥0.64；旧版 run-18 假绿已修 | 高德 MCP Key 仍为空，`10021` 退避与降级告警待验 | 我 | ✅ |
 | 6 | 高德真实边界 | **REST 已实测**：20 并发复现 9 次 `10021`，跨城同名 POI 与 polyline 正常；MCP Key 未验 | 生产 Web 服务 Key + MCP `AMAP_MAPS_API_KEY` 复验 | 我 / 你 | 0.5d |
 | 7 | **Android 真机**（原 iPhone） | 只有 WebKit 模拟 | 两台真机跑 §5.1 矩阵并留证 | 你 | 0.5d |
@@ -136,7 +136,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/mysql-it.ps1
 
 通过标准：`flyway_schema_history` 有 V1–V24 共 23 条（V14 为 H2 专属，MySQL 链没有）；Hibernate `validate` 通过。详见 [MySQL 迁移验证](../guide/mysql-migration.md)。
 
-顺带记一笔：`docker-compose.infra.yml` 用的镜像 tag 是 `mysql:8.0`，生产 compose 是 `8.4`；建议对齐，或在文档里写清"开发用 8.0 / 验收用 8.4"。
+顺带记一笔：~~`docker-compose.infra.yml` 用的镜像 tag 是 `mysql:8.0`，生产 compose 是 `8.4`~~ **已对齐（2026-11-24）**：两个 compose 都是 `mysql:8.4`，8.0 旧数据卷首次用 8.4 启动属不可回退升级，已写进 [部署文档 §6.2](../guide/deployment.md)；生产显式 `utf8mb4_unicode_ci`、本地继承 8.4 默认 `utf8mb4_0900_ai_ci` 的 collation 差异也一并记在那里。
 
 ### 4.2 备份与恢复演练
 
@@ -148,7 +148,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/mysql-it.ps1
 2. 复制 [.env.production.example](../../.env.production.example) 为 `.env`，只填本机可用的占位值，真实密钥不进仓库。
 3. `docker compose up -d --build`，打开 `http://localhost:8081`。
 4. 逐项核对 `/api/system/status`：LLM 配置/模型是否可用/provider、MCP enabled/connected/toolCount、AMAP 配置、时区。
-5. 验安全开关：`DEMO_ACCOUNT=false` 后 demo 账号登录失败；H2 console 404；Cookie Secure；nginx 访问日志无 `?ticket=`；Redis 限流生效；S3 上传可用。
+5. 验安全开关：`DEMO_ACCOUNT=false` 后 demo 账号登录失败；**H2 控制台不可达**——API 直连 `/h2-console/` 返回 `401` JSON，经 nginx 走 SPA 回退返回 200 首页（控制台页面本身不存在）；这里**不是 404**，口径依据见 [冷启动快照](../review/2026-11-23-container-cold-start-and-llm-load.md) 与 `H2ConsoleAccessTest`；Cookie Secure；nginx 访问日志无 `?ticket=`；Redis 限流生效；S3 上传可用。
 
 通过标准：自检表贴进 [生产配置清单](production-config.md)，每项写"实测值 + 证据"。
 
@@ -235,7 +235,7 @@ P2 的 OTA 实时库存、真实 Embedding 调优、照片轨迹、继续 UI 打
 | --- | --- | --- | --- |
 | R1 | 模拟套件仍是 WebKit/iPhone 预设，真机口径已改 Android | 模拟通过不代表 Android 通过 | 真机验收必须人工做；长期需单独的 Chromium Android 仿真代码批次 |
 | R2 | ~~Docker Desktop 因 WSL2 缺失起不来~~ **已解除**；换成「Docker Desktop 不能从 shell 里启动」 | shell 一被终止，引擎与 npipe 一起消失 | 用 WMI `Win32_Process.Create` 拉起（见快照 §2.3） |
-| R3 | infra 用 mysql:8.0，生产用 8.4 | 开发与生产版本漂移 | 对齐镜像，或在文档写明版本口径 |
+| R3 | ~~infra 用 mysql:8.0，生产用 8.4~~ **已解除（2026-11-24）** | 版本漂移已消除：两个 compose 同为 `mysql:8.4`；旧 8.0 数据卷升级不可回退 | 镜像已对齐；升级处置（备份或删卷重建）写进[部署文档 §6.2](../guide/deployment.md) |
 | R4 | 首屏 JS 余量 2,831 B / CSS 余量 8,380 B | 新依赖直接撞预算 | v1 前只做分割，不调阈值 |
 | R5 | 法务排期不可控 | 公网发布日期不可控 | 尽早送审，法务确认前不发布 |
 | R6 | ~~24 个提交未合入 `main`、1 个提交未 push~~ **已解除（2026-11-24）**：PR #17 已合入 `main` 并打 tag `v0.1.1` | CI 未见过，误操作即丢 | 阶段 0 立即 push → PR |

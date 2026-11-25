@@ -48,13 +48,13 @@
 | `SameSite` / `Path` | `Lax` / `/` |
 | `Max-Age` | 与 JWT 有效期一致，默认 `travel.jwt.expire-hours=72` 小时 |
 
-免登录白名单（`SecurityConfig#securityFilterChain:62-65`）：
+免登录白名单（`SecurityConfig#securityFilterChain:58-64`）：
 
 | 路径 | 说明 |
 | --- | --- |
 | `POST /api/auth/register`、`POST /api/auth/login`、`POST /api/auth/logout` | 无需登录 |
 | `/api/channels/**` | 渠道入口，以密钥 / 微信签名自证身份（见第 15 章） |
-| `/h2-console/**`、`/error`、`/actuator/health`、`OPTIONS *` | 开发、探活、预检 |
+| `/h2-console/**`（**仅** `H2_CONSOLE_ENABLED=true` 时）、`/error`、`/actuator/health`、`OPTIONS *` | 开发、探活、预检；控制台默认关闭，关闭时匿名访问返回 `401` |
 | **其余全部接口** | 必须已登录（`anyRequest().authenticated()`），`GET /api/auth/me` 也需登录 |
 
 会话策略为 `STATELESS`（无服务端 Session），身份完全来自 JWT；未登录返回 `401`。

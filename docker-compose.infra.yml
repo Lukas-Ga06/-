@@ -1,12 +1,14 @@
-version: "3.8"
-
 # 可选的基础设施：切换 MySQL / Redis 时使用
 #   docker compose up -d
 #   后端启动参数：--spring.profiles.active=mysql
 
 services:
   mysql:
-    image: mysql:8.0
+    # 与生产 docker-compose.yml 同为 8.4（原 8.0 会造成「开发 8.0 / 验收与生产 8.4」的版本漂移）。
+    # 已有 8.0 数据卷首次用 8.4 启动会就地升级数据目录，且**不能降回 8.0**；
+    # 需要保留旧卷可先 mysqldump 备份。生产侧另显式设 utf8mb4_unicode_ci，本文件不设，
+    # 因此本地新库用 8.4 默认 utf8mb4_0900_ai_ci —— 只是本地开发口径差异，勿据本地 collation 调生产 SQL。
+    image: mysql:8.4
     container_name: travel-agent-mysql
     environment:
       MYSQL_ROOT_PASSWORD: root
