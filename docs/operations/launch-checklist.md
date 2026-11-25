@@ -27,13 +27,17 @@
 | 视觉基线 | 只有 `*-win32.png`，无 `*-chromium-linux.png` | 阶段 2.2 仍缺 Linux 基线 |
 
 > **2026-11-24 复核**：阶段 0 已收口 —— PR [#17](https://github.com/Lukas-Ga06/-/pull/17) 合入 `main`（`7eadbd1`），tag `v0.1.1`；同日 11 张 Linux 视觉基线已生成并提交（§2 第 8 项）。剩余阻断项见 §2（序号 4/6/7/9/12）。
+>
+> **2026-11-25 复核**：第 6 项的高德 MCP 口径过期已更正（MCP 12 工具 2026-11-22 已验、2026-11-25 复跑通过）；真实 S3 验收收敛为一条命令 `scripts/s3-real-e2e.ps1`；法务与值班分别有[签署单](../legal/signoff-sheet.md)与[路由配置](alertmanager.yml)。逐项证据见[外部阻断项复核](../review/2026-11-25-external-blockers-closeout.md)。
+>
+> **2026-11-25 晚补**：第 12 项的工程侧收口 —— [alertmanager.yml](alertmanager.yml) 落地（severity 路由 + 抑制）、`scripts/alert-routing-drill.ps1` 跑通「firing → 路由 → 抑制 → 送达 → resolved」并留证（接收端为本地 Sink，标 `LOCAL-SINK`）；第 12 项**只剩三个真实 webhook 与主/备值班姓名**。证据见[告警路由演练](../review/2026-11-25-alert-routing-drill.md)。
 
 ## 1. 上线分级判断
 
 | 级别 | 现在 | 主要卡点 |
 | --- | --- | --- |
 | A 内部演示 | **具备** | 无；构建必须串行，不要并发共享 `target` |
-| B 受控灰度 | **未具备** | 高德 MCP Key、告警值班 |
+| B 受控灰度 | **未具备** | 值班人与三个真实 webhook（配置与链路已验，见[告警路由](alert-routing.md) §1）、生产 MCP Key 容器内复验；灰度收照片则需真实 S3 或先 `PHOTOS_STORE=local` |
 | C 公网 v1 | **未具备** | B 全部 + Android 真机、法务/许可证、回滚演练；Linux 视觉基线已完成（§2 第 8 项） |
 
 代码侧完成度不低：639 个后端用例、537 个前端用例、隔离 E2E 桌面 14/14、设备 22/22（依据见 [执行快照](../review/2026-11-22-p0-execution.md)）。真正的距离是**这些绿灯全部来自 Windows 本机**，而生产是 Linux 容器 + 真实 MySQL + 真机 + 真实外部服务。
@@ -46,14 +50,14 @@
 | 2 | 真实 MySQL 8.4 | **已完成（2026-11-23）**：全量 23 条迁移 + 备份恢复演练实测（48.8 MB 恢复 5.06 s）；RTO/RPO 目标值仍待业务确认 | — | ✅ | — |
 | 3 | 容器冷启动 | **已完成（2026-11-24 补充）**：全栈起停 + 限流按真实源 IP 分桶；S3 用本地协议桩验通上传/读回/删除（真实端点与凭证未验）；H2 控制台口径已按实测改为「API 401 / 经 nginx 为 SPA 首页」，不再要求 404；infra compose 的 `mysql:8.4` 新卷冷启动 + 23 条 Flyway 迁移已实测（[快照](../review/2026-11-24-infra-mysql84-cold-start.md)） | 真实 S3 端点验收 | 我 | ✅（真实 S3 待凭证） |
 | 4 | GitHub 安全开关 | ✅ **已完成（2026-11-25）**：仓库 Public；Dependency graph、Code scanning（67 条告警待分诊）、Secret scanning + Push protection（**拦截已实测**）、`main` 分支保护（10 个必需检查）、PVR + `SECURITY.md`、CI gitleaks、dependency-review 硬门禁全部落地，`scripts/github-security-settings.mjs` 复核 4/4 | 剩余：67 条告警分诊 | 你 | 完成 |
-| 5 | 真实 LLM 压测 | **已完成并修正（2026-11-24）**：20 连重跑 15 planned + 5 asked_back + **0 failed**、零 429、中位 30.9 s、花费 ¥0.64；旧版 run-18 假绿已修 | 高德 MCP Key 仍为空，`10021` 退避与降级告警待验 | 我 | ✅ |
-| 6 | 高德真实边界 | **REST 已实测**：20 并发复现 9 次 `10021`，跨城同名 POI 与 polyline 正常；MCP Key 未验 | 生产 Web 服务 Key + MCP `AMAP_MAPS_API_KEY` 复验 | 我 / 你 | 0.5d |
+| 5 | 真实 LLM 压测 | **已完成并修正（2026-11-24）**：20 连重跑 15 planned + 5 asked_back + **0 failed**、零 429、中位 30.9 s、花费 ¥0.64；旧版 run-18 假绿已修 | MCP 已单独验（[2026-11-25 复核](../review/2026-11-25-external-blockers-closeout.md) §1）；仍缺生产 Key 容器内复验 | 我 | ✅ |
+| 6 | 高德真实边界 | **REST 与 MCP 均已实测**：REST 20 并发复现 9 次 `10021`、跨城同名 POI 与 polyline 正常；MCP 12 工具逐项 + 真模型调用（2026-11-22），2026-11-25 复跑 2/2（19.54 s） | 生产 Web 服务 Key 进容器验 MCP 12 工具 + MCP 侧 `10021` 时序 | 我 | 0.25d |
 | 7 | **Android 真机**（原 iPhone） | 只有 WebKit 模拟 | 两台真机跑 §5.1 矩阵并留证 | 你 | 0.5d |
 | 8 | Linux 视觉基线 | ✅ **已完成（2026-11-24）**：`visual-baseline.yml` 在 Playwright 固定容器生成 11 张 `*-chromium-linux.png` 并提交；CI `visual` job 检测到基线后由「跳过」转为逐像素比较（仍 `continue-on-error` 观察） | 观察稳定后转硬门禁 | ✅ | — |
-| 9 | 法务与许可证 | 5 处占位 + 留存期待确认 + LICENSE 专有 | 法务替换、生效日期、隐私页上线 | 你 | 外部 |
+| 9 | 法务与许可证 | 5 处占位 + 留存期待确认 + LICENSE 专有 | 按[法务定稿签署单](../legal/signoff-sheet.md)回填 5 字段与 5 裁定；法务替换、生效日期、隐私页上线 | 你 | 外部 |
 | 10 | 账号级数据导出 | **已完成**：`GET /api/auth/me/export` + 个人中心入口；JSON 快照，照片只给清单（H2 契约测试） | 上线前补一次 MySQL 实机复核 | 我 | ✅ |
 | 11 | JWT 注销复用 | **已完成（V24）**：JWT 带 `uid` + `token_version`，注销先版本 +1 再删用户 | 上线后旧 token 整体失效一次，需在发布记录/公告写明；无需禁用近期注销名 | 我 | ✅ |
-| 12 | 回滚与告警 | **告警已实跑（2026-11-24 补齐高德降级）**：`TravelAgentServerDown`（后端掉线 3 分钟）、`TravelExternalProviderDegraded{provider="amap"}`（`for: 15m`）与 `TravelExternalDegradedHigh`（`for: 10m`）均真实 firing 并在降级停止后恢复；回滚已本机演练（N-1 jar，RTO≈15s） | **只剩灰度值班人未定**（另一半归属：你） | 我 / 你 | 0.5d |
+| 12 | 回滚与告警 | **告警链路已验（2026-11-25 晚）**：`TravelAgentServerDown`（后端掉线 3 分钟）、`TravelExternalProviderDegraded{provider="amap"}`（`for: 15m`）与 `TravelExternalDegradedHigh`（`for: 10m`）均真实 firing 并恢复；[alertmanager.yml](alertmanager.yml) 落地 severity 路由 + 抑制，`scripts/alert-routing-drill.ps1` 判定 critical/warning/info/兜底四路送达、抑制、resolved 全部通过（接收端为本地 Sink）；回滚已本机演练（N-1 jar，RTO≈15s） | **只剩三个真实 webhook + 主/备值班姓名**（见[告警路由与值班](alert-routing.md) §4.2/§5） | 我 / 你 | 0.5d |
 
 首屏 JS 只剩 2,831 B 余量（597,169 / 600,000），首屏 CSS 剩 8,380 B（57,156 / 65,536）。v1 前任何新增首屏依赖都会撞预算，这是约束，不是任务。
 
@@ -165,7 +169,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/mysql-it.ps1
 
 ### 4.6 告警与值班
 
-起 Prometheus 加载 [alerts.yml](alerts.yml)、导入 [Grafana 面板](grafana-travel-agent.json)，停后端、断 AMAP 各触发一次，确认告警真的送达；同时定灰度值班人和反馈渠道。
+起 Prometheus 加载 [alerts.yml](alerts.yml)（裸 Prometheus 先用 `scripts/alerts-rules-extract.mjs` 抽 `spec.groups`）、导入 [Grafana 面板](grafana-travel-agent.json)，停后端、断 AMAP 各触发一次，确认告警真的送达；同时定灰度值班人和反馈渠道。路由配置、送达演练（`scripts/alert-routing-drill.ps1`）、真实渠道确认与值班表见[告警路由与值班](alert-routing.md)。
 
 ## 5. 阶段 2：公网 v1 硬阻断（5–8 天 + 外部等待）
 

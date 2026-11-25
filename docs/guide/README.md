@@ -1,6 +1,6 @@
 # AI 智能旅行助手 · 项目文档
 
-> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.16 / Node 20） | 最后验证：2026-11-19 | 事实来源：README.md、travel-agent-server/pom.xml、travel-agent-web/package.json、docs/guide/
+> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.16 / Node 20） | 最后验证：2026-11-25 | 事实来源：README.md、travel-agent-server/pom.xml、travel-agent-web/package.json、docs/guide/
 
 以旅行为唯一核心场景的 AI 智能旅行助手：行前规划、行中动态调整、行后回顾；记账、备忘、日程、照片与知识库都归属旅行域。办公自动化、学习辅助与健康数据已从产品主线移除。
 本目录是面向**开发者、集成者与运维**的完整文档套件；项目定位与功能全貌请先看根目录 [README.md](../../README.md)。
@@ -10,9 +10,10 @@
 ## 产品与工程总览
 
 - [产品开发文档](../PRODUCT_DEVELOPMENT.md)：产品定位、范围、完成度、路线图和验收标准。
-- [项目后续工作与上线路线图](../PROJECT_ROADMAP.md)：2026-11-22 当前完成度、P0/P1/P2 待办、上线分级和 UI 改造方案。
+- [项目后续工作与上线路线图](../PROJECT_ROADMAP.md)：2026-11-22 当前完成度、P0/P1/P2 待办、上线分级和 UI 改造方案；2026-11-25 补「四阶段路线图与仓库现状」映射（第一阶段 P0 已完成，第二~四阶段仍待办）。
 - [开发手册](../DEVELOPER_HANDBOOK.md)：环境、代码边界、Agent/工具/RAG/数据库/测试和排障规范。
 - [项目改进审计](../review/2026-11-19-project-improvement-audit.md)：基于当前源码与构建结果整理的 P0/P1/P2 改进项、证据和验收标准。
+- [P0 可靠执行链路评审](../review/2026-11-25-p0-reliability.md)：确认租约/提交栅栏、事务性 Outbox、运行状态落库与 SSE 续传的范围、不变量、验证命令与残余风险。
 
 ## 文档地图
 
@@ -34,11 +35,11 @@
 | 文档 | 内容概要 | 适合谁 |
 | --- | --- | --- |
 | [capability-boundaries.md](capability-boundaries.md) | **默认口径与能力边界**：无 Key 时的规则规划器 / 目录 / 估算、可选增强项、天气硬契约、RAG 哈希基线、发布门槛现状与对外表述守则 | 所有人（介绍或验收本项目前读） |
-| [code-structure.md](code-structure.md) | 代码结构手册：分层与依赖方向、16 个包职责、关键协作类（Agent 引擎 / 联网城市数据拆分）、新增代码落点决策表、命名约定、测试组织、维护红线（单类行数阈值等） | 所有人（写第一行代码前读） |
+| [code-structure.md](code-structure.md) | 代码结构手册：分层与依赖方向、17 个包职责、关键协作类（Agent 引擎 / 联网城市数据拆分）、可靠执行链路新增类、新增代码落点决策表、命名约定、测试组织、维护红线（单类行数阈值等） | 所有人（写第一行代码前读） |
 | [getting-started.md](getting-started.md) | 环境要求、`run-dev.ps1` 启动、首次启动自动完成的事、前端启动与 `/api` 反代、演示闭环 walkthrough、常见问题排查表、提交前自检清单 | 所有人（第一天读） |
-| [architecture.md](architecture.md) | 分层架构、Agent 状态机、Intent/Planner/Executor/Reflect 四 Agent、AgentPlan 与 PlanOperation、三级风险 Human-in-the-loop、工具层只读闸门与 9 个内置工具、RAG 与 Embedding 降级、规划期知识引用、行中锁定与旅行事件、旅行回顾聚合、SSE 事件协议与 focus、会话记忆、待确认方案落库、MCP 生态、LLM 配额 | 后端 / Agent 能力开发 |
-| [api-reference.md](api-reference.md) | 通用约定（认证、短期票据、统一响应、错误码）、按业务模块逐接口的真实契约（含 `DELETE /api/auth/me` 注销账号与 `GET /api/auth/me/export` 数据导出）、67 个接口总表 | 前端 / 第三方集成 |
-| [data-model.md](data-model.md) | ER 总览、全部实体与表结构（字段 / 类型 / 索引 / 约束）、Flyway 迁移策略、数据一致性不变量、引导数据、常用 SQL 手册 | 后端 / 数据 |
+| [architecture.md](architecture.md) | 分层架构、Agent 状态机与运行状态落库、可靠执行链路（确认租约/栅栏/Outbox）、Intent/Planner/Executor/Reflect 四 Agent、AgentPlan 与 PlanOperation、三级风险 Human-in-the-loop、工具层只读闸门与 9 个内置工具、RAG 与 Embedding 降级、规划期知识引用、行中锁定与旅行事件、旅行回顾聚合、SSE 事件协议/持久化与断线续传、会话记忆、待确认方案落库、MCP 生态、LLM 配额 | 后端 / Agent 能力开发 |
+| [api-reference.md](api-reference.md) | 通用约定（认证、短期票据、统一响应、错误码）、按业务模块逐接口的真实契约（含 `DELETE /api/auth/me` 注销账号与 `GET /api/auth/me/export` 数据导出）、SSE 帧 id / `Last-Event-ID` / 续传端点、70 个接口总表 | 前端 / 第三方集成 |
+| [data-model.md](data-model.md) | ER 总览、全部实体与表结构（字段 / 类型 / 索引 / 约束）、Flyway V1–V28 迁移策略、确认租约/Outbox/事件持久化的表设计、保留期与清理、数据一致性不变量、引导数据、常用 SQL 手册 | 后端 / 数据 |
 | [frontend.md](frontend.md) | 技术栈、目录结构、路由表（含 `/review`、`/trip/:id/review`）、页面清单、zustand 状态管理、API 层与 SSE 消费链路、核心组件、高德地图 Provider 抽象、构建与测试 | 前端 |
 | [deployment.md](deployment.md) | 部署拓扑、Docker 全栈部署步骤、**生产必改项清单**、环境变量权威表、H2/MySQL 切换、卷与备份恢复、反代与 HTTPS、监控与排障、CI 与发布 | 运维 |
 | [mcp-amap.md](mcp-amap.md) | 高德 MCP：包身份与两个 Key 的区别、开启步骤、12 个工具与 `mcp_amap_*` 注册名、语义适配层、排障与降级、已验证/未验证边界 | 后端 / 运维 |
@@ -49,7 +50,7 @@
 
 | 文档 | 内容概要 | 适合谁 |
 | --- | --- | --- |
-| [quality-gates.md](quality-gates.md) | 后端门禁：`mvn verify` 的 JaCoCo 基线/阈值（LINE 79.20%→0.76 等）、Checkstyle 规则与存量豁免 ratchet、SpotBugs Max/High、UTF-8 口径、Redis repository 告警与 PDF 依赖迁移 | 后端 / 评审 |
+| [quality-gates.md](quality-gates.md) | 后端门禁：`mvn verify` 的 JaCoCo 基线/阈值、Checkstyle 规则与存量豁免 ratchet、SpotBugs Max/High、P0 发布验收命名步骤、UTF-8 口径、Redis repository 告警与 PDF 依赖迁移 | 后端 / 评审 |
 | [frontend-quality.md](frontend-quality.md) | 前端门禁：ESLint flat config 取舍、Prettier、Vitest 覆盖率双阈值（全局 + store/api/lib 核心目录）与 ratchet、豁免流程 | 前端 |
 | [ci.md](ci.md) | GitHub Actions 每个 job 的职责、本地等价命令、失败处置、破坏性 API 变更（oasdiff）、gitleaks/Trivy/dependency-review、豁免流程与 Dependabot 策略 | 所有人（提 PR 前读） |
 | [mysql-migration.md](mysql-migration.md) | 真实 MySQL 8.4 上的 Flyway 全量迁移 + Hibernate `validate` 验证：本地一键脚本、CI service container、断言清单、排障（含 8.4 版本警告） | 后端 / 运维 |
@@ -67,10 +68,12 @@
 | [../operations/backup-restore.md](../operations/backup-restore.md) | MySQL 8.4 逻辑备份/恢复、Flyway 迁移前快照与 V23 后复跑、照片/S3 备份、校验与 RTO/RPO 记录模板、回滚边界 | 运维 / DBA |
 | [../operations/github-security-settings.md](../operations/github-security-settings.md) | GitHub 依赖图 / Dependabot / Code scanning / Secret scanning / 分支保护的人工清单，`dependency-review` 转硬门禁条件 | 仓库管理员 |
 | [../operations/runbook.md](../operations/runbook.md) | 告警处置手册；新增附录：日志脱敏核对、限流与 LLM 配额验证、告警矩阵补充 | 值班 |
+| [../operations/alert-routing.md](../operations/alert-routing.md) | 告警路由与值班：[alertmanager.yml](../operations/alertmanager.yml) 路由与抑制、送达演练脚本、真实渠道确认、主/备值班与升级链字段 | 值班 / 发布负责人 |
 | [../operations/launch-checklist.md](../operations/launch-checklist.md) | 上线执行清单（Android 真机口径）：12 项阻断差距、阶段 0–3 步骤、Android 真机验收矩阵、风险登记 | 发布负责人 / 前端 / 运维 |
 | [../legal/README.md](../legal/README.md) | 合规文档索引：隐私政策、第三方服务、数据删除、许可证 | 产品 / 法务 / 发布负责人 |
 | [../legal/data-deletion.md](../legal/data-deletion.md) | 账号注销 API（`DELETE /api/auth/me`）的语义、删除范围、运维手工 SQL 与验证清单；旧 JWT/同名重注册已由 V24 收口（`uid` + `token_version`） | 后端 / 运维 / 法务 |
 | [../legal/licensing.md](../legal/licensing.md) | 专有许可现状与切换开源许可证的流程（业务决策，不擅自改） | 产品 / 法务 |
+| [../legal/signoff-sheet.md](../legal/signoff-sheet.md) | 法务定稿签署单：隐私页 5 个占位（含行号与格式）与 5 项需法务裁定的事项，一次性回填 | 法务 / 产品 / 发布负责人 |
 
 补充材料：
 
@@ -105,21 +108,22 @@
 
 ## 模块速览
 
-### 后端（`travel-agent-server`，Spring Boot 3 / Java 17，222 个主代码文件 / 16 个包）
+### 后端（`travel-agent-server`，Spring Boot 3 / Java 17，251 个主代码文件 / 17 个包）
 
 | 包 | 文件数 | 职责 |
 | --- | --- | --- |
-| `agent` | 29 | Agent 引擎：状态机、四个 Agent、上下文、计划、会话记忆、待确认方案、意图答复协作类 |
-| `tool` | 14 | `AgentTool` 契约、`ToolRegistry` 只读闸门、`SafetyInterceptor` 风险分级、`ToolInvoker`、9 个内置只读工具 |
+| `agent` | 30 | Agent 引擎：状态机、四个 Agent、上下文、计划、会话记忆、待确认方案、意图答复协作类 |
+| `tool` | 15 | `AgentTool` 契约、`ToolRegistry` 只读闸门、`SafetyInterceptor` 风险分级、`ToolInvoker`、9 个内置只读工具 |
 | `rag` | 15 | Embedding（本地哈希 / OpenAI 兼容）、内存向量库、RAG 检索、引用、知识库引导与版本化 |
 | `llm` | 7 | 统一 LLM 接口（OpenAI-compatible，可切 DeepSeek/Qwen）+ 规则实现 + 委派与降级 |
 | `mcp` | 7 | MCP 外部工具桥接（streamable HTTP / 本机 stdio） |
 | `controller` | 12 | REST API + SSE 流式接口 |
-| `service` | 36 | 行程 / 预算 / 操作历史 / 目录 / 天气 / 路线 / 回顾 / 事件 / 提醒 / 路书 / 存储 / 联网城市数据 |
-| `entity` / `repository` | 19 + 19 | JPA 实体与数据访问（另有 6 张已退役旧表不映射） |
-| `security` / `config` | 11 + 14 | JWT、Cookie、访问票据、限流、安全配置、CORS、时区、TraceId、配置属性 |
+| `service` | 47 | 行程 / 预算 / 操作历史 / 目录 / 天气 / 路线 / 回顾 / 事件 / 提醒 / 路书 / 存储 / 确认提交 / Outbox / 运行恢复 |
+| `entity` / `repository` | 24 + 24 | JPA 实体与数据访问（另有 6 张已退役旧表不映射） |
+| `security` / `config` | 11 + 15 | JWT、Cookie、访问票据、限流、安全配置、CORS、时区、TraceId、配置属性 |
 | `channel` | 7 | 多渠道入口：Telegram / 微信公众号 / 通用 Webhook |
-| `dto` / `model` / `util` / `exception` | 12 / 8 / 8 / 3 | 传输对象、领域模型、通用工具、全局异常 |
+| `dto` / `model` / `util` / `exception` | 13 / 9 / 9 / 3 | 传输对象、领域模型、通用工具、全局异常 |
+| `observability` | 1 | 业务指标 `TravelMetrics` |
 
 ### 前端（`travel-agent-web`，React 18 + TypeScript + Vite，117 个源文件）
 

@@ -1,0 +1,81 @@
+# Alertmanager 配置（仓库内唯一权威；2026-11-25 落地）
+#
+# 为什么是"模板 + 渲染"两步：
+#   1) Alertmanager **不展开环境变量**，只读它拿到的文件。把真实 webhook 写进仓库会被 gitleaks 拦下，
+#      把占位符直接交给 Alertmanager 又会得到一条指向 "<...>" 的无效 URL（启动即报错，这是刻意的：
+#      宁可起不来，也不要"起来了但没人收得到"）。
+#   2) 因此：本文件用 ${ALERT_WEBHOOK_*} 占位 → `node scripts/render-alertmanager-config.mjs`
+#      用环境变量渲染成 alertmanager.rendered.yml（已 gitignore）→ 把那一个文件挂进容器/交给进程。
+#
+# 渲染与校验（在仓库根目录）：
+#   $env:ALERT_WEBHOOK_CRITICAL = '<值班 IM critical 机器人 webhook>'
+#   $env:ALERT_WEBHOOK_WARNING  = '<值班群机器人 webhook>'
+#   $env:ALERT_WEBHOOK_INFO     = '<日报/工单 webhook>'
+#   node scripts/render-alertmanager-config.mjs -Out alertmanager.rendered.yml
+#   .tools/alertmanager/alertmanager-0.28.1.windows-amd64/amtool.exe check-config alertmanager.rendered.yml
+#
+# 送达验证（不是"配完就算"）：
+#   本地全链路演练：powershell -ExecutionPolicy Bypass -File scripts\alert-routing-drill.ps1
+#   真实渠道确认：同一脚本加 -Config alertmanager.rendered.yml -Mode synthetic，按提示在手机上确认收到。
+#
+# 路由模型与归属见 docs/operations/alert-routing.md；规则见 docs/operations/alerts.yml。
+
+global:
+  # 告警在 5 分钟内没有再次上报即视为已恢复（Prometheus 每 15–30s 上报一次，正常不会走到这里）
+  resolve_timeout: 5m
+
+# 路由按 severity 分，不按告警名分：新增规则只要打对 severity 标签就自动进对应通道。
+route:
+  receiver: oncall-critical
+  group_by: ['alertname', 'instance']
+  group_wait: 10s
+  group_interval: 5m
+  repeat_interval: 1h
+  routes:
+    - matchers: ['severity="critical"']
+      receiver: oncall-critical
+      continue: false
+      group_wait: 10s
+      group_interval: 5m
+      repeat_interval: 1h
+    - matchers: ['severity="warning"']
+      receiver: oncall-group
+      group_wait: 1m
+      group_interval: 5m
+      repeat_interval: 4h
+    - matchers: ['severity="info"']
+      receiver: daily-digest
+      group_wait: 10s
+      group_interval: 30m
+      repeat_interval: 24h
+    # 兜底：新规则漏打 severity 时进值班群，而不是被静默丢弃。
+    # 没有 matchers 的子路由匹配一切，必须放在最后（兄弟路由按顺序匹配，先命中先返回）。
+    - receiver: oncall-group
+      group_wait: 1m
+      group_interval: 5m
+      repeat_interval: 4h
+
+# 目标整体掉线时，抑制同实例的其它 critical：先回答"为什么没了"，不要被一串级联告警淹没。
+inhibit_rules:
+  - source_matchers: ['alertname="TravelAgentServerDown"']
+    target_matchers: ['severity="critical"']
+    equal: ['instance']
+
+receivers:
+  - name: oncall-critical
+    webhook_configs:
+      - url: '${ALERT_WEBHOOK_CRITICAL}'
+        send_resolved: true
+        max_alerts: 0
+
+  - name: oncall-group
+    webhook_configs:
+      - url: '${ALERT_WEBHOOK_WARNING}'
+        send_resolved: true
+        max_alerts: 0
+
+  - name: daily-digest
+    webhook_configs:
+      - url: '${ALERT_WEBHOOK_INFO}'
+        send_resolved: false
+        max_alerts: 0

@@ -10,6 +10,7 @@
 | --- | --- | --- |
 | [runbook.md](runbook.md) | 告警处置手册（与 `alerts.yml` 的 `runbook_url` 一一对应），含日志脱敏、限流/配额验证、告警矩阵补充 | P0-D |
 | [alerts.yml](alerts.yml) | Prometheus 告警规则（PrometheusRule / rule_files） | P0-D |
+| [alert-routing.md](alert-routing.md) | 告警路由与值班：severity 路由模型、[alertmanager.yml](alertmanager.yml) 路由配置与抑制规则、送达演练与真实渠道确认、主/备值班与升级链（链路已落地，待真实渠道与值班人） | P0-D |
 | [grafana-travel-agent.json](grafana-travel-agent.json) | Grafana Dashboard（指标面板） | P0-D |
 | [production-config.md](production-config.md) | 生产环境变量清单、密钥权限/配额/轮换、未配置时的预期行为、compose 透传核对（含仍不可用 `.env` 覆盖的项）、上线自检 | P0-A |
 | [backup-restore.md](backup-restore.md) | MySQL 8.4 备份/恢复、Flyway 迁移前快照与 V24 后复跑、照片/S3 对象备份、RTO/RPO 记录模板、回滚边界 | P0-D |
@@ -23,6 +24,11 @@
 | --- | --- |
 | [`scripts/backup-drill.ps1`](../../scripts/backup-drill.ps1) | 备份 + 恢复到临时库 + 关键表计数对比；默认只 dump，不执行破坏性操作 |
 | [`scripts/mysql-it.ps1`](../../scripts/mysql-it.ps1) | 真实 MySQL Flyway 迁移测试（一次性库） |
+| [`scripts/s3-real-e2e.ps1`](../../scripts/s3-real-e2e.ps1) | 真实 S3 兼容端点验收：起隔离实例跑上传/读回 sha256/删除/404，端点守卫拒绝把本机桩当真实验收 |
+| [`scripts/alert-routing-drill.ps1`](../../scripts/alert-routing-drill.ps1) | 告警送达演练：起本地 Sink / Alertmanager / Prometheus，跑「firing → severity 路由 → 抑制 → 送达 → resolved」；证据标 `LOCAL-SINK`，`-Mode synthetic` 用真实 webhook 验投递 |
+| [`scripts/render-alertmanager-config.mjs`](../../scripts/render-alertmanager-config.mjs) | 把 `alertmanager.yml` 的 `${ALERT_WEBHOOK_*}` 渲染成可启动配置；残留占位符拒绝写出，日志只打脱敏 URL |
+| [`scripts/alerts-rules-extract.mjs`](../../scripts/alerts-rules-extract.mjs) | 把 `alerts.yml`（PrometheusRule CRD）的 `spec.groups` 抽成裸 Prometheus 可加载的 `rule_files` |
+| [`scripts/alert-webhook-sink.mjs`](../../scripts/alert-webhook-sink.mjs) | 本地最小 webhook 接收端：演练期把每个 POST 落盘（摘要 JSONL + 原始 payload） |
 | [`scripts/docs-check.mjs`](../../scripts/docs-check.mjs) | 文档链接/命令校验（CI 与本地都跑） |
 | [`../../.env.production.example`](../../.env.production.example) | 生产环境变量模板（只有占位符，不含真实密钥） |
 | [`.github/pull_request_template.md`](../../.github/pull_request_template.md) | PR 模板（含 WebKit 模拟 ≠ iOS 真机的声明） |

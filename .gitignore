@@ -32,6 +32,9 @@ travel-agent-server/data/
 .env
 .env.local
 *.env.local
+# Alertmanager 渲染产物：内含真实 webhook（模板见 docs/operations/alertmanager.yml）
+alertmanager.rendered.yml
+*.rendered.yml
 
 # ---- 系统 ----
 .DS_Store

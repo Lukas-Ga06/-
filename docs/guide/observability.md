@@ -1,6 +1,6 @@
 # 可观测性：SLO、指标字典、告警与 Dashboard
 
-> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.16 / Micrometer Prometheus registry） | 最后验证：2026-11-19 | 事实来源：`travel-agent-server/src/main/java/com/travel/agent/observability/TravelMetrics.java`、`.../agent/AgentStageTimer.java`、`travel-agent-server/src/main/resources/application.yml`、`docs/operations/`
+> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.16 / Micrometer Prometheus registry） | 最后验证：2026-11-25 | 事实来源：`travel-agent-server/src/main/java/com/travel/agent/observability/TravelMetrics.java`、`.../agent/AgentStageTimer.java`、`.../service/PlanOutboxService.java`、`.../service/AgentRunRecoveryJob.java`、`travel-agent-server/src/main/resources/application.yml`、`docs/operations/`
 
 - **负责范围**：核心指标定义、SLO 与告警阈值、Prometheus 抓取、Grafana Dashboard、日志字段约定
 - **关联文件**：[告警规则](../operations/alerts.yml) ｜ [Grafana Dashboard](../operations/grafana-travel-agent.json) ｜ [故障手册](../operations/runbook.md)
@@ -44,6 +44,7 @@ curl -s -H "Authorization: Bearer $TOKEN" 'http://127.0.0.1:8080/actuator/metric
 | `travel.rag.retrieval` | `travel_rag_retrieval_total` | counter | `result=hit\|miss` | RAG 检索是否返回非空结果（`hit`=有候选，`miss`=空；低分拒答仍算 `hit`） | 2 | `RagService#searchWithCitations` |
 | `travel.llm.tokens` | `travel_llm_tokens_total` | counter | `type=prompt\|completion` | LLM 响应 `usage` 里的 token 数，累加值（缺失 usage 时不记，不估算） | 2 | `OpenAiCompatibleLlmClient#recordUsage` |
 | `travel.llm.cost.usd` | `travel_llm_cost_usd_total` | counter | 无 | LLM 成本估算（美元累加）。单价未配置（默认 0）时**不创建该指标**，避免虚报 0 成本 | 1 | `TravelMetrics#recordLlmUsage` |
+| `travel.agent.spend` | `travel_agent_spend_total` | counter | `result=within\|exhausted`、`limit=none\|llm_calls\|tool_calls\|retries\|tokens\|cost` | 每轮 Agent 调用的花费预算结果：`within`=没触顶；`exhausted`=某一项到顶并按降级语义收尾，`limit` 指出卡在哪一项 | 2×6=12（上限 12 条序列） | `AgentEngine#recordSpend`（经 `TravelMetrics#spendOutcome`） |
 
 口径细节（都是会被问到的）：
 
@@ -52,6 +53,11 @@ curl -s -H "Authorization: Bearer $TOKEN" 'http://127.0.0.1:8080/actuator/metric
 - **RAG `miss` 有两个含义**：知识库确实没资料，或索引没建起来/embedding 坏了。单看 miss 分不清，必须和 `travel.rag.retrieval` 的绝对速率 + 应用日志一起看。
 - **token 在内容校验之前记账**：回复为空/被截断的调用，供应商同样计费，漏记会低估成本。
 - **成本默认不记**：不同供应商价目表差异极大，写死一个"看起来合理"的默认值等于长期虚报。需要成本 SLO 时按当期价目表配置 `travel.llm.prompt-price-per-1k-usd` / `travel.llm.completion-price-per-1k-usd`（见 `LlmProperties`，默认值均为 `0.0`）。
+- **花费预算只记结论，不把用量放进 tag**：`travel.agent.spend` 每轮 +1，`limit` 是枚举（6 个取值）；
+  实际用了多少 token/多少钱由 `travel.llm.tokens` 与 `travel.llm.cost.usd` 解释。把 runId/用量写进 tag 是基数炸弹，
+  也是本项目指标纪律明令禁止的。
+- **`exhausted` 不是失败**：它表示「本轮按上限少做了事，并在回复里如实说明」。`exhausted{limit=...}` 的速率
+  才是判断「上限是否设得太紧」的依据：如果 `limit="tokens"` 持续出现，先看是否正常长行程，再决定放宽。
 
 ### 2.2 既有指标（不要重复造轮子）
 
@@ -77,6 +83,45 @@ curl -s -H "Authorization: Bearer $TOKEN" 'http://127.0.0.1:8080/actuator/metric
 | `http_server_requests_seconds_count` | `uri`、`status`、`method`、`outcome`、`exception` | 请求计数（分母、错误率） |
 | `http_server_requests_seconds_sum` | 同上 | 累计耗时（平均值 `sum/count`） |
 | `http_server_requests_seconds_bucket` | 同上 + `le` | **需要开启 `percentiles-histogram`**，否则 P95 算不出来（`histogram_quantile` 返回空，告警静默失效） |
+
+### 2.4 可靠执行链路（P0）：数据库状态与恢复任务
+
+P0 的可靠性信号目前主要落在**数据库与日志**，不是 Micrometer 指标。排障时按下面的表查，
+不要等一个不存在的指标：
+
+| 信号 | 位置 | 含义 / 查询 |
+| --- | --- | --- |
+| `agent_run.status=ABANDONED` | `agent_run` | 心跳超时或进程重启，执行体已不存在、结果未知；与执行体自报的 `FAILED` 区分 |
+| `agent_run.stage` / `heartbeat_at` | `agent_run` | 当前阶段快照与最近推进时间；恢复任务以 `heartbeat_at`（为空用 `started_at`）判断是否陈旧 |
+| 阶段历史 | `agent_run_stage`（`run_id, seq_no`） | 这个 run 依次经过了哪些阶段；与 `agent_run_event` 的 `seq_no` 是两套独立序列，别混用 |
+| Outbox 积压 / 失败 | `plan_outbox` | `status=PENDING` 且 `next_attempt_at<=NOW()` 为待投递；`DISPATCHING` 超过 `claimed_at+10min` 为疑似崩溃；`DEAD` 需人工介入（`last_error` 是证据） |
+| 事件持久化 | `agent_run_event` | 每 run 的 `seq_no` 应连续；缺号说明落库失败（只记 DEBUG）或运行未创建成功 |
+| 租约清扫 / 恢复日志 | 应用日志 | `确认租约清扫：N 条…`、`Outbox 租约恢复：N 条重新排队…`、`Outbox 重试耗尽，置 DEAD…`、`回收心跳超时的 Agent 运行: count=…`；日志只带数量/ID，不带方案内容 |
+| 续传结果 | 应用日志 + 客户端 | `resume_timeout` 只发事件、不写库；服务端异常只记 DEBUG 并结束本连接，不影响原始运行 |
+
+可运维调整的配置项（默认值即安全值）：
+
+| 配置键 | 默认 | 作用 |
+| --- | --- | --- |
+| `travel.pending-plan.lease-minutes` | `5` | 确认租约时长；必须大于一次正常提交耗时 |
+| `travel.pending-plan.sweep-interval-ms` | `30000` | 过期 `CONFIRMING` 清扫间隔（启动时另跑一次） |
+| `travel.outbox.dispatch-interval-ms` | `5000` | Outbox 投递轮次间隔（fixedDelay） |
+| `travel.outbox.batch-size` | `20` | 每轮最多投递条数 |
+| `travel.outbox.dispatching-lease-minutes` | `10` | `DISPATCHING` 领取租约，超时视为执行者崩溃 |
+| `travel.outbox.max-attempts` | `8` | 失败上限，达到后置 `DEAD` |
+| `travel.outbox.base-backoff-seconds` / `max-backoff-seconds` | `10` / `3600` | 指数退避：第 n 次失败等待 `base × 2^(n-1)`，封顶 1h |
+| `travel.agent.run-recovery.stale-after-ms` | `600000` | 心跳超时阈值（默认 10 分钟） |
+| `travel.agent.run-recovery.interval-ms` / `initial-delay-ms` | `300000` / `300000` | 恢复任务固定延迟与首次延迟（启动时另跑一次） |
+
+前 8 个在 `application.yml` 有环境变量占位（`PENDING_PLAN_*` / `OUTBOX_*`，见 [部署](deployment.md) §5.3.2）；
+`travel.agent.run-recovery.*` 只在 `@Value` 里读，**没有对应的 `AGENT_RUN_RECOVERY_*` 环境变量占位**，
+要用配置文件或 `SPRING_APPLICATION_JSON` 覆盖。
+
+**告警建议（尚未加入 [alerts.yml](../operations/alerts.yml)）**：当前没有 `plan_outbox` / `ABANDONED`
+的专用 Micrometer 指标，无法直接写 PromQL。建议后续补三个低基数指标——
+`outbox.status{status}`（Gauge，按状态计数）、`agent.run.abandoned`（Counter）、
+`pending.plan.swept`（Counter）；在此之前用日志告警兜底：`Outbox 重试耗尽，置 DEAD` 与
+`回收心跳超时的 Agent 运行: count=` 任一出现即人工查看。**不要把 SQL 轮询塞进 Prometheus。**
 
 ---
 
@@ -108,6 +153,11 @@ curl -s -H "Authorization: Bearer $TOKEN" 'http://127.0.0.1:8080/actuator/metric
 ## 4. 告警与阈值
 
 - 规则文件：[`docs/operations/alerts.yml`](../operations/alerts.yml)（PrometheusRule，`kubectl apply` 或写进 Prometheus `rule_files`）。
+  注意它是 **PrometheusRule CRD**（顶层 `apiVersion/kind/spec`），裸 Prometheus 的 `rule_files` 只认 `groups:`，
+  用 `node scripts/alerts-rules-extract.mjs -Out alerts-rules.yml` 抽出后再交给 Prometheus（18 条规则已用
+  `promtool check rules` 逐条验过）。
+- 路由与送达：[`docs/operations/alert-routing.md`](../operations/alert-routing.md) + `alertmanager.yml`
+  （severity 路由、抑制、兜底）；`scripts/alert-routing-drill.ps1` 一条命令验证「规则 firing → 路由 → 送达 → resolved」。
 - 分级：`severity=critical`（P0，立即处置，用户已受影响）、`warning`（P1，当天处置）、`info`（P2，趋势问题，周会看）。
 - 每条规则都带 `for`（防抖，避免一次抖动就叫人）、`summary`、`description`、`runbook_url`。
 - **`for` 的取值原则**：用户可见故障 5–10m，趋势类 30–60m。窗口短于抓取间隔（常见 15–30s）的告警没有意义。
@@ -301,6 +351,8 @@ curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/actuator/prometh
 4. **`sse.disconnects` 存在重复计数**：同一次断连可能记 `complete`（控制器）+ `cancelled`（引擎）。SLO 已按 reason 分开，不要求总和。
 5. **P95 依赖 histogram**：`percentiles-histogram` 未开启时 P95 告警静默失效，`TravelLowHistogramMissing` 专门兜这个坑——但**只兜 `http.server.requests` 一条**（`absent(http_server_requests_seconds_bucket)`），`agent.stage` / `llm.latency` 缺失不会触发规则，需要巡检时人工确认（2026-11-24 实跑时核对过表达式与规则的差异）。
 6. **多实例聚合**：`travel.llm.cost.usd` 按实例累加，成本看板用 `sum by (instance)` 还是全局 `sum` 取决于部署拓扑；告警阈值 2 USD/h 是按单实例写的。
+7. **可靠性信号缺少指标**：`plan_outbox` / `agent_run.status=ABANDONED` / 租约清扫目前只能查库或看日志，SLO 表与 `alerts.yml` 都没有对应规则（§2.4 给了建议指标，未实现）。
+8. **事件载荷会被截断**：单条 SSE 事件超过约 1,000,000 字符时写入侧截断并 WARN；续传补发会把截断文本当字符串发回，客户端不能假设所有事件都是完整 JSON。完整方案仍以 `complete` 事件/运行详情为准。
 ---
 
 ## 10. 验证记录（2026-11-19）

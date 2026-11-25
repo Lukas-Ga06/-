@@ -105,13 +105,20 @@ tail -f logs/travel-agent-server.log
 
 ## 2. TravelPlanDegradedHigh (P1)
 
-**现象**：30 分钟窗口内超过 5% 的规划跳过研究/结构化规划；用户拿到"未经审核/模板化"的方案（回复里有"时间预算"提示、SSE 有 `budget_degraded` 事件）。
+**现象**：30 分钟窗口内超过 5% 的规划跳过研究/结构化规划；用户拿到"未经审核/模板化"的方案（回复里有预算提示、SSE 有 `budget_degraded` 事件）。
 
 **排查**：
 1. 先看是否"变慢导致降级"：`agent_stage_seconds` 的 plan/reflect P95，`llm_latency_seconds` 的均值。
 2. `llm.calls{result="failed"}` 是否上升（模型不可用 → 结构化规划失败 → 规则路径）。
 3. 外部工具（高德/天气）是否变慢：看 `external_degraded_total`（T3 已合入时）与工具日志。
 4. 预算是否被调小：`AGENT_BUDGET_TOTAL_MS` 环境变量、`travel.agent.budget.total-ms`。
+5. **是时间还是花费**：回复前缀 `⏳ 本轮预算` 之后会写「时间预算（30.0s）已用尽」或「花费预算（token 已用 X/Y）已用尽」；
+   再看 `travel_agent_spend_total{result="exhausted",limit="..."}` 的分项速率——`limit=tokens|llm_calls` 说明上限设紧或单轮用量变大，
+   `limit=tool_calls` 说明工具调用量异常（工具风暴），`limit=retries` 说明失败在自我放大。
+
+**止血**：调大总预算（`AGENT_BUDGET_TOTAL_MS=45000`，需评估端到端体验）或临时关掉审核/研究；若是花费项触顶，
+按需调 `AGENT_SPEND_MAX_TOKENS` / `AGENT_SPEND_MAX_LLM_CALLS`（费用上限需要真实单价配置才会触发）；
+若是 LLM 变慢，切备用供应商（改 `travel.llm.base-url/model` 后重启）。
 
 **止血**：调大总预算（`AGENT_BUDGET_TOTAL_MS=45000`，需评估端到端体验）或临时关掉审核/研究；若是 LLM 变慢，切备用供应商（改 `travel.llm.base-url/model` 后重启）。
 **回滚**：预算/模型配置回退。
@@ -457,8 +464,11 @@ curl -sS -b cookies.txt http://127.0.0.1:8081/api/system/status \
 - [ ] `alerts.yml` 里 `runbook_url` 的 `OWNER` 占位已替换为真实组织名。
 - [ ] Prometheus 抓取目标 `job="travel-agent-server"` 能抓到 `/actuator/prometheus`（需登录；抓取凭证见 [可观测性](../guide/observability.md)）。
 - [ ] `TravelLowHistogramMissing` 未触发（否则 P95 类告警静默失效）。
-- [ ] 新增/修改规则后 `promtool check rules` 通过（如环境有 promtool）。
-- [ ] 每条 P0 规则都有值班接收人；用一次演练告警确认能送达（不要只配规则不验证）。
+- [ ] 裸 Prometheus 不是直接加载 `alerts.yml`（它是 PrometheusRule CRD）：用
+      `node scripts/alerts-rules-extract.mjs -Out alerts-rules.yml` 抽出 `groups:` 后再 `promtool check rules`。
+- [ ] 路由按 severity 落到真实渠道：`alertmanager.yml` 渲染后 `amtool check-config` 通过（见[告警路由](alert-routing.md) §3.2）。
+- [ ] 每条 P0 规则都有值班接收人；用一次演练告警确认能送达（不要只配规则不验证）：
+      `scripts/alert-routing-drill.ps1`（本地链路）→ 真实渠道用 `-Mode synthetic`，人工确认后回填证据 summary。
 
 ## 附录 D：账号注销后仍有残留（核对步骤）
 
