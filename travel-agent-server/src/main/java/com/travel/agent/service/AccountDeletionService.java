@@ -69,9 +69,18 @@ public class AccountDeletionService {
         // ---- Agent 追踪/执行派生数据（子表先删） ----
         delete(rows, "tool_call_trace", "DELETE FROM tool_call_trace WHERE user_id = ?", userId);
         delete(rows, "agent_task", "DELETE FROM agent_task WHERE user_id = ?", userId);
+        // V28/V27：SSE 事件与状态迁移历史只有 run_id，按用户所属 run 删除
+        delete(rows, "agent_run_event",
+                "DELETE FROM agent_run_event WHERE run_id IN (SELECT run_id FROM agent_run WHERE user_id = ?)",
+                userId);
+        delete(rows, "agent_run_stage",
+                "DELETE FROM agent_run_stage WHERE run_id IN (SELECT run_id FROM agent_run WHERE user_id = ?)",
+                userId);
         delete(rows, "agent_run", "DELETE FROM agent_run WHERE user_id = ?", userId);
         delete(rows, "agent_command_dedupe", "DELETE FROM agent_command_dedupe WHERE user_id = ?", userId);
         delete(rows, "plan_execution", "DELETE FROM plan_execution WHERE user_id = ?", userId);
+        // V26：确认同步 Outbox 待办属于该用户的行程派生数据
+        delete(rows, "plan_outbox", "DELETE FROM plan_outbox WHERE user_id = ?", userId);
         delete(rows, "pending_plan", "DELETE FROM pending_plan WHERE user_id = ?", userId);
 
         // ---- 行程关联数据：user_id 为空的旧行也要删，因此 OR trip_id 子查询 ----

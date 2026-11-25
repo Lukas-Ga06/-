@@ -95,7 +95,8 @@ class AccountDeletionServiceTest {
 
         // 结果只含聚合数字，且覆盖全部目标表
         assertThat(result.deletedRows()).containsKeys(
-                "tool_call_trace", "agent_task", "agent_run", "agent_command_dedupe", "plan_execution",
+                "tool_call_trace", "agent_task", "agent_run", "agent_run_event", "agent_run_stage",
+                "agent_command_dedupe", "plan_execution", "plan_outbox",
                 "pending_plan", "operation_history", "conversation_message", "conversation_meta",
                 "expense", "memo", "schedule_item", "llm_quota_usage", "rag_chunk",
                 "rag_document_version", "rag_document", "itinerary_item", "trip_event",

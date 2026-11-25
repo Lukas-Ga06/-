@@ -114,6 +114,15 @@ class MigrationBaselineTest {
         core.add(23);
         // V24：users.token_version（注销后吊销全部 token），双方言中性 SQL（单列 ALTER TABLE ADD COLUMN）
         core.add(24);
+        // V25–V28：P0 可靠执行链路，均为双方言中性 SQL
+        //   V25 pending_plan 确认租约（claim_token / claimed_at）
+        //   V26 plan_outbox 事务性 Outbox（确认提交同事务写待办 + 独立投递）
+        //   V27 agent_run 状态机快照 / 心跳 / request_id + agent_run_stage 迁移历史
+        //   V28 agent_run_event SSE 事件持久化（Last-Event-ID 续传）
+        core.add(25);
+        core.add(26);
+        core.add(27);
+        core.add(28);
         Set<Integer> mysqlExpected = new LinkedHashSet<>(core);
         mysqlExpected.addAll(List.of(8, 12, 13));
         Set<Integer> h2Expected = new LinkedHashSet<>(core);
