@@ -47,7 +47,7 @@ graph LR
 2. **SSE 必须端到端不缓冲**：`GET/POST /api/agent/stream` 是长连接流式输出（`SseEmitter` 180 秒），
    nginx 已配 `proxy_buffering off`，任何额外网关（CDN / ALB / ingress）也必须关闭缓冲。
 3. **MySQL 是唯一不可替代的有状态依赖**：MySQL 未 healthy 时 `backend` 不会启动（`depends_on.condition: service_healthy`），
-   镜像为 MySQL 8.4；`docker-compose.infra.yml` 里的 8.0 只用于本地开发。
+   镜像为 MySQL 8.4；`docker-compose.infra.yml` 已对齐为同一 tag（本地开发与生产同主版本）。
 4. **Redis 只存限流计数**：compose 内置 `redis:7-alpine`（AOF + healthcheck），`backend` 同样依赖其 healthy 才启动；
    运行期 Redis 掉线时代码 fail-open 放行并告警，`redis-data` 丢失只会重置计数，不纳入 RTO/RPO 关键数据。
 
@@ -290,7 +290,7 @@ docker compose down -v                # ⚠️ 连卷一起删：MySQL 数据与
 | `MCP_ENABLED` | 按需开；单个 MCP server 接入失败只告警、不影响启动 |
 | `LLM_DAILY_QUOTA` | 生产建议设正值（如 `200`），防止单账号刷爆模型账单 |
 | `RATE_LIMIT_ENABLED` | 保持 `true`；多实例时把 `travel.rate-limit.store` 设为 `redis` |
-| `/h2-console` | `mysql` profile 已关闭；仍建议在 `SecurityConfig` 放行列表中移除 `/h2-console/**`（见 DEVELOPMENT.md 部署注意事项 4） |
+| `/h2-console` | 默认关闭；**只有 `H2_CONSOLE_ENABLED=true` 才进免认证白名单**，关闭时匿名直连返回 `401`（见 DEVELOPMENT.md 部署注意事项 4）。生产保持默认，不需要再手工改白名单 |
 
 ---
 
@@ -524,18 +524,20 @@ Redis 与 S3 已由 compose 原生支持（`SPRING_DATA_REDIS_HOST/PORT`、`S3_*
 **本地（不用 Docker 跑后端）**：
 
 ```bash
-docker compose -f docker-compose.infra.yml up -d     # 只起 MySQL 8.0 + Redis
+docker compose -f docker-compose.infra.yml up -d     # 只起 MySQL 8.4 + Redis
 cd travel-agent-server
 mvn spring-boot:run -Dspring-boot.run.profiles=mysql # 或 --spring.profiles.active=mysql
 ```
 
-> `docker-compose.infra.yml` 的 MySQL 是 **8.0**（并对外发布 3306），与生产 compose 的 **8.4** 不同版本，仅用于本地开发。
+> `docker-compose.infra.yml` 的 MySQL 与生产 compose **同为 8.4**（并对外发布 3306），仅用于本地开发；
 > 宿主机已被占用 3306 时先改该端口映射。
 >
-> ⚠️ 该 compose 仍把**已弃用的** `sql/init.sql` 挂到 `docker-entrypoint-initdb.d/`：首次启动会用旧 schema 建表，
-> 而旧 schema 的 `health_record.weight`（`DECIMAL(5,1)`）与 `operation_history.*_state`（`JSON`）和实体不一致，
-> `ddl-auto=validate` 会因此启动失败。**要么先删掉 `mysql-data` 卷再让 Flyway 建 schema（推荐），
-> 要么用空库（只 `CREATE DATABASE`）**；不要用 init.sql 建出来的库跑新代码。
+> ⚠️ 已有 **8.0** 数据卷首次用 8.4 启动会就地升级数据目录，且**不能降回 8.0**：要保留旧数据先 `mysqldump`
+> 备份，或直接删掉 `mysql-data` 卷重建（开发库推荐后者）。
+>
+> ✅ 该 compose **不再挂载已弃用的 `sql/init.sql`**：库由 `MYSQL_DATABASE` 创建，表由后端首次启动的 Flyway 建。
+> 历史上用 init.sql 建出的旧库（`health_record.weight` 为 `DECIMAL(5,1)`、`operation_history.*_state` 为 `JSON`）
+> 与实体不一致，`ddl-auto=validate` 会因此启动失败——遇到就按上一条删卷重建。
 
 **生产**：compose 已固定 `SPRING_PROFILES_ACTIVE=mysql` + `MYSQL_HOST=mysql`，无需改动。
 **反向切回 H2（应急）**：去掉 `SPRING_PROFILES_ACTIVE`/`MYSQL_*` 后重建 `backend`，后端改用容器内
