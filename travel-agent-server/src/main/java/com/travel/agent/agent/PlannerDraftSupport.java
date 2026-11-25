@@ -121,6 +121,11 @@ public class PlannerDraftSupport {
 
     /** 把 (key, value, key, value, ...) 依次塞进 map，供工具参数构造 */
     public Map<String, Object> buildArgs(Map<String, Object> map, Object... kv) {
+        // 成对入参：奇数个说明调用方漏了一个 value，直接拒绝而不是让 kv[i + 1] 越界
+        if (kv == null || kv.length % 2 != 0) {
+            throw new IllegalArgumentException(
+                    "buildArgs 需要成对的 key/value，实际参数个数: " + (kv == null ? 0 : kv.length));
+        }
         for (int i = 0; i < kv.length; i += 2) {
             map.put((String) kv[i], kv[i + 1]);
         }

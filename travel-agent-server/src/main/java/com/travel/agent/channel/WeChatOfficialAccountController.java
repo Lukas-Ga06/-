@@ -78,8 +78,12 @@ public class WeChatOfficialAccountController {
             return org.springframework.http.ResponseEntity.badRequest().body("missing params");
         }
         // 恒时比较：避免按响应时间差逐字节猜签名
+        // echostr 是微信服务器回显的查询参数（用户可控）：显式 text/plain，
+        // 避免被浏览器按 HTML 解释（反射型 XSS）；同时只回显、不渲染。
         return constantTimeEquals(sign(token, timestamp, nonce), signature)
-                ? org.springframework.http.ResponseEntity.ok(echostr)
+                ? org.springframework.http.ResponseEntity.ok()
+                        .contentType(MediaType.TEXT_PLAIN)
+                        .body(echostr)
                 : org.springframework.http.ResponseEntity.status(403).body("signature mismatch");
     }
 

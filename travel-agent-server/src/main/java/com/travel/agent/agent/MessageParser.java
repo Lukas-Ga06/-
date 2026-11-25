@@ -31,7 +31,7 @@ public final class MessageParser {
         }
         // 先把日期片段去掉：否则「11月1日杭州三日游」会先匹配到日期里的「1日」，被当成 1 日游
         String stripped = stripDateExpressions(text);
-        Matcher m = Pattern.compile("(\\d+)\\s*[天日]").matcher(stripped);
+        Matcher m = Pattern.compile("(\\d{1,3})\\s*[天日]").matcher(stripped);
         if (m.find()) {
             return Integer.parseInt(m.group(1));
         }
@@ -56,7 +56,9 @@ public final class MessageParser {
         if (text == null) {
             return null;
         }
-        Matcher m = Pattern.compile("(?:预算|budget)\\s*[:：]?\\s*([0-9,]{3,9})").matcher(text);
+        // 空白与可选冒号都用有界量词（CodeQL polynomial-redos）：无界 \s* 叠加可选组，
+        // 在 2 万字符的恶意输入上会退化成秒级回溯。
+        Matcher m = Pattern.compile("(?:预算|budget)\\s{0,4}[:：]?\\s{0,4}([0-9,]{3,9})").matcher(text);
         if (m.find()) {
             return parse(m.group(1));
         }
@@ -267,10 +269,10 @@ public final class MessageParser {
     private static final Pattern GO_TO_CITY = Pattern.compile(
             "(?:去|到|前往|飞往|抵达|赶赴)\\s*([\\u4e00-\\u9fa5]{2,12})");
     private static final Pattern TRIP_WORD = Pattern.compile(
-            "([0-9一二两三四五六七八九十]+日游|周末游|亲子游|游)");
+            "([0-9一二两三四五六七八九十]{1,4}日游|周末游|亲子游|游)");
     private static final Pattern LEADING_HAN = Pattern.compile("^([\\u4e00-\\u9fa5]{2,12})");
     private static final Pattern DAY_IN_TEXT = Pattern.compile(
-            "[0-9一二两三四五六七八九十]+(?:天|日)(?:一夜|晚)?");
+            "[0-9一二两三四五六七八九十]{1,4}(?:天|日)(?:一夜|晚)?");
     private static final String CN_NUMERALS = "零一二两三四五六七八九十百千万";
     private static final String[] FALLBACK_CITY_PATTERNS = {
             "(?:到|在|飞)\\s*([\\u4e00-\\u9fa5]{2,4}?)(?:玩|旅行|旅游|待|过|出差)",
@@ -336,8 +338,8 @@ public final class MessageParser {
             return -1;
         }
         // 1) 结构化表单/明确分人：成人 + 儿童
-        Matcher adult = Pattern.compile("(?:成人|大人)\\s*[:：]?\\s*(\\d{1,2})").matcher(text);
-        Matcher kid = Pattern.compile("(?:儿童|孩子|小孩)\\s*[:：]?\\s*(\\d{1,2})").matcher(text);
+        Matcher adult = Pattern.compile("(?:成人|大人)\\s{0,4}[:：]?\\s{0,4}(\\d{1,2})").matcher(text);
+        Matcher kid = Pattern.compile("(?:儿童|孩子|小孩)\\s{0,4}[:：]?\\s{0,4}(\\d{1,2})").matcher(text);
         boolean hasAdult = adult.find();
         boolean hasKid = kid.find();
         if (hasAdult || hasKid) {
@@ -361,12 +363,12 @@ public final class MessageParser {
             }
         }
         // 4) 「3人 / 3个人 / 3位」
-        Matcher arabic = Pattern.compile("(\\d{1,2})\\s*(?:个|位)?\\s*人").matcher(text);
+        Matcher arabic = Pattern.compile("(\\d{1,2})\\s{0,4}(?:个|位)?\\s{0,4}人").matcher(text);
         if (arabic.find()) {
             return clampParty(Integer.parseInt(arabic.group(1)));
         }
         // 5) 「三个人 / 两个人」
-        Matcher chinese = Pattern.compile("([一两二三四五六七八九十])\\s*(?:个|位)?\\s*人").matcher(text);
+        Matcher chinese = Pattern.compile("([一两二三四五六七八九十])\\s{0,4}(?:个|位)?\\s{0,4}人").matcher(text);
         if (chinese.find()) {
             Integer count = CN_NUM.get(chinese.group(1).charAt(0));
             if (count != null) {
@@ -396,12 +398,12 @@ public final class MessageParser {
             return null;
         }
         java.math.BigDecimal amount = null;
-        Matcher m = Pattern.compile("([0-9]+(?:\\.[0-9]+)?)\\s*(?:元|块钱|块)").matcher(text);
+        Matcher m = Pattern.compile("([0-9]{1,9}(?:\\.[0-9]{1,2})?)\\s{0,4}(?:元|块钱|块)").matcher(text);
         if (m.find()) {
             amount = new java.math.BigDecimal(m.group(1));
         }
         if (amount == null) {
-            m = Pattern.compile("(?:花了|花掉|记一笔|记账|记一下|支出)\\s*[:：]?\\s*([0-9]+(?:\\.[0-9]+)?)").matcher(text);
+            m = Pattern.compile("(?:花了|花掉|记一笔|记账|记一下|支出)\\s{0,4}[:：]?\\s{0,4}([0-9]{1,9}(?:\\.[0-9]{1,2})?)").matcher(text);
             if (m.find()) {
                 amount = new java.math.BigDecimal(m.group(1));
             }
@@ -463,7 +465,7 @@ public final class MessageParser {
             date = explicit.explicit() && explicit.date() != null ? explicit.date() : today;
         }
         java.time.LocalTime time = null;
-        Matcher m = Pattern.compile("(上午|下午|中午|晚上|早上)?\\s*(\\d{1,2})\\s*[点时：:]\\s*(\\d{1,2})?\\s*分?").matcher(text);
+        Matcher m = Pattern.compile("(上午|下午|中午|晚上|早上)?\\s{0,4}(\\d{1,2})\\s{0,4}[点时：:]\\s{0,4}(\\d{1,2})?\\s{0,4}分?").matcher(text);
         if (m.find()) {
             int hour = Integer.parseInt(m.group(2));
             String period = m.group(1) == null ? "" : m.group(1);
@@ -716,7 +718,8 @@ public final class MessageParser {
             int idx = dayIndexOf(trip, mentioned);
             return new TripDay(idx, false, tripDayDate(trip, idx));
         }
-        int idx = clampDay(base + offset, totalDays);
+        // 先用 long 夹到 [1, totalDays] 再转 int：避免 base + offset 在 int 上溢出（CodeQL tainted-arithmetic）
+        int idx = clampDay((int) Math.max(1L, Math.min((long) base + offset, Math.max(totalDays, 1))), totalDays);
         return new TripDay(idx, true, tripDayDate(trip, idx));
     }
 

@@ -111,7 +111,9 @@ public class PendingPlanStore {
         }
         boolean claimed = repository.claim(planId, userId) == 1;
         if (!claimed) {
-            log.debug("待确认方案已被抢占或不存在: planId={} userId={}", planId, userId);
+            // planId 来自请求（用户可控），写入日志前剥掉 CR/LF，防止伪造日志行
+            log.debug("待确认方案已被抢占或不存在: planId={} userId={}",
+                    planId.replace("\r", "_").replace("\n", "_"), userId);
         }
         return claimed;
     }
@@ -126,7 +128,8 @@ public class PendingPlanStore {
             return;
         }
         if (repository.release(planId) == 0) {
-            log.debug("待确认方案无需释放（已不是 CONFIRMING）: planId={}", planId);
+            log.debug("待确认方案无需释放（已不是 CONFIRMING）: planId={}",
+                    planId.replace("\r", "_").replace("\n", "_"));
         }
     }
 

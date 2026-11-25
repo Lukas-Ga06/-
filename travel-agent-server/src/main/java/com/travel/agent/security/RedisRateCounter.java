@@ -71,8 +71,11 @@ public class RedisRateCounter implements RateCounter {
 
     /** Redis 异常：告警 + 计数 + 放行（限流不可用时不能让业务跟着挂） */
     private void failOpen(String operation, String bucket, Exception e) {
+        // bucket 来自限流键（用户可控），异常 message 也可能含外部输入：进日志前统一剥 CR/LF
         log.warn("Redis 限流不可用，本次 fail-open 放行: bucket={} operation={} error={}: {}",
-                bucket, operation, e.getClass().getSimpleName(), e.getMessage());
+                bucket == null ? "null" : bucket.replace("\r", "_").replace("\n", "_"),
+                operation, e.getClass().getSimpleName(),
+                e.getMessage() == null ? "null" : e.getMessage().replace("\r", "_").replace("\n", "_"));
         meterRegistry.counter(FAIL_OPEN_METRIC).increment();
         // 统一降级口径（T3）：ratelimit.failopen 说明「限流没生效」，external.degraded 说明「依赖不可用」，
         // 两者是同一事件的两个视角，告警按后者统一聚合到全部外部依赖
