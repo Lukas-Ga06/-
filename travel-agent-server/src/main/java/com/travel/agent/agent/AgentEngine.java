@@ -130,6 +130,8 @@ public class AgentEngine {
     private final AgentCommandIdempotency idempotency;
     /** V2.2 追踪：run / 任务 / 工具调用落库（内部吞异常，绝不反噬主流程） */
     private final com.travel.agent.service.AgentTraceService traceService;
+    /** P0：SSE 事件持久化（断线续传补发；写入失败静默，不影响实时流） */
+    private final com.travel.agent.service.AgentRunEventService runEventService;
     /**
      * 任务图调度器（第十五批 FR-02/FR-04）：按依赖派发、并行、回收重派。
      * 依赖关系由引擎写死（确定性编排），模型只执行任务内容，不参与调度。
@@ -145,7 +147,20 @@ public class AgentEngine {
     private final com.travel.agent.observability.TravelMetrics travelMetrics;
 
     public AgentDtos.AgentResult handle(AgentContext ctx) {
+        // P0：run 必须在第一个事件之前创建 —— 事件持久化与 SSE 帧 id（<runId>:<seq>）都依赖它，
+        // 否则断线续传拿不到完整事件序列。追踪不可用时 runId 为空，后续全部静默跳过（行为同升级前）。
+        com.travel.agent.entity.AgentRun run = traceService.startRun(
+                ctx.getUserId(), ctx.getTripId(), ctx.getMessage(), ctx.getRequestId());
+        if (run != null) {
+            String runId = run.getRunId();
+            ctx.setRunId(runId);
+            ctx.setDurableEventSink(event -> runEventService.append(runId, event));
+            ctx.setStageSink(stage -> traceService.enterStage(runId, stage));
+        }
         ctx.emit("start", Map.of("sessionId", ctx.getSessionId()));
+        if (run != null) {
+            ctx.emit("run", Map.of("runId", run.getRunId()));
+        }
         ctx.setState(AgentState.UNDERSTAND);
         // SSE 异步执行器与渠道线程看不见 filter 设置的 ThreadLocal，这里按执行线程补上（LLM 按用户配额依赖它）
         if (ctx.getUsername() != null) {
@@ -157,13 +172,6 @@ public class AgentEngine {
                 return aborted(ctx);
             }
             loadConversation(ctx);
-            // V2.2 追踪：一次对话 = 一次 run；追踪不可用时 runId 为空，后续记录全部静默跳过
-            com.travel.agent.entity.AgentRun run = traceService.startRun(
-                    ctx.getUserId(), ctx.getTripId(), ctx.getMessage());
-            if (run != null) {
-                ctx.setRunId(run.getRunId());
-                ctx.emit("run", Map.of("runId", run.getRunId()));
-            }
             AgentDtos.AgentResult result = doHandle(ctx);
             finishRunRecord(ctx, result);
             // 预算降级必须可追踪：单独落一条 DEGRADE 任务（放在 run 收尾之后，不影响结果状态）

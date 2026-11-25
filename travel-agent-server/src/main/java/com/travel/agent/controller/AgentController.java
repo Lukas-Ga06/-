@@ -8,11 +8,16 @@ import com.travel.agent.config.AgentBudgetProperties;
 import com.travel.agent.dto.ApiResponse;
 import com.travel.agent.dto.AgentDtos;
 import com.travel.agent.dto.ChatDtos;
+import com.travel.agent.entity.AgentRun;
+import com.travel.agent.entity.AgentRunEvent;
 import com.travel.agent.entity.User;
+import com.travel.agent.exception.BusinessException;
 import com.travel.agent.llm.LlmProperties;
 import com.travel.agent.security.AuthAttributes;
+import com.travel.agent.service.AgentRunEventService;
 import com.travel.agent.service.AuthService;
 import com.travel.agent.util.Paging;
+import io.swagger.v3.oas.annotations.Hidden;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
@@ -26,6 +31,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.regex.Pattern;
 import java.util.concurrent.CompletableFuture;
@@ -40,6 +46,21 @@ public class AgentController {
 
     /** SSE 断开计数：reason=complete（半途断开）|timeout|error；正常结束不计 */
     static final String SSE_DISCONNECTS_METRIC = "sse.disconnects";
+
+    /** 浏览器 EventSource 重连时自动带上的「最后收到的事件 id」，格式 {@code <runId>:<seq>} */
+    static final String LAST_EVENT_ID_HEADER = "Last-Event-ID";
+
+    /** 续传轮询间隔：运行中每 500ms 查一次新事件（有界批次，不阻塞容器线程） */
+    static final long RESUME_POLL_INTERVAL_MS = 500L;
+    /** 单条续传连接的最长等待：运行超过 120s 仍未终态就发 resume_timeout 后关闭 */
+    static final long RESUME_MAX_DURATION_MS = 120_000L;
+    /** 续传 SseEmitter 的容器超时：比业务上限多留 30s 收尾余量 */
+    static final long RESUME_EMITTER_TIMEOUT_MS = RESUME_MAX_DURATION_MS + 30_000L;
+    /** 单批补发上限 */
+    static final int RESUME_BATCH_SIZE = 200;
+
+    /** runId 的字符集与列宽一致（UUID + 允许前缀是字母数字/下划线/连字符） */
+    private static final Pattern RUN_ID_PATTERN = Pattern.compile("[A-Za-z0-9_-]{1,64}");
 
     /** 助手页作用域（V21） */
     static final String SCOPE_ASSISTANT = "assistant";
@@ -59,6 +80,8 @@ public class AgentController {
     private final MeterRegistry meterRegistry;
     /** V2.2 运行追踪查询（FR-10） */
     private final com.travel.agent.service.AgentTraceService traceService;
+    /** P0：SSE 事件持久化（续传补发按 seq 升序、不重复） */
+    private final AgentRunEventService runEventService;
     /** V2.2 确认后同步台账（FR-09） */
     private final com.travel.agent.service.PlanExecutionService executionService;
     /** P1 端到端时间预算配置（默认开启，30s；关闭后行为与升级前一致） */
@@ -101,6 +124,11 @@ public class AgentController {
                              Authentication authentication) {
         User user = authService.requireUser(authentication.getName());
         noReferrer(httpResponse);
+        // P0：浏览器 EventSource 重连会带 Last-Event-ID —— 续传原 run，绝不重新规划
+        ResumePoint resume = parseResumePoint(httpRequest.getHeader(LAST_EVENT_ID_HEADER));
+        if (resume != null) {
+            return resumeStream(user, resume.runId(), resume.lastEventId(), httpResponse);
+        }
         ChatDtos.ChatRequest request = new ChatDtos.ChatRequest(
                 message, tripId, currentDay,
                 selType == null ? null : new ChatDtos.SelectedElement(selType, selId, selTitle),
@@ -124,6 +152,11 @@ public class AgentController {
                                  Authentication authentication) {
         User user = authService.requireUser(authentication.getName());
         noReferrer(httpResponse);
+        // P0：fetch 传输若带 Last-Event-ID（断线后重连），同样走续传而不是重新规划
+        ResumePoint resume = parseResumePoint(httpRequest.getHeader(LAST_EVENT_ID_HEADER));
+        if (resume != null) {
+            return resumeStream(user, resume.runId(), resume.lastEventId(), httpResponse);
+        }
         ChatDtos.ChatRequest request = new ChatDtos.ChatRequest(
                 body.getMessage(), body.getTripId(), body.getCurrentDay(),
                 body.getSelectedElement(), body.getMapCenter(), body.getConversationId(),
@@ -147,7 +180,15 @@ public class AgentController {
         emitter.onError(lifecycle::onError);
         ctx.addListener(event -> {
             try {
-                emitter.send(SseEmitter.event().name(event.event()).data(event.data()));
+                SseEmitter.SseEventBuilder frame = SseEmitter.event()
+                        .name(event.event())
+                        .data(event.data());
+                // P0：run 创建后每个事件都带 id「<runId>:<seq>」，客户端断线时凭最后一个 id 续传；
+                // run 创建前的事件（旧调用方 / 极端情况）没有 id，行为与升级前一致。
+                if (ctx.getRunId() != null && event.seq() > 0) {
+                    frame.id(ctx.getRunId() + ":" + event.seq());
+                }
+                emitter.send(frame);
             } catch (Exception e) {
                 log.warn("SSE 事件发送失败: {}", e.getMessage());
             }
@@ -303,6 +344,204 @@ public class AgentController {
                 .toolCalls(traceService.toolCallsOf(runId).stream()
                         .map(com.travel.agent.dto.AgentTraceDtos::from).toList())
                 .build());
+    }
+
+    /**
+     * SSE 断线续传（P0）：GET /api/agent/runs/{runId}/events?lastEventId=N。
+     *
+     * <p>语义：
+     * <ul>
+     *   <li>先补发 seq &gt; N 的持久化事件（按 seq 升序、同 seq 不重复）；</li>
+     *   <li>run 已终态 → 补发后关闭；若补发集合里没有 complete/cancelled，合成一条
+     *       {@code complete}（status=FAILED，说明运行已中断、请重试），绝不让客户端无限等待；</li>
+     *   <li>run 仍 RUNNING → 每 {@value #RESUME_POLL_INTERVAL_MS}ms 轮询新事件，直到终态或
+     *       {@value #RESUME_MAX_DURATION_MS}ms 上限；超时发 {@code resume_timeout} 后关闭。</li>
+     * </ul>
+     *
+     * <p>鉴权：Cookie / Authorization 走常规 JWT；EventSource 场景可用 {@code ?ticket=}
+     * （沿用 JwtAuthenticationFilter 的 agent-stream 票据语义）。归属校验失败一律 404，
+     * 不泄露「这个 runId 是否存在」。执行体跑在 {@code agentTaskExecutor} 上，不阻塞容器线程。
+     *
+     * <p>对 OpenAPI 隐藏：这是 SSE 流端点，与 /api/agent/stream 一样没有可用的 JSON 契约；
+     * 公开接口文档不收录，避免契约快照被流式端点污染。
+     */
+    @Hidden
+    @GetMapping(value = "/runs/{runId}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter runEvents(@PathVariable String runId,
+                                @RequestParam(value = "lastEventId", required = false) Long lastEventId,
+                                HttpServletRequest httpRequest,
+                                HttpServletResponse httpResponse,
+                                Authentication authentication) {
+        User user = authService.requireUser(authentication.getName());
+        long afterSeq = lastEventId != null
+                ? Math.max(lastEventId, 0L)
+                : resumeSeqFromHeader(httpRequest.getHeader(LAST_EVENT_ID_HEADER));
+        return resumeStream(user, runId, afterSeq, httpResponse);
+    }
+
+    /**
+     * 续传一个 run 的 SSE 事件流：归属校验 → 交给 {@code agentTaskExecutor} 补发/轮询。
+     *
+     * <p>断连语义与实时流隔离：这里没有 AgentContext，也就不会因为客户端从续传端点断开
+     * 去取消原始运行（{@link StreamLifecycle} 只挂在 /api/agent/stream 上）。
+     */
+    private SseEmitter resumeStream(User user, String runId, long afterSeq, HttpServletResponse httpResponse) {
+        AgentRun run = traceService.findRun(runId, user.getId())
+                .orElseThrow(() -> new BusinessException(404, "运行记录不存在"));
+        noReferrer(httpResponse);
+        SseEmitter emitter = new SseEmitter(RESUME_EMITTER_TIMEOUT_MS);
+        try {
+            CompletableFuture.runAsync(() -> resumeLoop(emitter, run, afterSeq), agentTaskExecutor);
+        } catch (RejectedExecutionException e) {
+            log.warn("Agent 线程池已满，无法续传: runId={}", runId);
+            throw new BusinessException(503, "服务器繁忙，请稍后重试");
+        }
+        return emitter;
+    }
+
+    /**
+     * 续传循环（在 agentTaskExecutor 线程上执行）：
+     * 有界批次补发 → 重读 run 状态 → 终态收尾 / 继续轮询。
+     *
+     * <p>游标只前进不后退，因此补发集合里不会出现重复 seq；客户端按 seq 幂等。
+     * 任何 IO/查询异常都只结束本连接，不影响原始运行。
+     */
+    private void resumeLoop(SseEmitter emitter, AgentRun initialRun, long afterSeq) {
+        String runId = initialRun.getRunId();
+        long cursor = Math.max(afterSeq, 0L);
+        long deadline = System.currentTimeMillis() + RESUME_MAX_DURATION_MS;
+        boolean terminalEventSent = false;
+        try {
+            while (true) {
+                List<AgentRunEvent> batch = runEventService.listAfter(runId, cursor, RESUME_BATCH_SIZE);
+                for (AgentRunEvent event : batch) {
+                    sendPersisted(emitter, runId, event);
+                    cursor = event.getSeqNo();
+                    if (AgentRunEventService.isTerminalEvent(event.getEventType())) {
+                        terminalEventSent = true;
+                    }
+                }
+                // 每轮重读状态（不持有最初那份快照）：运行可能在补发期间终态/被恢复任务标记 ABANDONED
+                String status = traceService.findRun(runId, initialRun.getUserId())
+                        .map(AgentRun::getStatus)
+                        .orElse(AgentRun.STATUS_ABANDONED);
+                boolean running = AgentRun.STATUS_RUNNING.equals(status);
+                if (!running) {
+                    if (!batch.isEmpty()) {
+                        continue; // 先把剩余事件补完再收尾
+                    }
+                    if (!terminalEventSent) {
+                        sendSynthesizedComplete(emitter, status);
+                    }
+                    completeQuietly(emitter);
+                    return;
+                }
+                if (!batch.isEmpty()) {
+                    continue; // 还有新事件：立刻继续拉取，不额外等待
+                }
+                if (System.currentTimeMillis() >= deadline) {
+                    emitter.send(SseEmitter.event().name("resume_timeout").data(Map.of(
+                            "runId", runId,
+                            "lastEventId", cursor,
+                            "message", "续传等待超时，运行仍在进行，请稍后重试")));
+                    completeQuietly(emitter);
+                    return;
+                }
+                Thread.sleep(RESUME_POLL_INTERVAL_MS);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            completeQuietly(emitter);
+        } catch (Exception e) {
+            // 客户端断开 / 查询失败：静默结束本连接，原始运行不受影响
+            log.debug("SSE 续传结束: runId={} err={}", runId, e.getMessage());
+            completeQuietly(emitter);
+        }
+    }
+
+    /** 补发一条持久化事件：id 固定为「<runId>:<seq>」，载荷 JSON 解析失败时按文本兜底 */
+    private void sendPersisted(SseEmitter emitter, String runId, AgentRunEvent event) throws java.io.IOException {
+        SseEmitter.SseEventBuilder frame = SseEmitter.event()
+                .id(runId + ":" + event.getSeqNo())
+                .name(event.getEventType());
+        Object payload = readPayload(event.getDataJson());
+        if (payload != null) {
+            frame.data(payload);
+        }
+        emitter.send(frame);
+    }
+
+    /** data_json → JsonNode（保持原 JSON 结构）；损坏/截断的文本退化为 JSON 字符串，补发不中断 */
+    private Object readPayload(String dataJson) {
+        if (dataJson == null || dataJson.isEmpty()) {
+            return null;
+        }
+        try {
+            return objectMapper.readTree(dataJson);
+        } catch (Exception e) {
+            return objectMapper.getNodeFactory().textNode(dataJson);
+        }
+    }
+
+    /**
+     * 终态 run 的补发集合里没有 complete/cancelled 时合成一条，避免客户端永远停在「流式」。
+     * 不写库、不带 id：它不是原 run 的事件，只是对「结果已经不可能再来」的明确告知。
+     */
+    private void sendSynthesizedComplete(SseEmitter emitter, String runStatus) throws java.io.IOException {
+        emitter.send(SseEmitter.event()
+                .name(AgentRunEventService.EVENT_COMPLETE)
+                .data(Map.of(
+                        "status", AgentDtos.STATUS_FAILED,
+                        "message", "运行已中断（服务重启或超时），请重试",
+                        "runStatus", runStatus == null ? AgentRun.STATUS_ABANDONED : runStatus)));
+    }
+
+    private static void completeQuietly(SseEmitter emitter) {
+        try {
+            emitter.complete();
+        } catch (Exception e) {
+            // 客户端已先断开时 complete() 会抛 IllegalStateException：收尾噪音，不算失败
+            log.debug("SSE 续传收尾时连接已结束: {}", e.getMessage());
+        }
+    }
+
+    /** Last-Event-ID 头 → 续传游标；头不存在返回 0，格式非法抛业务错误（绝不静默重新规划） */
+    private static long resumeSeqFromHeader(String header) {
+        ResumePoint point = parseResumePoint(header);
+        return point == null ? 0L : point.lastEventId();
+    }
+
+    /**
+     * 解析 Last-Event-ID：{@code <runId>:<seq>}。
+     *
+     * @return null 表示请求头不存在（新开 run 的常规路径）；格式非法抛 400 业务错误
+     */
+    static ResumePoint parseResumePoint(String header) {
+        if (header == null || header.isBlank()) {
+            return null;
+        }
+        String trimmed = header.trim();
+        int separator = trimmed.lastIndexOf(':');
+        String runId = separator <= 0 ? null : trimmed.substring(0, separator);
+        String seqText = separator <= 0 || separator == trimmed.length() - 1
+                ? null : trimmed.substring(separator + 1);
+        if (runId == null || !RUN_ID_PATTERN.matcher(runId).matches()) {
+            throw new BusinessException(400, "Last-Event-ID 格式非法，应为 <runId>:<seq>");
+        }
+        long seq;
+        try {
+            seq = Long.parseLong(seqText);
+        } catch (NumberFormatException e) {
+            throw new BusinessException(400, "Last-Event-ID 格式非法，应为 <runId>:<seq>");
+        }
+        if (seq < 0) {
+            throw new BusinessException(400, "Last-Event-ID 的 seq 不能为负数");
+        }
+        return new ResumePoint(runId, seq);
+    }
+
+    /** 解析后的续传起点（runId + 已收到的最后 seq） */
+    record ResumePoint(String runId, long lastEventId) {
     }
 
     // ==================== V2.2 确认后同步台账（FR-09） ====================

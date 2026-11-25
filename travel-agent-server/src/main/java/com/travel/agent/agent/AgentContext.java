@@ -11,6 +11,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
 /** Agent 上下文：每次 Agent 调用的全部环境信息 */
@@ -171,6 +172,36 @@ public class AgentContext {
     @JsonIgnore
     private final transient List<Consumer<AgentEvent>> listeners = new CopyOnWriteArrayList<>();
 
+    /**
+     * run 内事件序号（P0）：每次 {@link #emit(String, Object)} 分配一个从 1 开始的值，
+     * SSE 帧 id 的后半段与 agent_run_event.seq_no 都用它。未创建 run 的旧调用方也会分配序号，
+     * 但没有 runId 时帧上不带 id —— 行为与升级前一致（不持久化、不续传）。
+     */
+    @JsonIgnore
+    @lombok.EqualsAndHashCode.Exclude
+    @lombok.ToString.Exclude
+    private final transient AtomicLong eventSeq = new AtomicLong();
+
+    /**
+     * 事件持久化出口（P0）：由 {@code AgentEngine} 在 run 创建后设置，把每个事件写进
+     * agent_run_event，供断线续传补发。未设置时不落库；设置后写入异常会被吞掉，
+     * <b>绝不影响实时 SSE 流</b>（续传是增强，不是前置条件）。
+     */
+    @JsonIgnore
+    @lombok.EqualsAndHashCode.Exclude
+    @lombok.ToString.Exclude
+    private transient Consumer<AgentEvent> durableEventSink;
+
+    /**
+     * 阶段推进出口（P0）：由 {@code AgentEngine} 在 run 创建后设置，每次 {@link #setState}
+     * 把新阶段交给追踪服务（更新 agent_run.stage/heartbeat_at 并追加迁移历史）。
+     * 未设置时 {@code setState} 行为与升级前完全一致。
+     */
+    @JsonIgnore
+    @lombok.EqualsAndHashCode.Exclude
+    @lombok.ToString.Exclude
+    private transient Consumer<String> stageSink;
+
     public void addListener(Consumer<AgentEvent> listener) {
         listeners.add(listener);
     }
@@ -199,8 +230,47 @@ public class AgentContext {
         return cancelled;
     }
 
-    public void emit(String event, Object data) {
-        AgentEvent agentEvent = new AgentEvent(event, data);
+    /**
+     * 状态机推进（P0）：先更新内存状态，再把新阶段交给 {@link #stageSink} 落库。
+     *
+     * <p>sink 由 {@code AgentEngine} 在 run 创建后设置：每次推进都要留下
+     * agent_run.stage / heartbeat_at 快照与 agent_run_stage 迁移历史，进程崩溃后才能回答
+     * 「这个 run 走到哪了」。没有 run（渠道/单测直接构造）时忽略 sink，行为不变；
+     * sink 内部异常同样不能反噬主流程。
+     */
+    public void setState(AgentState state) {
+        this.state = state;
+        Consumer<String> sink = stageSink;
+        if (sink == null || state == null) {
+            return;
+        }
+        try {
+            sink.accept(state.name());
+        } catch (Exception ignored) {
+            // 追踪写入失败只丢证据，不影响本轮执行
+        }
+    }
+
+    /**
+     * 发一个 SSE 事件：分配 run 内单调序号 → 先交给 durable sink 落库 → 再同步分发给内存 listener。
+     *
+     * <p>先落库再实时下发，保证客户端拿到的 id 对应的事件已经可被续传端点补发；
+     * 落库失败被静默吞掉，实时流照常继续（客户端最多在断线后收到一条合成的「运行已中断」）。
+     *
+     * <p>方法加锁：PREVIEW / REVIEW 这类并行任务可能同时 emit，若只靠 AtomicLong 分配序号，
+     * 两个线程的「落库 + 下发」可能交错，导致实时流出现 seq 乱序、断线时按 Last-Event-ID
+     * 跳过尚未下发的事件。串行化后同一 run 的事件严格按 seq 落库与下发。
+     */
+    public synchronized void emit(String event, Object data) {
+        AgentEvent agentEvent = new AgentEvent(event, data, eventSeq.incrementAndGet());
+        Consumer<AgentEvent> sink = durableEventSink;
+        if (sink != null) {
+            try {
+                sink.accept(agentEvent);
+            } catch (Exception ignored) {
+                // 事件落库失败不影响实时流
+            }
+        }
         for (Consumer<AgentEvent> listener : listeners) {
             try {
                 listener.accept(agentEvent);

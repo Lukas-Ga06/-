@@ -1,11 +1,15 @@
 package com.travel.agent.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.travel.agent.agent.AgentState;
 import com.travel.agent.entity.AgentRun;
+import com.travel.agent.entity.AgentRunStage;
 import com.travel.agent.entity.AgentTask;
 import com.travel.agent.entity.ToolCallTrace;
 import com.travel.agent.exception.TaskDependencyException;
+import com.travel.agent.repository.AgentRunEventRepository;
 import com.travel.agent.repository.AgentRunRepository;
+import com.travel.agent.repository.AgentRunStageRepository;
 import com.travel.agent.repository.AgentTaskRepository;
 import com.travel.agent.repository.ToolCallTraceRepository;
 import lombok.extern.slf4j.Slf4j;
@@ -51,36 +55,66 @@ public class AgentTraceService {
     private static final int ERROR_MAX = 500;
     private static final int SUMMARY_MAX = 1000;
     private static final int ERROR_CODE_MAX = 200;
+    private static final int STAGE_MAX = 32;
+    private static final int REQUEST_ID_MAX = 64;
+    /** 阶段历史 seq 唯一键冲突时的重试次数（多实例并行推进可能同时算到同一个 max+1） */
+    private static final int STAGE_SEQ_RETRIES = 5;
+    /** JVM 内按 runId 分段加锁，单实例内把同一 run 的阶段历史追加串行化（减少唯一键冲突重试） */
+    private static final int STAGE_LOCK_STRIPES = 64;
 
     private final AgentRunRepository runRepository;
     private final AgentTaskRepository taskRepository;
     private final ToolCallTraceRepository traceRepository;
+    private final AgentRunStageRepository stageRepository;
+    private final AgentRunEventRepository eventRepository;
     private final ObjectMapper objectMapper;
     private final TransactionTemplate newTx;
+    private final Object[] stageLocks = new Object[STAGE_LOCK_STRIPES];
 
     public AgentTraceService(AgentRunRepository runRepository, AgentTaskRepository taskRepository,
-                             ToolCallTraceRepository traceRepository, ObjectMapper objectMapper,
+                             ToolCallTraceRepository traceRepository, AgentRunStageRepository stageRepository,
+                             AgentRunEventRepository eventRepository, ObjectMapper objectMapper,
                              PlatformTransactionManager transactionManager) {
         this.runRepository = runRepository;
         this.taskRepository = taskRepository;
         this.traceRepository = traceRepository;
+        this.stageRepository = stageRepository;
+        this.eventRepository = eventRepository;
         this.objectMapper = objectMapper;
         this.newTx = new TransactionTemplate(transactionManager);
         this.newTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        for (int i = 0; i < STAGE_LOCK_STRIPES; i++) {
+            stageLocks[i] = new Object();
+        }
     }
 
     // ==================== run 生命周期 ====================
 
-    /** 开始一次运行：失败返回 null（调用方拿到 null 时后续追踪静默跳过） */
+    /** 开始一次运行（旧签名，不带幂等标识；行为与升级前一致） */
     public AgentRun startRun(Long userId, Long tripId, String message) {
+        return startRun(userId, tripId, message, null);
+    }
+
+    /**
+     * 开始一次运行：失败返回 null（调用方拿到 null 时后续追踪静默跳过）。
+     *
+     * <p>P0 起 run 一创建就带初始状态快照（stage=RECEIVE + heartbeat 时间）与
+     * {@code requestId}：SSE 断线重连可按 (userId, requestId) 找回原 run；
+     * 进程崩溃后恢复任务也能按心跳判断这轮是否已经死掉。
+     */
+    public AgentRun startRun(Long userId, Long tripId, String message, String requestId) {
         try {
+            LocalDateTime now = LocalDateTime.now();
             return inNewTx(() -> runRepository.save(AgentRun.builder()
                     .runId(UUID.randomUUID().toString())
                     .userId(userId)
                     .tripId(tripId)
                     .message(truncate(message, MESSAGE_MAX))
+                    .requestId(truncate(requestId, REQUEST_ID_MAX))
                     .status(AgentRun.STATUS_RUNNING)
-                    .startedAt(LocalDateTime.now())
+                    .stage(AgentState.RECEIVE.name())
+                    .heartbeatAt(now)
+                    .startedAt(now)
                     .build()));
         } catch (RuntimeException e) {
             log.debug("记录 Agent 运行失败: {}", e.getMessage());
@@ -88,25 +122,119 @@ public class AgentTraceService {
         }
     }
 
-    /** 结束一次运行（补记意图与最终状态；失败静默） */
+    /**
+     * 推进运行阶段（P0）：更新 agent_run.stage / heartbeat_at 快照，并追加一条迁移历史。
+     *
+     * <p>两个写入各自独立提交：快照先落（恢复任务依赖它），历史写入失败只丢证据。
+     * 历史 seq 由「当前 max+1」计算；并行阶段推进撞唯一键时重试，保证同一 run 内 seq 唯一。
+     * 失败全部静默 —— 追踪永远不能反噬主流程。
+     */
+    public void enterStage(String runId, String stage) {
+        if (runId == null || stage == null || stage.isBlank()) {
+            return;
+        }
+        String normalized = truncate(stage, STAGE_MAX);
+        boolean updated = updateRunStage(runId, normalized);
+        if (!updated) {
+            return;
+        }
+        appendStageHistory(runId, normalized, null);
+    }
+
+    /** 更新运行阶段快照；run 不存在或写库失败返回 false（由调用方决定是否继续写历史） */
+    private boolean updateRunStage(String runId, String stage) {
+        try {
+            return inNewTx(() -> runRepository.findByRunId(runId)
+                    .map(run -> {
+                        run.setStage(stage);
+                        run.setHeartbeatAt(LocalDateTime.now());
+                        runRepository.save(run);
+                        return true;
+                    })
+                    .orElse(false));
+        } catch (RuntimeException e) {
+            log.debug("更新 Agent 运行阶段失败: runId={} stage={} err={}", runId, stage, e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * 追加一条阶段迁移历史，seq = 当前 max + 1。
+     * 单实例内按 runId 分段加锁、跨实例靠唯一键重试（最多 {@link #STAGE_SEQ_RETRIES} 次），
+     * 保证同一 run 内 seq 唯一；失败静默。
+     */
+    private void appendStageHistory(String runId, String stage, String detail) {
+        synchronized (stageLock(runId)) {
+            for (int attempt = 1; attempt <= STAGE_SEQ_RETRIES; attempt++) {
+                try {
+                    inNewTx(() -> {
+                        int nextSeq = stageRepository.findTopByRunIdOrderBySeqNoDesc(runId)
+                                .map(last -> last.getSeqNo() + 1)
+                                .orElse(1);
+                        stageRepository.save(AgentRunStage.builder()
+                                .runId(runId)
+                                .seqNo(nextSeq)
+                                .stage(stage)
+                                .enteredAt(LocalDateTime.now())
+                                .detail(truncate(detail, 500))
+                                .build());
+                        return null;
+                    });
+                    return;
+                } catch (RuntimeException e) {
+                    if (attempt == STAGE_SEQ_RETRIES) {
+                        log.debug("记录 Agent 阶段历史失败: runId={} stage={} err={}", runId, stage, e.getMessage());
+                    }
+                }
+            }
+        }
+    }
+
+    /** 阶段历史锁：按 runId 哈希取一条固定分段锁（不保留 per-run 对象，避免长跑实例的内存增长） */
+    private Object stageLock(String runId) {
+        return stageLocks[Math.floorMod(runId.hashCode(), STAGE_LOCK_STRIPES)];
+    }
+
+    /** 结束一次运行（补记意图与最终状态，并写入终态 stage；失败静默） */
     public void finishRun(String runId, String intent, String status, String error) {
         if (runId == null) {
             return;
         }
+        String terminalStage = terminalStage(status);
+        boolean updated = false;
         try {
-            inNewTx(() -> {
-                runRepository.findByRunId(runId).ifPresent(run -> {
-                    run.setIntent(intent);
-                    run.setStatus(status);
-                    run.setError(truncate(error, ERROR_MAX));
-                    run.setEndedAt(LocalDateTime.now());
-                    runRepository.save(run);
-                });
-                return null;
-            });
+            updated = inNewTx(() -> runRepository.findByRunId(runId)
+                    .map(run -> {
+                        run.setIntent(intent);
+                        run.setStatus(status);
+                        run.setError(truncate(error, ERROR_MAX));
+                        run.setStage(terminalStage);
+                        run.setHeartbeatAt(LocalDateTime.now());
+                        run.setEndedAt(LocalDateTime.now());
+                        runRepository.save(run);
+                        return true;
+                    })
+                    .orElse(false));
         } catch (RuntimeException e) {
             log.debug("结束 Agent 运行记录失败: runId={} err={}", runId, e.getMessage());
         }
+        if (updated) {
+            appendStageHistory(runId, terminalStage, null);
+        }
+    }
+
+    /** run 状态 → 终态 stage：成功/部分完成都算 DONE（是否降级由 status 表达） */
+    private static String terminalStage(String status) {
+        if (AgentRun.STATUS_SUCCEEDED.equals(status) || AgentRun.STATUS_PARTIAL.equals(status)) {
+            return AgentRun.STAGE_DONE;
+        }
+        if (AgentRun.STATUS_CANCELLED.equals(status)) {
+            return AgentRun.STAGE_CANCELLED;
+        }
+        if (AgentRun.STATUS_ABANDONED.equals(status)) {
+            return AgentRun.STAGE_ABANDONED;
+        }
+        return AgentRun.STAGE_FAILED;
     }
 
     // ==================== 阶段任务 ====================
@@ -306,6 +434,22 @@ public class AgentTraceService {
         return runRepository.findByRunIdAndUserId(runId, userId);
     }
 
+    /**
+     * 按 (userId, requestId) 找最近一次运行（P0）：SSE 幂等/重连用。
+     * 同一 requestId 只会属于同一用户，归属校验天然成立；没有记录时返回空。
+     */
+    public Optional<AgentRun> findLatestRun(Long userId, String requestId) {
+        if (userId == null || requestId == null || requestId.isBlank()) {
+            return Optional.empty();
+        }
+        return runRepository.findFirstByUserIdAndRequestIdOrderByIdDesc(userId, requestId);
+    }
+
+    /** run 的阶段迁移历史（按进入顺序） */
+    public List<AgentRunStage> stagesOf(String runId) {
+        return runId == null ? List.of() : stageRepository.findByRunIdOrderBySeqNoAsc(runId);
+    }
+
     public List<AgentTask> tasksOf(String runId) {
         return taskRepository.findByRunIdOrderByIdAsc(runId);
     }
@@ -317,18 +461,22 @@ public class AgentTraceService {
     // ==================== 保留期清理 ====================
 
     /**
-     * 清理超过保留期的运行 / 任务 / 工具追踪。
+     * 清理超过保留期的运行 / 任务 / 工具追踪 / 事件 / 阶段历史。
      * 整批在一个独立事务里执行；失败向上抛（由 {@code AgentTraceRetentionJob} 记账，
      * 下一轮重试，清理本身幂等）。
      */
     public void purgeExpired() {
         inNewTx(() -> {
             LocalDateTime threshold = LocalDateTime.now().minusDays(RETENTION_DAYS);
+            // 子表先删：事件/阶段历史只有 run_id，没有外键级联，必须与 run 同一保留期主动清理
+            long events = eventRepository.deleteByCreatedAtBefore(threshold);
+            long stages = stageRepository.deleteByEnteredAtBefore(threshold);
             long runs = runRepository.deleteByStartedAtBefore(threshold);
             long tasks = taskRepository.deleteByStartedAtBefore(threshold);
             long traces = traceRepository.deleteByStartedAtBefore(threshold);
-            if (runs + tasks + traces > 0) {
-                log.debug("清理过期 Agent 追踪: runs={} tasks={} traces={}", runs, tasks, traces);
+            if (runs + tasks + traces + events + stages > 0) {
+                log.debug("清理过期 Agent 追踪: runs={} tasks={} traces={} events={} stages={}",
+                        runs, tasks, traces, events, stages);
             }
             return null;
         });
