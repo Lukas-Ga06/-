@@ -1,6 +1,6 @@
 # 代码结构手册（Code Structure）
 
-> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.16 / Node 20） | 最后验证：2026-11-19 | 事实来源：travel-agent-server/src/main/java/com/travel/agent/、travel-agent-web/src/
+> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.16 / Node 20） | 最后验证：2026-11-25 | 事实来源：travel-agent-server/src/main/java/com/travel/agent/、travel-agent-web/src/
 
 > 目的：让「新功能该放哪个包、哪个类」有唯一答案，让新接手的同学 10 分钟建立代码地图。
 > 本手册随「代码框架整理」引入，与源码同步维护；与代码不一致时**以代码为准**，并在同一次改动里修文档。
@@ -12,9 +12,9 @@
 ```
 travel-agent/
 ├── travel-agent-server/          # 后端：Spring Boot 3 / Java 17
-│   ├── src/main/java/com/travel/agent/   # 业务代码（222 个文件，16 个包）
+│   ├── src/main/java/com/travel/agent/   # 业务代码（251 个文件，17 个包）
 │   ├── src/main/resources/                # application*.yml、RAG 知识库、Flyway 迁移
-│   ├── src/test/java/com/travel/agent/    # JUnit + MockMvc（110 个文件，内存 H2）
+│   ├── src/test/java/com/travel/agent/    # JUnit + MockMvc（157 个文件，内存 H2）
 │   ├── data/                              # 本地 H2 库 + 联网城市缓存（gitignore）
 │   └── run-dev.ps1 / run-dev.cmd          # 本地启动脚本（注入 .env.local）
 ├── travel-agent-web/             # 前端：React 18 + TypeScript + Vite
@@ -64,26 +64,27 @@ agent（状态机 + 任务图 + Intent/Planner/Executor/Reflect + 确认编排�
 
 ---
 
-## 3. 包职责（后端 222 个主代码文件）
+## 3. 包职责（后端 251 个主代码文件 / 17 个包）
 
 | 包 | 文件数 | 职责 | 关键类 |
 | --- | --- | --- | --- |
-| `agent` | 29 | Agent 引擎：状态机、四个 Agent、任务图调度、上下文、计划、会话记忆、待确认方案 | `AgentEngine`、`Coordinator`、`PlanReviewLoop`、`PlannerAgent`、`StructuredPlanner`、`PlanConfirmationService` |
+| `agent` | 30 | Agent 引擎：状态机、四个 Agent、任务图调度、上下文、计划、会话记忆、待确认方案 | `AgentEngine`、`Coordinator`、`PlanReviewLoop`、`PlannerAgent`、`StructuredPlanner`、`PlanConfirmationService` |
 | `controller` | 12 | REST API + SSE 流式接口 | `AgentController`、`TripController`、`TravelKnowledgeController`、`SystemController` |
-| `service` | 36 | 行程 / 预算 / 操作历史 / 目录 / 天气 / 路线 / 回顾 / 事件 / 提醒 / 路书 / 存储 | `TripService`、`ItineraryService`、`TripReviewService`、`TripEventService`、`OnlineCityService` |
-| `tool` | 14 | `AgentTool` 契约、只读注册表、风险分级、调用入口、9 个内置只读工具 | `ToolRegistry`、`ToolInvoker`、`SafetyInterceptor`、`QueryTravelKnowledgeTool` |
+| `service` | 47 | 行程 / 预算 / 操作历史 / 目录 / 天气 / 路线 / 回顾 / 事件 / 提醒 / 路书 / 存储 / 确认提交 / Outbox / 运行恢复 | `TripService`、`ItineraryService`、`TripReviewService`、`ConfirmCommitTx`、`PlanOutboxDispatcher`、`AgentRunRecoveryJob` |
+| `tool` | 15 | `AgentTool` 契约、只读注册表、风险分级、调用入口、9 个内置只读工具 | `ToolRegistry`、`ToolInvoker`、`SafetyInterceptor`、`QueryTravelKnowledgeTool` |
 | `rag` | 15 | Embedding（本地哈希 / OpenAI 兼容）、向量库、检索、引用、知识库引导与版本化 | `RagService`、`RagCitation`、`InMemoryVectorStore`、`RagBootstrap` |
-| `repository` | 19 | Spring Data JPA 仓储 | — |
-| `entity` | 19 | JPA 实体（表结构以 Flyway 迁移为准） | `Trip`、`ItineraryItem`、`TripEvent`、`AgentTask` |
+| `repository` | 24 | Spring Data JPA 仓储 | — |
+| `entity` | 24 | JPA 实体（表结构以 Flyway 迁移为准） | `Trip`、`ItineraryItem`、`TripEvent`、`AgentTask`、`AgentRunEvent`、`PlanOutbox` |
 | `mcp` | 7 | MCP 外部工具桥接（streamable HTTP / 本机 stdio） | `McpToolBridge`、`StdioMcpTransport` |
-| `config` | 14 | 配置属性、安全/异步/时区/追踪、引导数据 | `AmapProperties`、`SecurityConfig`、`DataInitializer` |
+| `config` | 15 | 配置属性、安全/异步/时区/追踪、引导数据 | `AmapProperties`、`SecurityConfig`、`DataInitializer` |
 | `security` | 11 | JWT、Cookie、访问票据、限流、用户上下文 | `JwtService`、`RateLimitFilter`、`AccessTicketService` |
-| `dto` | 12 | 传输对象（请求/响应），按业务模块聚合 | `AgentDtos`、`AgentTraceDtos`、`TripDtos`、`TravelReviewDtos`、`ApiResponse` |
-| `model` | 8 | 领域模型（不落库的只读数据） | `CityCatalog`、`Attraction`、`WeatherInfo` |
+| `dto` | 13 | 传输对象（请求/响应），按业务模块聚合 | `AgentDtos`、`AgentTraceDtos`、`TripDtos`、`TravelReviewDtos`、`ApiResponse` |
+| `model` | 9 | 领域模型（不落库的只读数据） | `CityCatalog`、`Attraction`、`WeatherInfo` |
 | `channel` | 7 | 多渠道入口：Telegram / 微信公众号 / 通用 Webhook | `TelegramBotService`、`WebhookChannelController` |
 | `llm` | 7 | 统一 LLM 接口（OpenAI-compatible）+ 规则实现 + 委派降级 | `LlmClient`、`DelegatingLlmClient` |
-| `util` | 8 | 通用工具（城市名、坐标、日期、分页、重复规则） | `CityNames`、`CoordinateTransform`、`Paging` |
+| `util` | 9 | 通用工具（城市名、坐标、日期、分页、重复规则） | `CityNames`、`CoordinateTransform`、`Paging` |
 | `exception` | 3 | 业务异常 + 任务依赖异常 + 全局异常处理 | `BusinessException`、`TaskDependencyException`、`GlobalExceptionHandler` |
+| `observability` | 1 | 业务指标（规划/确认/RAG/LLM 成本） | `TravelMetrics` |
 
 ---
 
@@ -124,6 +125,22 @@ agent（状态机 + 任务图 + Intent/Planner/Executor/Reflect + 确认编排�
   注意两个凭据不同：`travel.amap.key`（`AMAP_KEY`，Web 服务）与 MCP 子进程的 `AMAP_MAPS_API_KEY`。
 - **高德坐标解析唯一实现**：`util.CoordinateTransform#parseGcj02Location`（`"经度,纬度"` GCJ-02 → WGS-84，零坐标返回 `null`）。
   地理编码、POI 搜索都复用它，不要再各写一份 `parseLocation`。
+
+### 4.4 可靠执行链路（P0）新增类
+
+| 类 | 包 | 职责 |
+| --- | --- | --- |
+| `ConfirmCommitTx` | `service` | 确认提交的唯一事务入口：`executorAgent.commit` + Outbox 入队 + `deleteClaimed` 栅栏，异常整体回滚 |
+| `PlanOutboxService` | `service` | Outbox 入队、条件领取、失败退避、`DEAD` 判定、`DISPATCHING` 租约恢复、按行程清理 |
+| `PlanOutboxDispatcher` | `service` | `@Scheduled` 投递器：恢复 → 领取 → 执行单模块 → 收口；单行失败不影响同轮其它行 |
+| `PendingPlanRecoveryJob` | `service` | 过期确认租约清扫（启动 + 固定延迟），把 `CONFIRMING` 改回 `PENDING` |
+| `AgentRunEventService` | `service` | SSE 事件持久化（REQUIRES_NEW、失败静默、载荷截断、按 seq 补发） |
+| `AgentRunRecoveryJob` | `service` | 心跳超时的 `RUNNING` 运行置 `ABANDONED` 并补终态阶段历史 |
+| `PlanOutbox` / `AgentRunEvent` / `AgentRunStage` | `entity` | 三张新表的实体；对应 Repository 在 `repository` 包，命名 `PlanOutboxRepository` / `AgentRunEventRepository` / `AgentRunStageRepository` |
+| 迁移 | `resources/db/migration/` | `V25`–`V28`；只新增，不改已发布脚本 |
+
+`AgentController` 承担两个 SSE 端点（`/stream`、`/runs/{runId}/events`）；续传循环不放在
+`AgentTraceService` 里，避免把「协议层超时/轮询」写进追踪写库服务。
 
 ---
 

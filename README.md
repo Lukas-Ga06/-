@@ -51,7 +51,7 @@ mvn spring-boot:run
 ```
 
 Windows 推荐 `.\run-dev.ps1`：读取 `travel-agent-server/.env.local`（已 gitignore）并自动固定 `JWT_SECRET`。
-首次启动自动完成 Flyway 迁移（V1 → V19）、创建演示账号 **demo / demo123**、加载城市目录与旅游知识库。
+首次启动自动完成 Flyway 迁移（V1 → V28）、创建演示账号 **demo / demo123**、加载城市目录与旅游知识库。
 
 ### 2. 前端（:5173）
 
@@ -88,6 +88,7 @@ npm run dev
 - **Agent 引擎**：Intent / Planner / Executor / Reflect 四 Agent；审核不通过进入 `REPLAN`（≤2 次）；调度是确定性任务图，模型不参与调度 [架构](docs/guide/architecture.md)。
 - **规则规划器**：内置城市目录 + 模板 + 预算测算，生成可确认的方案；不依赖模型也能跑完整闭环。
 - **Human-in-the-loop**：工具层只读，所有写操作表达为 `AgentPlan` 操作项，经 preview → Diff → 确认 → commit；LOW / MEDIUM / HIGH 三级风险。
+- **可靠确认与续传**：确认提交用租约 + 单事务栅栏（租约失效整体回滚，不重复落库）；日程/预算/足迹同步走事务性 Outbox，进程崩溃后可补投。SSE 事件按 `seq` 落库，断线带 `Last-Event-ID` 自动续传一次，不重新规划、不重复消耗 LLM 配额。
 - **行中锁定**：自动重规划只动 `PENDING` 条目，已开始 / 完成 / 跳过的安排不被天气覆盖。
 - **预算口径**：`planned` 为计划成本、`actual` 为记账合计；预算同步只记快照，**绝不**自动生成记账。
 - **足迹口径**：只有 `visitedAt` 非空的条目算「去过」，未来计划不会写成「已到访」。
@@ -170,7 +171,7 @@ travel-agent/
 ## 状态与许可证
 
 - 版本 **0.1.0**（`travel-agent-server` / `travel-agent-web` 同步）。
-- 文档基线 **2026-11-23**；改文档后运行 `node scripts/docs-check.mjs` 校验链接与命令引用。
+- 文档基线 **2026-11-25**；改文档后运行 `node scripts/docs-check.mjs` 校验链接与命令引用。
 - **可发布级别**：当前具备「内部演示」；受控灰度 / 公网 v1 仍缺**真机验收（Android / iOS）**、正式许可与 GitHub 安全门禁等。真实 MySQL 8.4 的全量迁移与备份恢复已于 2026-11-23 实测通过（见 [MySQL 迁移验证](docs/guide/mysql-migration.md)、[备份恢复](docs/operations/backup-restore.md)）。总体口径见 [P0 执行快照](docs/review/2026-11-22-p0-execution.md) §5。
 - 仓库采用**专有许可**（见 [LICENSE](LICENSE)）：`Copyright (c) 2026 Travel Agent contributors. All rights reserved.`。**未授予开源许可**；未经版权持有人书面许可，不得复制、分发、修改或用于商业服务。许可证策略与切换开源许可证的流程见 [许可证说明](docs/legal/licensing.md)。
 - 隐私政策、第三方服务说明、数据删除流程与许可证说明见 [合规文档索引](docs/legal/README.md)。这些文档在发布前需法务确认；其中**账号注销**（`DELETE /api/auth/me`，需密码二次确认）与**账号级数据导出**（`GET /api/auth/me/export`，JSON 快照，照片只给清单）均已实现，见 [数据删除流程](docs/legal/data-deletion.md) 与 [API 参考](docs/guide/api-reference.md) §2.6。

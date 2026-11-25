@@ -6,7 +6,7 @@
 
 | job | 触发 | 关键门禁 | 本地等价 |
 | --- | --- | --- | --- |
-| `backend` | push/PR | `mvn verify`：测试 + JaCoCo + Checkstyle + SpotBugs | `cd travel-agent-server && mvn -B verify` |
+| `backend` | push/PR | `mvn verify`：测试 + JaCoCo + Checkstyle + SpotBugs；随后独立命名步骤 `Release acceptance (P0 reliability)` 跑 `ReleaseAcceptanceTest` | `cd travel-agent-server && mvn -B verify`，再 `mvn -B -Dtest=ReleaseAcceptanceTest -DfailIfNoTests=false test` |
 | `mysql-migration` | push/PR | 真实 MySQL 8.4 上 Flyway 全量迁移 + Hibernate validate | `powershell -File scripts/mysql-it.ps1`（见 [mysql-migration.md](mysql-migration.md)） |
 | `frontend` | push/PR | typecheck / lint / format / 覆盖率 / 包体预算 / 契约类型漂移 | `cd travel-agent-web && npm run typecheck && npm run lint && npm run format:check && npm run test:coverage && node scripts/check-core-coverage.mjs && npm run build:check && npm run api:check` |
 | `contract` | push/PR | OpenAPI 快照无漂移；PR 上 oasdiff 破坏性变更 | 见第 4 节 |
@@ -100,6 +100,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/mysql-it.ps1
 
 ### backend
 - 失败点与处置见 [quality-gates.md](quality-gates.md)：覆盖率低于阈值 → 补测试；Checkstyle 违规 → 修代码或按 ratchet 流程改 `config/checkstyle/suppressions.xml`；SpotBugs 命中 → 先认定为真缺陷并修，确认误报才加精确 exclude。
+- `Maven verify` 之后是命名步骤 `Release acceptance (P0 reliability)`：`mvn -B -Dtest=ReleaseAcceptanceTest -DfailIfNoTests=false test`。
+  它把 P0 可靠链路的发布承诺（确认租约/栅栏、Outbox 补投、断线停止、LLM 不可用可规划）单独暴露；
+  失败时先看这 5 类断言中的哪一类，不要先去重跑整轮。该步骤与 verify 里的同一套件重复执行是有意的。
 - 产物：`backend-reports`（JaCoCo HTML/CSV、SpotBugs XML、Checkstyle XML）。
 
 ### mysql-migration

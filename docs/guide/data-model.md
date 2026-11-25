@@ -1,8 +1,8 @@
 # 数据模型与表结构
 
-> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.16 / Node 20） | 最后验证：2026-11-19 | 事实来源：travel-agent-server/src/main/java/com/travel/agent/entity/、travel-agent-server/src/main/resources/db/migration/、sql/init.sql
+> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.16 / Node 20） | 最后验证：2026-11-25 | 事实来源：travel-agent-server/src/main/java/com/travel/agent/entity/、travel-agent-server/src/main/java/com/travel/agent/repository/、travel-agent-server/src/main/resources/db/migration/、sql/init.sql
 
-本文面向**要改表结构、写查询或做数据迁移**的开发者，说明 AI 智能旅行助手（`travel-agent-server`）的持久化设计：**19 个 JPA 实体对应 19 张映射表**，另有 **6 张已代码下线的旧模块表**（数据保留、不再映射），库内共 **25 张表**，以及字段、索引、跨表约定与 Flyway 迁移策略。
+本文面向**要改表结构、写查询或做数据迁移**的开发者，说明 AI 智能旅行助手（`travel-agent-server`）的持久化设计：**24 个 JPA 实体对应 24 张映射表**，另有 **6 张已代码下线的旧模块表**（数据保留、不再映射），库内共 **30 张表**，以及字段、索引、跨表约定与 Flyway 迁移策略。
 
 > 约定：文中**表名、列名、索引名**逐字摘自 `entity/` 注解（`@Table` / `@Column` / `@Index` / `@UniqueConstraint`）或 `db/migration/` 脚本，可直接在源码中检索验证。唯一例外是仓库根目录的 `sql/init.sql`——独立 MySQL 初始化脚本，与实体有已知偏差，见第 8 节。
 
@@ -12,7 +12,7 @@
 
 | 约定 | 做法 | 涉及范围 |
 | --- | --- | --- |
-| 无 JPA 关联 | 全部实体只用 `Long xxxId` 扁平外键，没有 `@ManyToOne` / `@OneToMany` / `@JoinColumn` | 全部 19 张映射表（旧表不再有实体） |
+| 无 JPA 关联 | 全部实体只用 `Long xxxId` 扁平外键，没有 `@ManyToOne` / `@OneToMany` / `@JoinColumn` | 全部 24 张映射表（旧表不再有实体） |
 | 无数据库外键 | 引用完整性由 Service 层保证，DDL 里没有 `FOREIGN KEY` | 全部 |
 | 无 CHECK 约束 | 状态/分类用实体常量 `public static final String`，库侧不校验 | `trip`、`expense`、`operation_history` 等 |
 | 级联删除靠仓库方法 | `deleteByTripId` / `deleteByDocumentId` 在 `@Transactional` 内显式调用 | `trip` 系、RAG |
@@ -48,6 +48,9 @@ erDiagram
     rag_document ||--o{ rag_chunk : "切块"
     rag_document ||--o{ rag_document_version : "版本快照"
     rag_document_version ||--o{ rag_chunk : "版本化知识块（可空）"
+    agent_run ||--o{ agent_run_event : "SSE 事件（seq 单调）"
+    agent_run ||--o{ agent_run_stage : "阶段迁移历史（seq 单调）"
+    trip ||--o{ plan_outbox : "确认后同步待办（可空）"
 
     users {
         bigint id PK
@@ -75,17 +78,22 @@ erDiagram
 | `trip_photo`（`TripPhoto`） | 旅行 | `id` |
 | `operation_history`（`OperationHistory`） | 撤销 | `id` |
 | `pending_plan`（`PendingPlanRecord`） | Agent | `plan_id` |
+| `agent_command_dedupe`（`AgentCommandDedupe`） | Agent 写意图幂等 | `id` |
 | `memo`（`Memo`） | 备忘（可关联旅行） | `id` |
 | `schedule_item`（`ScheduleItem`） | 日程（可关联旅行） | `id` |
 | `conversation_message`（`ConversationMessage`） | 会话记忆 | `id` |
+| `conversation_meta`（`ConversationMeta`） | 会话标题覆盖 | `id` |
 | `rag_document`（`RagDocument`） | RAG | `id` |
 | `rag_chunk`（`RagChunk`） | RAG | `id` |
 | `rag_document_version`（`RagDocumentVersion`） | RAG | `id` |
 | `llm_quota_usage`（`LlmQuotaUsage`） | 配额 | `id` |
 | `agent_run`（`AgentRun`） | Agent 追踪 | `id` |
+| `agent_run_event`（`AgentRunEvent`） | SSE 事件持久化 | `id` |
+| `agent_run_stage`（`AgentRunStage`） | 运行阶段历史 | `id` |
 | `agent_task`（`AgentTask`） | Agent 任务图 | `id` |
 | `tool_call_trace`（`ToolCallTrace`） | Agent 追踪 | `id` |
 | `plan_execution`（`PlanExecution`） | Agent 同步台账 | `id` |
+| `plan_outbox`（`PlanOutbox`） | Agent 事务性 Outbox | `id` |
 | `daily_report` | **已退役：日报** | `id` |
 | `mail_item` | **已退役：办公邮件** | `id` |
 | `meeting_minutes` | **已退役：办公纪要** | `id` |
@@ -93,8 +101,8 @@ erDiagram
 | `learning_artifact` | **已退役：学习产物** | `id` |
 | `health_record` | **已退役：健康** | `id` |
 
-> 上表前 19 张由 JPA 实体映射；后 6 张**已代码下线，数据保留，退役由后续 forward-only 迁移按环境决定**。
-> 24 张表用 `@GeneratedValue(strategy = GenerationType.IDENTITY)` 自增；唯一例外是 `pending_plan`：
+> 上表前 24 张由 JPA 实体映射；后 6 张**已代码下线，数据保留，退役由后续 forward-only 迁移按环境决定**。
+> 23 张表用 `@GeneratedValue(strategy = GenerationType.IDENTITY)` 自增；唯一例外是 `pending_plan`：
 > `@Id @Column(name = "plan_id", length = 64) private String planId`，由 `PlannerAgent` 生成后直接作主键，
 > **没有 `id` 列**，仓库为 `JpaRepository<PendingPlanRecord, String>`。
 
@@ -110,7 +118,7 @@ erDiagram
 | `username` | `VARCHAR(100)` | 否 | 登录名，唯一 |
 | `password` | `VARCHAR(255)` | 否 | BCrypt 哈希，不存明文 |
 | `nickname` | `VARCHAR(100)` | 是 | 展示名 |
-| `created_at` | `TIMESTAMP` | 是 | 注册时间，`@PrePersist` 兜底 |
+| `created_at` | `TIMESTAMP` | 是 | 注册时间，`@PrePersist` 兜底 |
 | `token_version` | `BIGINT` | 否 | V24：登录 token 版本，默认 0；+1 即吊销该用户已签发的全部 token（注销、改密、踢下线同一机制） |
 
 ### 2.2 `trip` — 行程（索引 `idx_trip_user (user_id)`）
@@ -224,7 +232,7 @@ select coalesce(sum(p.sizeBytes), 0) from TripPhoto p where p.userId = :userId
 
 撤销效果：`AGENT_COMMIT` 用 `before_state` 整体替换行程项；`TRIP_CREATE` **删除整个行程**；`MANUAL_EDIT` 还原到本次手工操作前。`TRIP_CREATE` 的 `before_state` 是 `List.of()` 序列化出的 `[]`，所以撤销必须走删除行程分支。
 
-### 2.7 `pending_plan` — 待确认的 Agent 方案（`idx_pending_plan_user (user_id)`、`idx_pending_plan_created (created_at)`）
+### 2.7 `pending_plan` — 待确认的 Agent 方案（`idx_pending_plan_user (user_id)`、`idx_pending_plan_created (created_at)`、`idx_pending_plan_claim (status, claimed_at)`）
 
 把「等待用户点确认」的方案落库：原先放进程内 `Map`，多实例下确认请求可能落到没有该方案的实例，落库后重启也不丢。
 
@@ -238,9 +246,14 @@ select coalesce(sum(p.sizeBytes), 0) from TripPhoto p where p.userId = :userId
 | `plan_revision` | `VARCHAR(64)` | 是 | 生成方案时的行程指纹，见 5.4 |
 | `status` | `VARCHAR(16)` | 否 | `PENDING` / `CONFIRMING`（`V6` 新增）；确认链靠条件更新 `PENDING → CONFIRMING` 抢所有权，`@PrePersist` 兜底 `PENDING` |
 | `version` | `BIGINT` | 是 | `@Version` 乐观锁（`V6` 新增，DDL 默认 `0`），条件更新之外的第二道防线 |
+| `claim_token` | `VARCHAR(64)` | 是 | **V25**：本次 claim 的所有权令牌（UUID）。`release` 与提交栅栏 `deleteClaimed` 都按它匹配；行被清扫或重新 claim 后旧令牌失效 |
+| `claimed_at` | `TIMESTAMP` | 是 | **V25**：本次 claim 时间。清扫任务按 `claimed_at + travel.pending-plan.lease-minutes`（默认 5 分钟）把过期 `CONFIRMING` 改回 `PENDING` |
 | `created_at` | `TIMESTAMP` | 否 | 生成时间，调用方显式赋值，TTL 判定基准 |
 
 生命周期：`PendingPlanStore.TTL_MINUTES = 30`。`peek` 发现过期就删并返回 `null`；`put` 后顺带 `purgeExpired()`（`deleteByCreatedAtBefore(now - 30min)`）；`take` 取成功即删除。
+与 30 分钟 TTL 不同，`CONFIRMING` 的租约是**更短的 5 分钟**（可配置，必须大于一次正常提交耗时）；
+`PendingPlanRecoveryJob` 启动时立即清扫一次，之后每 30 秒（`travel.pending-plan.sweep-interval-ms`）清扫过期租约。
+`idx_pending_plan_claim (status, claimed_at)` 服务这条清扫查询；该索引由 `V25` 创建，实体注解未重复声明（JPA 不校验索引，不影响 `validate`）。
 
 ## 3. 旅行关联、事件与历史表
 
@@ -514,15 +527,18 @@ MySQL 的唯一索引允许多个 `NULL`，所以同一文档只可能有一行 
 （清理幂等，重试不会多删）。核心方法是包可见的 `RagVersionService#purgeOldVersionChunks(int)`，
 `RagChunkRetentionTest` 覆盖它；调度类只负责触发。
 
-### 4.6 Agent 运行追踪与任务图（`agent_run` / `agent_task` / `tool_call_trace` / `plan_execution`）
+### 4.6 Agent 运行追踪、事件与任务图（`agent_run` / `agent_run_event` / `agent_run_stage` / `agent_task` / `tool_call_trace` / `plan_execution`）
 
-V2.2 的三张追踪表 + 一张同步台账，**全部由 `AgentTraceService` 写入**（每笔独立事务，追踪失败静默降级；
-详见 [DEVELOPMENT.md](../DEVELOPMENT.md)「追踪不反噬主流程」）。保留期 14 天，每日 04:40 由
-`AgentTraceRetentionJob` 清理（`deleteByStartedAtBefore`，批量幂等）。
+V2.2 的三张追踪表 + 一张同步台账，加上 P0 的事件持久化与阶段历史：追踪三表由 `AgentTraceService` 写入
+（每笔独立事务，追踪失败静默降级；详见 [DEVELOPMENT.md](../DEVELOPMENT.md)「追踪不反噬主流程」），
+`plan_execution` 由 `PlanExecutionService` 写入。保留期 14 天，每日 04:40 由
+`AgentTraceRetentionJob` 清理（`deleteByStartedAtBefore` / `deleteByCreatedAtBefore` / `deleteByEnteredAtBefore`，批量幂等）。
 
 | 表 | 关键列 | 说明 |
 | --- | --- | --- |
-| `agent_run` | `run_id`（唯一）、`user_id`、`trip_id`、`message`、`intent`、`status`、`started_at`、`ended_at` | 一次对话 = 一次 run；`status`：RUNNING / SUCCEEDED / FAILED / CANCELLED |
+| `agent_run` | `run_id`（唯一）、`user_id`、`trip_id`、`message`、`intent`、`status`、`stage`、`heartbeat_at`、`request_id`、`started_at`、`ended_at` | 一次对话 = 一次 run；`status`：RUNNING / SUCCEEDED / PARTIAL_SUCCESS / FAILED / CANCELLED / **ABANDONED**；`stage` 是当前阶段快照（RECEIVE…/DONE/FAILED/CANCELLED/ABANDONED） |
+| `agent_run_event` | `run_id`、`seq_no`、`event_type`、`data_json`（LONGTEXT）、`created_at`；唯一键 `uk_agent_run_event (run_id, seq_no)` | P0/V28：每个 SSE 事件按 run 内从 1 开始的 `seq` 落库，供 `Last-Event-ID` / 续传端点补发 |
+| `agent_run_stage` | `run_id`、`seq_no`、`stage`、`entered_at`、`detail`；唯一键 `uk_agent_run_stage (run_id, seq_no)` | P0/V27：阶段迁移历史（每次 `setState` / 终态 / 恢复各一行） |
 | `agent_task` | `task_id`（唯一）、`run_id`、`receiver`、`task_type`、`status`、`summary`、`error`、`started_at`、`ended_at`、**`depends_on`**、**`attempt`**、**`replaces_task_id`** | 任务图节点；`status`：RUNNING / SUCCEEDED / FAILED / **CONFLICT**（V15 建表，V18 补后三列） |
 | `tool_call_trace` | `run_id`、`task_id`（关联触发任务）、`tool_name`、`args_digest`/`result_digest`（截断摘要）、`success`、`error_code`、`latency_ms` | 每次工具调用一条；摘要不含密钥 |
 | `plan_execution` | `execution_id`（唯一）、`plan_id`（唯一）、`user_id`、`trip_id`、`modules_json` | 确认提交后的跨模块同步台账；`plan_id` 唯一 = 同一方案只有一份逻辑执行 |
@@ -540,6 +556,35 @@ V2.2 的三张追踪表 + 一张同步台账，**全部由 `AgentTraceService` �
 - 一次规划的任务图形状：`INTENT → PLAN → {PREVIEW ‖ REVIEW} → (REPLAN → REVIEW)*`；
   `PREVIEW` 与 `REVIEW` 并行执行（时间区间重叠），任务行按声明顺序创建（`id` 顺序稳定）。
 - 表之间没有外键：`run_id` / `task_id` 是逻辑关联，追踪表随保留期清理，不影响业务表。
+- **事件与阶段历史的保留期**：`agent_run_event` 按 `created_at`、`agent_run_stage` 按 `entered_at`
+  与 `agent_run` 的 14 天保留期同一事务清理；两者没有外键级联，清理任务必须显式删。
+- `agent_run_event.data_json` 用 `LONGTEXT`（`complete` 事件可能携带完整方案）；单条载荷超过约
+  1,000,000 字符时写入侧截断并 WARN，续传补发按文本兜底，属于有意取舍。
+
+### 4.7 `plan_outbox` — 确认提交的事务性 Outbox（`idx_plan_outbox_due (status, next_attempt_at)`、`idx_plan_outbox_trip (trip_id)`）
+
+P0 之前，确认提交后的日程 / 预算快照 / 足迹同步在行程事务提交之后由进程内循环执行；进程在两者之间
+退出就静默丢同步工作。现在「行程落库 + 3 条待办」在同一事务里提交，再由独立投递器至少一次投递。
+
+| 字段 | DB 类型 | 可空 | 说明 |
+| --- | --- | --- | --- |
+| `id` | `BIGINT` | 否 | 主键，自增 |
+| `event_id` | `VARCHAR(64)` | 否 | 投递事件标识，唯一键 `uk_plan_outbox_event` |
+| `plan_id` | `VARCHAR(64)` | 否 | 待确认方案 ID |
+| `user_id` / `trip_id` | `BIGINT` | 否 | 归属用户与行程；行程删除时随 `cleanupForTrip` 清理 |
+| `module` | `VARCHAR(32)` | 否 | `calendar` / `budget` / `footprint`；与 `plan_id` 组成唯一键 `uk_plan_outbox_plan_module` |
+| `payload_json` | `TEXT` | 是 | 投递载荷快照 |
+| `status` | `VARCHAR(16)` | 否 | `PENDING` / `DISPATCHING` / `DONE` / `DEAD` |
+| `attempts` | `INT` | 否 | 失败累计次数，默认 0 |
+| `next_attempt_at` | `TIMESTAMP` | 否 | 下次可投递时间（指数退避后） |
+| `last_error` | `VARCHAR(500)` | 是 | 最近一次错误（截断存储，不写敏感内容） |
+| `claimed_at` | `TIMESTAMP` | 是 | 被投递器领取的时间；超过 `travel.outbox.dispatching-lease-minutes`（默认 10 分钟）视为执行者崩溃 |
+| `created_at` / `updated_at` | `TIMESTAMP` | 否 / 是 | 入队与最近更新时间 |
+
+状态流转：`PENDING → DISPATCHING → DONE`；失败 `DISPATCHING → PENDING`（`attempts+1` + 退避）；
+达到 `travel.outbox.max-attempts`（默认 8）置 `DEAD`，保留 `last_error` 等人工/运维介入。
+索引 `idx_plan_outbox_due (status, next_attempt_at)` 服务「到期待投递」扫描，`idx_plan_outbox_trip (trip_id)`
+服务行程删除清理。
 
 ## 5. 跨表一致性约束
 
@@ -566,7 +611,8 @@ tripRepository.delete(trip);
 ```
 
 顺序不能反：子表与照片元数据先于行程删除，反过来会留下悬空 `trip_id`；磁盘文件必须用删除前的查询结果拿 `stored_name`。
-`pending_plan` 不在此列（按 TTL 过期）。`deleteByTripId` 均为单条 DELETE，但**不做归属校验**：调用方必须先 `getOwned(tripId, userId)`。
+`planExecutionService.cleanupForTrip` 同时删除该行程的 `plan_outbox` 行（P0 起）与同步台账/日程；`plan_execution` 的
+`deleteByTripId` 也在同一事务里。`pending_plan` 不在此列（按 TTL 过期）。`deleteByTripId` 均为单条 DELETE，但**不做归属校验**：调用方必须先 `getOwned(tripId, userId)`。
 旧 `invoice` 表不参与级联：`trip_id` 可空、无实体，历史 `expense_id` 可能指向已删账单，只作历史数据保留。
 
 ### 5.2 记账分项之和 == `totalSpent`
@@ -618,10 +664,10 @@ b=<budget>|s=<startDate>|e=<endDate>
 
 ## 6. Flyway 迁移策略与 `ddl-auto`
 
-### 6.1 迁移链：V1 基线 → V2–V11（便携）→ V12/V13/V14（按方言分目录）→ V15–V19（便携）
+### 6.1 迁移链：V1 基线 → V2–V11（便携）→ V12/V13/V14（按方言分目录）→ V15–V28（便携）
 
 **schema 的唯一权威是 Flyway**，两个 profile 的 `ddl-auto` 都是 `validate`（见 6.2）：Hibernate 只校验、不改结构。
-共 **19 个版本 / 20 个脚本**（V13 两份、V8/V12 在 MySQL 目录、V14 在 H2 目录）：
+共 **28 个版本 / 29 个脚本**（V13 两份、V8/V12 在 MySQL 目录、V14 在 H2 目录）：
 
 | 版本 | 脚本 | 目录 | 内容 | 策略 |
 | --- | --- | --- | --- | --- |
@@ -648,15 +694,19 @@ b=<budget>|s=<startDate>|e=<endDate>
 | 20 | `V20__agent_command_dedupe.sql` | `db/migration` | 建 `agent_command_dedupe`：写意图（记账 / 备忘 / 日程）的幂等台账，`UNIQUE (user_id, request_id)` | 中性 SQL；`IN_PROGRESS` 抢占、`COMPLETED` 复用结果、异常时删行 fail-open |
 | 21 | `V21__conversation_scope.sql` | `db/migration` | `conversation_message.scope`（`assistant` / `planner` / `trip:<id>`）+ `idx_conv_user_scope` | 存量行 `scope` 一律 NULL（**不猜**归属）；scope 只是提示，不是权限 |
 | 22 | `V22__schedule_source_key_unique.sql` | `db/migration` | 先去重历史重复（同一 `source_key` 只留 id 最小的一条），再建唯一索引 `uk_schedule_source_key` | 补 V16 的欠账：V16 只加列，注释承诺的「唯一索引兜底并发」从未创建；手工日程 `source_key` 为 NULL，不受唯一约束影响 |
-| 23 | `V23__conversation_turn_and_meta.sql` | `db/migration` | `conversation_message.turn_seq` + 唯一键 `uk_conv_turn_role`；新建 `conversation_meta` + 唯一键 `uk_conv_meta_user_conv` | 会话并发控制：一轮问答共用序号，写入靠唯一键做 compare-and-set；存量行 `turn_seq` 为 NULL，无需回填。唯一键用 `CREATE UNIQUE INDEX` 单独建——H2 会给内联 `UNIQUE KEY` 自动改名（`UK_..._INDEX_2`），索引名对不上就无法作为约束存在的证据 |
+| 23 | `V23__conversation_turn_and_meta.sql` | `db/migration` | `conversation_message.turn_seq` + 唯一键 `uk_conv_turn_role`；新建 `conversation_meta` + 唯一键 `uk_conv_meta_user_conv` | 会话并发控制：一轮问答共用序号，写入靠唯一键做 compare-and-set；存量行 `turn_seq` 为 NULL，无需回填。唯一键用 `CREATE UNIQUE INDEX` 单独建——H2 会给内联 `UNIQUE KEY` 自动改名（`UK_..._INDEX_2`），索引名对不上就无法作为约束存在的证据 |
 | 24 | `V24__user_token_version.sql` | `db/migration` | `users.token_version`（`BIGINT NOT NULL DEFAULT 0`） | 注销后旧 JWT 立即失效 / 同名重注册不串号：JWT 带 `uid` + `ver`，过滤器要求 uid 对应用户仍存在且版本一致；注销时版本 +1 再删行。**旧 token（无 uid/ver）部署后整体失效一次**，需重新登录 |
+| 25 | `V25__pending_plan_claim_lease.sql` | `db/migration` | `pending_plan.claim_token` / `claimed_at` + `idx_pending_plan_claim (status, claimed_at)` | 确认租约：claim 发放令牌，清扫按 `claimed_at` 改期；双方言中性 `ALTER TABLE` |
+| 26 | `V26__plan_outbox.sql` | `db/migration` | 建 `plan_outbox`（含两个唯一键、两个索引） | 事务性 Outbox：与确认提交同事务入队，独立投递器至少一次投递；`IF NOT EXISTS` 对存量库空转 |
+| 27 | `V27__agent_run_state.sql` | `db/migration` | `agent_run.stage` / `heartbeat_at` / `request_id` + 两个索引；建 `agent_run_stage` | 运行状态机落库与阶段历史；迁移注释写明按心跳恢复 `RUNNING→ABANDONED` |
+| 28 | `V28__agent_run_event.sql` | `db/migration` | 建 `agent_run_event`（`data_json LONGTEXT`，唯一键 `uk_agent_run_event (run_id, seq_no)`，索引 `idx_agent_run_event_run`） | SSE 事件持久化：帧 `id=<runId>:<seq>`、`Last-Event-ID` 与续传端点的数据源；随 14 天追踪保留期清理 |
 
 **目录与加载**（`application.yml` / `application-mysql.yml` 的 `spring.flyway.locations`）：
 
 | profile | `locations` | 实际看到的版本 |
 | --- | --- | --- |
-| 默认（H2） | `classpath:db/migration,classpath:db/migration-h2` | V1–V11 + V13（H2 版）+ V14 + V15–V24；**没有 V12**，且缺口 V8 是预期 |
-| `mysql` | `classpath:db/migration,classpath:db/migration-mysql` | V1–V13 全链（V8 / V12 / V13 是 MySQL 版）+ V15–V24；没有 V14（H2 专属） |
+| 默认（H2） | `classpath:db/migration,classpath:db/migration-h2` | V1–V11 + V13（H2 版）+ V14 + V15–V28；**没有 V12**，且缺口 V8 是预期 |
+| `mysql` | `classpath:db/migration,classpath:db/migration-mysql` | V1–V13 全链（V8 / V12 / V13 是 MySQL 版）+ V15–V28；没有 V14（H2 专属） |
 
 两个 profile 各自只看到**一个** V13，不会出现「同一 locations 内重复版本号」（`MigrationBaselineTest` 守住这条）。
 `db/migration-mysql/` 与 `db/migration-h2/` 里的脚本含 `information_schema` 探测、会话变量、`PREPARE` 动态语句或方言化
@@ -718,8 +768,8 @@ spring:
 
 | 库的状态 | Flyway 做什么 | 还需要手工做什么 |
 | --- | --- | --- |
-| 全新库（空库） | `V1` 建全 15 张基础表 + 14 个索引 → `V2`–`V11` 增量 → 当前 profile 的 `V13` 补齐缺口（`mysql` 另有 `V8`/`V12`）→ `V14`–`V19` → Hibernate `validate` 校验 | **什么都不用**：不再需要手工执行 `sql/init.sql`（该文件已标注弃用，见第 8 节） |
-| 存量库（有表、无历史或历史停在旧版本） | `baseline-on-migrate` 在 V1 打基线标记，**V1 不重跑**，只执行未应用的增量（含 V19）；`V13` 在存量库上逐条命中「已存在」→ 空转 | 升级前**先跑一次 repair**（V4 checksum 变过，见 6.1.1） |
+| 全新库（空库） | `V1` 建全 15 张基础表 + 14 个索引 → `V2`–`V11` 增量 → 当前 profile 的 `V13` 补齐缺口（`mysql` 另有 `V8`/`V12`）→ `V14`–`V28` → Hibernate `validate` 校验 | **什么都不用**：不再需要手工执行 `sql/init.sql`（该文件已标注弃用，见第 8 节） |
+| 存量库（有表、无历史或历史停在旧版本） | `baseline-on-migrate` 在 V1 打基线标记，**V1 不重跑**，只执行未应用的增量（含 V28）；`V13` 在存量库上逐条命中「已存在」→ 空转 | 升级前**先跑一次 repair**（V4 checksum 变过，见 6.1.1） |
 
 **V1 不是 `sql/init.sql` 的逐字复刻**，三处为了「同一份脚本在 H2(MODE=MySQL) 与 MySQL 8.0 都能执行、且与实体/`validate` 对齐」而刻意改列型：
 `memo.done` / `schedule_item.done` 用 `BOOLEAN`（H2 不支持带精度的 `TINYINT(1)`；MySQL 的 `BOOLEAN` 就是 `TINYINT(1)`，无损）；
@@ -820,7 +870,7 @@ V13 负责补齐，脚本都写成幂等，存量库上逐条空转。
 # 2) 备份再删除：data/ 目录下是 travel-agent.mv.db
 Remove-Item -Recurse -Force travel-agent-server/data -ErrorAction SilentlyContinue
 # 3) 重启后端：全新库由 Flyway 建 schema —— V1（基线）→ V2–V11 → 当前 profile 的 V13
-#    （mysql profile 另含 V8 / V12）→ V14–V19，随后 Hibernate ddl-auto=validate 校验；
+#    （mysql profile 另含 V8 / V12）→ V14–V28，随后 Hibernate ddl-auto=validate 校验；
 #    DataInitializer 重建 demo 账号。不需要手工执行 sql/init.sql。
 ```
 
@@ -949,18 +999,19 @@ P0 之后下表涉及的 6 张旧模块表（`daily_report` / `mail_item` / `mee
 
 | 统计项 | 数量 | 核对方式 |
 | --- | --- | --- |
-| `entity/` 下实体文件 | **21** | `glob entity/*.java` |
-| 本文收录的 `@Entity` 表 | **21** | 与实体文件一一对应 |
-| 库内实际表（含 6 张退役旧表） | **26** | `V1`–`V23` 的 `CREATE TABLE` 去重 |
-| `repository/` 下 Repository 接口 | **21** | 与实体一一对应 |
-| 显式 `@Index` 声明 | **29** 条，分布在 18 个实体上 | 源码 `@Index(` 计数（各表索引已在 2–4 节标题中逐条列出） |
-| `@UniqueConstraint` | **7** 条 | `users.username`（未命名）、`uk_llm_quota_user_date`、`uk_rag_document_key`、`uk_rag_version`、`uk_schedule_source_key`（V22）、`uk_conv_turn_role`（V23）、`uk_conv_meta_user_conv`（V23） |
-| Flyway 版本 / 脚本文件 | **24 个版本 / 25 个文件**（V1–V24；V13 双方言两份，V8/V12 仅 MySQL，V14 仅 H2） | `db/migration` 20 个 + `db/migration-mysql` 3 个 + `db/migration-h2` 2 个 |
+| `entity/` 下实体文件 | **24** | `glob entity/*.java` |
+| 本文收录的 `@Entity` 表 | **24** | 与实体文件一一对应 |
+| 库内实际表（含 6 张退役旧表） | **30** | `db/migration*` 的 `CREATE TABLE` 去重 |
+| `repository/` 下 Repository 接口 | **24** | 与实体一一对应 |
+| 显式 `@Index` 声明 | **36** 条，分布在 21 个实体上 | 源码 `@Index(` 计数（各表索引已在 2–4 节标题中逐条列出；`idx_pending_plan_claim` 只在 V25，不在实体注解） |
+| `@UniqueConstraint` | **11** 条 | `users.username`（未命名）、`uk_llm_quota_user_date`、`uk_rag_document_key`、`uk_rag_version`、`uk_schedule_source_key`、`uk_conv_turn_role`、`uk_conv_meta_user_conv`、`uk_agent_run_event`、`uk_agent_run_stage`、`uk_plan_outbox_event`、`uk_plan_outbox_plan_module` |
+| Flyway 版本 / 脚本文件 | **28 个版本 / 29 个文件**（V1–V28；V13 双方言两份，V8/V12 仅 MySQL，V14 仅 H2） | `db/migration` 24 个 + `db/migration-mysql` 3 个 + `db/migration-h2` 2 个 |
 | V1 基线内容 | **15 张表 + 14 个索引** | `V1__baseline.sql` 的 `CREATE TABLE` / `CREATE INDEX` 计数 |
 | V19 增量内容 | **4 列 + 1 张表（3 索引）+ 8 列（schedule/memo 各 4）** | `V19__travel_closed_loop.sql` |
-| 后端测试 | **465** 个 `@Test`（110 个测试文件） | 源码静态计数；实际以 `mvn test` 输出为准 |
+| V25–V28 增量内容 | **5 列 + 3 张新表 + 11 个索引/唯一键** | `V25`–`V28`；明细见 6.1 与 4.6/4.7 |
+| 后端测试 | **以 `mvn test` / CI 输出为准** | 不在本文维护静态用例数 |
 
-**验收结论**：实体文件 19 个 ↔ 本文映射表 19 张，一一对应；另有 6 张已退役旧表明确标注、不再映射。
+**验收结论**：实体文件 24 个 ↔ 本文映射表 24 张，一一对应；另有 6 张已退役旧表明确标注、不再映射。
 每个表名、列名、索引名都能在 `entity/` 或 `db/migration*/` 中检索命中。
 
 改结构时的检查清单：

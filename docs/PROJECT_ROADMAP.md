@@ -3,6 +3,9 @@
 > 快照日期：2026-11-22（Asia/Shanghai）  
 > 当前分支：`fix/session-isolation-sse-source-key`  1be23f2  
 > 适用版本：0.1.0 / Spring Boot 3.5.16 / Java 17 / React 18 / Node 20
+>
+> **2026-11-25 补记**：P0 可靠执行链路（确认租约/栅栏、事务性 Outbox、运行状态落库、SSE 事件持久化与续传）
+> 已在 `feat/p0-reliability` 落地，四阶段映射见 §1.1；§2–§4 的完成度仍以 2026-11-22/23 基线为准，未随本次交付重算。
 
 本文是当前项目的执行口径。它把“代码已经实现”“自动化已经验证”“真实外部服务已经验证”和“可以公网发布”分开，避免把已完成工作重复排期，也避免把本地模拟通过误写成生产就绪。
 
@@ -23,8 +26,8 @@
 | --- | --- | --- |
 | 旅行核心功能 | 已完成主体 | 登录、规划、确认、行程、地图、记账、备忘、日程、知识库、打卡、回顾、撤销均已落地 |
 | Agent 安全边界 | 已完成主体 | 工具只读、确认门、双指纹、风险审核、有限重规划、行中只改 `PENDING` 已有实现 |
-| 后端自动化质量 | 已通过本地发布门禁（外部服务用例按设计跳过） | 串行 `mvn verify`：**639 tests，0 failures，0 errors，3 skipped**；JaCoCo、Checkstyle、SpotBugs 通过。跳过项为 2 个真实 MCP 用例 + 1 个真实 MySQL 迁移用例 |
-| 前端自动化质量 | 已通过主要门禁 | **53 个测试文件 / 537 个测试通过**；typecheck、format、API 漂移检查、build budget、coverage 通过；核心目录 lines **81.64%** / branches **77.95%**；lint 0 error 但有 47 warnings |
+| 后端自动化质量 | 已通过本地发布门禁（外部服务用例按设计跳过） | 串行 `mvn -B verify` 通过：测试、JaCoCo、Checkstyle、SpotBugs 全绿，3 个真实 MCP / MySQL 用例按设计跳过；用例数以 CI 输出为准 |
+| 前端自动化质量 | 已通过主要门禁 | typecheck、lint、format、coverage、build budget、API 漂移全部通过；用例数与覆盖率以 CI 输出为准，不在本文维护 |
 | 浏览器与移动端 | 本地隔离环境已收口，真实 Android 设备仍未验 | 视觉 11/11；隔离后端 E2E 桌面 **14/14**、device（WebKit iPhone 预设 + 弱网 + 多端）**22/22**；`E2E_API_TARGET` 已固化为 `npm run e2e:isolated`。设备模拟仍是 WebKit/iPhone 预设，不等于真实 Android 设备，device job 仍是观察模式 |
 | 真实 LLM / 高德 | 模型探测与失败语义已补齐，真实批量验收未做 | `deepseek-flash` 的 `/models` 探测真实通过；工具 schema、研究收尾、MCP 10021 退避、多意图提示已实现；尚未用真实模型重复跑 20 次规划 |
 | 生产运维与合规 | 部分完成 | 生产配置清单/模板、账号注销（API+UI）、备份恢复 runbook+脚本、隐私/第三方/删除/许可证文档、日志去票据、compose Redis/S3 透传已落地；真实 MySQL 备份恢复演练、法务确认、GitHub 安全设置仍未完成 |
@@ -33,6 +36,23 @@
 > **2026-11-22 夜间执行快照**：P0-A/P0-B 代码与门禁改造、E2E 隔离、账号注销、P1-E/P1-G 已完成本地验证；
 > 逐项证据与未验证清单见 [P0/P1 执行快照](review/2026-11-22-p0-execution.md)。本文 §3 的“当前完成度”
 > 保留为排期基线，具体状态以该快照为准。
+
+### 1.1 四阶段路线图与仓库现状（2026-11-25 校准）
+
+用户提案把工作分为四个阶段。这里不按提案措辞重新描述已完成项，而是逐阶段对照仓库真实状态，
+避免在已有实现上重复投入；逐项证据见 [P0 检查清单现实核对](review/2026-11-25-p0-checklist-reality-check.md)
+与 [P0 可靠执行链路评审记录](review/2026-11-25-p0-reliability.md)。
+
+| 阶段 | 提案主题 | 仓库真实状态（2026-11-25） | 本次交付 | 排期依据 |
+| --- | --- | --- | --- | --- |
+| **第一阶段：核心可靠性（P0）** | 持久化状态机、PendingPlan 生命周期与崩溃恢复、Confirm 并发/事务安全、Outbox、SSE 断线恢复 | **5/5 已落地**：`agent_run` 状态/心跳/阶段历史 + `ABANDONED` 恢复；`pending_plan` 租约 + 提交栅栏；`plan_outbox` 与投递器；`agent_run_event` + 帧 id/`Last-Event-ID`/续传端点；前端自动续传一次。后端完整 `mvn verify`、前端全部门禁与隔离 E2E 已在本次通过；真实 MySQL 以 CI 为准 | 本次只交付本阶段 | [现实核对 §2/§4/§5](review/2026-11-25-p0-checklist-reality-check.md)；实现与验证见 [P0 可靠链路评审](review/2026-11-25-p0-reliability.md) |
+| **第二阶段：Agent 能力增强** | 多维预算、MCP 治理、旅行数据真实性、审核风险规则、局部重规划、Undo 补偿 | 已有主体：`AgentBudget` 截止时间/阶段预算、`McpToolBridge` 只读桥接、`ReflectAgent`/`PlanReviewLoop`、行中锁定、`OperationHistoryService` 撤销。待补：统一花费口径（token/工具次数/$）、MCP 逐 server 熔断与白名单；其余按真实缺口补，不重写 | **未开始（仍待办）** | [现实核对 §3/§8 第 6–7 项](review/2026-11-25-p0-checklist-reality-check.md)：这两项是「可控 Agent 系统」的真实缺口，规模 M |
+| **第三阶段：工程化** | CI/质量门禁、可观测性、真实 MySQL、真机与合规 | 已落地：`mvn verify` + 命名发布验收、前端门禁、CodeQL/Trivy/gitleaks、告警路由与送达演练（2026-11-25）。待补：OpenTelemetry（当前零依赖）、真实 Android 真机、真实告警渠道/值班人、法务占位、GitHub 安全设置 | **未开始（仍待办）** | [现实核对 §8 第 8 项](review/2026-11-25-p0-checklist-reality-check.md)（OTel，M）；真机与外部输入项见本文 §5 |
+| **第四阶段：产品智能化** | 实时库存/价格、长期偏好记忆、个性化 RAG、回顾增强 | 真实旅行数据链路（天气/POI/路线/预算/足迹）已基本真实化；待补：真实 Embedding provider 的质量与成本、跨旅行长期偏好画像、OTA 实时房态/库存需服务商授权。均属 P2，不阻断 v1 | **未开始（仍待办）** | [现实核对 §8 末段](review/2026-11-25-p0-checklist-reality-check.md)：剩余主要是真实 Embedding 与流量成本，不属于 v1 阻断项；P2 边界见本文 §3 |
+
+**结论**：本次交付只完成**第一阶段 P0**；第二、三、四阶段仍为待办，且不应再按「完全没做」排期——
+其中多项已有主体实现，要做的是补缺口。排期顺序按现实核对 §8 的真实缺口与依赖关系，不按提案原文的
+20 项平均分配。
 
 ## 2. 已完成的工作
 
@@ -45,7 +65,7 @@
 | Agent 确认与撤销 | Preview、Diff、风险分级、`planRevision` + `contentHash`、事务提交、before 快照撤销 | 后端测试覆盖；真实模型下已跑通基本链路 |
 | 研究与证据 | RAG 引用、POI、天气、路线、来源和降级信息进入方案与 SSE | 本地规则链路与真实 MCP/LLM 各有验收证据 |
 | 会话可靠性 | 会话作用域、登出隔离、并发轮次、重命名/删除、SSE 业务错误语义 | V22/V23 已落地并有回归用例 |
-| 数据迁移 | Flyway V1–V24；H2 全新库迁移；MySQL 8.4 已在 2026-11-23 验证全量 23 条（含 V24 与 V23→V24 增量升级） | 所有新迁移必须 forward-only；迁移后必须跑 `mysql-it` 并留下证据库 |
+| 数据迁移 | Flyway V1–V28（本批新增 V25–V28）；H2 全新库迁移；MySQL 8.4 已在 2026-11-23 验证到 V24（23 条，含 V23→V24 增量升级），V25–V28 的 MySQL 全链待在 CI `mysql-migration` 确认 | 所有新迁移必须 forward-only；迁移后必须跑 `mysql-it` 并留下证据库 |
 | 前端主要页面 | 首页、行程列表、行程详情、规划器、助手、回顾、攻略库、诊断、个人中心、PWA 离线只读 | 视觉基线和主要 E2E 已通过 |
 | 性能基础线 | 地图引擎按需加载，首屏 JS 约 595 KB，包体预算通过 | 继续保持预算，不要通过放宽阈值掩盖增长 |
 
