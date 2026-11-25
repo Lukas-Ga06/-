@@ -233,6 +233,10 @@ public class AgentEngine {
             // FR-01：上一轮是需求追问时，「上海」「三天」这类短回答续到同一次规划里，
             // 而不是落进 CHITCHAT 把追问状态丢掉（改问别的意图则不劫持，按新意图处理）
             intent = resumeRequirementCollection(ctx, intent);
+            if (intent == null) {
+                // 兜底：INTENT 阶段异常时 Coordinator 可能返回 null；继续走 intent.getIntent() 会 NPE（CodeQL 告警）
+                throw new IllegalStateException("INTENT 阶段未产出意图（null）");
+            }
             // P0-B 多意图：把「其余独立请求」挂到上下文，complete/finish 两处（REST 与 SSE 共用）
             // 据此在最终回复末尾追加一次用户可见提示；为空时保持回复原样。
             if (intent != null) {
@@ -573,6 +577,10 @@ public class AgentEngine {
         // 规划往往要几秒到几十秒：结束时再确认客户端还在，别再做预览/反思/落待确认方案
         if (abortIfCancelled(ctx, "after-plan")) {
             return aborted(ctx);
+        }
+        if (plan == null) {
+            // 兜底：PLAN 阶段失败可能返回 null；不能直接 plan.getOperations()（CodeQL 告警）
+            throw new IllegalStateException("PLAN 阶段未产出方案（null）");
         }
         if (plan.getOperations().isEmpty()) {
             return complete(ctx, AgentDtos.AgentResult.builder()

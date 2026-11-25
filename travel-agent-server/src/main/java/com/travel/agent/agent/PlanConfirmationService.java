@@ -179,7 +179,9 @@ public class PlanConfirmationService {
         }
         if (requestHash != null && !requestHash.isBlank() && !stored.equals(requestHash.trim())) {
             log.info("确认请求内容指纹不匹配: planId={} stored={} request={}",
-                    pending.planId(), stored, requestHash);
+                    pending.planId().replace("\r", "_").replace("\n", "_"),
+                    stored.replace("\r", "_").replace("\n", "_"),
+                    requestHash.replace("\r", "_").replace("\n", "_"));
             return false;
         }
         return true;

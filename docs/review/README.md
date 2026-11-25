@@ -53,5 +53,6 @@
 
 | [2026-11-24-amap-degradation-alert-drill.md](2026-11-24-amap-degradation-alert-drill.md) | 2026-11-24 | 高德降级告警实跑：Prometheus 规则在持续连接失败下的 pending → firing → 恢复 | `TravelExternalProviderDegraded{provider="amap"}` 与 `TravelExternalDegradedHigh` 均真实 firing 并恢复；1 请求 = 1 次降级（1:1）；首个 firing 延迟 ≈16 分钟；真实高德断供/Key 失效与值班路由仍未覆盖 |
 | [2026-11-24-infra-mysql84-cold-start.md](2026-11-24-infra-mysql84-cold-start.md) | 2026-11-24 | infra compose 的 mysql:8.4 新卷冷启动 + Flyway 全量迁移与 Hibernate validate | 8.4.13 冷启动成功，23 条迁移应用到 v24、1 test / 0 failures；8.0 旧卷就地升级未演练 |
+| [2026-11-25-codeql-triage.md](2026-11-25-codeql-triage.md) | 2026-11-25 | 67 条 CodeQL 告警分诊：高危/中危逐条读代码，ReDoS 用 JVM 探针实测 | 23 条修复（PR #29）、6 条带理由驳回、38 条质量 backlog；ReDoS 最坏 19.2s → 8.4ms |
 
 新增快照后请同步本表，并运行 `node scripts/docs-check.mjs` 校验链接。完整文档规则见 [文档生命周期](../guide/documentation.md)。

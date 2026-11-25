@@ -64,10 +64,12 @@ public class LlmQuotaService {
         int used = repository.findByUserNameAndUsageDate(username, today)
                 .map(LlmQuotaUsage::getUsedCount)
                 .orElse(0);
+        // username 来自登录身份（用户可控），写日志前剥掉 CR/LF
+        String safeUser = username == null ? "null" : username.replace("\r", "_").replace("\n", "_");
         if (allowed) {
-            log.debug("LLM 配额放行 user={} used={}/{}", username, used, limit);
+            log.debug("LLM 配额放行 user={} used={}/{}", safeUser, used, limit);
         } else {
-            log.debug("LLM 日配额已用尽 user={} used={} limit={}", username, used, limit);
+            log.debug("LLM 日配额已用尽 user={} used={} limit={}", safeUser, used, limit);
         }
     }
 
