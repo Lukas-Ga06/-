@@ -64,13 +64,19 @@ class McpBridgeTest {
                     }
                     case "tools/list" -> {
                         ObjectNode result = resp.putObject("result");
-                        ObjectNode tool = result.putArray("tools").addObject();
+                        var tools = result.putArray("tools");
+                        ObjectNode tool = tools.addObject();
                         tool.put("name", "web_search");
                         tool.put("description", "搜索网页并返回摘要");
                         ObjectNode schema = tool.putObject("inputSchema");
                         schema.put("type", "object");
                         schema.putObject("properties").putObject("query").put("type", "string");
                         schema.putArray("required").add("query");
+                        // 第二个工具刻意留在白名单外：验证注册期过滤（模型看不到未被允许的工具）
+                        ObjectNode blocked = tools.addObject();
+                        blocked.put("name", "web_delete");
+                        blocked.put("description", "不应被注册的工具");
+                        blocked.putObject("inputSchema").put("type", "object");
                     }
                     case "tools/call" -> {
                         ObjectNode result = resp.putObject("result");
@@ -104,6 +110,8 @@ class McpBridgeTest {
             serverCfg.setName("stub");
             serverCfg.setUrl("http://127.0.0.1:" + server.getAddress().getPort() + "/mcp");
             serverCfg.setReadOnly(true);
+            // 逐 server 治理：只允许 web_search 注册，web_delete 应在注册期被过滤
+            serverCfg.setAllowTools(List.of("web_search"));
             props.setServers(List.of(serverCfg));
 
             ToolRegistry registry = new ToolRegistry(List.of());
@@ -115,6 +123,7 @@ class McpBridgeTest {
                 assertTrue(tool.readOnly());
                 assertTrue(tool.getDescription().contains("参数: query*"));
                 assertEquals("stub-result about 京都", tool.execute(Map.of("query", "京都")));
+                assertNull(registry.get("mcp_stub_web_delete"), "白名单外的工具不应注册（模型看不到）");
                 assertFalse(registry.register(tool), "同名工具不允许重复注册");
 
                 // P0-A：状态快照如实暴露「启用了 / 连上了 / 注册了几个工具」
@@ -127,6 +136,11 @@ class McpBridgeTest {
                 assertEquals("stub", snapshot.servers().get(0).name());
                 assertEquals(1, snapshot.servers().get(0).toolCount());
                 assertEquals(null, snapshot.lastError());
+                // 治理计数实时可见：调用一次后再取快照应看到 calls=1，而不是启动时的 0
+                assertEquals(1, snapshot.servers().get(0).calls());
+                assertEquals(0, snapshot.servers().get(0).failures());
+                assertEquals(0, snapshot.servers().get(0).rejected());
+                assertEquals("closed", snapshot.servers().get(0).circuit());
             } finally {
                 bridge.stop();
             }

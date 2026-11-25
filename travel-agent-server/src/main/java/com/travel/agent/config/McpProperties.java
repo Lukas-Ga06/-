@@ -65,5 +65,26 @@ public class McpProperties {
 
         /** 单次请求超时（毫秒），stdio 也用作子进程响应等待与握手等待 */
         private long timeoutMs = 20000;
+
+        /**
+         * 允许注册/调用的远端工具白名单（远端原始工具名，不含 {@code mcp_{server}_} 前缀）。
+         * 为空表示不限制——既有配置不写该字段时行为不变。
+         */
+        private List<String> allowTools = new ArrayList<>();
+
+        /**
+         * server 级每分钟调用上限（跨 run 的滑动窗口）。0 表示不限。
+         * 用于压住高德 {@code 10021} 这类上游 QPS 限流：把配额花在真实请求上。
+         */
+        private int maxCallsPerMinute = 0;
+
+        /**
+         * 熔断阈值：连续失败达到该值后打开熔断（快速失败，不再白等超时）。0 表示关闭熔断。
+         * 冷却结束后放行一次半开探测，成功闭合、失败立即重新打开。
+         */
+        private int failureThreshold = 0;
+
+        /** 熔断冷却时长（毫秒），仅在 {@code failure-threshold > 0} 时生效 */
+        private long cooldownMs = 60000;
     }
 }

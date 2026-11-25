@@ -162,6 +162,26 @@ class SystemControllerStatusTest {
     }
 
     @Test
+    @DisplayName("第二阶段：MCP 逐 server 治理计数出现在 status（calls/failures/rejected/circuit）")
+    @SuppressWarnings("unchecked")
+    void reportsMcpGovernanceCounters() {
+        SystemController controller = controller(amap(false, false, null));
+        when(mcpToolBridge.status()).thenReturn(new McpToolBridge.McpStatusSnapshot(
+                true, true, 1,
+                List.of(new McpToolBridge.McpServerStatus("amap", true, 1, null, 7, 2, 3, "half_open")), null));
+
+        Map<String, Object> data = data(controller);
+
+        List<Map<String, Object>> servers = (List<Map<String, Object>>) data.get("mcpServers");
+        assertThat(servers).singleElement().satisfies(server -> {
+            assertThat(server.get("calls")).isEqualTo(7);
+            assertThat(server.get("failures")).isEqualTo(2);
+            assertThat(server.get("rejected")).isEqualTo(3);
+            assertThat(server.get("circuit")).isEqualTo("half_open");
+        });
+    }
+
+    @Test
     @DisplayName("P0-A：MCP 接入失败时 mcpConnected=false，最近错误可见且 hint 不宣称可用")
     void reportsMcpFailure() {
         SystemController controller = controller(amap(false, false, null));

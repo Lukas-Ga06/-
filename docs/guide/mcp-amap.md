@@ -121,6 +121,44 @@ MCP 服务器 [amap] (mcp-server/amap-maps) 已接入，注册 12 个工具
 > **Windows 不用手写 `cmd /c`**：`StdioMcpTransport.resolveCommand` 会自动给 `npx` / `npm` / `pnpm` / `yarn`
 > 以及 `*.cmd` / `*.bat` 补前缀。不补的话 `ProcessBuilder` 直接 `CreateProcess error=2`（`npx` 实际是 `npx.cmd`）。
 
+### 2.4 逐 server 治理（白名单 / 熔断 / 配额 / 审计）
+
+花费预算只回答「本轮调了多少次工具」，回答不了「哪个 server 在拖后腿」。每个 server 可单独配置
+四件治理能力，**全部默认关闭**（不写这些字段时行为与治理前完全一致）：
+
+```yaml
+travel:
+  mcp:
+    servers:
+      - name: amap
+        # …command/env/read-only/timeout-ms 同上…
+        allow-tools: [maps_geo, maps_text_search, maps_weather]  # 白名单；不写 = 全部
+        max-calls-per-minute: 30     # 跨 run 的 server 级配额；0/不写 = 不限
+        failure-threshold: 3         # 连续失败达到 N 次打开熔断；0/不写 = 关闭
+        cooldown-ms: 60000           # 熔断冷却；结束后放行一次半开探测
+```
+
+| 字段 | 语义 | 默认 |
+| --- | --- | --- |
+| `allow-tools` | 远端**原始**工具名（不含 `mcp_amap_` 前缀）。白名单外的工具不注册（模型看不到），调用期还有一次防御性校验（403） | 空 = 不限制 |
+| `max-calls-per-minute` | 固定 60s 窗口的 server 级调用上限，跨 run 共享；配额用尽返回 503，不再发起外部请求 | `0` = 不限 |
+| `failure-threshold` | 连续失败达到阈值即打开熔断；冷却期内快速失败（503，不再白等一次超时） | `0` = 关闭 |
+| `cooldown-ms` | 熔断打开时长；到点放行**一次**半开探测——成功闭合、失败立即重新打开 | `60000` |
+
+行为口径：
+
+1. **计数在发起前**：超时/失败/业务错误的尝试同样占用配额与连续失败计数，与花费预算的「发起前计数」同口径；
+2. **白名单影响工具数**：状态接口的 `toolCount` 是过滤后的注册数，`calls` 只统计放行的调用；
+3. **半开只有一个探测**：并发调用在探测期间一律拒绝，避免一次抖动被放大成一批请求；
+4. **审计是一行结构化日志**：成功/失败/被拒都打 `[MCP-Audit] server=… tool=… outcome=… durationMs=… state=… calls=… failures=… rejected=…`
+   （参数由 `SafetyInterceptor` 另行审计，这里不重复记录，避免把参数里的地址/Key 写两遍）；
+5. **计数是进程内状态**：重启归零，不落库——它的用途是实时保护与排障，不是长期台账；长期花费口径仍看
+   `agent_run`/日志（每轮花费落库见第二阶段待办）。
+
+`GET /api/system/status` 的 `mcpServers[]` 每行新增四个字段：`calls`、`failures`、`rejected`、`circuit`
+（`closed` / `open` / `half_open`）。`circuit=open` 且 `failures` 不降，说明该 server 的上游已经不可用，
+先按 §4.2 排查，不要靠调大 `failure-threshold` 把问题藏起来。
+
 ---
 
 ## 3. 接入后长什么样
