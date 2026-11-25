@@ -46,6 +46,13 @@ jobs:
       - name: Maven verify
         run: mvn -B verify
 
+      # P0 发布验收（5 条关键用例）：双确认只提交一次、旧方案确认必失败、提交后同步可独立补投、
+      # 断线不再产生无意义调用、LLM 不可用时规则规划器仍产出可审核方案。
+      # 这些用例已被 mvn verify 覆盖；此步把它们作为**命名的发布门禁**单独暴露，
+      # 失败时直接指向「哪条可靠性承诺被打破」，而不是淹没在 600+ 用例里。
+      - name: Release acceptance (P0 reliability)
+        run: mvn -B -Dtest=ReleaseAcceptanceTest -DfailIfNoTests=false test
+
       - name: Upload coverage and static analysis reports
         if: always()
         uses: actions/upload-artifact@v4

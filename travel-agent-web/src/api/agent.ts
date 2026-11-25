@@ -103,10 +103,249 @@ const EVENT_NAMES = [
   'conflict',
 ];
 
+/** SSE 帧 id 的解析结果：`<runId>:<seq>`（seq 是 run 内从 1 单调递增的整数，V28） */
+export interface ParsedEventId {
+  runId: string;
+  seq: number;
+}
+
+/**
+ * 解析 SSE 帧 id。
+ *
+ * 后端格式固定为 `<runId>:<seq>`；runId 不含冒号，seq 是正整数。
+ * 返回 null 表示「这一帧没有可续传的 id」——旧后端的帧没有 id、runId 尚未产生的早期帧也可能没有，
+ * 这两种情况都必须保持改造前的行为（不参与续传，也不去重）。
+ */
+export function parseEventId(id: string | null | undefined): ParsedEventId | null {
+  if (typeof id !== 'string') {
+    return null;
+  }
+  const value = id.trim();
+  const sep = value.lastIndexOf(':');
+  if (sep <= 0 || sep === value.length - 1) {
+    return null;
+  }
+  const runId = value.slice(0, sep);
+  const seqText = value.slice(sep + 1);
+  if (!/^\d+$/.test(seqText)) {
+    return null;
+  }
+  const seq = Number(seqText);
+  if (!Number.isSafeInteger(seq) || seq < 1) {
+    return null;
+  }
+  return { runId, seq };
+}
+
+/**
+ * 断线续传地址（V28）：先补发 seq > lastEventId 的持久化事件，再把后续事件接上。
+ * EventSource 不能带请求头，票据只能进查询串（与主路径一致，用短期 agent-stream 票据）。
+ */
+export function buildResumeUrl(runId: string, lastEventId: number, ticket?: string | null): string {
+  const qs = new URLSearchParams();
+  qs.set('lastEventId', String(lastEventId));
+  if (ticket) {
+    qs.set('ticket', ticket);
+  }
+  return `/api/agent/runs/${encodeURIComponent(runId)}/events?${qs.toString()}`;
+}
+
+/** 连接中断且没有可续传上下文（旧后端 / 还没收到带 id 的帧）：与改造前文案一致 */
+const CONNECTION_LOST_MESSAGE = '与 Agent 的连接已中断，请重试';
+/** 已自动续传过一次仍失败：只报告，不再重试（避免成本失控）；EventSource 读不到 4xx 状态，给可操作提示 */
+const RESUME_FAILED_MESSAGE = '连接中断，自动续传失败，可稍后查看运行记录或重新发起';
+/** 续传接口在运行超过 120s 仍未终态时下发 resume_timeout */
+const RESUME_TIMEOUT_MESSAGE = '连接中断且运行超时，可稍后查看运行记录';
+
+/**
+ * 单次流的续传游标（GET / POST 两条传输共用，避免续传语义在两处漂移）。
+ *
+ * - runId / lastSeq 来自帧 id，没有 id 的帧不推进游标；
+ * - resumed + resuming 是「最多续传一次」的闸门；
+ * - finished 保证 onComplete / onError / onCancelled 全局只回调一次（store 靠它解锁 streaming）。
+ */
+interface StreamCursor {
+  runId: string | null;
+  lastSeq: number;
+  resumed: boolean;
+  resuming: boolean;
+  finished: boolean;
+  /** 当前活动连接（初始 EventSource / 续传 EventSource），finish 时关闭 */
+  source: EventSource | null;
+}
+
+function createStreamCursor(): StreamCursor {
+  return {
+    runId: null,
+    lastSeq: 0,
+    resumed: false,
+    resuming: false,
+    finished: false,
+    source: null,
+  };
+}
+
+/** 终止一次流：关闭当前连接并保证终止回调只走一次 */
+type FinishStream = (callback?: () => void) => void;
+
+/** SSE data 一律按 JSON 解析；解析失败退回原始字符串（与改造前一致） */
+function parseFrameData(raw: unknown): any {
+  if (typeof raw !== 'string' || raw.length === 0) {
+    return null;
+  }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return raw;
+  }
+}
+
+/**
+ * 用帧 id 推进游标；返回 false 表示这一帧已经处理过（续传补发与已有事件重叠），必须丢弃。
+ * 没有 id 的帧一律照常分发。
+ */
+function advanceCursor(cursor: StreamCursor, eventId: string | null | undefined): boolean {
+  const parsed = parseEventId(eventId);
+  if (!parsed) {
+    return true;
+  }
+  if (parsed.seq <= cursor.lastSeq) {
+    return false;
+  }
+  cursor.lastSeq = parsed.seq;
+  cursor.runId = parsed.runId;
+  return true;
+}
+
+/** 一帧 EventSource 数据：推进游标 → 兜底记录 runId → 统一分发 */
+function handleSourceFrame(
+  name: string,
+  event: MessageEvent,
+  cursor: StreamCursor,
+  handlers: AgentStreamHandlers,
+  finish: FinishStream,
+): void {
+  const data = parseFrameData(event.data);
+  if (!advanceCursor(cursor, event.lastEventId)) {
+    return;
+  }
+  // 旧后端可能不给 run 事件带 id：runId 仍从 data 里兜底记录（但没有 seq 就不会续传）
+  if (name === 'run' && data?.runId && !cursor.runId) {
+    cursor.runId = String(data.runId);
+  }
+  dispatchFrame(name, data, handlers, finish);
+}
+
+/**
+ * 自动续传（整个流最多一次）。
+ *
+ * 关键：先把原 EventSource 显式 close()。原生 EventSource 在 onerror 之后会按原 URL
+ * 自动重连，不关掉的话同一个规划请求会被再打一遍（Agent 重复执行、成本放大）。
+ * 然后用新 EventSource 指向 resume 接口，补发事件与后续事件都走同一个 dispatchFrame。
+ */
+function startStreamResume(
+  cursor: StreamCursor,
+  handlers: AgentStreamHandlers,
+  finish: FinishStream,
+): void {
+  if (cursor.finished || cursor.resumed || cursor.resuming) {
+    return;
+  }
+  const runId = cursor.runId;
+  if (!runId || cursor.lastSeq <= 0) {
+    finish(() => handlers.onError?.(CONNECTION_LOST_MESSAGE));
+    return;
+  }
+  cursor.resumed = true;
+  cursor.resuming = true;
+  cursor.source?.close();
+  cursor.source = null;
+
+  // 票据重新取一次：缓存有效则直接复用，过期则换新（resume 接口和首连一样校验票据）
+  void getAccessTicket('agent-stream')
+    .then((ticket) => {
+      cursor.resuming = false;
+      if (cursor.finished) {
+        return;
+      }
+      attachEventSource(
+        new EventSource(buildResumeUrl(runId, cursor.lastSeq, ticket)),
+        cursor,
+        handlers,
+        finish,
+      );
+    })
+    .catch(() => {
+      cursor.resuming = false;
+      finish(() => handlers.onError?.(RESUME_FAILED_MESSAGE));
+    });
+}
+
+/**
+ * 连接层中断的统一入口（EventSource onerror 且无业务 data；fetch 读流异常 / 提前 EOF）。
+ * 有 runId + lastSeq 就先自动续传一次；续传连接再断则只报一次错，绝不无限重试。
+ */
+function handleStreamBroken(
+  cursor: StreamCursor,
+  handlers: AgentStreamHandlers,
+  finish: FinishStream,
+): void {
+  if (cursor.finished || cursor.resuming) {
+    return;
+  }
+  if (cursor.resumed) {
+    finish(() => handlers.onError?.(RESUME_FAILED_MESSAGE));
+    return;
+  }
+  if (!cursor.runId || cursor.lastSeq <= 0) {
+    finish(() => handlers.onError?.(CONNECTION_LOST_MESSAGE));
+    return;
+  }
+  startStreamResume(cursor, handlers, finish);
+}
+
+/** 绑定一个 EventSource（初始连接与续传连接共用同一套监听与分发） */
+function attachEventSource(
+  es: EventSource,
+  cursor: StreamCursor,
+  handlers: AgentStreamHandlers,
+  finish: FinishStream,
+): void {
+  cursor.source = es;
+  EVENT_NAMES.forEach((name) => {
+    es.addEventListener(name, (e: MessageEvent) => {
+      // EventSource 的连接层失败同样会派发名为 'error' 的事件（没有 data），
+      // 那不是服务端下发的业务错误，交给 onerror 走续传/终止路径，不能当过程警告。
+      if (name === 'error' && !e.data) {
+        return;
+      }
+      handleSourceFrame(name, e, cursor, handlers, finish);
+    });
+  });
+  // 续传接口在运行仍未终态时下发 resume_timeout（120s）：视为终止，不能把输入框一直锁在 streaming
+  es.addEventListener('resume_timeout', () => {
+    finish(() => handlers.onError?.(RESUME_TIMEOUT_MESSAGE));
+  });
+
+  es.onerror = (event?: Event) => {
+    // 服务端的业务错误也用 `event: error` 下发，浏览器会把这条带 data 的 MessageEvent
+    // 同样派发给 onerror。那种帧已经由上面的监听器当过程警告处理，后面还会跟一条 complete；
+    // 如果在这里无条件终止，complete 会被丢掉，用户看到「连接已中断」，真实业务文案也随之消失。
+    const data = (event as MessageEvent | undefined)?.data;
+    if (typeof data === 'string' && data.length > 0) {
+      return;
+    }
+    handleStreamBroken(cursor, handlers, finish);
+  };
+}
+
 /**
  * SSE 流式对话。EventSource 无法自定义 Header，凭证走查询参数 ——
  * 用的是短期只读票据（api/ticket.ts），不是登录 JWT。
  * 返回关闭函数（票据获取是异步的，因此本函数返回 Promise）。
+ *
+ * 断线续传（V28）：帧 id 为 `<runId>:<seq>`。连接层中断时若已拿到 runId + lastSeq，
+ * 会自动用 resume 接口补一次缺失事件（最多一次），调用方无需感知。
  */
 export async function streamAgentChat(
   params: AgentStreamParams,
@@ -133,53 +372,26 @@ export async function streamAgentChat(
   }
   qs.set('ticket', ticket);
 
-  const es = new EventSource(`/api/agent/stream?${qs.toString()}`);
-  let finished = false;
+  const cursor = createStreamCursor();
 
-  /** 终止一次流：保证 onComplete / onError 只回调一次，并关闭连接 */
+  /** 终止一次流：保证 onComplete / onError / onCancelled 只回调一次，并关闭当前连接 */
   const finish = (callback?: () => void) => {
-    if (finished) {
+    if (cursor.finished) {
       return;
     }
-    finished = true;
-    es.close();
+    cursor.finished = true;
+    const source = cursor.source;
+    cursor.source = null;
+    source?.close();
     callback?.();
   };
 
-  EVENT_NAMES.forEach((name) => {
-    es.addEventListener(name, (e: MessageEvent) => {
-      // EventSource 的连接层失败同样会派发名为 'error' 的 Event（没有 data）。
-      // 那不是服务端下发的业务错误，交给 onerror 走终止路径，不能当过程警告。
-      if (name === 'error' && !e.data) {
-        return;
-      }
-      let data: any = null;
-      try {
-        data = e.data ? JSON.parse(e.data) : null;
-      } catch {
-        data = e.data;
-      }
-      dispatchFrame(name, data, handlers, finish);
-    });
-  });
-
-  /**
-   * 连接层错误：服务端 180s 超时、网络中断等情况下浏览器只会触发 onerror。
-   * 旧实现只在 readyState === CLOSED 时才回调，导致既不 complete 也不 error，
-   * 调用方的 streaming 状态永远停在 true（输入框被永久禁用）。
-   *
-   * 关键陷阱：服务端的业务错误也用 `event: error` 下发，浏览器会把这条 **带 data 的
-   * MessageEvent** 同样派发给 onerror。那种帧已经由上面的监听器当过程警告处理，
-   * 后面还会跟一条 complete；如果在这里无条件 finish，complete 会被丢掉，
-   * 用户看到「连接已中断」，真实业务文案也随之消失。
-   */
-  es.onerror = (event?: Event) => {
-    const data = (event as MessageEvent | undefined)?.data;
-    if (typeof data === 'string' && data.length > 0) {
-      return;
-    }
-    finish(() => handlers.onError?.('与 Agent 的连接已中断，请重试'));
-  };
+  attachEventSource(
+    new EventSource(`/api/agent/stream?${qs.toString()}`),
+    cursor,
+    handlers,
+    finish,
+  );
 
   return () => finish();
 }
@@ -189,20 +401,38 @@ export async function streamAgentChat(
  * EventSource 只能 GET、消息走 URL，长文本（攻略正文可上万字）放不下；
  * fetch POST 走请求体 + Cookie 认证，用 ReadableStream 手工解析 SSE 帧。
  * 返回关闭函数（语义与 streamAgentChat 一致）。
+ *
+ * 断线续传（V28）：手工解析 `id:` 行记录 runId / lastSeq；读流异常或提前 EOF 时
+ * 改用 GET resume 接口继续同一 run（后续事件名相同，仍走 dispatchFrame）。
  */
 export async function streamAgentChatPost(
   params: AgentStreamParams,
   handlers: AgentStreamHandlers,
 ): Promise<() => void> {
   const controller = new AbortController();
-  let finished = false;
+  const cursor = createStreamCursor();
   const finish = (callback?: () => void) => {
-    if (finished) {
+    if (cursor.finished) {
       return;
     }
-    finished = true;
+    cursor.finished = true;
+    const source = cursor.source;
+    cursor.source = null;
+    source?.close();
     controller.abort();
     callback?.();
+  };
+
+  /** 读流中断且没收到终态：能续传就续传，否则保持改造前的终止语义 */
+  const handleBrokenStream = (fallbackMessage?: string) => {
+    if (cursor.finished) {
+      return;
+    }
+    if (cursor.runId && cursor.lastSeq > 0 && !cursor.resumed) {
+      startStreamResume(cursor, handlers, finish);
+      return;
+    }
+    finish(() => handlers.onError?.(fallbackMessage || CONNECTION_LOST_MESSAGE));
   };
 
   (async () => {
@@ -240,10 +470,13 @@ export async function streamAgentChatPost(
       let buffer = '';
       const handleBlock = (block: string) => {
         let event = 'message';
+        let eventId = '';
         const dataLines: string[] = [];
         for (const line of block.split('\n')) {
           if (line.startsWith('event:')) {
             event = line.slice(6).trim();
+          } else if (line.startsWith('id:')) {
+            eventId = line.slice(3).trim();
           } else if (line.startsWith('data:')) {
             dataLines.push(line.slice(5).trimStart());
           }
@@ -252,13 +485,17 @@ export async function streamAgentChatPost(
         if (!raw && event === 'message') {
           return;
         }
-        let data: any = null;
-        if (raw) {
-          try {
-            data = JSON.parse(raw);
-          } catch {
-            data = raw;
-          }
+        const data = parseFrameData(raw);
+        // 续传补发与已有事件重叠时丢弃；没有 id 的帧照常分发
+        if (!advanceCursor(cursor, eventId)) {
+          return;
+        }
+        if (event === 'run' && data?.runId && !cursor.runId) {
+          cursor.runId = String(data.runId);
+        }
+        if (event === 'resume_timeout') {
+          finish(() => handlers.onError?.(RESUME_TIMEOUT_MESSAGE));
+          return;
         }
         dispatchFrame(event, data, handlers, finish);
       };
@@ -273,14 +510,14 @@ export async function streamAgentChatPost(
           handleBlock(block);
         }
       }
-      // 连接关闭却没收到 complete：与 GET 版 onerror 语义一致
-      finish(() => handlers.onError?.('与 Agent 的连接已中断，请重试'));
+      // 连接关闭却没收到终态：已拿到 runId + lastSeq 时先自动续传一次（POST 后续统一走 GET resume）
+      handleBrokenStream();
     } catch (e: any) {
       if (e?.name === 'AbortError') {
         finish();
         return;
       }
-      finish(() => handlers.onError?.(e?.message || '无法建立与 Agent 的连接'));
+      handleBrokenStream(e?.message || '无法建立与 Agent 的连接');
     }
   })();
 
