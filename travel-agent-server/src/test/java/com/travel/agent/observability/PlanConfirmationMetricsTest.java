@@ -2,12 +2,12 @@ package com.travel.agent.observability;
 
 import com.travel.agent.agent.AgentPlan;
 import com.travel.agent.agent.AgentStageTimer;
-import com.travel.agent.agent.ExecutorAgent;
 import com.travel.agent.agent.PendingPlanStore;
 import com.travel.agent.agent.PlanConfirmationService;
 import com.travel.agent.dto.AgentDtos;
 import com.travel.agent.llm.LlmProperties;
 import com.travel.agent.service.AgentTraceService;
+import com.travel.agent.service.ConfirmCommitTx;
 import com.travel.agent.service.ItineraryService;
 import com.travel.agent.service.OperationHistoryService;
 import com.travel.agent.service.PlanExecutionService;
@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -43,7 +44,7 @@ class PlanConfirmationMetricsTest {
     private final TravelMetrics metrics = new TravelMetrics(registry, new LlmProperties());
 
     private final PendingPlanStore pendingPlans = mock(PendingPlanStore.class);
-    private final ExecutorAgent executorAgent = mock(ExecutorAgent.class);
+    private final ConfirmCommitTx confirmCommitTx = mock(ConfirmCommitTx.class);
     private final TripService tripService = mock(TripService.class);
     private final ItineraryService itineraryService = mock(ItineraryService.class);
     private final OperationHistoryService operationHistoryService = mock(OperationHistoryService.class);
@@ -56,7 +57,7 @@ class PlanConfirmationMetricsTest {
     @BeforeEach
     @SuppressWarnings("unchecked")
     void setUp() {
-        service = new PlanConfirmationService(pendingPlans, executorAgent, tripService, itineraryService,
+        service = new PlanConfirmationService(pendingPlans, confirmCommitTx, tripService, itineraryService,
                 operationHistoryService, stageTimer, traceService, executionService, metrics);
         // 追踪服务直通：确认指标测试不关心 run/task 落库
         when(traceService.task(any(), any(), any(), any(), any(), any()))
@@ -79,8 +80,8 @@ class PlanConfirmationMetricsTest {
     @DisplayName("成功提交 → result=success")
     void successPathCountsSuccess() {
         when(pendingPlans.peek("p-ok", 7L)).thenReturn(pending("p-ok", 7L, null));
-        when(pendingPlans.claim("p-ok", 7L)).thenReturn(true);
-        when(executorAgent.commit(any(), any())).thenReturn(AgentDtos.AgentResult.builder()
+        when(pendingPlans.claim("p-ok", 7L)).thenReturn(Optional.of("token-ok"));
+        when(confirmCommitTx.commit(any(), any(), any(), any())).thenReturn(AgentDtos.AgentResult.builder()
                 .planId("p-ok").tripId(11L).status(AgentDtos.STATUS_COMPLETED).message("已提交").build());
 
         AgentDtos.AgentResult result = service.confirm("p-ok", 7L);
@@ -95,7 +96,7 @@ class PlanConfirmationMetricsTest {
     @DisplayName("并发抢占失败（方案正在处理/已被确认）→ result=conflict")
     void claimConflictCountsConflict() {
         when(pendingPlans.peek("p-race", 7L)).thenReturn(pending("p-race", 7L, null));
-        when(pendingPlans.claim("p-race", 7L)).thenReturn(false);
+        when(pendingPlans.claim("p-race", 7L)).thenReturn(Optional.empty());
 
         AgentDtos.AgentResult result = service.confirm("p-race", 7L);
 
@@ -108,13 +109,13 @@ class PlanConfirmationMetricsTest {
     @DisplayName("内容指纹不符（用户确认的不是看到的内容）→ result=conflict，且方案不被消费")
     void contentHashConflictCountsConflict() {
         when(pendingPlans.peek("p-hash", 7L)).thenReturn(pending("p-hash", 7L, "stored-hash"));
-        when(pendingPlans.claim("p-hash", 7L)).thenReturn(true);
+        when(pendingPlans.claim("p-hash", 7L)).thenReturn(Optional.of("token-hash"));
 
         AgentDtos.AgentResult result = service.confirm("p-hash", 7L, "another-hash");
 
         assertThat(result.getStatus()).isEqualTo(AgentDtos.STATUS_FAILED);
         assertThat(confirmCount("conflict")).isEqualTo(1.0);
-        verify(pendingPlans).release("p-hash");
+        verify(pendingPlans).release("p-hash", "token-hash");
     }
 
     @Test
@@ -133,14 +134,14 @@ class PlanConfirmationMetricsTest {
     @DisplayName("提交抛异常 → result=failed 且异常继续上抛（不吞业务错误）")
     void commitExceptionCountsFailedAndRethrows() {
         when(pendingPlans.peek("p-boom", 7L)).thenReturn(pending("p-boom", 7L, null));
-        when(pendingPlans.claim("p-boom", 7L)).thenReturn(true);
-        when(executorAgent.commit(any(), any())).thenThrow(new IllegalStateException("db down"));
+        when(pendingPlans.claim("p-boom", 7L)).thenReturn(Optional.of("token-boom"));
+        when(confirmCommitTx.commit(any(), any(), any(), any())).thenThrow(new IllegalStateException("db down"));
 
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.confirm("p-boom", 7L))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("db down");
 
         assertThat(confirmCount("failed")).isEqualTo(1.0);
-        verify(pendingPlans).release("p-boom");
+        verify(pendingPlans).release("p-boom", "token-boom");
     }
 }

@@ -180,6 +180,26 @@ travel:
     # 问答低相似度阈值（P1）：低于该余弦相似度的命中不进入回答上下文，改为如实说「暂无可靠资料」。
     # 只影响问答；知识库搜索与 Planner 研究仍能看到完整候选与分数。
     min-score: ${RAG_MIN_SCORE:0.05}
+  # P0 可靠确认链路（见 V25/V26 与 docs/proposals）：确认租约 + 事务性 Outbox。
+  # 这里只放「可运维调整的时长/次数」，默认值即安全值；改错不会丢数据，只会改变重试节奏。
+  pending-plan:
+    # 确认租约（分钟）：claim 后超过该时长仍停在 CONFIRMING 视为处理者崩溃，清扫回 PENDING。
+    # 必须大于一次确认提交的正常耗时（通常 <1s），否则会把正在提交的请求误判成崩溃。
+    lease-minutes: ${PENDING_PLAN_LEASE_MINUTES:5}
+    # 清扫间隔（毫秒）：默认 30s；启动时另会立即清扫一次
+    sweep-interval-ms: ${PENDING_PLAN_SWEEP_INTERVAL_MS:30000}
+  outbox:
+    # 投递间隔（毫秒）：fixedDelay，默认 5s（上一轮结束后再计时，慢轮次不会堆积）
+    dispatch-interval-ms: ${OUTBOX_DISPATCH_INTERVAL_MS:5000}
+    # 每轮最多投递条数：避免一轮拖太久
+    batch-size: ${OUTBOX_BATCH_SIZE:20}
+    # DISPATCHING 行的领取租约（分钟）：超过即视为执行者崩溃，改回可投递并 attempts+1
+    dispatching-lease-minutes: ${OUTBOX_DISPATCHING_LEASE_MINUTES:10}
+    # 失败重试上限：达到后置 DEAD（保留 last_error 作为证据，等人工/运维介入）
+    max-attempts: ${OUTBOX_MAX_ATTEMPTS:8}
+    # 指数退避：第 n 次失败后等待 base * 2^(n-1) 秒，封顶 max-backoff-seconds
+    base-backoff-seconds: ${OUTBOX_BASE_BACKOFF_SECONDS:10}
+    max-backoff-seconds: ${OUTBOX_MAX_BACKOFF_SECONDS:3600}
   channels:
     # 多渠道入口：同一个 AgentEngine 同时服务网页与外部渠道，数据与账号体系完全一致。
     telegram:

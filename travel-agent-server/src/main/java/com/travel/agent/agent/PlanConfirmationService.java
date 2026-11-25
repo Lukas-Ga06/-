@@ -4,6 +4,7 @@ import com.travel.agent.dto.AgentDtos;
 import com.travel.agent.entity.Trip;
 import com.travel.agent.exception.BusinessException;
 import com.travel.agent.observability.TravelMetrics;
+import com.travel.agent.service.ConfirmCommitTx;
 import com.travel.agent.service.ItineraryService;
 import com.travel.agent.service.OperationHistoryService;
 import com.travel.agent.service.TripService;
@@ -13,6 +14,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Human-in-the-loop 的确认 / 取消 / 取回 / 撤销。
@@ -20,9 +22,13 @@ import java.util.List;
  * <p>从 {@link AgentEngine} 抽出：这些方法由 REST 接口触发（POST /api/agent/confirm 等），
  * 不属于 SSE 主链路，与状态机解耦后单独维护并发语义更清晰。
  *
- * <p>并发核心：确认与取消都要先抢 {@link PendingPlanStore} 的所有权（PENDING → CONFIRMING 条件更新），
- * 只有抢到的请求可以继续提交，避免「同一方案被提交两次」或「已提示取消、实际已提交」的假取消。
+ * <p>并发核心：确认与取消都要先抢 {@link PendingPlanStore} 的所有权（PENDING → CONFIRMING 条件更新
+ * + 本次租约令牌），只有抢到的请求可以继续提交，避免「同一方案被提交两次」或「已提示取消、实际已提交」的假取消。
  * 抢到与提交之间<b>不插入其它写操作</b>，窗口越短越安全。
+ *
+ * <p>P0 之后的崩溃语义：claim 发放令牌后，所有拒绝/失败路径都按令牌 release；
+ * 提交由 {@link ConfirmCommitTx} 在单事务内完成「落库 + Outbox 入队 + 栅栏（deleteClaimed）」，
+ * 栅栏失败则整体回滚——租约被清扫或被重新抢占后不可能再重复落库。
  */
 @Service
 @RequiredArgsConstructor
@@ -30,7 +36,8 @@ import java.util.List;
 public class PlanConfirmationService {
 
     private final PendingPlanStore pendingPlans;
-    private final ExecutorAgent executorAgent;
+    /** P0：提交（落库 + Outbox + 租约栅栏）的单事务入口 */
+    private final ConfirmCommitTx confirmCommitTx;
     private final TripService tripService;
     private final ItineraryService itineraryService;
     private final OperationHistoryService operationHistoryService;
@@ -83,10 +90,11 @@ public class PlanConfirmationService {
                     .message("确认会话不存在或已过期，请重新发起请求。")
                     .build();
         }
-        // 2) 抢所有权：条件更新 PENDING → CONFIRMING，只有成功者可以继续提交。
+        // 2) 抢所有权：条件更新 PENDING → CONFIRMING 并发放本次租约令牌，只有成功者可以继续提交。
         //    这一步把「读方案 → 提交 → 删除」串行化：并发确认同一方案时，
-        //    后到的请求拿到 0 行，直接返回业务失败（不是 500，也没有重复落库）。
-        if (!pendingPlans.claim(planId, userId)) {
+        //    后到的请求拿不到令牌，直接返回业务失败（不是 500，也没有重复落库）。
+        Optional<String> claimed = pendingPlans.claim(planId, userId);
+        if (claimed.isEmpty()) {
             travelMetrics.confirmOutcome(TravelMetrics.RESULT_CONFLICT);
             return AgentDtos.AgentResult.builder()
                     .planId(planId)
@@ -95,72 +103,86 @@ public class PlanConfirmationService {
                     .message("该方案正在处理中或已被确认/取消，请刷新后查看最新结果。")
                     .build();
         }
-        // 2.5) 内容指纹校验（FR-08）：在 claim 之后、commit 之前的短窗口内完成，失败不消费方案
-        if (!contentHashMatches(pending, contentHash)) {
-            pendingPlans.release(planId);
-            travelMetrics.confirmOutcome(TravelMetrics.RESULT_CONFLICT);
-            return AgentDtos.AgentResult.builder()
-                    .planId(planId)
-                    .tripId(pending.tripId())
-                    .status(AgentDtos.STATUS_FAILED)
-                    .message("方案内容与确认请求不一致（内容指纹校验未通过），请刷新后重新查看方案再确认。")
-                    .build();
-        }
-        // claim 与 commit 之间不要插入其它写操作：越短窗口越安全
-        // 版本校验：方案生成后行程若被改过（另一个标签页/设备），这份 Diff 已不可信
-        if (pending.tripId() != null) {
-            Trip current = tripService.getOwned(pending.tripId(), userId);
-            String currentRevision = ItineraryService.planRevision(current,
-                    itineraryService.listEntities(current.getId()));
-            if (pending.planRevision() != null && !pending.planRevision().equals(currentRevision)) {
-                pendingPlans.remove(planId);
+        String claimToken = claimed.get();
+        try {
+            // 2.5) 内容指纹校验（FR-08）：在 claim 之后、commit 之前的短窗口内完成，失败不消费方案
+            if (!contentHashMatches(pending, contentHash)) {
+                pendingPlans.release(planId, claimToken);
                 travelMetrics.confirmOutcome(TravelMetrics.RESULT_CONFLICT);
                 return AgentDtos.AgentResult.builder()
                         .planId(planId)
                         .tripId(pending.tripId())
                         .status(AgentDtos.STATUS_FAILED)
-                        .message("行程在你确认前已经发生变化（安排、预算或日期被修改），这份方案已失效，请重新发起调整。")
+                        .message("方案内容与确认请求不一致（内容指纹校验未通过），请刷新后重新查看方案再确认。")
                         .build();
             }
-        }
-        // 审核门（V2.2 FR-06）：有限重规划后仍有 HIGH 级硬约束问题 → 必须显式接受风险。
-        // 拒绝时 release 而不是 remove：方案不被消费，用户可以先改需求，也可以勾选后再提交。
-        AgentDtos.PlanReview review = pending.preview() == null ? null : pending.preview().getReview();
-        if (review != null && review.isBlocked() && !Boolean.TRUE.equals(acknowledgeIssues)) {
-            pendingPlans.release(planId);
-            travelMetrics.confirmOutcome(TravelMetrics.RESULT_FAILED);
-            return AgentDtos.AgentResult.builder()
-                    .planId(planId)
-                    .tripId(pending.tripId())
-                    .status(AgentDtos.STATUS_FAILED)
-                    .review(review)
-                    .message("该方案仍有未解决的高风险问题（" + unresolvedText(review)
-                            + "），请在确认弹窗中勾选「我已了解风险」后再提交，或调整需求重新规划。")
-                    .build();
-        }
-        try {
-            // commit 阶段：真正落库（POST /api/agent/confirm → AgentEngine.confirm → executorAgent.commit）。
-            // SSE 流里的 plan 预览不计入 commit。
+            // claim 与 commit 之间不要插入其它写操作：越短窗口越安全
+            // 版本校验：方案生成后行程若被改过（另一个标签页/设备），这份 Diff 已不可信
+            if (pending.tripId() != null) {
+                Trip current = tripService.getOwned(pending.tripId(), userId);
+                String currentRevision = ItineraryService.planRevision(current,
+                        itineraryService.listEntities(current.getId()));
+                if (pending.planRevision() != null && !pending.planRevision().equals(currentRevision)) {
+                    // 方案已失效：连行一起删除（既有语义），不需要 release
+                    pendingPlans.remove(planId);
+                    travelMetrics.confirmOutcome(TravelMetrics.RESULT_CONFLICT);
+                    return AgentDtos.AgentResult.builder()
+                            .planId(planId)
+                            .tripId(pending.tripId())
+                            .status(AgentDtos.STATUS_FAILED)
+                            .message("行程在你确认前已经发生变化（安排、预算或日期被修改），这份方案已失效，请重新发起调整。")
+                            .build();
+                }
+            }
+            // 审核门（V2.2 FR-06）：有限重规划后仍有 HIGH 级硬约束问题 → 必须显式接受风险。
+            // 拒绝时 release 而不是 remove：方案不被消费，用户可以先改需求，也可以勾选后再提交。
+            AgentDtos.PlanReview review = pending.preview() == null ? null : pending.preview().getReview();
+            if (review != null && review.isBlocked() && !Boolean.TRUE.equals(acknowledgeIssues)) {
+                pendingPlans.release(planId, claimToken);
+                travelMetrics.confirmOutcome(TravelMetrics.RESULT_FAILED);
+                return AgentDtos.AgentResult.builder()
+                        .planId(planId)
+                        .tripId(pending.tripId())
+                        .status(AgentDtos.STATUS_FAILED)
+                        .review(review)
+                        .message("该方案仍有未解决的高风险问题（" + unresolvedText(review)
+                                + "），请在确认弹窗中勾选「我已了解风险」后再提交，或调整需求重新规划。")
+                        .build();
+            }
+            // commit 阶段：真正落库（POST /api/agent/confirm → AgentEngine.confirm → ConfirmCommitTx）。
+            // 单事务内完成：executorAgent.commit + 3 条 plan_outbox(PENDING) + deleteClaimed 栅栏。
             Timer.Sample commitSample = stageTimer.start();
             AgentDtos.AgentResult result;
             try {
                 String runId = pending.plan() == null ? null : pending.plan().getRunId();
                 result = traceService.task(runId, userId,
                         com.travel.agent.entity.AgentTask.RECEIVER_EXECUTOR, "COMMIT",
-                        () -> executorAgent.commit(pending.plan(), userId),
+                        () -> confirmCommitTx.commit(pending.plan(), userId, planId, claimToken),
                         r -> "提交完成: tripId=" + r.getTripId() + " status=" + r.getStatus());
             } finally {
                 stageTimer.stop(AgentStageTimer.STAGE_COMMIT, commitSample);
             }
-            // FR-09：确认后跨模块同步（日程/预算快照/足迹）；模块失败不回滚行程
+            // FR-09：确认后跨模块同步由同事务写入的 Outbox 驱动；这里同步投递一次，
+            // 投递失败/进程崩溃时由 PlanOutboxDispatcher 补投（行程不会被回滚）
             attachExecution(result, pending, userId);
-            // 成功：方案已被消费
-            pendingPlans.remove(planId);
+            // 成功：方案行已由提交栅栏在同一事务里删除，无需再次 remove
             travelMetrics.confirmOutcome(TravelMetrics.RESULT_SUCCESS);
             return result;
+        } catch (ConfirmCommitTx.LeaseLostException e) {
+            // 提交事务已整体回滚：租约在提交期间被清扫或被别的请求重新抢占。
+            // 按令牌 release：令牌已不匹配时是空操作，不会误伤新持有者。
+            pendingPlans.release(planId, claimToken);
+            log.warn("确认提交因租约失效回滚: planId={}", planId.replace("\r", "_").replace("\n", "_"));
+            travelMetrics.confirmOutcome(TravelMetrics.RESULT_CONFLICT);
+            return AgentDtos.AgentResult.builder()
+                    .planId(planId)
+                    .tripId(pending.tripId())
+                    .status(AgentDtos.STATUS_FAILED)
+                    .message("该方案的处理租约已失效（处理超时或已由其它请求接管），本次未做任何提交，请刷新后重新确认。")
+                    .build();
         } catch (RuntimeException e) {
-            // 提交失败：释放所有权、保留方案行，用户可用同一 planId 重试（原设计语义）
-            pendingPlans.release(planId);
+            // 提交失败：按令牌释放所有权、保留方案行，用户可用同一 planId 重试（原设计语义）
+            pendingPlans.release(planId, claimToken);
             travelMetrics.confirmOutcome(TravelMetrics.RESULT_FAILED);
             throw e;
         }
@@ -239,17 +261,18 @@ public class PlanConfirmationService {
         };
     }
 
-    /** 取消待确认方案：同样要抢所有权，避免与正在提交的确认交错 */
+    /** 取消待确认方案：同样要抢所有权（拿到租约令牌），避免与正在提交的确认交错 */
     public AgentDtos.AgentResult cancel(String planId, Long userId) {
         PendingPlanStore.PendingPlan pending = pendingPlans.peek(planId, userId);
-        if (pending != null && !pendingPlans.claim(planId, userId)) {
-            return AgentDtos.AgentResult.builder()
-                    .planId(planId)
-                    .status(AgentDtos.STATUS_FAILED)
-                    .message("该方案正在确认中，请稍后刷新查看结果。")
-                    .build();
-        }
         if (pending != null) {
+            if (pendingPlans.claim(planId, userId).isEmpty()) {
+                return AgentDtos.AgentResult.builder()
+                        .planId(planId)
+                        .status(AgentDtos.STATUS_FAILED)
+                        .message("该方案正在确认中，请稍后刷新查看结果。")
+                        .build();
+            }
+            // 本请求已持有租约，删除方案行（取消即消费）
             pendingPlans.remove(planId);
         }
         return AgentDtos.AgentResult.builder()
