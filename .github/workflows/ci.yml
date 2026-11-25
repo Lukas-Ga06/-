@@ -245,14 +245,13 @@ jobs:
 
       # PR 上只对新增依赖做漏洞评审，避免历史存量债务把每个 PR 都卡死。
       #
-      # continue-on-error：dependency-review 需要仓库启用 Dependency graph；
-      # 未启用时它直接报 "Dependency review is not supported on this repository"。
-      # 该开关只能在仓库设置里打开（API 不可用），所以这里降级为「不可用时跳过」，
-      # 不让一个仓库配置项把整条 PR 门禁卡死。真正的依赖门禁仍是下面的 npm audit 与 Trivy。
-      # 启用 Dependency graph 后请删掉 continue-on-error，让它变回硬门禁。
+      # 2026-11-24 起仓库已改为 Public 并开启 Dependency graph（SBOM 可读），
+      # dependency-review 不再需要 continue-on-error 兜底：缺开关时它会以
+      # "not supported on this repository" 直接失败，而这正是应该被看见的信号。
+      # 原注释里的「启用 Dependency graph 后删掉 continue-on-error」已于本 PR 执行；
+      # 真正的依赖门禁仍是下面的 npm audit 与 Trivy，这里补齐「PR 新增依赖」这一层。
       - name: Dependency review（PR 新增依赖）
         if: github.event_name == 'pull_request'
-        continue-on-error: true
         uses: actions/dependency-review-action@v4
         with:
           fail-on-severity: high
