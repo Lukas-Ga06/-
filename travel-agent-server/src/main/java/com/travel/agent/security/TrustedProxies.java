@@ -73,7 +73,11 @@ public final class TrustedProxies {
         byte[] address = parseIpv4(ip);
         byte[] base = parseIpv4(network);
         if (address == null || base == null) {
-            log.debug("忽略非法受信代理规则（非 IPv4 CIDR）: {}", ip);
+            // 日志净化：ip 来自请求头 X-Forwarded-For，必须剥掉 CR/LF 再进日志（防日志伪造）。
+            // 这里 ip 已在上面被 parseIpv4 读过，必然非 null，不再做 null 分支
+            //（SpotBugs RCN_REDUNDANT_NULLCHECK：再加 null 判断反而是死代码）。
+            log.debug("忽略非法受信代理规则（非 IPv4 CIDR）: {}",
+                    ip.replace("\r", "_").replace("\n", "_"));
             return false;
         }
         int mask = prefix == 0 ? 0 : (int) (0xFFFFFFFFL << (32 - prefix));
