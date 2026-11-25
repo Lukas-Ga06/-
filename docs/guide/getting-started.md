@@ -264,7 +264,7 @@ Playwright 用例 `travel-agent-web/e2e/smoke.spec.ts` 覆盖：未登录重定�
 | 地图整块空白，DOM 里有 canvas 但尺寸为 0 | 父容器高度未确定，maplibre 容器塌成 0 高 | 给地图容器**显式写 height**（不要用 `flex:1` / `absolute + inset` 让高度解析成 auto），详见 DEVELOPMENT.md「地图容器必须给确定高度」 |
 | 前端刷新后误跳登录页 | 登录态靠 httpOnly Cookie + `GET /api/auth/me` 恢复 | 检查浏览器是否禁用 Cookie、`COOKIE_SECURE` 是否与协议匹配（https 才设 true） |
 | `npm install` 报 arborist / `edgesOut` 错误 | 本机 npm 10.8.2 的已知 bug | 安装/更新依赖加 `--legacy-peer-deps` |
-| H2 控制台生产环境暴露 | 默认 profile 放行 `/h2-console/**` | mysql profile 已关闭；生产建议从 `SecurityConfig` 放行列表移除 |
+| H2 控制台生产环境暴露 | `/h2-console/**` 只在 `H2_CONSOLE_ENABLED=true` 时进免认证白名单 | 生产保持默认（关闭）：关闭时直连返回 `401`、经 nginx 是 SPA 首页，控制台页面不可达 |
 
 ---
 
