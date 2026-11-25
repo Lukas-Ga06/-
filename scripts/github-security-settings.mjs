@@ -246,20 +246,6 @@ async function checkSecretScanning() {
 async function checkBranchProtection() {
   const res = await api('GET', `${SLUG}/branches/${BRANCH}/protection`);
 
-  if (res.status === 200) {
-    const contexts = res.json?.required_status_checks?.contexts || [];
-    const missing = REQUIRED_CHECKS.filter((c) => !contexts.includes(c));
-    const forcePush = res.json?.allow_force_pushes?.enabled;
-    const deletions = res.json?.allow_deletions?.enabled;
-    const problems = [];
-    if (missing.length) problems.push(`缺少必需检查 ${missing.length} 个`);
-    if (forcePush) problems.push('允许 force push');
-    if (deletions) problems.push('允许删除分支');
-    if (!problems.length) return record(`分支保护 ${BRANCH}`, 'ok', '必需检查齐备，禁止 force push 与删除');
-    return record(`分支保护 ${BRANCH}`, 'missing', problems.join('；'));
-  }
-  if (res.status !== 404 && res.status !== 403) return record(`分支保护 ${BRANCH}`, 'error', reasonOf(res));
-
   const payload = {
     required_status_checks: { strict: true, contexts: REQUIRED_CHECKS },
     // 必须走 PR；approving review 数量刻意设为 0，个人仓库维持"可自助合并但必须过 PR"。
@@ -272,6 +258,27 @@ async function checkBranchProtection() {
     allow_deletions: false,
     lock_branch: false,
   };
+
+  if (res.status === 200) {
+    const contexts = res.json?.required_status_checks?.contexts || [];
+    const missing = REQUIRED_CHECKS.filter((c) => !contexts.includes(c));
+    const forcePush = res.json?.allow_force_pushes?.enabled;
+    const deletions = res.json?.allow_deletions?.enabled;
+    const problems = [];
+    if (missing.length) problems.push(`缺少必需检查 ${missing.length} 个`);
+    if (forcePush) problems.push('允许 force push');
+    if (deletions) problems.push('允许删除分支');
+    if (!problems.length) return record(`分支保护 ${BRANCH}`, 'ok', '必需检查齐备，禁止 force push 与删除');
+    // 已有保护规则但内容不符（典型：REQUIRED_CHECKS 增项）：--apply 时也要写入。
+    // 只报告缺失、不更新，会让清单与线上状态长期不一致（2026-11-25 实际踩到）。
+    if (!APPLY) return record(`分支保护 ${BRANCH}`, 'missing', problems.join('；'));
+    const put = await api('PUT', `${SLUG}/branches/${BRANCH}/protection`, payload);
+    if (put.status === 200) {
+      return record(`分支保护 ${BRANCH}`, 'ok', `已更新为 ${REQUIRED_CHECKS.length} 个必需检查`);
+    }
+    return record(`分支保护 ${BRANCH}`, 'error', reasonOf(put));
+  }
+  if (res.status !== 404 && res.status !== 403) return record(`分支保护 ${BRANCH}`, 'error', reasonOf(res));
 
   if (!APPLY) {
     return record(
