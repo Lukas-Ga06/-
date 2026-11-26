@@ -116,6 +116,17 @@ public final class McpGovernor {
         this.clock = clock == null ? System::currentTimeMillis : clock;
     }
 
+    /**
+     * 配置的每分钟调用上限（0 = 未配置配额）。
+     *
+     * <p>为什么要把「上限」也暴露出去：{@link Snapshot#callsThisMinute()} 在<b>未配置配额</b>时恒为 0，
+     * 与「本窗口确实一次都没调用」是同一个 0。调用方（状态接口/指标）必须能分辨这两种含义，
+     * 否则「没设配额」会被读成「这个 server 很闲」。
+     */
+    public int maxCallsPerMinute() {
+        return maxCallsPerMinute;
+    }
+
     /** 白名单判定（注册期用它过滤工具；为空表示不限制） */
     public boolean permitsTool(String remoteTool) {
         return allowTools.isEmpty() || allowTools.contains(remoteTool);

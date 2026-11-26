@@ -48,6 +48,15 @@ curl -s -H "Authorization: Bearer $TOKEN" 'http://127.0.0.1:8080/actuator/metric
 | `outbox.status` | `outbox_status` | **gauge** | `status=pending\|dispatching\|done\|dead` | `plan_outbox` 按状态的行数；每次抓取现查库（投递器停摆时积压仍可见）。DB 查询失败时采样为 NaN，**不伪造成 0**（NaN 不触发 `>0` 告警） | 4 | `OutboxStatusMetrics`（构造时注册） |
 | `agent.run.abandoned` | `agent_run_abandoned_total` | counter | 无 | 被恢复任务判为 ABANDONED 的运行数（结果未知；与执行体自报 FAILED 区分） | 1 | `AgentRunRecoveryJob#recoverOnce` |
 | `pending.plan.swept` | `pending_plan_swept_total` | counter | 无 | 过期确认租约被清扫回 PENDING 的次数（持续非 0 = 确认链路在崩溃/超时） | 1 | `PendingPlanRecoveryJob#sweep` |
+| `mcp.server.enabled` | `mcp_server_enabled` | **gauge** | 无 | MCP 总开关：1=`travel.mcp.enabled=true`，0=false。配置期已知，是唯一「0 就是真实答案」的 MCP 指标 | 1 | `McpGovernanceMetrics`（构造时注册） |
+| `mcp.server.connected` | `mcp_server_connected` | **gauge** | `server` | 该 server 是否接入成功：1=已接入并注册工具，0=连接/握手失败（原因在 `/api/system/status` 的 `mcpLastError`） | 每配置 server 1 条 | 同上 |
+| `mcp.server.tools` | `mcp_server_tools` | **gauge** | `server` | 该 server 注册进 ToolRegistry 的工具数（按 `allow-tools` 过滤后） | 每配置 server 1 条 | 同上 |
+| `mcp.server.calls` | `mcp_server_calls` | **gauge** | `server` | 被放行并执行的累计调用数（失败/超时的尝试也计入，它们同样烧上游配额）；判读速率用 `rate()` | 每配置 server 1 条 | 同上 |
+| `mcp.server.failures` | `mcp_server_failures` | **gauge** | `server` | 放行后的累计执行失败数（**不含**被闸门拒绝的调用） | 每配置 server 1 条 | 同上 |
+| `mcp.server.rejected` | `mcp_server_rejected` | **gauge** | `server` | 被治理闸门拒绝的累计调用数（白名单 / 每分钟配额 / 熔断） | 每配置 server 1 条 | 同上 |
+| `mcp.server.circuit` | `mcp_server_circuit` | **gauge** | `server`、`state=closed\|open\|half_open` | 该 server 当前熔断状态：命中为 1、其余为 0；不可观测时三态同时 NaN | 每配置 server 3 条 | 同上 |
+| `mcp.server.calls.this.minute` | `mcp_server_calls_this_minute` | **gauge** | `server` | 闸门**正在生效**的 60 秒窗口内已用调用数；配额未配置时为 NaN（不是 0 次） | 每配置 server 1 条 | 同上 |
+| `mcp.server.quota` | `mcp_server_quota` | **gauge** | `server` | 该 server 的 `max-calls-per-minute` 上限；未配置时为 NaN | 每配置 server 1 条 | 同上 |
 
 口径细节（都是会被问到的）：
 
@@ -66,6 +75,31 @@ curl -s -H "Authorization: Bearer $TOKEN" 'http://127.0.0.1:8080/actuator/metric
   `SELECT llm_calls, tool_calls, retries, prompt_tokens, completion_tokens, cost_usd, exhausted
    FROM agent_run_spend WHERE run_id = '…';`。成本列只在配置真实单价时非 0，口径与
   `travel.llm.cost.usd` 一致；表随 Agent 追踪保留期（14 天）清理。
+- **MCP 治理计数为什么是 Gauge 而不是 Counter**：calls/failures/rejected 的唯一权威是
+  `McpGovernor`（一把锁同时维护计数与熔断状态机）。在别处再累加一个 Micrometer Counter 会立刻出现两份
+  会漂移的真相（异常路径漏记、重试路径重复记），而告警与 `/api/system/status` 必须读同一个数。
+  Gauge 每次抓取现读闸门快照，数值仍是单调递增的：Prometheus 侧照常写 `rate()` / `increase()`，
+  进程重启归零会被按 counter 重置处理（`# TYPE` 标成 gauge 不影响这两个函数）。
+- **MCP 的 NaN 纪律**：MCP 未启用（`travel.mcp.enabled=false`）、桥接还没启动（`McpToolBridge` 是异步
+  `SmartLifecycle`）、server 不在当前快照里时，逐 server 的序列一律报 **NaN**，绝不用 0 冒充「没调用/没失败」；
+  熔断三态此时**同时** NaN（读不到状态 ≠ closed）。真实抓取文本长这样：
+  `mcp_server_calls{server="wiki"} NaN`、`mcp_server_circuit{server="wiki",state="open"} NaN`。
+  NaN 不会命中 `> 0` / `== 1` 类告警，所以「查不到」既不会被当成故障，也不会被当成健康。
+  例外只有 `mcp_server_enabled`：开关在配置期已知，0 是真实答案。
+- **`server` tag 来自配置**：`travel.mcp.servers[].name`（空名回落 `unnamed`，与状态接口的显示名同口径）。
+  不用运行时发现——桥接异步启动，启动瞬间还没有 server 列表，等它就等于「第一次抓取前没有指标」。
+  基数受配置约束（每个 server 7 条 + 熔断 3 条），不随流量增长。
+- **熔断态是「调用驱动」的**：冷却结束后的**第一次调用**才会把状态推进到 `half_open` 并放行一次探测，
+  成功即 `closed`、失败立刻重新 `open`。所以 `state="open"` 持续不代表上游一直在被探测——也可能是
+  「闸门开着但没人调用」，Runbook §20 用 `mcp_server_rejected` 的增速区分这两种情况。
+- **`mcp_server_connected` / `mcp_server_tools` 是「启动期接入手势」的结果**：`McpToolBridge` 只在
+  `start()` 时建连、`stop()` 时改状态，运行期不重连也不重数工具，所以连接中途挂掉时这两条序列仍是
+  `1` / 原值。运行期是否还能用，看 `mcp_server_failures` 的增速、`mcp_server_circuit` 与
+  `mcp_server_rejected`——不要拿 `connected=1` 当作「现在健康」。
+- **配额压力**：`mcp_server_calls_this_minute`（闸门当前 60 秒窗口的已用量）与 `mcp_server_quota`
+  （`max-calls-per-minute` 上限）成对出现，两者相除就是余量；配额未配置时**两条都是 NaN**，不是 0——
+  「没设配额」和「本分钟没调用」必须能区分（`McpGovernor` 在未配置配额时让 `callsThisMinute` 恒为 0，
+  所以 `McpServerStatus` 用 null 表达「没有这个事实」）。告警见 Runbook §22。
 
 ### 2.2 既有指标（不要重复造轮子）
 
@@ -170,8 +204,9 @@ P0 的可靠性信号目前主要落在**数据库与日志**，不是 Micromete
 
 - 规则文件：[`docs/operations/alerts.yml`](../operations/alerts.yml)（PrometheusRule，`kubectl apply` 或写进 Prometheus `rule_files`）。
   注意它是 **PrometheusRule CRD**（顶层 `apiVersion/kind/spec`），裸 Prometheus 的 `rule_files` 只认 `groups:`，
-  用 `node scripts/alerts-rules-extract.mjs -Out alerts-rules.yml` 抽出后再交给 Prometheus（22 条规则已用
-  `promtool check rules` 逐条验过；2026-11-25 新增可靠性组 4 条）。
+  用 `node scripts/alerts-rules-extract.mjs -Out alerts-rules.yml` 抽出后再交给 Prometheus（当前 25 条 / 10 组：
+  既有 22 条在 2026-11-25 用 `promtool check rules` 逐条验过；2026-11-26 新增 MCP 治理组 3 条后，
+  用仓库内 `.tools/prometheus/prometheus-3.16.0.windows-amd64/promtool.exe check rules` 复核：`SUCCESS: 25 rules found`）。
 - 路由与送达：[`docs/operations/alert-routing.md`](../operations/alert-routing.md) + `alertmanager.yml`
   （severity 路由、抑制、兜底）；`scripts/alert-routing-drill.ps1` 一条命令验证「规则 firing → 路由 → 送达 → resolved」。
 - 分级：`severity=critical`（P0，立即处置，用户已受影响）、`warning`（P1，当天处置）、`info`（P2，趋势问题，周会看）。
@@ -198,6 +233,8 @@ P0 的可靠性信号目前主要落在**数据库与日志**，不是 Micromete
 | `TravelLlmCostBudgetHigh` | warning | 1h | 成本 > 2 USD/h |
 | `TravelRagHitRateLow` | warning | 30m | RAG 命中率 < 30%（样本 ≥ 10） |
 | `TravelRateLimitFailOpen` | warning | 15m | `ratelimit_failopen_total` 持续增长（Redis 限流失效） |
+| `TravelMcpCircuitOpen` | warning | 5m | `max by (server, instance) (mcp_server_circuit{state="open"}) == 1`（某 server 已被治理闸门摘掉，模型拿不到它的工具） |
+| `TravelMcpServerFailureRateHigh` | warning | 10m | 同一实例上 MCP server 失败率 > 30%（10m 内至少 5 次调用，小样本保护） |
 
 > **单 provider 降级告警的实际延迟**：`TravelExternalProviderDegraded` 用 `rate(external_degraded_total[15m]) > 0.2` 且 `for: 15m`，从降级开始到 firing 实测约 **16 分钟**（2026-11-24 实跑，见[演练快照](../review/2026-11-24-amap-degradation-alert-drill.md)）。它表达的是「已持续降级」，不要当早期预警用；要更早发现需要另加短窗口规则（当前未加，阈值与 `for` 未改）。
 
@@ -290,11 +327,12 @@ rule_files:
 ```
 
 ```bash
-# 语法自检（有 promtool 时）
-promtool check rules docs/operations/alerts.yml
+# 语法自检：alerts.yml 是 PrometheusRule CRD，promtool 只认顶层 groups:，必须先抽出 spec.groups
+node scripts/alerts-rules-extract.mjs -Out /tmp/alerts-rules.yml
+promtool check rules /tmp/alerts-rules.yml
 ```
 
-`promtool` 不可用时，本仓库用 YAML 解析校验（见 §8）。
+没有 `promtool` 时至少用 YAML 解析校验（见 §8）；本仓库 `.tools/prometheus/prometheus-3.16.0.windows-amd64/promtool.exe` 就是可用的 promtool，别直接拿它校验 CRD 原文（会因缺少顶层 groups: 报错）。
 
 ---
 
@@ -367,8 +405,9 @@ curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/actuator/prometh
 4. **`sse.disconnects` 存在重复计数**：同一次断连可能记 `complete`（控制器）+ `cancelled`（引擎）。SLO 已按 reason 分开，不要求总和。
 5. **P95 依赖 histogram**：`percentiles-histogram` 未开启时 P95 告警静默失效，`TravelLowHistogramMissing` 专门兜这个坑——但**只兜 `http.server.requests` 一条**（`absent(http_server_requests_seconds_bucket)`），`agent.stage` / `llm.latency` 缺失不会触发规则，需要巡检时人工确认（2026-11-24 实跑时核对过表达式与规则的差异）。
 6. **多实例聚合**：`travel.llm.cost.usd` 按实例累加，成本看板用 `sum by (instance)` 还是全局 `sum` 取决于部署拓扑；告警阈值 2 USD/h 是按单实例写的。
-7. **可靠性信号已补指标**：`outbox.status`（Gauge）、`agent.run.abandoned`、`pending.plan.swept` 已落地并接入 4 条规则（§2.4/§4）；仍缺 MCP 工具数、高德 10021 专项等指标（见 [Runbook](../operations/runbook.md) 附录 C）。
+7. **可靠性信号已补指标**：`outbox.status`（Gauge）、`agent.run.abandoned`、`pending.plan.swept` 已落地并接入 4 条规则（§2.4/§4）；MCP 逐 server 治理指标 `mcp.server.*`（含配额窗口两条）于 2026-11-26 落地并接入 3 条规则（§2.1/§4）；仍缺高德 10021 专项（见 [Runbook](../operations/runbook.md) 附录 C）。
 8. **事件载荷会被截断**：单条 SSE 事件超过约 1,000,000 字符时写入侧截断并 WARN；续传补发会把截断文本当字符串发回，客户端不能假设所有事件都是完整 JSON。完整方案仍以 `complete` 事件/运行详情为准。
+9. **MCP 配额窗口的 0 与 NaN 分得清**：`McpGovernor` 在**未配置** `max-calls-per-minute` 时让 `callsThisMinute` 恒为 0，与「本窗口确实没调用」是同一个 0。因此 `McpServerStatus` 用 `Integer`（null = 没有这个事实）而不是 `int`，指标侧对 null 报 **NaN**：`mcp_server_calls_this_minute` / `mcp_server_quota` 只有在配额已配置时才有值。运维侧判读见 Runbook §22；`/api/system/status` 的 `mcpServers[]` 也如实给 `null`（不落 0）。
 ---
 
 ## 10. 验证记录（2026-11-19）
@@ -388,3 +427,5 @@ curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/actuator/prometh
 | Runbook 锚点 | 脚本比对 `alerts.yml`/本文档引用的 `runbook.md#...` 与 `runbook.md` 标题 | 16 个引用锚点全部命中（0 broken） |
 
 > **2026-11-24 补充**：高德降级告警实跑 —— `TravelExternalProviderDegraded{provider="amap"}`（`for: 15m`）与 `TravelExternalDegradedHigh`（`for: 10m`）在持续降级下 pending → firing，停止降级后回落 inactive；`/api/trips/map` 请求数与 `external_degraded_total` 1:1。见[演练快照](../review/2026-11-24-amap-degradation-alert-drill.md)。
+
+> **2026-11-26 补充（MCP 逐 server 治理指标）**：`McpGovernanceMetrics` 新增 7 条 `mcp.server.*` 序列。用真实 `PrometheusMeterRegistry` 抓取确认导出名与 NaN 形态：`mcp_server_calls{server="amap"} 7.0`、`mcp_server_circuit{server="amap",state="open"} 1.0`、不可观测的 server 是 `mcp_server_calls{server="wiki"} NaN`（不是 0）。单测 9 个用例（含 NaN 纪律、三态映射、现读语义）全绿；`mvn -B test -Dtest='McpGovernanceMetricsTest,McpGovernorTest,McpBridgeTest,SystemControllerStatusTest,OutboxStatusMetricsTest'` 共 33 个用例通过；`node scripts/alerts-rules-extract.mjs` 抽出 **10 组 / 24 条**（改动前 9 组 / 22 条）。规则文件用仓库内 `.tools/prometheus/prometheus-3.16.0.windows-amd64/promtool.exe check rules` 校验：改动前 `SUCCESS: 22 rules found`、改动后 `SUCCESS: 24 rules found`。

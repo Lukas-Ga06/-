@@ -2,6 +2,27 @@
 
 按主题记录行为变化。**第四节是最需要注意的**：其中几项改变了原有的使用习惯。
 
+## 花费可见性与 MCP 配额指标（2026-11-26）
+
+- **运行详情现在能看到每轮花费**：运行记录抽屉展开后新增「本轮花费」（LLM 调用 / 工具调用 / 重试 /
+  输入输出 token / 费用），位置在「任务链」之前。数据来自上一批落库的 `agent_run_spend`（V29）与
+  `GET /api/agent/runs/{runId}` 的 `spend` 字段。**缺席不补 0**：V29 之前的老 run 整块不渲染，
+  字段缺省则整项不显示；金额 `0` 照实显示 `$0.0000`（未配置单价），`0 < v < 0.0001` 显示 `<$0.0001`；
+  `exhausted` 有值时追加「预算触顶：<项>」警示。见[评审](review/2026-11-26-spend-visible-and-mcp-quota.md)。
+- **MCP 每分钟配额可观测**：新增 `mcp_server_calls_this_minute` 与 `mcp_server_quota`（Gauge，tag `server`），
+  闸门窗口用量与上限成对出现，比值即余量。**未配置 `max-calls-per-minute` 时两条都是 NaN**——
+  `McpGovernor` 此时 `callsThisMinute` 恒为 0，若照抄就会把「没开配额」读成「这个 server 很闲」；
+  因此 `McpServerStatus` 用 `Integer`（null=没有这个事实）而不是 `int`。
+- **状态接口纯增量**：`/api/system/status` 的 `mcpServers[]` 每行新增 `callsThisMinute`/`maxCallsPerMinute`，
+  未配置配额为 `null`。既有键含义未变，旧构造器保留，消费方无需改动。
+- **新增告警 `TravelMcpQuotaPressureHigh`**（warning，`>90%` 持续 5 分钟），与既有
+  `TravelMcpCircuitOpen`、`TravelMcpServerFailureRateHigh` 组成第 9 组 `travel-agent.mcp`；
+  规则总数 22→**25 条 / 10 组**，Runbook 补 §20–§22。三条规则都写明「什么时候算恢复」，
+  其中两条明确「没人用了 ≠ 修好了」。
+- 边界（详见评审 §5）：首屏 JS 预算余量降到 **1,051 B**（`AgentRunsDrawer` 在同步 chunk 内）；
+  MCP 指标只有单测与 `PrometheusMeterRegistry` 抓取，未起真实 Prometheus；新规则与既有 22 条一样
+  仍缺真实 webhook 与值班人；未做真机/像素级验收。
+
 ## 第二阶段：Agent 统一花费预算（2026-11-25）
 
 - **新增花费预算 `AgentSpend`，叠加在既有时间预算上**：单轮上限覆盖 LLM 调用次数、工具调用次数、重试次数、

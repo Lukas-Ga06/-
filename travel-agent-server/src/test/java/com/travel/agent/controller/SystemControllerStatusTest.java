@@ -178,6 +178,28 @@ class SystemControllerStatusTest {
             assertThat(server.get("failures")).isEqualTo(2);
             assertThat(server.get("rejected")).isEqualTo(3);
             assertThat(server.get("circuit")).isEqualTo("half_open");
+            // 配额未配置：两项必须是 null，不能落成 0（0 会被读成「本分钟没调用」）
+            assertThat(server.get("callsThisMinute")).isNull();
+            assertThat(server.get("maxCallsPerMinute")).isNull();
+        });
+    }
+
+    @Test
+    @DisplayName("第二阶段：MCP 配额窗口出现在 status（已用/上限；未配置时同为 null）")
+    @SuppressWarnings("unchecked")
+    void reportsMcpQuotaWindow() {
+        SystemController controller = controller(amap(false, false, null));
+        when(mcpToolBridge.status()).thenReturn(new McpToolBridge.McpStatusSnapshot(
+                true, true, 1,
+                List.of(new McpToolBridge.McpServerStatus("amap", true, 1, null, 30, 0, 0, "closed", 27, 30)),
+                null));
+
+        Map<String, Object> data = data(controller);
+
+        List<Map<String, Object>> servers = (List<Map<String, Object>>) data.get("mcpServers");
+        assertThat(servers).singleElement().satisfies(server -> {
+            assertThat(server.get("callsThisMinute")).isEqualTo(27);
+            assertThat(server.get("maxCallsPerMinute")).isEqualTo(30);
         });
     }
 

@@ -221,7 +221,7 @@ curl -sS -b cookies.txt http://localhost:8081/api/system/status
 | `mcpEnabled` / `mcpConnected` | boolean | `mcpConnected` 仅在“桥接已启动且至少一个 server 连接成功”时为 true |
 | `mcpToolCount` | int | MCP 桥接注册的工具总数；0 = 没有可用的外部工具 |
 | `amapMcpToolCount` | int | 从注册表发现的高德语义工具数；与 `mcpToolCount` 口径不同，分开看 |
-| `mcpServers` | array | 每个 server 的 `name/connected/toolCount/lastError`，用于定位是哪一个失败 |
+| `mcpServers` | array | 每个 server 的 `name/connected/toolCount/lastError` 与治理计数 `calls/failures/rejected/circuit`；配额窗口 `callsThisMinute/maxCallsPerMinute`（未配置配额时同为 `null`，不是 0） |
 | `mcpLastError` / `mcpHint` | string | 最近一次接入失败原因与中文提示；`mcpHint` 不会夸大接入状态 |
 | `routeProvider` | `amap` / `estimated` | 只有最近一次真实路径调用成功才允许 `amap` |
 | `amapVerified` / `routeLastError` | boolean / string | 高德路径是否真实成功、失败原因（含 infocode，不含 Key） |

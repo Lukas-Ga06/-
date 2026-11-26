@@ -435,6 +435,46 @@
   color: var(--ink-3);
 }
 
+/* 本轮花费（V29）：一行 compact 的标签 + 数值，缺省字段整项不出现；
+   触顶警示单独一行，用「部分完成」的橙色，只提示不阻断 */
+
+.runs-drawer .runs-spend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  min-width: 0;
+}
+
+.runs-drawer .spend-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.runs-drawer .spend-label {
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+.runs-drawer .spend-value {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.runs-drawer .runs-spend-warn {
+  font-size: 12px;
+  color: var(--warn);
+  overflow-wrap: anywhere;
+}
+
 .runs-drawer .run-error-box {
   display: flex;
   flex-direction: column;

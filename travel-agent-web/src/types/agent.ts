@@ -179,9 +179,39 @@ export interface ToolCallView {
   startedAt: string;
 }
 
+/**
+ * 单轮运行的花费快照（V29 起后端记录；字段与 OpenAPI 的 SpendView 一一对齐）。
+ *
+ * 缺席语义：V29 之前的 run 没有这条记录，`spend` 整个缺省——缺省不等于「零花费」，
+ * 调用方不得把它补成 0，也不该渲染成空壳。
+ */
+export interface SpendView {
+  /** 输出 token 数（后端 int64） */
+  completionTokens?: number;
+  /** 美元金额，后端存 6 位小数；0 通常表示未配置单价，不代表「免费」 */
+  costUsd?: number;
+  /**
+   * 触顶的预算项 tag：llm_calls / tool_calls / retries / tokens / cost；
+   * 未触顶时后端不返回该字段（与 OpenAPI 契约一致，故不声明 null）。
+   */
+  exhausted?: string;
+  /** LLM 调用次数（后端 int32） */
+  llmCalls?: number;
+  /** 输入 token 数（后端 int64） */
+  promptTokens?: number;
+  /** 重试次数（后端 int32） */
+  retries?: number;
+  /** 工具调用次数（后端 int32） */
+  toolCalls?: number;
+  /** 合计 token 数（后端 int64） */
+  totalTokens?: number;
+}
+
 /** GET /api/agent/runs/{runId} 响应（他人 run 返回 404 业务错误） */
 export interface RunDetail {
   run: RunSummary;
+  /** 本轮花费快照；V29 之前的老 run 缺省（不渲染花费区块） */
+  spend?: SpendView | null;
   tasks: TaskView[];
   toolCalls: ToolCallView[];
 }

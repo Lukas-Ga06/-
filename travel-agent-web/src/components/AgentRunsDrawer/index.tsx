@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Button, Drawer, Empty, Spin } from 'antd';
 import { ArrowLeftOutlined, ReloadOutlined } from '@ant-design/icons';
 import { getRunDetail, getRuns } from '../../api/agent';
-import type { RunDetail, RunSummary, TaskView, ToolCallView } from '../../types/agent';
+import type { RunDetail, RunSummary, SpendView, TaskView, ToolCallView } from '../../types/agent';
 
 interface Props {
   open: boolean;
@@ -54,6 +54,94 @@ function formatClock(iso?: string | null): string {
 function truncateDigest(digest?: string | null, max = 24): string | null {
   if (!digest) return null;
   return digest.length > max ? `${digest.slice(0, max)}…` : digest;
+}
+
+/** 预算触顶 tag → 中文（后端契约 AgentEngine 的 tag 集合） */
+const EXHAUSTED_LABELS = new Map<string, string>([
+  ['llm_calls', 'LLM 调用次数'],
+  ['tool_calls', '工具调用次数'],
+  ['retries', '重试次数'],
+  ['tokens', 'token'],
+  ['cost', '费用'],
+]);
+
+/**
+ * 触顶项文案：未知 tag 原样显示，不猜含义也不留空。
+ * 参数仍接纳 null：契约说未触顶时缺省，但旧服务端可能显式序列化 null，按空值处理。
+ */
+function exhaustedLabel(tag?: string | null): string | null {
+  if (typeof tag !== 'string') return null;
+  const key = tag.trim();
+  if (!key) return null;
+  return EXHAUSTED_LABELS.get(key) ?? key;
+}
+
+/** 计数：千分位便于对账；坏值（非有限数）不显示，也不编造 0 */
+function formatCount(value?: number | null): string | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  return Math.round(value).toLocaleString('zh-CN');
+}
+
+/**
+ * 金额固定 4 位小数：
+ * - 0 是真实记录（后端未配置单价），照实显示 $0.0000，不能美化掉；
+ * - 非零但小于 0.0001 的显示 <$0.0001——四舍五入成 $0.0000 会被读成「没花钱」。
+ */
+function formatCostUsd(value: number): string {
+  if (value === 0) return '$0.0000';
+  if (value > 0 && value < 0.0001) return '<$0.0001';
+  return `$${value.toFixed(4)}`;
+}
+
+interface SpendItem {
+  label: string;
+  value: string;
+}
+
+/** 花费快照 → 展示项：只渲染后端真的落过的字段，缺省项不补 0 */
+function buildSpendItems(spend: SpendView): SpendItem[] {
+  const items: SpendItem[] = [];
+  const pushCount = (label: string, value?: number | null) => {
+    const text = formatCount(value);
+    if (text != null) items.push({ label, value: text });
+  };
+  pushCount('LLM 调用次数', spend.llmCalls);
+  pushCount('工具调用次数', spend.toolCalls);
+  pushCount('重试次数', spend.retries);
+  pushCount('输入 token', spend.promptTokens);
+  pushCount('输出 token', spend.completionTokens);
+  pushCount('合计 token', spend.totalTokens);
+  if (typeof spend.costUsd === 'number' && Number.isFinite(spend.costUsd)) {
+    items.push({ label: '费用', value: formatCostUsd(spend.costUsd) });
+  }
+  return items;
+}
+
+/**
+ * 本轮花费（V29）：老 run 没有 spend 记录时整块不渲染，不写「无花费记录」之类的空壳；
+ * 记录存在但一个字段都没落时同理。
+ */
+function SpendBlock({ spend }: { spend?: SpendView | null }) {
+  if (!spend) return null;
+  const items = buildSpendItems(spend);
+  const exhausted = exhaustedLabel(spend.exhausted);
+  if (items.length === 0 && !exhausted) return null;
+  return (
+    <>
+      <div className="runs-section-title">本轮花费</div>
+      {items.length > 0 && (
+        <div className="runs-spend" data-testid="agent-run-spend">
+          {items.map((item) => (
+            <span className="spend-item" key={item.label}>
+              <span className="spend-label">{item.label}</span>
+              <span className="spend-value">{item.value}</span>
+            </span>
+          ))}
+        </div>
+      )}
+      {exhausted && <div className="runs-spend-warn">⚠ 预算触顶：{exhausted}</div>}
+    </>
+  );
 }
 
 function RunRow({ run, onClick }: { run: RunSummary; onClick: () => void }) {
@@ -161,8 +249,9 @@ function ErrorBox({
 
 /**
  * 运行记录抽屉（V2.2 运行追踪）：列出最近 20 次运行，
- * 点击行展开该次运行的任务链（receiver → taskType → status → summary）
- * 与工具调用（工具名 + 成败 + latencyMs + argsDigest 截断）。
+ * 点击行展开该次运行的本轮花费（V29，老 run 无记录时整块不渲染）、
+ * 任务链（receiver → taskType → status → summary）与工具调用
+ * （工具名 + 成败 + latencyMs + argsDigest 截断）。
  */
 export default function AgentRunsDrawer({ open, onClose }: Props) {
   const [runs, setRuns] = useState<RunSummary[] | null>(null);
@@ -246,6 +335,7 @@ export default function AgentRunsDrawer({ open, onClose }: Props) {
         )}
         {detail && !detailLoading && (
           <>
+            <SpendBlock spend={detail.spend} />
             <div className="runs-section-title">任务链</div>
             {(detail.tasks ?? []).map((t) => (
               <TaskRow key={t.taskId} task={t} />

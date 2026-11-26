@@ -7,7 +7,7 @@
  *   alerts.yml 的顶层是 apiVersion/kind/metadata/spec（kubectl apply 用），而裸 Prometheus 的
  *   rule_files 只认顶层 `groups:`。仓库注释里写的是「把 spec.groups 的内容放进 rule_files 指向的文件」，
  *   但这件事一直靠手工复制 —— 手抄一次的后果是「规则文件里少一条，告警静默消失」，且 CI 无从校验。
- *   本脚本把这一步变成一条命令，演练脚本也用它验证 22 条规则能被当前 Prometheus 解析。
+ *   本脚本把这一步变成一条命令，演练脚本也用它验证 25 条规则能被当前 Prometheus 解析。
  *
  * 用法：
  *   node scripts/alerts-rules-extract.mjs -Out .evidence/alerts-rules.yml

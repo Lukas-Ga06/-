@@ -155,8 +155,11 @@ travel:
 5. **计数是进程内状态**：重启归零，不落库——它的用途是实时保护与排障，不是长期台账；长期花费口径仍看
    `agent_run`/日志（每轮花费落库见第二阶段待办）。
 
-`GET /api/system/status` 的 `mcpServers[]` 每行新增四个字段：`calls`、`failures`、`rejected`、`circuit`
-（`closed` / `open` / `half_open`）。`circuit=open` 且 `failures` 不降，说明该 server 的上游已经不可用，
+`GET /api/system/status` 的 `mcpServers[]` 每行带六个治理字段：`calls`、`failures`、`rejected`、`circuit`
+（`closed` / `open` / `half_open`），以及配额窗口的 `callsThisMinute`、`maxCallsPerMinute`
+（**未配置 `max-calls-per-minute` 时两者都是 `null`**——不是 0 次调用；指标侧对应 NaN，见
+[可观测性 §2.1](observability.md) 与 Runbook §22）。
+`circuit=open` 且 `failures` 不降，说明该 server 的上游已经不可用，
 先按 §4.2 排查，不要靠调大 `failure-threshold` 把问题藏起来。
 
 ---

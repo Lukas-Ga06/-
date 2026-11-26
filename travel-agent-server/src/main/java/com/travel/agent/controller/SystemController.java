@@ -152,7 +152,7 @@ public class SystemController {
         return ApiResponse.ok(status);
     }
 
-    /** 每个 MCP server 的接入结果与治理计数（name/connected/toolCount/lastError + calls/failures/rejected/circuit） */
+    /** 每个 MCP server 的接入结果与治理计数（name/connected/toolCount/lastError + calls/failures/rejected/circuit + 配额窗口） */
     private static List<Map<String, Object>> mcpServers(McpToolBridge.McpStatusSnapshot mcp) {
         return mcp.servers().stream().map(server -> {
             Map<String, Object> row = new LinkedHashMap<>();
@@ -164,6 +164,9 @@ public class SystemController {
             row.put("failures", server.failures());
             row.put("rejected", server.rejected());
             row.put("circuit", server.circuit());
+            // 配额窗口：未配置 max-calls-per-minute 时为 null（区别于「本窗口 0 次调用」）
+            row.put("callsThisMinute", server.callsThisMinute());
+            row.put("maxCallsPerMinute", server.maxCallsPerMinute());
             return row;
         }).toList();
     }

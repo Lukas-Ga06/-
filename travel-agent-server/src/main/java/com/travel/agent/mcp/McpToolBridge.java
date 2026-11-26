@@ -48,11 +48,24 @@ public class McpToolBridge implements SmartLifecycle {
      * 一个 MCP server 的接入结果（status 数组里的一行）。
      *
      * <p>第二阶段新增治理字段：{@code calls/failures/rejected} 是 server 级累计计数，
-     * {@code circuit} 是熔断状态（closed/open/half_open）。旧的 4 参构造器保留，
-     * 供不关心治理的调用方（测试、未启动快照）继续使用。
+     * {@code circuit} 是熔断状态（closed/open/half_open）；{@code callsThisMinute/maxCallsPerMinute}
+     * 是配额窗口的「已用/上限」（两者同为 null 表示未配置配额——不是 0 次调用）。
+     * 旧构造器保留，供不关心治理的调用方（测试、未启动快照）继续使用。
      */
     public record McpServerStatus(String name, boolean connected, int toolCount, String lastError,
-                                  int calls, int failures, int rejected, String circuit) {
+                                  int calls, int failures, int rejected, String circuit,
+                                  Integer callsThisMinute, Integer maxCallsPerMinute) {
+
+        /**
+         * 不带配额字段的构造器：{@code callsThisMinute/maxCallsPerMinute} 为 null。
+         *
+         * <p>null 在这里有明确含义——「未配置每分钟配额」或「调用方不关心配额」。
+         * 它<b>不等于</b> 0：0 表示「本窗口确实一次都没调用」（仅在上限已配置时才是可读的事实）。
+         */
+        public McpServerStatus(String name, boolean connected, int toolCount, String lastError,
+                               int calls, int failures, int rejected, String circuit) {
+            this(name, connected, toolCount, lastError, calls, failures, rejected, circuit, null, null);
+        }
 
         public McpServerStatus(String name, boolean connected, int toolCount, String lastError) {
             this(name, connected, toolCount, lastError, 0, 0, 0, McpGovernor.CircuitState.CLOSED.tag());
@@ -172,13 +185,16 @@ public class McpToolBridge implements SmartLifecycle {
         return new McpStatusSnapshot(base.enabled(), base.running(), totalTools, rows(), lastError);
     }
 
-    /** 逐 server 状态行（含实时治理计数） */
+    /** 逐 server 状态行（含实时治理计数；配额未配置时分钟窗口两项为 null，不是 0） */
     private List<McpServerStatus> rows() {
         return entries.stream().map(entry -> {
             McpGovernor.Snapshot snapshot = entry.governor().snapshot();
+            int quota = entry.governor().maxCallsPerMinute();
             return new McpServerStatus(entry.name(), entry.connected(), entry.toolCount(), entry.lastError(),
                     snapshot.calls(), snapshot.failures(), snapshot.rejected(),
-                    snapshot.circuit().tag());
+                    snapshot.circuit().tag(),
+                    quota > 0 ? snapshot.callsThisMinute() : null,
+                    quota > 0 ? quota : null);
         }).toList();
     }
 
