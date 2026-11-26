@@ -61,6 +61,15 @@ public class TravelMetrics {
      * exhausted 时用 limit 指出卡在哪一项——这是「预算是不是设得太紧」的唯一低基数依据。
      */
     public static final String AGENT_SPEND = "travel.agent.spend";
+    /**
+     * 阶段三可靠性指标（P0）：Outbox 待办按状态计数（Gauge，tag=status:pending|dispatching|done|dead）。
+     * DEAD 是「同步工作已死、需要人工介入」的唯一低基数信号；积压看 pending 的绝对值。
+     */
+    public static final String OUTBOX_STATUS = "outbox.status";
+    /** 被恢复任务判为 ABANDONED 的 run 数（Counter，无 tag）：结果未知的运行必须能被计数，而不是只留在日志 */
+    public static final String AGENT_RUN_ABANDONED = "agent.run.abandoned";
+    /** 过期确认租约被清扫回 PENDING 的次数（Counter，无 tag）：持续非 0 说明确认链路在崩溃/超时 */
+    public static final String PENDING_PLAN_SWEPT = "pending.plan.swept";
 
     public static final String RESULT_SUCCESS = "success";
     public static final String RESULT_DEGRADED = "degraded";
@@ -153,6 +162,20 @@ public class TravelMetrics {
         String result = snapshot.exhausted() == null ? SPEND_WITHIN : SPEND_EXHAUSTED;
         String limit = snapshot.exhausted() == null ? SPEND_LIMIT_NONE : snapshot.exhausted().tag();
         count(AGENT_SPEND, "result", result, "limit", limit, 1.0);
+    }
+
+    /** 被恢复任务判为 ABANDONED 的运行 +N（结果未知的运行必须可计数；N 为 0 时不创建序列） */
+    public void agentRunAbandoned(int count) {
+        if (count > 0) {
+            increment(AGENT_RUN_ABANDONED, count);
+        }
+    }
+
+    /** 过期确认租约被清扫回 PENDING +N（N 为 0 时不创建序列） */
+    public void pendingPlanSwept(int count) {
+        if (count > 0) {
+            increment(PENDING_PLAN_SWEPT, count);
+        }
     }
 
     private void count(String name, String tagKey, String tagValue, double amount) {

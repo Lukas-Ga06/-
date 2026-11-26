@@ -45,6 +45,8 @@ public class AgentRunRecoveryJob {
 
     private final AgentRunRepository runRepository;
     private final AgentTraceService traceService;
+    /** 阶段三可靠性指标：ABANDONED 运行数（结果未知的运行必须可计数，不能只留在日志） */
+    private final com.travel.agent.observability.TravelMetrics travelMetrics;
 
     /** 心跳超时阈值（毫秒），可用 {@code travel.agent.run-recovery.stale-after-ms} 覆盖 */
     @Value("${travel.agent.run-recovery.stale-after-ms:600000}")
@@ -116,6 +118,7 @@ public class AgentRunRecoveryJob {
             }
         }
         if (recovered > 0) {
+            travelMetrics.agentRunAbandoned(recovered);
             log.info("回收心跳超时的 Agent 运行: count={} threshold={}", recovered, threshold);
         }
         return recovered;

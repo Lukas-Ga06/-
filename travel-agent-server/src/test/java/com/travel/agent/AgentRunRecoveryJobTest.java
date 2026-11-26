@@ -2,10 +2,13 @@ package com.travel.agent;
 
 import com.travel.agent.entity.AgentRun;
 import com.travel.agent.entity.AgentRunStage;
+import com.travel.agent.observability.TravelMetrics;
 import com.travel.agent.repository.AgentRunRepository;
 import com.travel.agent.service.AgentRunRecoveryJob;
 import com.travel.agent.service.AgentTraceService;
 import com.travel.agent.support.IntegrationTestSupport;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,6 +37,14 @@ class AgentRunRecoveryJobTest extends IntegrationTestSupport {
     @Autowired
     private AgentRunRepository runRepository;
 
+    @Autowired
+    private MeterRegistry meterRegistry;
+
+    private double abandonedMetric() {
+        Counter counter = meterRegistry.find(TravelMetrics.AGENT_RUN_ABANDONED).counter();
+        return counter == null ? 0d : counter.count();
+    }
+
     private AgentRun start(Account account, String label) {
         return traceService.startRun(account.id(), null, label, "req-" + UUID.randomUUID());
     }
@@ -52,9 +63,13 @@ class AgentRunRecoveryJobTest extends IntegrationTestSupport {
         runRepository.save(stale);
         AgentRun fresh = start(account, "新鲜运行");
 
+        double abandonedBefore = abandonedMetric();
         int recovered = recoveryJob.recoverOnce();
 
         assertThat(recovered).isGreaterThanOrEqualTo(1);
+        assertThat(abandonedMetric() - abandonedBefore)
+                .as("阶段三：ABANDONED 运行必须计数，而不是只留在日志")
+                .isEqualTo(recovered);
 
         AgentRun abandoned = reload(stale);
         assertThat(abandoned.getStatus()).isEqualTo(AgentRun.STATUS_ABANDONED);

@@ -31,6 +31,8 @@ import java.time.LocalDateTime;
 public class PendingPlanRecoveryJob {
 
     private final PendingPlanStore pendingPlans;
+    /** 阶段三可靠性指标：过期确认租约清扫次数（持续非 0 说明确认链路在崩溃/超时） */
+    private final com.travel.agent.observability.TravelMetrics travelMetrics;
 
     /** 确认租约时长（分钟）：超过该时长仍停在 CONFIRMING 视为处理者已崩溃 */
     @Value("${travel.pending-plan.lease-minutes:5}")
@@ -58,6 +60,7 @@ public class PendingPlanRecoveryJob {
             int swept = pendingPlans.sweepStale(LocalDateTime.now().minusMinutes(leaseMinutes));
             if (swept > 0) {
                 // 只写条数：方案内容与用户标识不进日志
+                travelMetrics.pendingPlanSwept(swept);
                 log.info("确认租约清扫：{} 条过期 CONFIRMING 已回到 PENDING", swept);
             }
             return swept;

@@ -337,6 +337,64 @@ tail -f logs/travel-agent-server.log
 
 ---
 
+## 16. TravelOutboxDeadPresent (P0)
+
+**现象**：`outbox_status{status="dead"} > 0` 持续 10 分钟——确认提交后的同步待办重试耗尽（`plan_outbox.status=DEAD`）。用户看到「已确认」，但日程 / 预算快照 / 足迹可能没有同步。
+
+**排查**：
+1. 查该行证据：`SELECT plan_id, module, attempts, last_error, updated_at FROM plan_outbox WHERE status='DEAD' ORDER BY updated_at DESC;`
+2. 按 `module` 定位下游：`schedule` / `budget` / `footprint` 各自失败原因不同（幂等冲突、外键数据缺失、下游异常）。
+3. 修复根因（数据问题或代码 bug）后再补投；补投入口：`POST /api/agent/executions/{id}/retry`，或按 [`backup-restore`](backup-restore.md) 同风格的人工 SQL 复核。
+
+**止血**：先修复根因再重排；**不要**直接 `UPDATE status='PENDING'` 掩盖 `last_error` 与 `attempts` 证据。
+**回滚**：无需回滚业务；若根因是本次发布引入，按发布回滚流程处理。**升级**：同步模块 owner。
+
+---
+
+## 17. TravelOutboxBacklogHigh (P1)
+
+**现象**：`outbox_status{status="pending"} > 100` 持续 15 分钟。用户在确认后长时间看到「已提交、待同步」。
+
+**排查**：
+1. 投递器是否在跑：日志里应有周期性「Outbox 投递」轮次；没有则是调度被停/线程池耗尽/进程不健康。
+2. 是否持续失败：`SELECT status, count(*) FROM plan_outbox GROUP BY status;` 与 `last_error` 聚合。
+3. 下游 DB 延迟/锁等待；`travel.outbox.dispatch-interval-ms` 是否被调得过大。
+4. 积压量级：`outbox_status{status="pending"}` 的曲线是台阶式（每次确认 +N）还是持续爬升（投递停滞）。
+
+**止血**：恢复投递器 / 临时调小 `OUTBOX_DISPATCH_INTERVAL_MS`（需评估 DB 压力）；修复下游后再观察积压下降。
+**回滚**：配置回退。**升级**：平台/DB owner（若为基础设施问题）。
+
+---
+
+## 18. TravelAgentRunAbandoned (P1)
+
+**现象**：`increase(agent_run_abandoned_total[30m]) > 0`——恢复任务把心跳超时的 RUNNING 判为 ABANDONED。执行体已不存在、结果未知（不是执行体自报的 FAILED）。
+
+**排查**：
+1. 进程是否重启/崩溃/OOM：看容器重启计数、`kubectl describe pod` 的 `Last State`、JVM OOM 日志。
+2. `SELECT run_id, stage, heartbeat_at, started_at FROM agent_run WHERE status='ABANDONED' ORDER BY ended_at DESC;` 看停在哪一阶段（LLM 调用、外部工具、DB 写入）。
+3. 心跳阈值 `travel.agent.run-recovery.stale-after-ms` 是否被调小到正常慢请求以下（误判）。
+4. 前端/续传端点的行为：ABANDONED 会收到合成 `complete(FAILED)` 提示重试；确认用户没有被挂在「运行中」。
+
+**止血**：修复崩溃根因（内存/外部依赖/线程池）；**不要**把阈值调大来掩盖崩溃。
+**回滚**：无需回滚业务。**升级**：后端 owner；若同一实例 30 分钟内多次出现，按 P0 处理。
+
+---
+
+## 19. TravelPendingPlanSweptHigh (P1)
+
+**现象**：`increase(pending_plan_swept_total[30m]) > 5`——过期 `CONFIRMING` 被清扫回 `PENDING` 的次数异常。每次清扫都意味着一次确认提交没能在租约内完成。
+
+**排查**：
+1. 确认提交耗时：日志里 confirm 段耗时、`travel.pending-plan.lease-minutes`（默认 5 分钟）是否小于正常提交耗时。
+2. DB 延迟/锁等待：提交事务里包含行程落库 + 3 条 Outbox 待办 + 栅栏删除，慢查询会直接推高清扫率。
+3. 进程重启：重启时所有在途 CONFIRMING 都会在租约到期后被清扫。
+4. 是否多实例争抢同一方案（正常并发冲突应返回 409，不应留下 CONFIRMING）。
+
+**止血**：修复 DB 慢查询/提交耗时；**不要**一味调大租约（会延长用户被卡住的时间）。**回滚**：配置回退。**升级**：后端/DB owner。
+
+---
+
 ## 附录 A：日志脱敏核对（P0-D）
 
 目标：JWT / Cookie / API Key / 手机号 / 照片与 SSE 票据不出现在可被运维、外包或日志平台看到的日志里。**当前状态是“部分成立 + 两处已知缺口”**，发布前必须至少完成一次核对并记录。
@@ -444,7 +502,7 @@ curl -sS -b cookies.txt http://127.0.0.1:8081/api/system/status \
 
 ## 附录 C：告警矩阵补充（与 `alerts.yml` 对齐）
 
-现有规则（`alerts.yml`）覆盖规划、确认、SSE、外部依赖、延迟、LLM、RAG、限流。以下 P0-D 关注项**还没有对应指标或规则**，先人工核对，指标补上后再加规则（不要在指标缺失时写“已覆盖”）。
+现有规则（`alerts.yml`，22 条 / 9 组）覆盖规划、确认、SSE、外部依赖、延迟、LLM、RAG、限流与可靠执行链路（Outbox / ABANDONED / 租约清扫）。以下 P0-D 关注项**还没有对应指标或规则**，先人工核对，指标补上后再加规则（不要在指标缺失时写“已覆盖”）。
 
 | 关注点 | 现有指标 / 告警 | 状态 | 缺口与建议 |
 | --- | --- | --- | --- |
@@ -457,6 +515,9 @@ curl -sS -b cookies.txt http://127.0.0.1:8081/api/system/status \
 | **磁盘容量** | 无应用指标 | ⚠️ **待补/外部** | 用 node_exporter `node_filesystem_avail_bytes` 或宿主监控；阈值参考 [部署与运维 §11.2](../guide/deployment.md)（磁盘 > 80%） |
 | **照片容量** | 无指标；可查 `SELECT SUM(size_bytes) FROM trip_photo` | ⚠️ **待补指标** | 建议加 gauge（按用户/全局），或在备份巡检里顺带查；接近 `PHOTO_MAX_BYTES_PER_USER` 时提醒 |
 | **账号注销失败/残留** | 无指标；日志 `账号删除完成`、`账号注销照片文件清理失败` | ⚠️ **待补指标** | 建议 counter（按结果/表失败数）；补指标前按附录 D 人工核对。照片清理失败只 WARN，必须巡检 |
+| **Outbox 积压 / DEAD** | `outbox_status{status}` / `TravelOutboxBacklogHigh`、`TravelOutboxDeadPresent` | ✅ 已覆盖（2026-11-25） | 抓取时现查库；DB 不可用时序列缺失而非 0 |
+| **ABANDONED 运行** | `agent_run_abandoned_total` / `TravelAgentRunAbandoned` | ✅ 已覆盖（2026-11-25） | 只计数量；runId 走日志/追踪表，不进 tag |
+| **确认租约清扫** | `pending_plan_swept_total` / `TravelPendingPlanSweptHigh` | ✅ 已覆盖（2026-11-25） | 阈值 >5 次/30 分钟；调大租约不是修复手段 |
 | 规划 / 确认 / SSE / RAG / 延迟 | 见 `alerts.yml` | ✅ 已覆盖 | — |
 
 ### C.1 告警落地检查（Prometheus Operator / 裸 Prometheus 通用）

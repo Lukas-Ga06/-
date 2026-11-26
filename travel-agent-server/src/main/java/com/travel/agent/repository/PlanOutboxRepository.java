@@ -16,6 +16,9 @@ public interface PlanOutboxRepository extends JpaRepository<PlanOutbox, Long> {
 
     Optional<PlanOutbox> findByPlanIdAndModule(String planId, String module);
 
+    /** 按状态计数（观测用：outbox.status 低基数 Gauge；只走 (status, ...) 索引的 status 前缀） */
+    long countByStatus(String status);
+
     /** 入队前先查重，避免唯一键异常把调用方事务标记成 rollback-only */
     boolean existsByPlanIdAndModule(String planId, String module);
 

@@ -411,3 +411,66 @@ spec:
               这是刻意的 fail-open（限流不该把站点打挂），但意味着登录/上传/Agent 配额当前没有保护。
               查 Redis 连通性与连接池，必要时切 RATE_LIMIT_STORE=memory 止血。
             runbook_url: "https://github.com/OWNER/travel-agent/blob/main/docs/operations/runbook.md#15-travelratelimitfailopen-p1"
+
+    # ======================================================================
+    # 8. 可靠执行链路（阶段三：Outbox / ABANDONED / 租约清扫）
+    # ======================================================================
+    - name: travel-agent.reliability
+      interval: 30s
+      rules:
+        - alert: TravelOutboxDeadPresent
+          expr: max(outbox_status{status="dead"}) > 0
+          for: 10m
+          labels:
+            severity: critical
+            team: travel-agent
+          annotations:
+            summary: "Outbox 存在 DEAD 待办：确认后的同步工作已死，需要人工介入"
+            description: >-
+              至少 1 条 plan_outbox 行处于 DEAD（重试耗尽）并持续 10 分钟。用户看到"已确认"，
+              但日程/预算快照/足迹可能没有同步。先看该行 last_error 与 attempts，修复根因后
+              通过 POST /api/agent/executions/{id}/retry 或人工复核补投；不要直接改状态掩盖证据。
+            runbook_url: "https://github.com/OWNER/travel-agent/blob/main/docs/operations/runbook.md#16-traveloutboxdeadpresent-p0"
+
+        - alert: TravelOutboxBacklogHigh
+          expr: max(outbox_status{status="pending"}) > 100
+          for: 15m
+          labels:
+            severity: warning
+            team: travel-agent
+          annotations:
+            summary: "Outbox PENDING 积压超过 100 条（投递器可能停摆或持续失败）"
+            description: >-
+              待投递行数持续 15 分钟超过 100。先确认投递器是否在跑（日志里的
+              "Outbox 投递"轮次）、下游模块是否在持续抛错；积压期间用户的确认结果会"已提交但未同步"，
+              不要用清空 next_attempt_at 掩盖退避。
+            runbook_url: "https://github.com/OWNER/travel-agent/blob/main/docs/operations/runbook.md#17-traveloutboxbackloghigh-p1"
+
+        - alert: TravelAgentRunAbandoned
+          expr: increase(agent_run_abandoned_total[30m]) > 0
+          for: 5m
+          labels:
+            severity: warning
+            team: travel-agent
+          annotations:
+            summary: "30 分钟内出现 ABANDONED 运行：结果未知，用户需要重试"
+            description: >-
+              恢复任务把 {{ $value }} 个心跳超时的 RUNNING 判为 ABANDONED。执行体已不存在、
+              结果未知（可能是进程崩溃/重启/OOM），与执行体自报的 FAILED 不同。
+              先看 Pod 重启与 OOM 记录，再看这些 run 的心跳停在哪一阶段。
+            runbook_url: "https://github.com/OWNER/travel-agent/blob/main/docs/operations/runbook.md#18-travelagentrunabandoned-p1"
+
+        - alert: TravelPendingPlanSweptHigh
+          expr: increase(pending_plan_swept_total[30m]) > 5
+          for: 10m
+          labels:
+            severity: warning
+            team: travel-agent
+          annotations:
+            summary: "确认租约连续被清扫（>5 次/30 分钟）：确认提交在崩溃或超时"
+            description: >-
+              过期 CONFIRMING 被清扫回 PENDING 的次数异常。每次清扫都意味着一次确认提交
+              没有在租约内完成（进程崩溃/DB 慢/提交耗时超过 travel.pending-plan.lease-minutes）。
+              查 DB 延迟、确认提交耗时与进程重启；不要把租约一味调大。
+            runbook_url: "https://github.com/OWNER/travel-agent/blob/main/docs/operations/runbook.md#19-travelpendingplanswept-p1"
+

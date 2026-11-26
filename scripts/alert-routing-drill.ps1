@@ -16,7 +16,7 @@
     docs/review/<日期>-alert-routing-drill.md 的人工确认列。
 
     验证项（每项 PASS/FAIL 并写入 -OutDir）：
-      0) 工具链与配置语法：promtool check rules（生产 alerts.yml 18 条）+ amtool check-config（渲染后的路由）
+      0) 工具链与配置语法：promtool check rules（生产 alerts.yml 22 条）+ amtool check-config（渲染后的路由）
       1) critical 路由：TravelAgentServerDown → oncall-critical，规则 firing 后 ≤120s 送达，
          且 payload 含 summary / severity / runbook_url
       2) 抑制：同实例的 TravelPlanOutcomeFailed（critical）被 TravelAgentServerDown 抑制，不单独通知
@@ -372,7 +372,7 @@ try {
     Write-Info ("alertmanager = {0}" -f $amBin)
     Write-Info ("prometheus = {0}" -f $promBin)
 
-    # 生产规则文件本身要能被同版本 Prometheus 解析（18 条规则，语法错会让整条告警链静默失效）。
+    # 生产规则文件本身要能被同版本 Prometheus 解析（22 条规则，语法错会让整条告警链静默失效）。
     # alerts.yml 顶层是 PrometheusRule CRD（apiVersion/kind/spec），裸 Prometheus 只认 groups: ——
     # 先抽出 spec.groups 再校验；这一步以前靠手抄，少抄一条就是一条永久静默的告警。
     $extractedRules = Join-Path $script:OutDir 'alerts-rules.yml'

@@ -35,7 +35,7 @@ curl -s -H "Authorization: Bearer $TOKEN" 'http://127.0.0.1:8080/actuator/metric
 
 ### 2.1 本迭代新增（`TravelMetrics`）
 
-全部为计数器（counter），tag 只有枚举值——**每个 tag 组合的基数是固定的**，禁止把 `userId` / `runId` / `tripId` / `query` 加进来（那会让序列数随用户量线性爆炸）。用户/运行维度的排障走日志与 trace（`traceId` / `runId`），不进指标。
+计数器与 Gauge 并存，tag 只有枚举值——**每个 tag 组合的基数是固定的**，禁止把 `userId` / `runId` / `tripId` / `query` 加进来（那会让序列数随用户量线性爆炸）。用户/运行维度的排障走日志与 trace（`traceId` / `runId`），不进指标。
 
 | Micrometer 名 | Prometheus 名 | 类型 | tag | 含义 | 基数 | 埋点 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -45,6 +45,9 @@ curl -s -H "Authorization: Bearer $TOKEN" 'http://127.0.0.1:8080/actuator/metric
 | `travel.llm.tokens` | `travel_llm_tokens_total` | counter | `type=prompt\|completion` | LLM 响应 `usage` 里的 token 数，累加值（缺失 usage 时不记，不估算） | 2 | `OpenAiCompatibleLlmClient#recordUsage` |
 | `travel.llm.cost.usd` | `travel_llm_cost_usd_total` | counter | 无 | LLM 成本估算（美元累加）。单价未配置（默认 0）时**不创建该指标**，避免虚报 0 成本 | 1 | `TravelMetrics#recordLlmUsage` |
 | `travel.agent.spend` | `travel_agent_spend_total` | counter | `result=within\|exhausted`、`limit=none\|llm_calls\|tool_calls\|retries\|tokens\|cost` | 每轮 Agent 调用的花费预算结果：`within`=没触顶；`exhausted`=某一项到顶并按降级语义收尾，`limit` 指出卡在哪一项 | 2×6=12（上限 12 条序列） | `AgentEngine#recordSpend`（经 `TravelMetrics#spendOutcome`） |
+| `outbox.status` | `outbox_status` | **gauge** | `status=pending\|dispatching\|done\|dead` | `plan_outbox` 按状态的行数；每次抓取现查库（投递器停摆时积压仍可见）。DB 查询失败时采样为 NaN，**不伪造成 0**（NaN 不触发 `>0` 告警） | 4 | `OutboxStatusMetrics`（构造时注册） |
+| `agent.run.abandoned` | `agent_run_abandoned_total` | counter | 无 | 被恢复任务判为 ABANDONED 的运行数（结果未知；与执行体自报 FAILED 区分） | 1 | `AgentRunRecoveryJob#recoverOnce` |
+| `pending.plan.swept` | `pending_plan_swept_total` | counter | 无 | 过期确认租约被清扫回 PENDING 的次数（持续非 0 = 确认链路在崩溃/超时） | 1 | `PendingPlanRecoveryJob#sweep` |
 
 口径细节（都是会被问到的）：
 
@@ -123,11 +126,18 @@ P0 的可靠性信号目前主要落在**数据库与日志**，不是 Micromete
 `travel.agent.run-recovery.*` 只在 `@Value` 里读，**没有对应的 `AGENT_RUN_RECOVERY_*` 环境变量占位**，
 要用配置文件或 `SPRING_APPLICATION_JSON` 覆盖。
 
-**告警建议（尚未加入 [alerts.yml](../operations/alerts.yml)）**：当前没有 `plan_outbox` / `ABANDONED`
-的专用 Micrometer 指标，无法直接写 PromQL。建议后续补三个低基数指标——
-`outbox.status{status}`（Gauge，按状态计数）、`agent.run.abandoned`（Counter）、
-`pending.plan.swept`（Counter）；在此之前用日志告警兜底：`Outbox 重试耗尽，置 DEAD` 与
-`回收心跳超时的 Agent 运行: count=` 任一出现即人工查看。**不要把 SQL 轮询塞进 Prometheus。**
+**三个可靠性指标已落地并接入 [alerts.yml](../operations/alerts.yml) §8（2026-11-25）**：
+
+| 指标 | PromQL 示例 | 告警 | 判读 |
+| --- | --- | --- | --- |
+| `outbox_status{status="dead"}` | `max(outbox_status{status="dead"}) > 0`（持续 10m） | `TravelOutboxDeadPresent`（critical） | 确认后的同步工作已死，必须人工补投；先看该行 `last_error`/`attempts` |
+| `outbox_status{status="pending"}` | `max(outbox_status{status="pending"}) > 100`（持续 15m） | `TravelOutboxBacklogHigh`（warning） | 投递器停摆或下游持续失败；积压期间用户会「已确认但未同步」 |
+| `agent_run_abandoned_total` | `increase(agent_run_abandoned_total[30m]) > 0` | `TravelAgentRunAbandoned`（warning） | 进程崩溃/重启/OOM；结果未知，提示用户重试 |
+| `pending_plan_swept_total` | `increase(pending_plan_swept_total[30m]) > 5` | `TravelPendingPlanSweptHigh`（warning） | 确认提交超过租约；查 DB 延迟与提交耗时，别只调大租约 |
+
+口径：`outbox_status` 是抓取时现查的 Gauge（投递器不跑也不会冻结成「0 积压」）；DB 不可用时时序为 NaN，
+**不伪造成 0**（`> 0` 告警不会误报）。`dead` 与 `pending` 都用 `max()` 而不是 `sum()`：多实例时每个实例都查同一张表，
+`max` 避免把同一份积压乘以实例数。**不要把 SQL 轮询塞进抓取路径之外的地方。**
 
 ---
 
@@ -160,8 +170,8 @@ P0 的可靠性信号目前主要落在**数据库与日志**，不是 Micromete
 
 - 规则文件：[`docs/operations/alerts.yml`](../operations/alerts.yml)（PrometheusRule，`kubectl apply` 或写进 Prometheus `rule_files`）。
   注意它是 **PrometheusRule CRD**（顶层 `apiVersion/kind/spec`），裸 Prometheus 的 `rule_files` 只认 `groups:`，
-  用 `node scripts/alerts-rules-extract.mjs -Out alerts-rules.yml` 抽出后再交给 Prometheus（18 条规则已用
-  `promtool check rules` 逐条验过）。
+  用 `node scripts/alerts-rules-extract.mjs -Out alerts-rules.yml` 抽出后再交给 Prometheus（22 条规则已用
+  `promtool check rules` 逐条验过；2026-11-25 新增可靠性组 4 条）。
 - 路由与送达：[`docs/operations/alert-routing.md`](../operations/alert-routing.md) + `alertmanager.yml`
   （severity 路由、抑制、兜底）；`scripts/alert-routing-drill.ps1` 一条命令验证「规则 firing → 路由 → 送达 → resolved」。
 - 分级：`severity=critical`（P0，立即处置，用户已受影响）、`warning`（P1，当天处置）、`info`（P2，趋势问题，周会看）。
@@ -357,7 +367,7 @@ curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/actuator/prometh
 4. **`sse.disconnects` 存在重复计数**：同一次断连可能记 `complete`（控制器）+ `cancelled`（引擎）。SLO 已按 reason 分开，不要求总和。
 5. **P95 依赖 histogram**：`percentiles-histogram` 未开启时 P95 告警静默失效，`TravelLowHistogramMissing` 专门兜这个坑——但**只兜 `http.server.requests` 一条**（`absent(http_server_requests_seconds_bucket)`），`agent.stage` / `llm.latency` 缺失不会触发规则，需要巡检时人工确认（2026-11-24 实跑时核对过表达式与规则的差异）。
 6. **多实例聚合**：`travel.llm.cost.usd` 按实例累加，成本看板用 `sum by (instance)` 还是全局 `sum` 取决于部署拓扑；告警阈值 2 USD/h 是按单实例写的。
-7. **可靠性信号缺少指标**：`plan_outbox` / `agent_run.status=ABANDONED` / 租约清扫目前只能查库或看日志，SLO 表与 `alerts.yml` 都没有对应规则（§2.4 给了建议指标，未实现）。
+7. **可靠性信号已补指标**：`outbox.status`（Gauge）、`agent.run.abandoned`、`pending.plan.swept` 已落地并接入 4 条规则（§2.4/§4）；仍缺 MCP 工具数、高德 10021 专项等指标（见 [Runbook](../operations/runbook.md) 附录 C）。
 8. **事件载荷会被截断**：单条 SSE 事件超过约 1,000,000 字符时写入侧截断并 WARN；续传补发会把截断文本当字符串发回，客户端不能假设所有事件都是完整 JSON。完整方案仍以 `complete` 事件/运行详情为准。
 ---
 

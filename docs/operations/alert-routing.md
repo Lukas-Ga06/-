@@ -1,7 +1,7 @@
 # 告警路由与灰度值班
 
 > 状态：**路由与送达链路已落地并实测（接收端 = 本地 Sink）；真实渠道与值班人仍待指派** ｜ 更新：2026-11-25 晚
-> ｜ 依据：[alerts.yml](alerts.yml)（18 条规则 / 8 组）、[alertmanager.yml](alertmanager.yml)（路由权威）、
+> ｜ 依据：[alerts.yml](alerts.yml)（22 条规则 / 9 组）、[alertmanager.yml](alertmanager.yml)（路由权威）、
 > [alert-routing-drill.ps1](../../scripts/alert-routing-drill.ps1)（一条命令跑通送达并留证）
 > ｜ 一句话：Prometheus 能算、Alertmanager 能按 severity 分、链路能送到一个接收端并留下消息时间戳；
 > 现在缺的只剩「把人接进去」——三个真实 webhook 与两行值班表。
@@ -10,7 +10,7 @@
 
 | 项 | 现状 | 依据 |
 | --- | --- | --- |
-| 告警规则 | 18 条 / 8 组，`severity`、`summary`、`description`、`runbook_url` 齐全；抽出 `spec.groups` 后 `promtool check rules` 通过 | [alerts.yml](alerts.yml)、[演练快照](../review/2026-11-25-alert-routing-drill.md) |
+| 告警规则 | 22 条 / 9 组，`severity`、`summary`、`description`、`runbook_url` 齐全；抽出 `spec.groups` 后 `promtool check rules` 通过（2026-11-25 新增 §8 可靠性 4 条） | [alerts.yml](alerts.yml)、[演练快照](../review/2026-11-25-alert-routing-drill.md) |
 | 路由配置 | **已落地**：[alertmanager.yml](alertmanager.yml)（critical / warning / info + 兜底 + 抑制规则），渲染后 `amtool check-config` 通过 | 同上 |
 | 送达链路 | **已实测**：合成告警走完「规则 firing → 按 severity 路由 → 抑制 → 送达 → 恢复」，接收端逐条留下接收时间与消息体 | [演练快照](../review/2026-11-25-alert-routing-drill.md) |
 | 真实接收人 | **仍缺**：三个 webhook 与主/备值班人尚未指派，演练接收端是本地 Sink（证据标 `LOCAL-SINK`） | §5、§6 |
@@ -151,7 +151,7 @@ synthetic 模式用**真实路由配置**起本地 Alertmanager，注入一条�
 | 项 | 归属 | 关闭动作 |
 | --- | --- | --- |
 | 路由配置 + 抑制规则 | 我 | ✅ 已落地 [alertmanager.yml](alertmanager.yml)：`amtool check-config` 通过 |
-| 规则可被裸 Prometheus 加载 | 我 | ✅ 已落地 `alerts-rules-extract.mjs`：18 条逐字抽出并 `promtool check rules` 通过 |
+| 规则可被裸 Prometheus 加载 | 我 | ✅ 已落地 `alerts-rules-extract.mjs`：22 条（含 2026-11-25 新增 4 条）逐字抽出并 `promtool check rules` 通过 |
 | 送达链路（本地） | 我 | ✅ 已跑通并留证，证据标 `LOCAL-SINK` |
 | 接收渠道（webhook ×3） | 你 | 给一个能收 critical 的地址（建议独立 critical 通道）＋ 值班群 ＋ 日报入口 |
 | 主/备值班人 | 你 | 填 §5 两行 |
