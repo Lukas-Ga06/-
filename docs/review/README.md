@@ -60,5 +60,6 @@
 | [2026-11-25-mcp-governance.md](2026-11-25-mcp-governance.md) | 2026-11-25 | MCP 逐 server 治理：白名单（注册期过滤）、连续失败熔断（半开探测）、每分钟配额、`[MCP-Audit]` 审计与状态接口计数 | 四项能力默认全关、行为不变；定向 21/21 通过（默认不熔断、403/503 拒绝语义、窗口滚动、半开成功/失败、桥接白名单过滤、status 实时计数）；真实高德 10021 压测与计数持久化仍未做 |
 | [2026-11-25-spend-persistence.md](2026-11-25-spend-persistence.md) | 2026-11-25 | 每轮花费落库：`agent_run_spend`（V29）、run 收尾写快照、`GET /api/agent/runs/{runId}` 的 `spend` 字段、随 14 天追踪保留期清理 | 定向 10/10 通过（字段完整落库、同 run 幂等覆盖、空输入跳过、保留期只删旧行、真实 chat 触顶后台账可查）；OpenAPI 新增 `SpendView`；真实 MySQL 迁移以 CI 为准，前端尚未渲染 spend |
 | [2026-11-25-reliability-metrics.md](2026-11-25-reliability-metrics.md) | 2026-11-25 | 阶段三可靠性指标与告警：`outbox.status`（Gauge）、`agent.run.abandoned`、`pending.plan.swept`；4 条规则 + Runbook §16–19 | `promtool check rules` 通过（22 条 / 9 组）；定向 21/21（Gauge 现查/NaN 语义、Counter 累加、恢复任务真实增量）；阈值是初值，真实 webhook 与 MCP 指标仍未做 |
+| [2026-11-26-real-data-acceptance.md](2026-11-26-real-data-acceptance.md) | 2026-11-26 | 真实数据验收：高德 POI/地理编码质量 8/8（5 跨城地标 + 3 地址）、10021 退避重试；真实 Embedding 验收测试就绪 | POI 全部 top1 命中、同城、坐标合规（真实 Key，证据 `.e2e/poi-quality-20261126-125013/`）；无 `EMBEDDING_API_KEY` 且 DeepSeek 无 `/embeddings`，Embedding 仍为 ❌（`EmbeddingLiveTest` 待 Key） |
 
 新增快照后请同步本表，并运行 `node scripts/docs-check.mjs` 校验链接。完整文档规则见 [文档生命周期](../guide/documentation.md)。

@@ -50,6 +50,8 @@ travel-agent-web/e2e/.auth/
 
 # ---- 真实 Key 联调证据（.e2e/amap-real-key-probe.ps1 的输出，含临时库与实例日志）----
 .e2e/amap-key-*/
+# POI/地理编码质量验收的原始输出（精编证据提交到 .e2e/acceptance/evidence/）
+.e2e/poi-quality-*/
 # 隔离 e2e 后端（内存库/照片/日志/pid；由 scripts/start-e2e-backend.mjs 生成）
 .e2e/isolated/
 

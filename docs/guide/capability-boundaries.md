@@ -66,7 +66,7 @@
 
 - 默认向量是**字符哈希**（一元 + 二元组投影、L2 归一化），相似度反映的是字面重合，不是语义。
 - 问答阈值 `RAG_MIN_SCORE=0.05` 只用于滤掉几乎无关的片段；**分数不能跨 Embedding 模型比较，也不能当作置信度**。
-- 评估集约 7 条，基线就是本地哈希（`RagEvaluationTest`）；真实 Embedding 的质量验收**没有做**，因此不要把「RAG 引用」当作语义正确的证据。
+- 评估集约 7 条，基线就是本地哈希（`RagEvaluationTest`）；真实 Embedding 的质量验收**没有做**（2026-11-26：验收测试 `EmbeddingLiveTest` 已就绪，缺 `EMBEDDING_API_KEY`，见[真实数据验收](../review/2026-11-26-real-data-acceptance.md)），因此不要把「RAG 引用」当作语义正确的证据。
 - 切换 `travel.embedding.model` 或开关真实 Embedding 后必须清空 `rag_document` / `rag_chunk` / `rag_document_version` 重建，详见 [架构](architecture.md) §7.4。
 
 ## 5. 验收与发布门槛现状
@@ -77,8 +77,8 @@
 | 前端回归 | typecheck + lint + format + Vitest 覆盖率 + 构建预算 + OpenAPI 类型漂移 | ✅ CI 硬门禁 |
 | 端到端 | `npm run e2e:isolated`：独立 H2，LLM / Embedding / AMAP / MCP 全关，天气用模拟开关 | ✅ CI 硬门禁（不联网） |
 | 真实模型 | 2026-11-22 手工快照：2 次真实调用（余额 ¥0.80），已验证 `llmVerified=true`；模型名默认值已修正为 `deepseek-flash` | ❌ 手工验收，未进门禁 |
-| 真实 Embedding | 未做质量验收，评估集基线仍是哈希向量 | ❌ 手工验收，未进门禁 |
-| 真实高德 / MCP | 有 Key 时做过限流与降级核对；跨城同名 POI、polyline 实线、长期配额未验 | ❌ 手工验收，未进门禁 |
+| 真实 Embedding | 未做质量验收，评估集基线仍是哈希向量；验收测试已就绪待 Key（2026-11-26） | ❌ 手工验收，未进门禁 |
+| 真实高德 / MCP | POI/地理编码质量 8/8（2026-11-26：5 个跨城地标 + 3 个地址，命中/同城/坐标合规）；限流（10021）与降级已核对；生产 Key 容器内与长期配额未验 | ❌ 手工验收，未进门禁 |
 | 真实 S3 兼容存储 | 2026-11-24 用本地 S3 协议桩验通上传/读回/删除；真实 MinIO/AWS/OSS 凭证、HTTPS、版本控制未验（[复验 §4](../review/2026-11-24-gray-release-blockers.md#4-s3)） | ❌ 手工验收，未进门禁 |
 | Android 真机 / Linux 视觉基线 | Linux 视觉基线 2026-11-24 已生成并提交（11 张，CI `visual` job 转比较、仍观察）；Android 真机见 [上线清单](../operations/launch-checklist.md) §5.1 | Android 真机 ❌ 发布前仍待关闭；Linux 基线 ✅ |
 
