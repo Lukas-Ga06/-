@@ -80,6 +80,8 @@ public class AgentController {
     private final MeterRegistry meterRegistry;
     /** V2.2 运行追踪查询（FR-10） */
     private final com.travel.agent.service.AgentTraceService traceService;
+    /** 第二阶段：每轮花费快照（V29；读取失败按无记录处理，不影响详情接口） */
+    private final com.travel.agent.service.AgentRunSpendService spendService;
     /** P0：SSE 事件持久化（续传补发按 seq 升序、不重复） */
     private final AgentRunEventService runEventService;
     /** V2.2 确认后同步台账（FR-09） */
@@ -337,12 +339,14 @@ public class AgentController {
         User user = authService.requireUser(authentication.getName());
         com.travel.agent.entity.AgentRun run = traceService.findRun(runId, user.getId())
                 .orElseThrow(() -> new com.travel.agent.exception.BusinessException(404, "运行记录不存在"));
+        com.travel.agent.entity.AgentRunSpend spend = spendService.findByRunId(runId).orElse(null);
         return ApiResponse.ok(com.travel.agent.dto.AgentTraceDtos.RunDetail.builder()
                 .run(com.travel.agent.dto.AgentTraceDtos.from(run))
                 .tasks(traceService.tasksOf(runId).stream()
                         .map(com.travel.agent.dto.AgentTraceDtos::from).toList())
                 .toolCalls(traceService.toolCallsOf(runId).stream()
                         .map(com.travel.agent.dto.AgentTraceDtos::from).toList())
+                .spend(spend == null ? null : com.travel.agent.dto.AgentTraceDtos.from(spend))
                 .build());
     }
 

@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.travel.agent.agent.AgentBudget;
 import com.travel.agent.config.AgentBudgetProperties;
 import com.travel.agent.llm.LlmProperties;
+import com.travel.agent.service.AgentRunSpendService;
+import com.travel.agent.service.AgentTraceService;
 import com.travel.agent.support.IntegrationTestSupport;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -13,6 +15,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MvcResult;
 
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -42,6 +45,12 @@ class AgentSpendIntegrationTest extends IntegrationTestSupport {
 
     @Autowired
     private LlmProperties llmProperties;
+
+    @Autowired
+    private AgentTraceService traceService;
+
+    @Autowired
+    private AgentRunSpendService spendService;
 
     @Test
     @DisplayName("嵌套配置绑定：spend 的上限真的进了本轮预算实例")
@@ -77,5 +86,16 @@ class AgentSpendIntegrationTest extends IntegrationTestSupport {
                 .as("ADR-002：可以少做，但必须如实说明「花费预算」与「工具未执行」")
                 .contains("花费预算")
                 .contains("工具调用");
+
+        // 第二阶段：每轮花费落库——从执行台账能直接查回本轮的花费，而不是只能翻日志
+        List<com.travel.agent.entity.AgentRun> runs = traceService.recentRuns(account.id(), 1);
+        assertThat(runs).isNotEmpty();
+        assertThat(spendService.findByRunId(runs.get(0).getRunId()))
+                .as("本轮收尾必须留下花费快照（V29）")
+                .hasValueSatisfying(row -> {
+                    assertThat(row.getToolCalls()).as("工具次数触顶前的真实执行次数应落库").isGreaterThanOrEqualTo(2);
+                    assertThat(row.getExhausted()).as("触顶项要能直接查出来，而不是看日志猜").isEqualTo("tool_calls");
+                    assertThat(row.getUserId()).isEqualTo(account.id());
+                });
     }
 }

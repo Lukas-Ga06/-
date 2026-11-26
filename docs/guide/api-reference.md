@@ -832,7 +832,8 @@ data:{"planId":"plan-8f3c","tripId":null,"message":"…","intent":"PLAN_TRIP","s
            {"taskId":"t2","receiver":"planner-agent","taskType":"PLAN","status":"SUCCEEDED","dependsOn":["t1"],"attempt":0,"replacesTaskId":null,"summary":"生成 9 项操作","error":null,"durationMs":6200},
            {"taskId":"t3","receiver":"executor-agent","taskType":"PREVIEW","status":"SUCCEEDED","dependsOn":["t2"],"attempt":0,"replacesTaskId":null,"summary":"生成 Diff 预览：9 项变更","error":null,"durationMs":35},
            {"taskId":"t4","receiver":"reflect-agent","taskType":"REVIEW","status":"SUCCEEDED","dependsOn":["t2"],"attempt":0,"replacesTaskId":null,"summary":"审核通过","error":null,"durationMs":1820}],
-  "toolCalls":[{"id":1,"taskId":"t2","toolName":"search_hotel","success":true,"errorCode":null,"latencyMs":12,"argsDigest":"{\"city\":\"杭州\"}","resultDigest":"[…]","startedAt":"2026-11-18 12:03:14"}]}}
+  "toolCalls":[{"id":1,"taskId":"t2","toolName":"search_hotel","success":true,"errorCode":null,"latencyMs":12,"argsDigest":"{\"city\":\"杭州\"}","resultDigest":"[…]","startedAt":"2026-11-18 12:03:14"}],
+  "spend":{"llmCalls":8,"toolCalls":12,"retries":0,"promptTokens":15230,"completionTokens":2411,"totalTokens":17641,"costUsd":0.0021,"exhausted":null}}}
 ```
 `receiver`：`intent-agent` / `research-agent` / `planner-agent` / `executor-agent` / `reflect-agent` / `tool-invoker`；
 `taskType`：`INTENT` / `RESEARCH` / `PLAN` / `PREVIEW` / `REVIEW` / `REPLAN` / `TOOL` / `COMMIT`；
@@ -845,6 +846,11 @@ data:{"planId":"plan-8f3c","tripId":null,"message":"…","intent":"PLAN_TRIP","s
 `CONFLICT` 行只作证据、没有执行体（`endedAt` 与 `startedAt` 同时写入）。
 
 摘要字段为截断 JSON（不含密钥）。错误：`401`；`404` `运行记录不存在`（他人的 run 同样 404）
+
+`spend`（第二阶段 / V29，纯增量）：本轮花费快照，来自 `agent_run_spend`。字段：
+`llmCalls` / `toolCalls` / `retries`（真实调用数）、`promptTokens` / `completionTokens` / `totalTokens`（供应商 returned usage，不估算）、
+`costUsd`（按配置单价折算，未配价目表恒为 0）、`exhausted`（触顶项 tag：`llm_calls`/`tool_calls`/`retries`/`tokens`/`cost`，未触顶为 `null`）。
+未启用花费预算（`travel.agent.budget.spend.enabled=false`）或落库失败时该字段为 `null`——花费是补充信息，不影响运行详情主契约。
 
 ### 5.13.1 GET /api/agent/runs/{runId}/events — SSE 断线续传（P0，对 OpenAPI 隐藏）
 
@@ -1257,7 +1263,7 @@ RAG 文档接口在 P0 从原 `LearningController` 拆出，迁入 `TravelKnowle
 | 30 | POST | `/api/agent/undo` | 登录 | 撤销上一次修改 | `AgentController#undo` |
 | 31 | GET | `/api/agent/plans/{planId}` | 登录 | 取回待确认方案 | `AgentController#pending` |
 | 32 | GET | `/api/agent/runs` | 登录 | 运行列表 | `AgentController#runs` |
-| 33 | GET | `/api/agent/runs/{runId}` | 登录 | 运行明细（任务图 + 工具调用） | `AgentController#runDetail` |
+| 33 | GET | `/api/agent/runs/{runId}` | 登录 | 运行明细（任务图 + 工具调用 + 花费快照） | `AgentController#runDetail` |
 | 34 | GET | `/api/agent/runs/{runId}/events` | 登录/票据 | SSE 断线续传（P0；对 OpenAPI 隐藏） | `AgentController#runEvents` |
 | 35 | GET | `/api/agent/executions/{executionId}` | 登录 | 同步台账 | `AgentController#executionDetail` |
 | 36 | POST | `/api/agent/executions/{executionId}/retry` | 登录 | 重试失败模块 | `AgentController#executionRetry` |

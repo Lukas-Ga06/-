@@ -9,6 +9,7 @@ import com.travel.agent.entity.ToolCallTrace;
 import com.travel.agent.exception.TaskDependencyException;
 import com.travel.agent.repository.AgentRunEventRepository;
 import com.travel.agent.repository.AgentRunRepository;
+import com.travel.agent.repository.AgentRunSpendRepository;
 import com.travel.agent.repository.AgentRunStageRepository;
 import com.travel.agent.repository.AgentTaskRepository;
 import com.travel.agent.repository.ToolCallTraceRepository;
@@ -67,19 +68,21 @@ public class AgentTraceService {
     private final ToolCallTraceRepository traceRepository;
     private final AgentRunStageRepository stageRepository;
     private final AgentRunEventRepository eventRepository;
+    private final AgentRunSpendRepository spendRepository;
     private final ObjectMapper objectMapper;
     private final TransactionTemplate newTx;
     private final Object[] stageLocks = new Object[STAGE_LOCK_STRIPES];
 
     public AgentTraceService(AgentRunRepository runRepository, AgentTaskRepository taskRepository,
                              ToolCallTraceRepository traceRepository, AgentRunStageRepository stageRepository,
-                             AgentRunEventRepository eventRepository, ObjectMapper objectMapper,
-                             PlatformTransactionManager transactionManager) {
+                             AgentRunEventRepository eventRepository, AgentRunSpendRepository spendRepository,
+                             ObjectMapper objectMapper, PlatformTransactionManager transactionManager) {
         this.runRepository = runRepository;
         this.taskRepository = taskRepository;
         this.traceRepository = traceRepository;
         this.stageRepository = stageRepository;
         this.eventRepository = eventRepository;
+        this.spendRepository = spendRepository;
         this.objectMapper = objectMapper;
         this.newTx = new TransactionTemplate(transactionManager);
         this.newTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
@@ -471,12 +474,13 @@ public class AgentTraceService {
             // 子表先删：事件/阶段历史只有 run_id，没有外键级联，必须与 run 同一保留期主动清理
             long events = eventRepository.deleteByCreatedAtBefore(threshold);
             long stages = stageRepository.deleteByEnteredAtBefore(threshold);
+            long spends = spendRepository.deleteByCreatedAtBefore(threshold);
             long runs = runRepository.deleteByStartedAtBefore(threshold);
             long tasks = taskRepository.deleteByStartedAtBefore(threshold);
             long traces = traceRepository.deleteByStartedAtBefore(threshold);
-            if (runs + tasks + traces + events + stages > 0) {
-                log.debug("清理过期 Agent 追踪: runs={} tasks={} traces={} events={} stages={}",
-                        runs, tasks, traces, events, stages);
+            if (runs + tasks + traces + events + stages + spends > 0) {
+                log.debug("清理过期 Agent 追踪: runs={} tasks={} traces={} events={} stages={} spends={}",
+                        runs, tasks, traces, events, stages, spends);
             }
             return null;
         });

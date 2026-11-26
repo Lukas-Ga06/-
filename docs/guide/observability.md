@@ -58,6 +58,11 @@ curl -s -H "Authorization: Bearer $TOKEN" 'http://127.0.0.1:8080/actuator/metric
   也是本项目指标纪律明令禁止的。
 - **`exhausted` 不是失败**：它表示「本轮按上限少做了事，并在回复里如实说明」。`exhausted{limit=...}` 的速率
   才是判断「上限是否设得太紧」的依据：如果 `limit="tokens"` 持续出现，先看是否正常长行程，再决定放宽。
+- **每轮花费有台账（V29）**：指标只回答「触没触顶、卡在哪一项」，要回答「这一次 run 花了多少」查
+  `agent_run_spend`（`GET /api/agent/runs/{runId}` 的 `spend` 字段同源）：
+  `SELECT llm_calls, tool_calls, retries, prompt_tokens, completion_tokens, cost_usd, exhausted
+   FROM agent_run_spend WHERE run_id = '…';`。成本列只在配置真实单价时非 0，口径与
+  `travel.llm.cost.usd` 一致；表随 Agent 追踪保留期（14 天）清理。
 
 ### 2.2 既有指标（不要重复造轮子）
 
@@ -96,6 +101,7 @@ P0 的可靠性信号目前主要落在**数据库与日志**，不是 Micromete
 | 阶段历史 | `agent_run_stage`（`run_id, seq_no`） | 这个 run 依次经过了哪些阶段；与 `agent_run_event` 的 `seq_no` 是两套独立序列，别混用 |
 | Outbox 积压 / 失败 | `plan_outbox` | `status=PENDING` 且 `next_attempt_at<=NOW()` 为待投递；`DISPATCHING` 超过 `claimed_at+10min` 为疑似崩溃；`DEAD` 需人工介入（`last_error` 是证据） |
 | 事件持久化 | `agent_run_event` | 每 run 的 `seq_no` 应连续；缺号说明落库失败（只记 DEBUG）或运行未创建成功 |
+| 每轮花费 | `agent_run_spend`（`run_id` 唯一） | run 收尾写一条快照：`llm_calls` / `tool_calls` / `retries` / `prompt_tokens` / `completion_tokens` / `cost_usd` / `exhausted`；`exhausted` 非空说明本轮某道上限触顶 |
 | 租约清扫 / 恢复日志 | 应用日志 | `确认租约清扫：N 条…`、`Outbox 租约恢复：N 条重新排队…`、`Outbox 重试耗尽，置 DEAD…`、`回收心跳超时的 Agent 运行: count=…`；日志只带数量/ID，不带方案内容 |
 | 续传结果 | 应用日志 + 客户端 | `resume_timeout` 只发事件、不写库；服务端异常只记 DEBUG 并结束本连接，不影响原始运行 |
 

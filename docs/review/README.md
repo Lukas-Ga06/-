@@ -58,5 +58,6 @@
 | [2026-11-25-alert-routing-drill.md](2026-11-25-alert-routing-drill.md) | 2026-11-25 | 告警路由与送达：severity 路由 / 抑制 / 兜底、本地 Sink 全链路、恢复通知、`alerts.yml` 抽出校验 | 13 项判定全 PASS（退出码 0）：critical 9.8s 送达、抑制生效、info 不发 resolved、resolved 受 `group_interval` 约束延后 5 分钟；顺带发现 `alerts.yml` 是 PrometheusRule CRD 不能直接加载（抽出后 18 条通过，实为 8 组）；真实渠道与值班人仍未验 |
 | [2026-11-25-p0-reliability.md](2026-11-25-p0-reliability.md) | 2026-11-25 | P0 可靠执行链路：确认租约/栅栏、事务性 Outbox、运行状态落库与恢复、SSE 事件持久化/断线续传、前端自动续传、发布验收门禁 | `ReleaseAcceptanceTest` 5/5、定向回归与后端完整 `mvn -B verify` 通过；前端全部门禁与隔离 E2E 14/14 通过；**真实 MySQL 迁移仍以 CI `mysql-migration` 为准** |
 | [2026-11-25-mcp-governance.md](2026-11-25-mcp-governance.md) | 2026-11-25 | MCP 逐 server 治理：白名单（注册期过滤）、连续失败熔断（半开探测）、每分钟配额、`[MCP-Audit]` 审计与状态接口计数 | 四项能力默认全关、行为不变；定向 21/21 通过（默认不熔断、403/503 拒绝语义、窗口滚动、半开成功/失败、桥接白名单过滤、status 实时计数）；真实高德 10021 压测与计数持久化仍未做 |
+| [2026-11-25-spend-persistence.md](2026-11-25-spend-persistence.md) | 2026-11-25 | 每轮花费落库：`agent_run_spend`（V29）、run 收尾写快照、`GET /api/agent/runs/{runId}` 的 `spend` 字段、随 14 天追踪保留期清理 | 定向 10/10 通过（字段完整落库、同 run 幂等覆盖、空输入跳过、保留期只删旧行、真实 chat 触顶后台账可查）；OpenAPI 新增 `SpendView`；真实 MySQL 迁移以 CI 为准，前端尚未渲染 spend |
 
 新增快照后请同步本表，并运行 `node scripts/docs-check.mjs` 校验链接。完整文档规则见 [文档生命周期](../guide/documentation.md)。

@@ -39,7 +39,7 @@
 | [getting-started.md](getting-started.md) | 环境要求、`run-dev.ps1` 启动、首次启动自动完成的事、前端启动与 `/api` 反代、演示闭环 walkthrough、常见问题排查表、提交前自检清单 | 所有人（第一天读） |
 | [architecture.md](architecture.md) | 分层架构、Agent 状态机与运行状态落库、可靠执行链路（确认租约/栅栏/Outbox）、Intent/Planner/Executor/Reflect 四 Agent、AgentPlan 与 PlanOperation、三级风险 Human-in-the-loop、工具层只读闸门与 9 个内置工具、RAG 与 Embedding 降级、规划期知识引用、行中锁定与旅行事件、旅行回顾聚合、SSE 事件协议/持久化与断线续传、会话记忆、待确认方案落库、MCP 生态、LLM 配额 | 后端 / Agent 能力开发 |
 | [api-reference.md](api-reference.md) | 通用约定（认证、短期票据、统一响应、错误码）、按业务模块逐接口的真实契约（含 `DELETE /api/auth/me` 注销账号与 `GET /api/auth/me/export` 数据导出）、SSE 帧 id / `Last-Event-ID` / 续传端点、70 个接口总表 | 前端 / 第三方集成 |
-| [data-model.md](data-model.md) | ER 总览、全部实体与表结构（字段 / 类型 / 索引 / 约束）、Flyway V1–V28 迁移策略、确认租约/Outbox/事件持久化的表设计、保留期与清理、数据一致性不变量、引导数据、常用 SQL 手册 | 后端 / 数据 |
+| [data-model.md](data-model.md) | ER 总览、全部实体与表结构（字段 / 类型 / 索引 / 约束）、Flyway V1–V29 迁移策略、确认租约/Outbox/事件持久化的表设计、保留期与清理、数据一致性不变量、引导数据、常用 SQL 手册 | 后端 / 数据 |
 | [frontend.md](frontend.md) | 技术栈、目录结构、路由表（含 `/review`、`/trip/:id/review`）、页面清单、zustand 状态管理、API 层与 SSE 消费链路、核心组件、高德地图 Provider 抽象、构建与测试 | 前端 |
 | [deployment.md](deployment.md) | 部署拓扑、Docker 全栈部署步骤、**生产必改项清单**、环境变量权威表、H2/MySQL 切换、卷与备份恢复、反代与 HTTPS、监控与排障、CI 与发布 | 运维 |
 | [mcp-amap.md](mcp-amap.md) | 高德 MCP：包身份与两个 Key 的区别、开启步骤、12 个工具与 `mcp_amap_*` 注册名、语义适配层、排障与降级、已验证/未验证边界 | 后端 / 运维 |

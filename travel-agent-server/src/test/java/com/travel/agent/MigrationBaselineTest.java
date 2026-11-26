@@ -123,6 +123,8 @@ class MigrationBaselineTest {
         core.add(26);
         core.add(27);
         core.add(28);
+        // V29：第二阶段每轮花费落库（agent_run_spend），双方言中性 SQL
+        core.add(29);
         Set<Integer> mysqlExpected = new LinkedHashSet<>(core);
         mysqlExpected.addAll(List.of(8, 12, 13));
         Set<Integer> h2Expected = new LinkedHashSet<>(core);

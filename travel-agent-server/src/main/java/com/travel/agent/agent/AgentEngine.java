@@ -130,6 +130,8 @@ public class AgentEngine {
     private final AgentCommandIdempotency idempotency;
     /** V2.2 追踪：run / 任务 / 工具调用落库（内部吞异常，绝不反噬主流程） */
     private final com.travel.agent.service.AgentTraceService traceService;
+    /** 第二阶段：每轮花费快照落库（V29；写入失败只 WARN，不影响本轮结果） */
+    private final com.travel.agent.service.AgentRunSpendService spendService;
     /** P0：SSE 事件持久化（断线续传补发；写入失败静默，不影响实时流） */
     private final com.travel.agent.service.AgentRunEventService runEventService;
     /**
@@ -469,6 +471,9 @@ public class AgentEngine {
                 ctx.getRunId(), ctx.getUserId(), spend.summary(),
                 snapshot.exhausted() == null ? "none" : snapshot.exhausted().tag());
         travelMetrics.spendOutcome(snapshot);
+        // 第二阶段：日志会滚动、指标不能带 runId（基数炸弹），所以把快照落进执行台账；
+        // 写入失败由服务内部吞掉（花费是补充信息，绝不能反噬本轮结果）。
+        spendService.record(ctx.getRunId(), ctx.getUserId(), snapshot);
     }
 
     /**

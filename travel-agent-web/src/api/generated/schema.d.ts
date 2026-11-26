@@ -1699,6 +1699,7 @@ export interface components {
         };
         RunDetail: {
             run?: components["schemas"]["RunSummary"];
+            spend?: components["schemas"]["SpendView"];
             tasks?: components["schemas"]["TaskView"][];
             toolCalls?: components["schemas"]["ToolCallView"][];
         };
@@ -1751,6 +1752,22 @@ export interface components {
             id?: number;
             title?: string;
             type?: string;
+        };
+        SpendView: {
+            /** Format: int64 */
+            completionTokens?: number;
+            costUsd?: number;
+            exhausted?: string;
+            /** Format: int32 */
+            llmCalls?: number;
+            /** Format: int64 */
+            promptTokens?: number;
+            /** Format: int32 */
+            retries?: number;
+            /** Format: int32 */
+            toolCalls?: number;
+            /** Format: int64 */
+            totalTokens?: number;
         };
         SseEmitter: {
             /** Format: int64 */

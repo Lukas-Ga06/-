@@ -51,7 +51,7 @@ mvn spring-boot:run
 ```
 
 Windows 推荐 `.\run-dev.ps1`：读取 `travel-agent-server/.env.local`（已 gitignore）并自动固定 `JWT_SECRET`。
-首次启动自动完成 Flyway 迁移（V1 → V28）、创建演示账号 **demo / demo123**、加载城市目录与旅游知识库。
+首次启动自动完成 Flyway 迁移（V1 → V29）、创建演示账号 **demo / demo123**、加载城市目录与旅游知识库。
 
 ### 2. 前端（:5173）
 
