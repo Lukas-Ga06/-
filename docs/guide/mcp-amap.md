@@ -124,7 +124,9 @@ MCP 服务器 [amap] (mcp-server/amap-maps) 已接入，注册 12 个工具
 ### 2.4 逐 server 治理（白名单 / 熔断 / 配额 / 审计）
 
 花费预算只回答「本轮调了多少次工具」，回答不了「哪个 server 在拖后腿」。每个 server 可单独配置
-四件治理能力，**全部默认关闭**（不写这些字段时行为与治理前完全一致）：
+四件治理能力，**全部默认关闭**（不写这些字段时行为与治理前完全一致）。四项在 `application.yml`
+里都带**扁平环境变量占位**：运维只改环境变量再重启进程即可生效，**不用重建镜像**（容器怎么注入见
+[生产配置 §3.1](../operations/production-config.md)）。
 
 ```yaml
 travel:
@@ -132,18 +134,18 @@ travel:
     servers:
       - name: amap
         # …command/env/read-only/timeout-ms 同上…
-        allow-tools: [maps_geo, maps_text_search, maps_weather]  # 白名单；不写 = 全部
-        max-calls-per-minute: 30     # 跨 run 的 server 级配额；0/不写 = 不限
-        failure-threshold: 3         # 连续失败达到 N 次打开熔断；0/不写 = 关闭
-        cooldown-ms: 60000           # 熔断冷却；结束后放行一次半开探测
+        allow-tools: ${MCP_AMAP_ALLOW_TOOLS:}                        # 逗号分隔的远端原始工具名；留空 = 全部
+        max-calls-per-minute: ${MCP_AMAP_MAX_CALLS_PER_MINUTE:0}      # 跨 run 的 server 级配额；0 = 不限
+        failure-threshold: ${MCP_AMAP_FAILURE_THRESHOLD:0}           # 连续失败达到 N 次打开熔断；0 = 关闭
+        cooldown-ms: ${MCP_AMAP_COOLDOWN_MS:60000}                   # 熔断冷却；结束后放行一次半开探测
 ```
 
-| 字段 | 语义 | 默认 |
-| --- | --- | --- |
-| `allow-tools` | 远端**原始**工具名（不含 `mcp_amap_` 前缀）。白名单外的工具不注册（模型看不到），调用期还有一次防御性校验（403） | 空 = 不限制 |
-| `max-calls-per-minute` | 固定 60s 窗口的 server 级调用上限，跨 run 共享；配额用尽返回 503，不再发起外部请求 | `0` = 不限 |
-| `failure-threshold` | 连续失败达到阈值即打开熔断；冷却期内快速失败（503，不再白等一次超时） | `0` = 关闭 |
-| `cooldown-ms` | 熔断打开时长；到点放行**一次**半开探测——成功闭合、失败立即重新打开 | `60000` |
+| 字段 | 环境变量 | 语义 | 默认 |
+| --- | --- | --- | --- |
+| `allow-tools` | `MCP_AMAP_ALLOW_TOOLS`（逗号分隔） | 远端**原始**工具名（不含 `mcp_amap_` 前缀）。白名单外的工具不注册（模型看不到），调用期还有一次防御性校验（403） | 空 = 不限制 |
+| `max-calls-per-minute` | `MCP_AMAP_MAX_CALLS_PER_MINUTE` | 固定 60s 窗口的 server 级调用上限，跨 run 共享；配额用尽返回 503，不再发起外部请求 | `0` = 不限 |
+| `failure-threshold` | `MCP_AMAP_FAILURE_THRESHOLD` | 连续失败达到阈值即打开熔断；冷却期内快速失败（503，不再白等一次超时） | `0` = 关闭 |
+| `cooldown-ms` | `MCP_AMAP_COOLDOWN_MS` | 熔断打开时长；到点放行**一次**半开探测——成功闭合、失败立即重新打开 | `60000` |
 
 行为口径：
 
@@ -161,6 +163,117 @@ travel:
 [可观测性 §2.1](observability.md) 与 Runbook §22）。
 `circuit=open` 且 `failures` 不降，说明该 server 的上游已经不可用，
 先按 §4.2 排查，不要靠调大 `failure-threshold` 把问题藏起来。
+
+#### 2.4.1 怎么改：环境变量写法与两个绑定坑
+
+只改环境变量、再重启进程（`mvn spring-boot:run` / `java -jar`；容器见
+[生产配置 §3.1](../operations/production-config.md)）。四项在**启动期**一次性绑定，没有热更新，也没有
+「改一半」——写错就启动失败，不会静默当成 0。
+
+```bash
+export MCP_AMAP_ALLOW_TOOLS=maps_direction_driving,maps_text_search,maps_weather
+export MCP_AMAP_MAX_CALLS_PER_MINUTE=30
+export MCP_AMAP_FAILURE_THRESHOLD=5
+export MCP_AMAP_COOLDOWN_MS=60000
+```
+
+写法约束：
+
+- `MCP_AMAP_ALLOW_TOOLS` 是**逗号分隔的裸工具名**。不要写 JSON 数组：`["maps_geo"]` 会被当成一个
+  名叫 `["maps_geo"]` 的工具，白名单实际等于「只允许这个不存在的工具」，所有真实工具都被 403；
+- 不设变量 = 默认值（空白名单 / 0 / 0 / 60000）。**恢复默认就把变量删掉**，数值项不要设成空值；
+- 新增第二个 server 时整段复制，变量前缀换成该 server 的别名（`MCP_<别名>_...`），不要多个 server 共用一组变量。
+
+**坑一：`TRAVEL_MCP_SERVERS_0_*` 这类 index 绑定会把整条 server 元素挤掉。** Spring 确实能把
+`TRAVEL_MCP_SERVERS_0_MAX_CALLS_PER_MINUTE=17` 绑到该字段，但同一元素里的 `name`/`command`/`env`
+会回落到 Java 默认值（`null`/空）——启动日志出现 `MCP 服务器 [null] 接入失败，已跳过`，`mcpToolCount=0`。
+**不要用 index 形式调参**（实测读数见 §2.4.5）。
+
+**坑二：`SPRING_APPLICATION_JSON` 覆盖 `servers[0]` 是整条替换，不是按字段合并。** 只写治理四项同样会把
+`name`/`command`/`env`/`timeout-ms` 一起清掉。它仍是 compose 未透传字段的兜底，但必须把整条元素抄全：
+
+```json
+{"travel":{"mcp":{"servers":[{"name":"amap","command":["npx","-y","@amap/amap-maps-mcp-server"],
+  "env":{"AMAP_MAPS_API_KEY":"${AMAP_MAPS_API_KEY:}"},"read-only":true,"timeout-ms":30000,
+  "allow-tools":["maps_geo","maps_weather"],"max-calls-per-minute":12,
+  "failure-threshold":4,"cooldown-ms":90000}]}}}
+```
+
+> 放进 `docker-compose.yml` 时注意：compose 会先做一遍变量插值，占位符里的 `$` 要写成 `$$`
+> （`"$${AMAP_MAPS_API_KEY:}"`）；systemd / bare metal 直接写 `${AMAP_MAPS_API_KEY:}`。
+
+#### 2.4.2 建议值（amap）
+
+高德官方配额（2026-11-27 抓取 [开放平台基础服务计费说明](https://lbs.amap.com/pages/base_service_price)，
+按「月配额 + QPS」管控，个人认证与企业认证差一个数量级）：
+
+| 与 MCP 工具相关的服务 | 个人认证开发者 | 企业认证（乘风计划） |
+| --- | --- | --- |
+| 驾车 / 步行 / 骑行 / 公交路径规划、距离测量、地理编码 / 逆地理编码、坐标转换 | 15 万次/月，**QPS 3** | 300 万次/月，QPS 30 |
+| 关键字 / 周边 / 多边形搜索、ID 查询、输入提示 | 5,000 次/月，QPS 3 | 5 万次/月，QPS 30 |
+| 天气预报 | 5,000 次/月，QPS 3 | 5,000 次/月，QPS 3 |
+
+建议配置（**建议值**，真实 Key 下的触发/恢复时序属未复验项，见 §2.4.4）：
+
+| 字段 | 个人认证 Key | 企业认证 Key | 依据 |
+| --- | --- | --- | --- |
+| `allow-tools` | `maps_direction_driving,maps_direction_walking,maps_direction_transit_integrated,maps_text_search,maps_geo,maps_weather` | 同左 | 只保留「生产真有调用方」或「已验证模型会用」的工具：`maps_direction_driving` 是 `RouteService` 唯一的生产 MCP 调用，`maps_weather` 于 2026-11-22 实测被模型选中；其余 6 个（bicycling / distance / around_search / search_detail / regeocode / ip_location）没有生产调用方，关掉以缩小误调用面。生效后启动日志会打印「不在 allow-tools 白名单内，跳过注册」、`mcpToolCount` 从 12 降到 6——这是预期读数，不是故障 |
+| `max-calls-per-minute` | `30` | `300` | 个人 Key QPS=3（180 次/分钟的硬顶），30 次/分钟 ≈ 0.5 QPS 均值，给同账号 REST 调用留余量；一次「7 段两日游」约 7~14 次算路调用，30 次/分钟约允许 2 个行程/分钟。企业 Key 按 QPS 30 取 5 QPS 均值 |
+| `failure-threshold` | `5` | `5` | 一次并发算路的连续 `10021` 就可能 3 次起（MCP 分支没有 REST 的退避重试，见 §5.2），阈值 3 会在一次规划内就熔断；5 给正常抖动留一次余量 |
+| `cooldown-ms` | `60000` | `60000` | 与 REST 侧 `estimated` 的 60s 短 TTL 同尺度，恢复后两条链路一起回暖 |
+
+三条必须知道的语义边界：
+
+1. **分钟配额是总量阀，不是限速器**：窗口固定 60s，7 段并发仍可能在一秒内打完并撞上 QPS 3 → `10021`
+   （本仓实测：8 并发 3 次、20 并发 9 次命中）。秒级突发靠熔断 + REST 分支的一次退避重试兜底，
+   **不要**指望调大或调小 `max-calls-per-minute` 解决 10021；
+2. **多实例各算各的**：计数是进程内存状态，N 个实例共用一把 Key 时上游看到的是 N 倍。每实例配额按实例数摊
+   （2 实例 `15`、4 实例 `7`），不是继续调大；
+3. **日/月配额不归它管**：额度用尽是 `DAILY_QUERY_OVER_LIMIT` 一类业务错误（不是 10021），以高德控制台
+   配额与 §4.2 的错误文本为准。
+
+#### 2.4.3 改了 Key 必须重启（轮换要点）
+
+MCP 子进程的 Key 是 `AMAP_MAPS_API_KEY`，与后端 REST 的 `AMAP_KEY` 是**两把钥匙**（§1.1），同属一个高德账号、
+共享配额。高德包在**模块加载期**读 Key（§1.2），所以换 Key 后必须让 npx 子进程重新起来：
+
+```bash
+# 改完 .env 的 AMAP_KEY / AMAP_MAPS_API_KEY 后，容器要重建而不是 restart
+docker compose up -d --force-recreate backend
+```
+
+`docker compose restart backend` 不会重新读环境变量；只 reload 配置也不会重建 MCP 子进程。
+完整步骤（含验证读数、旧 Key 何时删）见 [生产配置 §3.1](../operations/production-config.md)。
+
+#### 2.4.4 待真实 Key 复验（不得写成已验证）
+
+本轮只交付「配置绑定 + 治理语义」的离线证据（§2.4.5）。下面三项**需要真实 AMAP MCP Key 在运行期复验**，
+在此之前不要写进发布结论：
+
+| 项 | 复验方法 | 判据 |
+| --- | --- | --- |
+| 配额拒绝（503） | 把 `MCP_AMAP_MAX_CALLS_PER_MINUTE` 调到 2~3，连发 4 次 MCP 调用 | 第 N+1 次返回 503；状态页 `rejected` 增长、`callsThisMinute` 停在 N；`[MCP-Audit]` 有拒绝行 |
+| 熔断开合 | 断网或换无效 Key 打出连续失败，再恢复 | `circuit` 走 `closed` → `open`；冷却结束后放行**一次**探测（`half_open`），成功后 `closed`，探测失败立即重新 `open` |
+| 建议值是否匹配真实负载 | 生产/压测跑一轮真实规划 | 30 次/分钟够不够、`failure-threshold=5` 是否频繁熔断；不够先收窄 `allow-tools`，不要把配额调到超过 QPS×60 |
+
+#### 2.4.5 证据：`McpConfigBindingTest`（2026-11-27，5 例全绿）
+
+`travel-agent-server/src/test/java/com/travel/agent/mcp/McpConfigBindingTest.java`。不触网、不需要 Key：
+用真实的 `SystemEnvironmentPropertySource`（Spring 读 `getenv()` 的同一个类）+ 仓库里真实的
+`application.yml` 启动最小上下文，所以宽松绑定、占位符解析、逗号转列表、索引合并走的都是生产路径。
+五个用例（方法名即证据索引）：
+
+1. `flatEnvironmentOverridesFourGovernanceKnobs`：四个扁平变量同时生效，`command`/`env`（子进程 Key）/
+   `read-only`/`timeout-ms` 不被波及；绑定值**真的进入** `McpGovernor`——白名单外 403、第 31 次调用 503、
+   连续 5 次失败熔断、冷却 120s 后放行一次半开；
+2. `absentEnvironmentKeepsLegacyDefaults`：不写变量时与治理前一致——空白名单（`[]`，不是 `[""]`）、
+   不限次、不熔断、冷却 60000；
+3. `springApplicationJsonReplacesWholeServerEntry`：坑二的前半——JSON 只写治理项时 `name`/`command`/`env`
+   丢失、`timeout-ms` 回落到 Java 默认 20000；
+4. `indexedEnvironmentReplacesWholeServerEntry`：坑一——`TRAVEL_MCP_SERVERS_0_MAX_CALLS_PER_MINUTE=17`
+   能绑到值，但 `name`/`command`/`env` 同时变 `null`/空；
+5. `springApplicationJsonWithCompleteServerEntryWorks`：坑二的完整写法——整条抄全后四项全部生效，
+   `env` 里的 `${AMAP_MAPS_API_KEY:}` 仍按环境变量解析。
 
 ---
 

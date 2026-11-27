@@ -194,11 +194,14 @@ travel:
         read-only: true
         # npx 首次冷启动要下载包，默认 20s 偏紧
         timeout-ms: 30000
-        # 逐 server 治理（第二阶段）：默认全关 = 与治理前行为一致，按需开启。
-        # allow-tools: [maps_geo, maps_text_search, maps_weather]   # 白名单（远端原始工具名）；不写 = 全部工具
-        # max-calls-per-minute: 30                                  # 跨 run 配额；0/不写 = 不限（压高德 10021）
-        # failure-threshold: 3                                      # 连续失败打开熔断；0/不写 = 关闭
-        # cooldown-ms: 60000                                        # 熔断冷却；结束后放行一次半开探测
+        # 逐 server 治理（第二阶段）：默认全关 = 与治理前行为一致。
+        # 四个开关用扁平环境变量覆盖，改配置只需重启（不重建镜像）；取值语义、建议值与
+        # 「list 元素 env 绑定的坑」见 docs/guide/mcp-amap.md §2.4。
+        # 新增第二个 server 时整段复制，env 名前缀换成该 server 的别名（MCP_<别名>_...）。
+        allow-tools: ${MCP_AMAP_ALLOW_TOOLS:}                       # 逗号分隔的远端原始工具名；留空 = 全部工具
+        max-calls-per-minute: ${MCP_AMAP_MAX_CALLS_PER_MINUTE:0}   # 跨 run 配额；0 = 不限（压高德 10021）
+        failure-threshold: ${MCP_AMAP_FAILURE_THRESHOLD:0}          # 连续失败打开熔断；0 = 关闭
+        cooldown-ms: ${MCP_AMAP_COOLDOWN_MS:60000}                  # 熔断冷却；结束后放行一次半开探测
   # 知识库版本化（batch10 / C）：见 docs/proposals/batch10-contract.md §3.2
   rag:
     # 除 ACTIVE 版本外，额外保留最近 N 个历史版本的 chunk（更老的 INACTIVE 版本块由每日任务清理；
