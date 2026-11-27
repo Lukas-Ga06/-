@@ -44,7 +44,7 @@ public class IntentAgent {
             IntentResult.QUERY_KNOWLEDGE, IntentResult.RECORD_EXPENSE,
             IntentResult.ADD_MEMO, IntentResult.QUERY_MEMO,
             IntentResult.ADD_SCHEDULE, IntentResult.QUERY_SCHEDULE, IntentResult.QUERY_FREE_TIME,
-            IntentResult.INVOKE_TOOL, IntentResult.CHITCHAT);
+            IntentResult.CLEAR_SCHEDULE, IntentResult.INVOKE_TOOL, IntentResult.CHITCHAT);
 
     private final LlmClient llmClient;
     private final ObjectMapper objectMapper;
@@ -99,6 +99,8 @@ public class IntentAgent {
                     ADD_MEMO（添加个人备忘/待办，如「记一下明天办签证」）、QUERY_MEMO（查看备忘/待办列表）、
                     ADD_SCHEDULE（添加出行日程/提醒，如「明天下午3点去办签证」）、QUERY_SCHEDULE（查看日程安排）、
                     QUERY_FREE_TIME（查询空闲时段，如「明天下午有空吗」「下周哪些时间空闲」）、
+                    CLEAR_SCHEDULE（批量清空某段时间的全部日程，如「下周一清空所有日程」「删掉明天的所有提醒」；
+                    只处理日程本身，不涉及行程条目；没给日期范围的也要归到这里，由后续步骤追问）、
                     CHITCHAT（其他闲聊）。
                     %s
                     target 为操作目标：OUTDOOR_ACTIVITY / SELECTED_ITEM / NONE。
@@ -257,6 +259,20 @@ public class IntentAgent {
     }
 
     private IntentResult ruleDetect(AgentContext ctx, Trip trip, String message) {
+        // 0. 批量清空日程必须排在「修改类关键词」（删掉/取消/移除…）之前，
+        //    否则「删掉明天所有日程」会被 MODIFY_ITINERARY 抢走，落到行程修改而不是日程。
+        //    只认「清空类动词 + 日程/提醒」的组合：没有清空动词的「明天下午3点开评审会」仍是 ADD_SCHEDULE。
+        boolean clearScheduleVerb = MessageParser.mentions(message,
+                "清空", "全删", "删光", "清掉", "清除", "删除所有", "删掉所有", "都删掉",
+                "取消所有", "全部删除", "全部删掉")
+                || (MessageParser.mentions(message, "删除", "删掉", "取消", "移除")
+                        && MessageParser.mentions(message, "所有", "全部"));
+        if (clearScheduleVerb && MessageParser.mentions(message, "日程", "提醒")) {
+            return IntentResult.builder()
+                    .intent(IntentResult.CLEAR_SCHEDULE).target(IntentResult.TARGET_NONE)
+                    .constraints(new HashMap<>()).build();
+        }
+
         Map<String, Object> constraints = new HashMap<>();
         if (MessageParser.mentions(message, "雨")) {
             constraints.put("weather", "rain");

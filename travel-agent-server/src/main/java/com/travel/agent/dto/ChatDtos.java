@@ -1,7 +1,6 @@
 package com.travel.agent.dto;
 
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
@@ -163,7 +162,10 @@ public class ChatDtos {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class UndoRequest {
-        @NotNull(message = "不能为空")
+        /**
+         * 行程 ID；{@code null} = 撤销最近一次「批量清空日程」（日程不挂在行程上）。
+         * 曾经是 @NotNull：日程域的撤销没有行程可传，必须允许为空。
+         */
         private Long tripId;
     }
 

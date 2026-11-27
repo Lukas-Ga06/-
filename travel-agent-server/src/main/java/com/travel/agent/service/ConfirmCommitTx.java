@@ -50,7 +50,9 @@ public class ConfirmCommitTx {
     @Transactional
     public AgentDtos.AgentResult commit(AgentPlan plan, Long userId, String planId, String claimToken) {
         AgentDtos.AgentResult result = executorAgent.commit(plan, userId);
-        int enqueued = outboxService.enqueueAll(planId, userId, result.getTripId());
+        // 没有行程（批量清空日程）就没有可同步的对象：跳过入队，别写一条注定 WARN 的无意义记录
+        int enqueued = result.getTripId() == null ? 0
+                : outboxService.enqueueAll(planId, userId, result.getTripId());
         if (!pendingPlanStore.deleteClaimed(planId, claimToken)) {
             // 必须抛出（而不是返回 false）：只有异常才能让上面的 commit/outbox 一起回滚
             throw new LeaseLostException(planId);

@@ -35,6 +35,11 @@ public class ScheduleService {
                 .toList();
     }
 
+    /** 某用户某日期范围内（含首尾）的全部日程（含已完成）：批量清空与方案指纹共用 */
+    public List<ScheduleItem> findInRange(Long userId, LocalDate from, LocalDate to) {
+        return repository.findByUserIdAndDateBetweenOrderByDateAscTimeAscIdAsc(userId, from, to);
+    }
+
     @Transactional
     public ScheduleItem add(Long userId, String title, LocalDate date, java.time.LocalTime time, String note) {
         return add(userId, title, date, time, note, Recurrence.NONE, null);

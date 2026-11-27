@@ -1,12 +1,15 @@
 package com.travel.agent.service;
 
 import com.travel.agent.dto.ItineraryDtos;
+import com.travel.agent.dto.ScheduleSnapshot;
 import com.travel.agent.entity.ItineraryItem;
 import com.travel.agent.entity.OperationHistory;
+import com.travel.agent.entity.ScheduleItem;
 import com.travel.agent.entity.Trip;
 import com.travel.agent.exception.BusinessException;
 import com.travel.agent.repository.ItineraryItemRepository;
 import com.travel.agent.repository.OperationHistoryRepository;
+import com.travel.agent.repository.ScheduleItemRepository;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -29,6 +32,7 @@ public class OperationHistoryService {
 
     private final OperationHistoryRepository repository;
     private final ItineraryItemRepository itemRepository;
+    private final ScheduleItemRepository scheduleItemRepository;
     private final ItineraryService itineraryService;
     private final TripService tripService;
     private final ObjectMapper objectMapper;
@@ -77,6 +81,7 @@ public class OperationHistoryService {
             repository.save(OperationHistory.builder()
                     .tripId(trip.getId())
                     .userId(userId)
+                    .domain(OperationHistory.DOMAIN_ITINERARY)
                     .operationType(operationType)
                     .beforeState(objectMapper.writeValueAsString(before))
                     .afterState(objectMapper.writeValueAsString(after))
@@ -85,6 +90,57 @@ public class OperationHistoryService {
         } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
             // 不能吞掉：历史写不进去就必须回滚行程变更，否则用户会失去撤销能力
             throw new IllegalStateException("操作历史序列化失败，已回滚本次行程修改", e);
+        }
+    }
+
+    /**
+     * 批量清空日程的 before 快照 → 一条 SCHEDULE 域历史（tripId 为空）。
+     * 与删除动作同事务：序列化失败必须抛出，让本次删除整体回滚。
+     */
+    @Transactional
+    public void recordScheduleClear(Long userId, List<ScheduleItem> before, String reason) {
+        try {
+            List<ScheduleSnapshot> snapshot = before == null ? List.of()
+                    : before.stream().map(ScheduleSnapshot::of).toList();
+            repository.save(OperationHistory.builder()
+                    .userId(userId)
+                    .domain(OperationHistory.DOMAIN_SCHEDULE)
+                    .operationType(OperationHistory.OP_SCHEDULE_CLEAR)
+                    .beforeState(objectMapper.writeValueAsString(snapshot))
+                    .afterState("[]")
+                    .agentReason(reason)
+                    .build());
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            // 不能吞掉：历史写不进去就必须回滚这次删除，否则用户既丢数据又无法撤销
+            throw new IllegalStateException("日程清空历史序列化失败，已回滚本次删除", e);
+        }
+    }
+
+    /**
+     * 撤销最近一次日程清空：按快照重新插入（id 置空），历史置 UNDONE。
+     *
+     * <p>只认 SCHEDULE 域：行程系的撤销仍走 {@link #undoLatest(Trip, Long)}，
+     * 两条撤销链按 domain 隔离，互不覆盖。没有可撤销记录时 404。
+     */
+    @Transactional
+    public String undoLatestSchedule(Long userId) {
+        OperationHistory history = repository
+                .findFirstByUserIdAndDomainAndStatusOrderByIdDesc(userId,
+                        OperationHistory.DOMAIN_SCHEDULE, OperationHistory.STATUS_ACTIVE)
+                .orElseThrow(() -> new BusinessException(404, "没有可撤销的日程清空"));
+        try {
+            List<ScheduleSnapshot> before = objectMapper.readValue(
+                    history.getBeforeState(), new TypeReference<List<ScheduleSnapshot>>() {});
+            List<ScheduleItem> restored = new java.util.ArrayList<>();
+            for (ScheduleSnapshot snapshot : before) {
+                restored.add(scheduleItemRepository.save(snapshot.toEntity(userId)));
+            }
+            history.setStatus(OperationHistory.STATUS_UNDONE);
+            repository.save(history);
+            return "已撤销上一步日程清空（还原 " + restored.size() + " 项日程）";
+        } catch (Exception e) {
+            log.error("撤销日程清空失败", e);
+            throw new BusinessException("撤销失败: " + e.getMessage());
         }
     }
 

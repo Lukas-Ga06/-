@@ -124,6 +124,8 @@ public class AgentEngine {
     private final AgentStageTimer stageTimer;
     private final AssistantIntentHandler assistantHandler;
     private final TravelQueryHandler travelQueryHandler;
+    /** 批量清空日程（CLEAR_SCHEDULE）：只生成待确认方案，确认后才在 ExecutorAgent 里落库 */
+    private final ScheduleCommandHandler scheduleCommandHandler;
     private final PlanConfirmationService planConfirmation;
 
     /** P0-01 写入幂等闸门：记账 / 备忘 / 日程按 (userId, requestId) 最多执行一次 */
@@ -297,6 +299,7 @@ public class AgentEngine {
                 case IntentResult.ADD_SCHEDULE -> assistantHandler.addSchedule(ctx, intent);
                 case IntentResult.QUERY_SCHEDULE -> assistantHandler.querySchedule(ctx, intent);
                 case IntentResult.QUERY_FREE_TIME -> assistantHandler.queryFreeTime(ctx, intent);
+                case IntentResult.CLEAR_SCHEDULE -> scheduleCommandHandler.clearSchedule(ctx, intent);
                 case IntentResult.INVOKE_TOOL -> answerInvokeTool(ctx, intent, intentReceipt.handle());
                 case IntentResult.PLAN_TRIP, IntentResult.MODIFY_ITINERARY ->
                         planAndPresent(ctx, intent, trip, intentReceipt.handle());
@@ -1037,6 +1040,9 @@ public class AgentEngine {
     }
 
     public AgentDtos.AgentResult undo(Long tripId, Long userId) {
-        return planConfirmation.undo(tripId, userId);
+        // 两条互不覆盖的撤销链：带行程走行程历史；不带 tripId 走「最近一次日程清空」
+        return tripId == null
+                ? planConfirmation.undoSchedule(userId)
+                : planConfirmation.undo(tripId, userId);
     }
 }

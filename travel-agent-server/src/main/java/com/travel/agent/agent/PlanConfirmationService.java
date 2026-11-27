@@ -5,7 +5,6 @@ import com.travel.agent.entity.Trip;
 import com.travel.agent.exception.BusinessException;
 import com.travel.agent.observability.TravelMetrics;
 import com.travel.agent.service.ConfirmCommitTx;
-import com.travel.agent.service.ItineraryService;
 import com.travel.agent.service.OperationHistoryService;
 import com.travel.agent.service.TripService;
 import io.micrometer.core.instrument.Timer;
@@ -39,7 +38,8 @@ public class PlanConfirmationService {
     /** P0：提交（落库 + Outbox + 租约栅栏）的单事务入口 */
     private final ConfirmCommitTx confirmCommitTx;
     private final TripService tripService;
-    private final ItineraryService itineraryService;
+    /** 版本指纹：行程状态 + 日程范围（批量清空日程的方案没有行程，靠 extras 的范围键） */
+    private final PlanRevisionService planRevisionService;
     private final OperationHistoryService operationHistoryService;
     private final AgentStageTimer stageTimer;
     /** V2.2 追踪：确认提交也挂回产生方案的 run（plan.runId） */
@@ -117,11 +117,14 @@ public class PlanConfirmationService {
                         .build();
             }
             // claim 与 commit 之间不要插入其它写操作：越短窗口越安全
-            // 版本校验：方案生成后行程若被改过（另一个标签页/设备），这份 Diff 已不可信
-            if (pending.tripId() != null) {
-                Trip current = tripService.getOwned(pending.tripId(), userId);
-                String currentRevision = ItineraryService.planRevision(current,
-                        itineraryService.listEntities(current.getId()));
+            // 版本校验：方案生成后行程/日程若被改过（另一个标签页/设备），这份 Diff 已不可信。
+            // 批量清空日程的方案没有行程，靠 extras 里的范围键把「范围内全部日程」折进指纹。
+            boolean needsRevisionCheck = pending.tripId() != null
+                    || (pending.plan() != null && PlanRevisionService.hasScheduleScope(pending.plan()));
+            if (needsRevisionCheck) {
+                Trip current = pending.tripId() == null ? null
+                        : tripService.getOwned(pending.tripId(), userId);
+                String currentRevision = planRevisionService.revision(pending.plan(), current, userId);
                 if (pending.planRevision() != null && !pending.planRevision().equals(currentRevision)) {
                     // 方案已失效：连行一起删除（既有语义），不需要 release
                     pendingPlans.remove(planId);
@@ -130,7 +133,9 @@ public class PlanConfirmationService {
                             .planId(planId)
                             .tripId(pending.tripId())
                             .status(AgentDtos.STATUS_FAILED)
-                            .message("行程在你确认前已经发生变化（安排、预算或日期被修改），这份方案已失效，请重新发起调整。")
+                            .message(pending.tripId() == null
+                                    ? "日程在你确认前已经发生变化（新增、删除或改时间），这份方案已失效，请重新发起。"
+                                    : "行程在你确认前已经发生变化（安排、预算或日期被修改），这份方案已失效，请重新发起调整。")
                             .build();
                 }
             }
@@ -163,8 +168,11 @@ public class PlanConfirmationService {
                 stageTimer.stop(AgentStageTimer.STAGE_COMMIT, commitSample);
             }
             // FR-09：确认后跨模块同步由同事务写入的 Outbox 驱动；这里同步投递一次，
-            // 投递失败/进程崩溃时由 PlanOutboxDispatcher 补投（行程不会被回滚）
-            attachExecution(result, pending, userId);
+            // 投递失败/进程崩溃时由 PlanOutboxDispatcher 补投（行程不会被回滚）。
+            // 批量清空日程没有行程：三模块同步无从谈起，别把「同步失败」误报给用户。
+            if (result.getTripId() != null) {
+                attachExecution(result, pending, userId);
+            }
             // 成功：方案行已由提交栅栏在同一事务里删除，无需再次 remove
             travelMetrics.confirmOutcome(TravelMetrics.RESULT_SUCCESS);
             return result;
@@ -294,14 +302,33 @@ public class PlanConfirmationService {
         return pending.preview();
     }
 
-    /** 撤销上一次已提交的操作（基于操作历史 before/after 快照） */
+    /**
+     * 撤销上一次已提交的操作（基于操作历史 before/after 快照）。
+     *
+     * <p>{@code tripId == null} = 撤销最近一次「批量清空日程」：日程历史没有行程，
+     * 按 userId + SCHEDULE 域取最近一条 ACTIVE 记录还原。行程与日程是两条互不覆盖的撤销链。
+     */
     public AgentDtos.AgentResult undo(Long tripId, Long userId) {
+        if (tripId == null) {
+            return undoSchedule(userId);
+        }
         Trip trip = tripService.getOwned(tripId, userId);
         String message = operationHistoryService.undoLatest(trip, userId);
         return AgentDtos.AgentResult.builder()
                 .tripId(tripId)
                 .status(AgentDtos.STATUS_COMPLETED)
                 .message(message)
+                .build();
+    }
+
+    /**
+     * 撤销最近一次「批量清空日程」：日程不挂在行程上，按当前用户 + {@code SCHEDULE} 域取历史。
+     * 与 {@link #undo(Long, Long)} 分开，调用方按 {@code tripId} 是否为空选择入口。
+     */
+    public AgentDtos.AgentResult undoSchedule(Long userId) {
+        return AgentDtos.AgentResult.builder()
+                .status(AgentDtos.STATUS_COMPLETED)
+                .message(operationHistoryService.undoLatestSchedule(userId))
                 .build();
     }
 }

@@ -129,6 +129,9 @@ class MigrationBaselineTest {
         // V30：记账与行程解绑（expense.trip_id 可空 + expense.schedule_item_id + 索引），
         // MODIFY COLUMN / ADD COLUMN / CREATE INDEX 在 H2(MODE=MySQL) 与 MySQL 8.0 都成立
         core.add(30);
+        // V31：操作历史支持日程域（operation_history.trip_id 可空 + domain 列 + 索引），
+        // 同样是 MODIFY COLUMN / ADD COLUMN / CREATE INDEX，双方言中性 SQL
+        core.add(31);
         Set<Integer> mysqlExpected = new LinkedHashSet<>(core);
         mysqlExpected.addAll(List.of(8, 12, 13));
         Set<Integer> h2Expected = new LinkedHashSet<>(core);

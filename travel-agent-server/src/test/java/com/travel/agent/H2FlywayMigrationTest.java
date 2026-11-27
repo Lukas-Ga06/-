@@ -14,8 +14,8 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 默认 profile（H2）的迁移链真实执行：V1..V30 在全新库上跑完，
- * 且 V22 / V23 的唯一约束、V30 的记账解绑结构真的建出来。
+ * 默认 profile（H2）的迁移链真实执行：V1..V31 在全新库上跑完，
+ * 且 V22 / V23 的唯一约束、V30 的记账解绑结构、V31 的日程域历史结构真的建出来。
  *
  * <p>为什么需要：其它测试用 {@code ddl-auto=create-drop} 且关闭 Flyway，覆盖不到迁移脚本；
  * 而默认 profile 是「不装数据库也能跑」的主路径，迁移脚本里的一句方言错误
@@ -28,9 +28,10 @@ class H2FlywayMigrationTest {
     private static final String V23_TURN_INDEX = "uk_conv_turn_role";
     private static final String V23_META_INDEX = "uk_conv_meta_user_conv";
     private static final String V30_INDEX = "idx_expense_schedule";
+    private static final String V31_INDEX = "idx_history_user_domain";
 
     @Test
-    @DisplayName("全新 H2 库跑完默认 profile 的全部迁移，并创建 V22 / V23 唯一约束与 V30 记账解绑结构")
+    @DisplayName("全新 H2 库跑完默认 profile 的全部迁移，并创建 V22 / V23 唯一约束与 V30 / V31 结构")
     void migrationsApplyOnFreshH2Database() throws Exception {
         // 与 application.yml 的默认 datasource 保持同一模式（MODE=MySQL），内存库避免落盘
         String url = "jdbc:h2:mem:flyway-" + UUID.randomUUID() + ";MODE=MySQL;DB_CLOSE_DELAY=-1";
@@ -66,6 +67,17 @@ class H2FlywayMigrationTest {
             assertThat(indexNames(connection, "EXPENSE"))
                     .as("V30 必须创建 %s，否则按报销条目反查账单退化为全表扫描", V30_INDEX)
                     .contains(V30_INDEX);
+
+            // V31：日程域历史（批量清空日程可撤销）——trip_id 必须可空，domain 列与撤销索引必须在
+            assertThat(nullableOf(connection, "OPERATION_HISTORY", "TRIP_ID"))
+                    .as("V31 必须把 operation_history.trip_id 放开为可空，否则日程清空历史写不进去")
+                    .isEqualTo(DatabaseMetaData.columnNullable);
+            assertThat(nullableOf(connection, "OPERATION_HISTORY", "DOMAIN"))
+                    .as("V31 必须新增可空的 operation_history.domain（存量行由 DEFAULT 'ITINERARY' 回填）")
+                    .isEqualTo(DatabaseMetaData.columnNullable);
+            assertThat(indexNames(connection, "OPERATION_HISTORY"))
+                    .as("V31 必须创建 %s，否则按用户取最近一条日程历史退化为全表扫描", V31_INDEX)
+                    .contains(V31_INDEX);
         }
     }
 

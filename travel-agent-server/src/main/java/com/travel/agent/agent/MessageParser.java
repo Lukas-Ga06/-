@@ -716,46 +716,74 @@ public final class MessageParser {
     public record DateRange(LocalDate from, LocalDate to) {
     }
 
+    /** 日期范围的人话表述：同一天写单日，跨天写「A 至 B」 */
+    public static String formatRange(DateRange range) {
+        if (range == null || range.from() == null || range.to() == null) {
+            return "";
+        }
+        return range.from().equals(range.to())
+                ? range.from().toString()
+                : range.from() + " 至 " + range.to();
+    }
+
     /** 「下周」后面直接跟星期几（下周X）时按单日解析，不按整周解析 */
     private static final Pattern WEEKDAY_AFTER_WEEK =
             Pattern.compile("(下周|下个星期|本星期|这星期|本周|这周|这个星期)[一二三四五六日天]");
 
     /**
-     * 解析空闲查询的日期范围，默认明天一天。支持：
-     * 今天 / 明天 / 后天 / 大后天；下周（下周一至周日）；本周 / 这周（今天起至本周日）；
-     * 下周X、周X 等单日写法与 10月1日 / 2026-10-01（复用 {@link #extractDepartureDate}）。
+     * 解析消息里<b>明确说出</b>的日期范围；一条日期词都没有时返回 {@code null}（由调用方决定默认值）。
+     *
+     * <p>支持：今天 / 今晚 / 明天 / 后天 / 大后天；下周（下周一至周日）；
+     * 本周 / 这周（今天起至本周日）；下周X、周X 等单日写法与 10月1日 / 2026-10-01
+     * （复用 {@link #extractDepartureDate}）。
+     *
+     * <p>返回 null 与「默认明天」的区别是语义上的：空闲查询可以默认明天，
+     * 而「清空日程」这类破坏性操作必须先问清范围，绝不能替用户猜。
+     */
+    public static DateRange parseExplicitRange(String text, LocalDate today) {
+        LocalDate base = today == null ? LocalDate.now() : today;
+        if (text == null || text.isBlank()) {
+            return null;
+        }
+        if (text.contains("大后天")) {
+            return new DateRange(base.plusDays(3), base.plusDays(3));
+        }
+        if (text.contains("明天")) {
+            return new DateRange(base.plusDays(1), base.plusDays(1));
+        }
+        if (text.contains("后天")) {
+            return new DateRange(base.plusDays(2), base.plusDays(2));
+        }
+        if (text.contains("今天") || text.contains("今晚")) {
+            return new DateRange(base, base);
+        }
+        boolean explicitWeekday = WEEKDAY_AFTER_WEEK.matcher(text).find();
+        if (text.contains("下周") && !explicitWeekday && !text.contains("下周末")) {
+            LocalDate nextMonday = base.with(TemporalAdjusters.next(DayOfWeek.MONDAY));
+            return new DateRange(nextMonday, nextMonday.plusDays(6));
+        }
+        if ((text.contains("本周") || text.contains("这周") || text.contains("这个星期"))
+                && !explicitWeekday && !text.contains("本周末") && !text.contains("这周末")) {
+            LocalDate monday = base.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+            LocalDate sunday = monday.plusDays(6);
+            return new DateRange(base, sunday.isBefore(base) ? base : sunday);
+        }
+        DepartureDate explicit = extractDepartureDate(text, base);
+        if (explicit.explicit() && explicit.date() != null) {
+            return new DateRange(explicit.date(), explicit.date());
+        }
+        return null;
+    }
+
+    /**
+     * 解析空闲查询的日期范围：显式日期优先，没说就是明天一天。
      * 范围最多 7 天，超出由 {@code FreeTimeService#clampRangeEnd} 截断。
      */
     public static DateRange parseFreeTimeRange(String text, LocalDate today) {
         LocalDate base = today == null ? LocalDate.now() : today;
-        if (text != null && !text.isBlank()) {
-            if (text.contains("大后天")) {
-                return new DateRange(base.plusDays(3), base.plusDays(3));
-            }
-            if (text.contains("明天")) {
-                return new DateRange(base.plusDays(1), base.plusDays(1));
-            }
-            if (text.contains("后天")) {
-                return new DateRange(base.plusDays(2), base.plusDays(2));
-            }
-            if (text.contains("今天") || text.contains("今晚")) {
-                return new DateRange(base, base);
-            }
-            boolean explicitWeekday = WEEKDAY_AFTER_WEEK.matcher(text).find();
-            if (text.contains("下周") && !explicitWeekday && !text.contains("下周末")) {
-                LocalDate nextMonday = base.with(TemporalAdjusters.next(DayOfWeek.MONDAY));
-                return new DateRange(nextMonday, nextMonday.plusDays(6));
-            }
-            if ((text.contains("本周") || text.contains("这周") || text.contains("这个星期"))
-                    && !explicitWeekday && !text.contains("本周末") && !text.contains("这周末")) {
-                LocalDate monday = base.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
-                LocalDate sunday = monday.plusDays(6);
-                return new DateRange(base, sunday.isBefore(base) ? base : sunday);
-            }
-            DepartureDate explicit = extractDepartureDate(text, base);
-            if (explicit.explicit() && explicit.date() != null) {
-                return new DateRange(explicit.date(), explicit.date());
-            }
+        DateRange explicit = parseExplicitRange(text, base);
+        if (explicit != null) {
+            return explicit;
         }
         LocalDate tomorrow = base.plusDays(1);
         return new DateRange(tomorrow, tomorrow);
