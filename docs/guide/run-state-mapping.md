@@ -145,9 +145,13 @@ const mapped = toRunState('agent-run', run.status);
 - `Workbench`、`AgentRunsDrawer`：列表徽标、错误 / 空 / 加载态走 `RunStatus`；
 - 地图失败态（`MapView`、`FootprintMap`）：失败的资源 → `failed`，文案与重试复用 `RunStatus`；
 - 列表页三态：`Home`、`Travel`、`Schedule`（含 `resource.ts` → `toRunState('resource', ...)`）；
+- 行程 `Timeline` 阶段语义（P1-E 2/4）：转场/降级按阶段聚合，`budget_degraded` 压过 `complete`；
+- 地图 ↔ 时间线双向联动（P1-E 4/4）：选中态收敛到 `uiStore.selectedElement`，点地图标记会回写选中并滚到时间线条目；
 - `AgentActivityPanel` 过程时间线（P1-E 3/4）：事件按阶段聚合、整块状态走
   `activityRunState` + `mergeRunStates`（失败 > 取消 > 部分成功 > 降级 > 完成 > 进行中），
-  `budget_degraded` 已补进 `EVENT_NAMES`，降级压过完成；阶段口径见 `docs/guide/frontend.md` §6.3.1。
+  `budget_degraded` 已补进 `EVENT_NAMES`，降级压过完成；阶段口径见 `docs/guide/frontend.md` §6.3.1；
+- 低频页面（`Memos` / `Expenses` / `Reviews` / `Knowledge` / `TripReview`）：资源级加载 / 空 / 失败统一走
+  `RunStatus`，失败必须给「重试」，**接口故障不得显示成空列表**；区块级内容空态（回顾页的到访、照片等）
+  仍用 `EmptyState` / antd `Empty`，它们表达「这一块没有内容」，不是运行失败。
 
-尚未统一的面（后续卡片）：行程 `Timeline` 的阶段语义、地图↔时间线联动，以及其余低频页面
-（`Memos` / `Expenses` / `Reviews` / `Knowledge` / `TripReview`）里仍由页面自行拼的错误与空态文案。
+新增页面按上表接入；页面内区块级空态不套用七态，避免把「这一块为空」误报成资源失败。

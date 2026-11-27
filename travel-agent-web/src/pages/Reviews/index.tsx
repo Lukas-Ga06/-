@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Button, Empty, Spin, Tag } from 'antd';
+import { Button, Tag } from 'antd';
 import {
   ArrowRightOutlined,
   BookOutlined,
@@ -9,6 +9,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import AppShell from '../../components/AppShell';
 import EmptyState from '../../components/EmptyState';
+import RunStatus from '../../components/RunStatus';
 import { listTrips } from '../../api/trip';
 import { daysOf, tripPhaseClass, tripPhaseLabel, type Trip } from '../../types/trip';
 import './reviews.css';
@@ -90,18 +91,20 @@ export default function Reviews() {
         </div>
 
         {loading && (
-          <div
-            className="dash-card"
-            style={{ display: 'grid', placeItems: 'center', minHeight: 200 }}
-          >
-            <Spin size="large" />
+          <div className="dash-card review-state" style={{ minHeight: 200 }} aria-busy="true">
+            <RunStatus status="loading" text="正在加载行程…" size="sm" />
           </div>
         )}
 
         {!loading && error && (
-          <div className="dash-card review-state">
-            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={error} />
-            <Button onClick={load}>重试</Button>
+          <div className="dash-card review-state" role="alert">
+            <RunStatus
+              status="failed"
+              text="行程列表加载失败"
+              detail={error}
+              testId="reviews-error"
+              actions={[{ label: '重试', onClick: load }]}
+            />
           </div>
         )}
 
