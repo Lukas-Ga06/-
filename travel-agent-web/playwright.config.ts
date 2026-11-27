@@ -81,6 +81,7 @@ const DEFAULT_SPECS = [
   'planner-form.spec.ts',
   'run-state.spec.ts',
   'smoke.spec.ts',
+  'timeline-map-linkage.spec.ts',
 ];
 
 /** 弱网项目：Chromium + CDP，独立文件与独立 npm script */
