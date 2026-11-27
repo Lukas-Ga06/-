@@ -164,8 +164,9 @@ export default function ChatPanel({ tripId, placeholder }: Props) {
   return (
     <>
       <div className="chat-messages" ref={listRef}>
-        {/* 过程时间线在消息区内部、首次问候之前；空数组时组件自身返回 null */}
-        <AgentActivityPanel activity={activity} />
+        {/* 过程时间线在消息区内部、首次问候之前；空数组时组件自身返回 null。
+            同步台账不是 SSE 事件，由确认提交后的 ExecutionSummary 驱动，作为「同步台账」阶段追加 */}
+        <AgentActivityPanel activity={activity} execution={lastExecution} />
         {messages.length === 0 && (
           <div className="chat-empty" data-testid="chat-empty">
             <div className="chat-row">

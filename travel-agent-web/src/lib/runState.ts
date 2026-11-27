@@ -9,8 +9,8 @@
  * - `AgentRun.status`：`travel-agent-server/.../entity/AgentRun.java`（6 个，含
  *   `ABANDONED`；前端 `types/agent.ts` 的 `AgentRunStatus` 已与之对齐）
  * - `ResourceState.status`：`src/lib/resource.ts`（实际 6 个）
- * - SSE 事件名：`src/api/agent.ts` 的 `EVENT_NAMES`（17 个）+ 后端会发但 GET 通道
- *   未注册的 `budget_degraded` + 仅续传端点的 `resume_timeout`
+ * - SSE 事件名：`src/api/agent.ts` 的 `EVENT_NAMES`（18 个）+ 仅续传端点的 `resume_timeout`；
+ *   过程时间线的阶段聚合另见 `src/lib/activityStage.ts`（本表只回答「单个事件是什么状态」）
  *
  * 本文件是纯函数，不依赖 React、状态库或网络。
  */

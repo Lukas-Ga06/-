@@ -67,8 +67,8 @@ unknown 保留来源与原始值用于排查，**不抛异常、不静默归到 
 
 ## 4. SSE 事件名 → RunState
 
-来源：`travel-agent-web/src/api/agent.ts` 的 `EVENT_NAMES`（`:82-104`，17 个）加后端实际会发、
-但 GET 通道未注册的事件，共 **19** 个取值：
+来源：`travel-agent-web/src/api/agent.ts` 的 `EVENT_NAMES`（`:82-108`，**18 个**，含 P1-E 补登记的
+`budget_degraded`），加只走续传端点的 `resume_timeout`，共 **19** 个事件名：
 
 | 事件 | `RunState` | 通道 / 说明 |
 | --- | --- | --- |
@@ -81,21 +81,22 @@ unknown 保留来源与原始值用于排查，**不抛异常、不静默归到 
 | `recover` | `loading` | 回收重派 |
 | `conflict` | `degraded` | 前置未完成、任务被拒后回收；本轮继续，但过程已出现缺口 |
 | `tool_call` | `loading` | 工具调用开始 |
-| `tool_result` | `loading` | 工具调用返回 |
+| `tool_result` | `loading` | 工具调用返回（`success=false` 或 `result` 为 `null`/`"null"` 时过程时间线按 warn 呈现，见下） |
 | `rag_result` | `loading` | 知识库检索返回 |
 | `plan_update` | `loading` | 方案预览产出 |
 | `focus` | `loading` | 定位事件；本轮仍在进行 |
 | `confirmation` | `loading` | 等待用户确认；七态没有独立「待确认」档，按进行中处理 |
-| `budget_degraded` | `degraded` | 预算耗尽跳过阶段（`AgentContext.recordBudgetDegradation:161`）。**GET 的 `EVENT_NAMES` 未注册它**，GET 通道会静默丢；POST 逐帧解析能收到 |
-| `complete` | `complete` | 本轮收尾。若随后结果卡显示 `FAILED` / `NEED_CONFIRMATION`，以结果卡为准 |
-| `cancelled` | `cancelled` | 前端已注册、后端保留 `EVENT_CANCELLED` 常量；当前主链路的断开走 `AgentRun.status=CANCELLED`，未 emit 该事件；用户主动停止由 `agentStore.abort()` 合成活动行 |
-| `error` | `degraded` | **过程警告**：服务端随后仍会下发 `complete`，不能当本轮失败 |
+| `budget_degraded` | `degraded` | 预算耗尽跳过阶段（`AgentContext.recordBudgetDegradation:161`）。P1-E 已补进 `EVENT_NAMES`：GET 通道不再静默丢，POST 依旧逐帧解析。**降级压过 complete**，一轮降级不能显示成「完成」 |
+| `complete` | `complete` | 本轮收尾。结果卡 / 时间线的结论以 `AgentResult.status` 为准（`FAILED` → `failed`，`PARTIAL_SUCCESS` → `partial`） |
+| `cancelled` | `cancelled` | 前端已注册、后端保留 `EVENT_CANCELLED` 常量；**当前主链路未 emit**（断连走 `AgentRun.status=CANCELLED`，续传补发只在库里真有该事件时才下发）。用户主动停止由 `agentStore.abort()` 合成同名活动行，时间线显示「本轮已停止」 |
+| `error` | `degraded` | **过程警告**：服务端随后仍会下发 `complete`，不能当本轮失败。时间线里 `warning`（本地派生行）是 `degraded`；终止性错误是本地 `error` 行 → `failed` |
 | `resume_timeout` | `degraded` | 仅续传端点：等待 120s 仍未终态时下发并关闭连接；服务端 run 可能仍在执行 |
 
 > **不在表内的活动事件名**：`agentStore` 会把 SSE `error` 派生成一条 `warning` 活动行
-> （`store/agentStore.ts:272`），`abort()` 也会写 `cancelled` 活动行。`warning` 不是线上 SSE 事件名，
-> 本映射**没有**登记它；调用方如果拿活动事件名直接映射，会得到 `unknown`。接时间线时应先把活动事件
-> 归一成上述事件名，或显式把 `warning` 视为 `degraded`。
+> （`store/agentStore.ts:272`），`abort()` 也会写 `cancelled` 活动行，`onComplete` 写 `complete` 行。
+> 过程时间线用 `src/lib/activityStage.ts` 把这些活动事件聚合成阶段（准备 / 研究检索 / 工具调用 /
+> 规划 / 冲突重派 / 降级 / 确认 / 同步台账 / 收尾），口径见 `docs/guide/frontend.md` §6.3.1；
+> 合成规则是 **失败 > 取消 > 部分成功 > 降级 > 完成 > 进行中**，未登记事件不贡献状态。
 
 ## 5. 调用方式
 
@@ -143,8 +144,10 @@ const mapped = toRunState('agent-run', run.status);
 
 - `Workbench`、`AgentRunsDrawer`：列表徽标、错误 / 空 / 加载态走 `RunStatus`；
 - 地图失败态（`MapView`、`FootprintMap`）：失败的资源 → `failed`，文案与重试复用 `RunStatus`；
-- 列表页三态：`Home`、`Travel`、`Schedule`（含 `resource.ts` → `toRunState('resource', ...)`）。
+- 列表页三态：`Home`、`Travel`、`Schedule`（含 `resource.ts` → `toRunState('resource', ...)`）；
+- `AgentActivityPanel` 过程时间线（P1-E 3/4）：事件按阶段聚合、整块状态走
+  `activityRunState` + `mergeRunStates`（失败 > 取消 > 部分成功 > 降级 > 完成 > 进行中），
+  `budget_degraded` 已补进 `EVENT_NAMES`，降级压过完成；阶段口径见 `docs/guide/frontend.md` §6.3.1。
 
-尚未统一的面（后续卡片）：`Timeline` 阶段语义（卡 #6）、地图↔时间线联动（卡 #7）、
-`ChatPanel`/`ResultCard` 的细粒度过程行，以及其余低频页面（`Memos` / `Expenses` / `Reviews` /
-`Knowledge` / `TripReview`）里仍由页面自行拼的错误与空态文案。
+尚未统一的面（后续卡片）：行程 `Timeline` 的阶段语义、地图↔时间线联动，以及其余低频页面
+（`Memos` / `Expenses` / `Reviews` / `Knowledge` / `TripReview`）里仍由页面自行拼的错误与空态文案。

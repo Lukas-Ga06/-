@@ -83,7 +83,10 @@ const EVENT_NAMES = [
   // run：连接建立后紧跟 start 事件下发，data 为 { runId }（本轮运行的追踪标识，V2.2）
   // replan：审核未通过进入重规划时下发，data 为 { attempt, issues[] }（Batch 13）
   // delegate / recover / conflict：任务图事件（Batch 15），委派 / 回收重派 / 前置未完成被拒
-  //   —— EventSource 只能按固定事件名监听，漏登记就等于静默丢弃，过程时间线会缺这三类行
+  // budget_degraded：预算耗尽跳过某个阶段时下发，data 为 { stage, detail, remainingMs }
+  //   —— EventSource 只能按固定事件名监听，漏登记就等于静默丢弃，过程时间线会缺这三类行；
+  //   budget_degraded 曾漏登记：GET 通道收不到，用户只在回复正文里看到一句降级提示。
+  // resume_timeout 不在这里：它只出现在续传端点，由下面的专用监听器按终止语义处理。
   'run',
   'start',
   'intent',
@@ -95,6 +98,7 @@ const EVENT_NAMES = [
   'plan_update',
   'focus',
   'confirmation',
+  'budget_degraded',
   'complete',
   'cancelled',
   'error',

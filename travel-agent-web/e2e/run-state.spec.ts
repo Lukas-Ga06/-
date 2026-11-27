@@ -1,14 +1,22 @@
-import { test } from '@playwright/test';
+import { test, type Page } from '@playwright/test';
 import { expect, expectOk } from './support';
 
 /**
- * 统一运行状态（P1-E）的两条核心场景：
+ * 统一运行状态（P1-E）的核心场景：
  *
  * 1) 「部分同步失败 + 重试」——确认提交后 ExecutionResultPanel 里模块级失败要显示成
  *    failed + 重试（不是「暂无数据」），重试成功后同一面板翻转成完成；
  *    接口用 page.route 桩住，不依赖真实 LLM / 后端执行链路（R6：测试不触网）。
  * 2) 「地图失败但时间轴可用」——高德 SDK 不可达时行程页给出 failed 状态与重试出口，
  *    主栏时间轴照常渲染真实行程项；SDK 用真实失败路径（abort 请求），不改生产代码。
+ * 3) 「预算降级」——SSE 桩流里下发 `budget_degraded`：过程时间线必须出现「降级」阶段、
+ *    折叠态给出降级结论与原因，整块状态是「已降级」而不是绿色「完成」。
+ *    这条同时是 `EVENT_NAMES` 的回归：白名单漏登记时浏览器直接丢弃该事件，断言必红。
+ * 4) 「任务冲突/重派」——桩流里下发 `conflict`：时间线出现「冲突/重派」阶段，
+ *    状态降级但**不**冒充「本次结果走了降级路径」。
+ *
+ * 3/4 两条的判定只看时间线（阶段标签 + 状态 + 折叠态结论），不看日志：
+ * 过程事件一旦被传输层丢掉，这里就没有可断言的 DOM。
  */
 
 /** 后端统一响应包络：{ code, data }（与 src/api/client.ts 一致） */
@@ -198,4 +206,108 @@ test('地图失败但时间轴可用：失败态可重试，主栏照常渲染�
   await page.getByTestId('map-view-timeline').click();
   await expect(page).toHaveURL(new RegExp(`/trip/${tripId}$`));
   await expect(page.locator('.trip-timeline-card')).toContainText('外滩');
+});
+
+/** 把若干 SSE 帧拼成一段响应体（GET EventSource 一次性读完；事件名走真实监听白名单） */
+function sse(...frames: [string, unknown][]): string {
+  return frames.map(([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`).join('');
+}
+
+/** 助手页的真实入口：发一句话，让 streamAgentChat 走桩住的 GET 通道 */
+async function sendInAssistant(page: Page, message: string) {
+  await page.route('**/api/access-ticket**', (route) =>
+    route.fulfill(ok({ ticket: 'e2e-ticket', expiresInSeconds: 300 })),
+  );
+  await page.goto('/assistant');
+  await expect(page.getByTestId('chat-empty')).toBeVisible({ timeout: 15_000 });
+  await page.getByRole('textbox').first().fill(message);
+  await page.getByRole('button', { name: '发送' }).click();
+}
+
+test('过程时间线：预算降级显示成「降级」阶段与原因，状态不是完成', async ({ page }) => {
+  const detail = '预算耗尽，已跳过审核与重规划（未做路线/天气/预算硬约束校验）';
+  await page.route('**/api/agent/stream*', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body: sse(
+        ['run', { runId: 'e2e-run-budget' }],
+        ['start', {}],
+        ['intent', { intent: 'PLAN_TRIP' }],
+        ['planning', {}],
+        ['budget_degraded', { stage: 'review', detail, remainingMs: 0 }],
+        ['budget_degraded', { stage: 'narration', detail: '预算耗尽，跳过文案润色（使用模板文案）', remainingMs: 0 }],
+        ['complete', { status: 'COMPLETED', message: '已按预算优先给出方案，审核被跳过。' }],
+      ),
+    }),
+  );
+
+  await sendInAssistant(page, '帮我规划一次杭州两日游');
+
+  const panel = page.getByTestId('agent-activity-panel');
+  await expect(panel).toBeVisible({ timeout: 20_000 });
+
+  // ① 整块状态是「已降级」，不是绿色「完成」——降级不许并进普通成功态
+  const status = page.getByTestId('agent-activity-status');
+  await expect(status).toHaveAttribute('data-status', 'degraded');
+  await expect(status).toContainText('已降级');
+
+  // ② 折叠态就能看到「走了降级路径」与原因（用户不必展开）
+  const notice = page.getByTestId('agent-activity-degrade');
+  await expect(notice).toBeVisible();
+  await expect(notice).toContainText('本次结果走了降级路径');
+  await expect(notice).toContainText('预算耗尽，已跳过审核与重规划');
+  await expect(notice).toContainText('共 2 项');
+
+  // ③ 展开后：降级行带「降级」阶段标签，原因来自服务端 detail（不是前端编的）
+  await page.getByRole('button', { name: '查看运行详情' }).click();
+  const degradeRows = page.locator('.aa-row[data-event="budget_degraded"]');
+  await expect(degradeRows).toHaveCount(2);
+  await expect(degradeRows.first()).toHaveAttribute('data-stage', 'degrade');
+  await expect(degradeRows.first().locator('.aa-stage')).toHaveText('降级');
+  await expect(degradeRows.first()).toContainText(detail);
+  // 结论行仍在：本轮仍然收尾了，只是降级收尾
+  await expect(page.locator('.aa-row[data-event="complete"]')).toContainText('本轮运行完成');
+});
+
+test('过程时间线：任务冲突/重派独立成阶段，状态降级但不冒充降级路径', async ({ page }) => {
+  await page.route('**/api/agent/stream*', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body: sse(
+        ['run', { runId: 'e2e-run-conflict' }],
+        ['start', {}],
+        ['planning', {}],
+        ['delegate', { receiver: 'planner-agent', taskType: 'PLAN', dependsOn: [], attempt: 0 }],
+        ['conflict', { receiver: 'reflect-agent', taskType: 'REVIEW', missingDeps: ['t-plan'], reason: '前置未完成' }],
+        ['complete', { status: 'COMPLETED', message: '已生成方案。' }],
+      ),
+    }),
+  );
+
+  await sendInAssistant(page, '帮我规划一次上海两日游');
+
+  const panel = page.getByTestId('agent-activity-panel');
+  await expect(panel).toBeVisible({ timeout: 20_000 });
+
+  // ① 冲突是过程缺口：整块状态降级，但不能说「走了降级路径」（那是预算/依赖降级的结论）
+  await expect(page.getByTestId('agent-activity-status')).toHaveAttribute(
+    'data-status',
+    'degraded',
+  );
+  await expect(page.getByTestId('agent-activity-degrade')).toHaveCount(0);
+
+  // ② 展开后：冲突行属于「冲突/重派」阶段，阶段标签只出现一次（委派与冲突聚合）
+  await page.getByRole('button', { name: '查看运行详情' }).click();
+  const conflictRow = page.locator('.aa-row[data-event="conflict"]');
+  await expect(conflictRow).toHaveAttribute('data-stage', 'dispatch');
+  await expect(conflictRow).toContainText('任务冲突：reflect-agent/REVIEW 前置未完成，已回收');
+  await expect(page.locator('.aa-stage[data-stage="dispatch"]')).toHaveCount(1);
+  await expect(page.locator('.aa-stage[data-stage="dispatch"]')).toHaveText('冲突/重派');
+  // 委派行与冲突行同属一个阶段
+  await expect(page.locator('.aa-row[data-event="delegate"]')).toHaveAttribute(
+    'data-stage',
+    'dispatch',
+  );
 });

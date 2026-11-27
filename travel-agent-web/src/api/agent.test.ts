@@ -305,6 +305,25 @@ describe('streamAgentChat', () => {
     );
   });
 
+  it('预算降级事件在监听白名单内：GET 通道不再静默丢弃 budget_degraded', async () => {
+    const onEvent = vi.fn();
+    const onComplete = vi.fn();
+    await streamAgentChat({ message: '规划行程' }, { onEvent, onComplete });
+
+    // 回归点：EVENT_NAMES 漏登记 budget_degraded 时，EventSource 没有对应监听器，
+    // 事件被浏览器直接丢弃——时间线看不到降级，只剩回复正文里的一句提示。
+    FakeEventSource.last().emit('budget_degraded', {
+      stage: 'review',
+      detail: '预算耗尽，已跳过审核与重规划（未做路线/天气/预算硬约束校验）',
+      remainingMs: 0,
+    });
+
+    expect(onEvent).toHaveBeenCalledWith(
+      'budget_degraded',
+      expect.objectContaining({ stage: 'review', remainingMs: 0 }),
+    );
+  });
+
   describe('断线续传（V28）', () => {
     it('连接层中断后自动续传：补发事件不重复、complete 只回调一次、不触发 onError', async () => {
       const onEvent = vi.fn();

@@ -410,24 +410,42 @@ http.interceptors.response.use(unwrapApiResponse, handleResponseError);
 ### 6.3 SSE 客户端：消费 `/api/agent/stream`（主线二）
 
 Agent 的执行过程通过 SSE 推给前端，前端再把「过程」变成阶段文案与地图动作。
-事件名清单见 `api/agent.ts` 的 `EVENT_NAMES`（顺序即 `addEventListener` 注册顺序）：
-`start`、`intent`、`planning`、`tool_call`、`tool_result`、`rag_result`、`plan_update`、
-`focus`、`confirmation`、`complete`、`error`。
+事件名清单见 `api/agent.ts` 的 `EVENT_NAMES`（顺序即 `addEventListener` 注册顺序，共 **18** 个）：
+`run`、`start`、`intent`、`planning`、`replan`、`tool_call`、`tool_result`、`rag_result`、
+`plan_update`、`focus`、`confirmation`、`budget_degraded`、`complete`、`cancelled`、`error`、
+`delegate`、`recover`、`conflict`。
+
+`resume_timeout` **不在**这个数组里：它只出现在续传端点（`/api/agent/runs/{runId}/events`），
+语义是「结束这条续传连接」，由 GET 版 `attachEventSource` 末尾的专用监听器 / POST 版 `handleBlock`
+按终止处理。
+
+> **EventSource 只能按登记过的事件名监听**：漏登记就是浏览器直接丢弃该帧，连报错都没有。
+> `budget_degraded` 曾因此只在 POST 通道能收到；而且两个通道的时间线都还不认识它（见 §6.3.1）。
 
 | 事件 | data 载荷 | 后端何时发 | 前端反应 |
 | --- | --- | --- | --- |
+| `run` | `{runId}` | 连接建立后 | 记录 `currentRun`（运行记录锚点） |
 | `start` | `{sessionId}` | 会话开始 | stage「已连接 Agent…」 |
 | `intent` | `{intent, target}` | 意图识别完成 | stage「意图识别：PLAN_TRIP」 |
 | `planning` | `{message}` | 进入规划/重规划 | stage「正在规划行程…」 |
-| `tool_call` / `tool_result` | `{tool, args}` / `{tool, result}` | 工具调用前后（`ToolInvoker`） | stage「调用工具 X…」/「工具 X 执行完成」；`search_city_online` 特判为联网查询文案 |
-| `rag_result` | `{sources}` | 知识库检索后 | stage「检索旅游知识库…」 |
+| `replan` | `{attempt, issues[]}` | 审核未通过，进入有限重规划 | 时间线「规划」阶段 |
+| `tool_call` / `tool_result` | `{tool, args}` / `{tool, result}` | 工具调用前后（`ToolInvoker`） | stage「调用工具 X…」/「工具 X 执行完成」；`search_city_online` 特判为联网查询文案；`result` 为 `null`/`"null"` 时时间线写「未返回数据」 |
+| `rag_result` | `{sources, citations}` | 知识库检索后 | stage「检索旅游知识库…」+ 时间线展示引用 |
 | `plan_update` | `{diff, budget}` | 方案预览产出 | stage「生成方案对比…」 |
-| `focus` | `AgentFocus` | 需要定位时 | **除 stage 外还写 `lastFocus`**，驱动地图 `flyTo` 与时间轴滚动 |
+| `focus` | `AgentFocus` | 需要定位时 | **除 stage 外还写 `lastFocus`**，驱动地图 `flyTo` 与时间轴滚动；不单独成时间线行 |
 | `confirmation` | `ConfirmationRequest` | 需要用户确认 | stage「等待你的确认…」 |
-| `complete` | `AgentResult` | **每轮必有，最后一条** | 终止流、追加 assistant 气泡、按 status 设 `pendingConfirm`/`committedTripId` |
-| `error` | `{message}` | 服务端主动报错 | 只 `onError` 提示，**不终止**（后端随后还会发 `complete`） |
+| `budget_degraded` | `{stage, detail, remainingMs}` | 预算（时间或花费）耗尽、跳过某阶段（`AgentContext.recordBudgetDegradation`） | 时间线「降级」阶段 + 折叠态降级结论；**状态压过 complete**，不显示成绿色完成 |
+| `delegate` / `recover` / `conflict` | `{taskId, receiver, taskType, …}` | 任务图委派 / 回收重派 / 前置未完成被拒 | 时间线「冲突/重派」阶段（`conflict` 是错误档，状态降级） |
+| `complete` | `AgentResult` | **每轮必有，最后一条** | 终止流、追加 assistant 气泡、按 status 设 `pendingConfirm`/`committedTripId`；时间线结论按 `status` 写（FAILED 不写成「完成」） |
+| `cancelled` | `{runId?}` | 后端保留常量，**当前主链路未 emit**（断连走 `AgentRun.status=CANCELLED`）；续传补发只在库里真有该事件时才会下发 | 终止流并 `onCancelled`；用户主动停止由 `agentStore.abort()` 合成同名的本地活动行 |
+| `error` | `{message, code?}` | 服务端主动报错（含线程池 503） | **过程警告**：写 `warnings` 与时间线「降级」阶段，**不终止**（后端随后还会发 `complete`） |
+| `resume_timeout` | `{runId, lastEventId, message}` | 仅续传端点：等待 120s 仍未终态 | 按终止处理，提示「连接中断且运行超时，可稍后查看运行记录」 |
 
 **`complete` 携带的 `AgentResult`（`types/agent.ts`）是渲染核心**：`status`（`COMPLETED` / `NEED_CONFIRMATION` / `FAILED`）、`focus`、`diff`（`{changes[], budgetBefore, budgetAfter}`）、`budget`、`confirmation`（`{planId, summary, riskLevel}`）、`warnings`。前端几乎不按 intent 分支渲染，只按 **`status` + `diff` + `confirmation` + `focus`** 决定 UI —— 这是后端的明确契约。
+
+**三条终止路径的判定**（`dispatchFrame`，GET / POST 共用）：
+`complete` → `onComplete`；`cancelled` → `onCancelled`；**连接层中断**（EventSource `onerror` 无 data、
+fetch 读流异常/提前 EOF）→ 先尝试一次续传，失败才 `onError`。`error` 事件是过程警告，绝不在这里终止流。
 
 **两条传输通道**，同一套 handlers：
 
@@ -462,6 +480,40 @@ ChatPanel 输入 → doSend()
 `riskLevel === 'HIGH'` 的风险提示；点「确认修改」→ `store.confirm()` → `POST /api/agent/confirm` →
 后端单事务落地 → 返回新的 `AgentResult`；取消走 `/agent/cancel`。
 **刷新不丢**：`Assistant` 把 planId 写进 URL，重进时用 `getPendingPlan` 取回。
+
+#### 6.3.1 过程时间线的阶段语义（`AgentActivityPanel`）
+
+时间线不是「一个 SSE 事件一行」，而是把事件按**用户能理解的阶段**聚合。映射只写在
+`src/lib/activityStage.ts`（纯函数 + 单测），渲染层不再逐个事件名判断：
+
+| 阶段 | 覆盖事件 / 数据源 | 用户看到的 |
+| --- | --- | --- |
+| 准备 | `run` / `start` / `intent` | 已连接、理解需求 |
+| 研究检索 | `rag_result` | 检索攻略与引用来源 |
+| 工具调用 | `tool_call` / `tool_result` | 调了哪个工具、有没有拿到数据 |
+| 规划 | `planning` / `replan` / `plan_update` | 规划、重规划、方案对比 |
+| 冲突/重派 | `delegate` / `recover` / `conflict` | 委派、重派、前置未完成被拒 |
+| 降级 | `budget_degraded` / `warning` / `resume_timeout` | 哪一步被跳过、为什么 |
+| 确认 | `confirmation` | 等待你确认 |
+| 同步台账 | 非 SSE：`ExecutionSummary`（`lastExecution`） | 确认后日程 / 预算 / 足迹的同步结果与失败原因 |
+| 收尾 | `complete` / `cancelled` / `error` | 本轮怎么结束（结论按 `AgentResult.status`） |
+
+规则（实现见 `components/AgentActivityPanel`）：
+
+- **阶段标签只在阶段切换时出现**；`降级` 行每行都带标签（降级必须显式），一个阶段不逐行重复。
+- **降级压过完成**：`activityRunState` 按「失败 > 取消 > 部分成功 > 降级 > 完成 > 进行中」合成状态，
+  预算降级的一轮不能显示成绿色「完成」。
+- **降级结论上浮到折叠态**：有 `budget_degraded` 时头部下方固定一行
+  「本次结果走了降级路径：`detail`」，`detail` 来自服务端事件载荷，前端不编原因；
+  只有过程警告时写「本轮有过程警告」，不冒充预算降级。
+- **同步台账不是 SSE 事件**：确认提交后 `ChatPanel` 把 `lastExecution` 传给面板，追加一行「同步台账」，
+  失败模块点名原因并提示可重试；它同时参与整块状态（`PARTIAL_FAILED` → 部分成功）。
+- `focus` 不占行（只驱动地图/时间轴定位）；未登记的新事件不猜语义（`activityStage` 返回 null，不渲染）。
+
+**现状边界（2026-11-27 核实）**：外部依赖降级（高德 MCP/REST POI 回退、路线估算、天气不可用）**没有独立 SSE 事件**，
+只进运行追踪指标 `external.degraded`、日志与 `AgentResult.warnings`（结果卡的「待核实」列表）。
+时间线能显式呈现的降级只有 `budget_degraded`、SSE `error` 过程警告和工具「未返回数据」；
+要让 MCP/高德降级在时间线独立成阶段，需要后端补事件（后续卡），前端不得用文案猜测替代。
 
 ### 6.4 ticket.ts：为什么需要短期票据
 

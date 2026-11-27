@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import AgentActivityPanel from './index';
 import type { ActivityEvent } from '../../store/stageText';
+import type { ExecutionSummary } from '../../types/agent';
 
 afterEach(cleanup);
 
@@ -167,5 +168,197 @@ describe('AgentActivityPanel', () => {
       <AgentActivityPanel activity={[ev('focus', { type: 'itinerary', day: 2 })]} />,
     );
     expect(container.querySelector('.aa-row')).toBeNull();
+  });
+
+  it('预算降级：折叠态就给出降级结论与原因，展开后行带「降级」阶段标签', () => {
+    const { container } = render(
+      <AgentActivityPanel
+        activity={[
+          ev('run', { runId: '01234567-abcd-4ef0-9abc-def012345678' }),
+          ev('planning', {}),
+          ev('budget_degraded', {
+            stage: 'review',
+            detail: '预算耗尽，已跳过审核与重规划（未做路线/天气/预算硬约束校验）',
+            remainingMs: 0,
+          }),
+          ev('complete', { status: 'COMPLETED' }),
+        ]}
+      />,
+    );
+
+    // 折叠态：降级结论必须可见（用户不展开也知道这次走了降级路径）
+    const notice = screen.getByTestId('agent-activity-degrade');
+    expect(notice.textContent).toContain('本次结果走了降级路径');
+    expect(notice.textContent).toContain('预算耗尽，已跳过审核与重规划');
+    // 状态不许并进普通成功：预算降级压过 complete
+    expect(screen.getByTestId('agent-activity-status').getAttribute('data-status')).toBe(
+      'degraded',
+    );
+
+    expand();
+    const row = container.querySelector('[data-event="budget_degraded"]');
+    expect(row?.getAttribute('data-stage')).toBe('degrade');
+    expect(row?.getAttribute('data-severity')).toBe('warn');
+    expect(row?.querySelector('.aa-stage')?.textContent).toBe('降级');
+    expect(row?.textContent).toContain('预算耗尽，已跳过审核与重规划');
+    // 阶段切换：规划 → 降级 → 收尾 三段，降级行每次带标签
+    expect(container.querySelector('[data-event="planning"] .aa-stage')?.textContent).toBe('规划');
+  });
+
+  it('冲突/重派是独立阶段：状态降级但不冒充「降级路径」结论', () => {
+    const { container } = render(
+      <AgentActivityPanel
+        activity={[
+          ev('delegate', { receiver: 'planner-agent', taskType: 'PLAN' }),
+          ev('conflict', { receiver: 'reflect-agent', taskType: 'REVIEW', reason: '前置未完成' }),
+          ev('complete', { status: 'COMPLETED' }),
+        ]}
+      />,
+    );
+
+    expect(screen.queryByTestId('agent-activity-degrade')).toBeNull();
+    expect(screen.getByTestId('agent-activity-status').getAttribute('data-status')).toBe(
+      'degraded',
+    );
+
+    expand();
+    const row = container.querySelector('[data-event="conflict"]');
+    expect(row?.getAttribute('data-stage')).toBe('dispatch');
+    // 同一阶段只出现一次标签（委派与冲突共用一个标签，不每行重复）
+    expect(container.querySelectorAll('.aa-stage[data-stage="dispatch"]')).toHaveLength(1);
+    expect(container.querySelector('.aa-stage[data-stage="dispatch"]')?.textContent).toBe(
+      '冲突/重派',
+    );
+  });
+
+  it('同阶段连续行只出现一次阶段标签（聚合，不是每事件一标签）', () => {
+    const { container } = render(
+      <AgentActivityPanel
+        activity={[
+          ev('tool_call', { tool: 'search_city_online', args: { city: '杭州' } }),
+          ev('tool_result', { tool: 'search_city_online', result: { ok: true } }),
+        ]}
+      />,
+    );
+
+    expand();
+    expect(container.querySelectorAll('.aa-row[data-stage="tool"]')).toHaveLength(2);
+    expect(container.querySelectorAll('.aa-stage')).toHaveLength(1);
+  });
+
+  it('过程警告（warning）进降级档并给出服务端原因', () => {
+    const { container } = render(
+      <AgentActivityPanel
+        activity={[
+          ev('warning', { message: '模型不可用，已改用规则规划' }),
+          ev('complete', { status: 'COMPLETED' }),
+        ]}
+      />,
+    );
+
+    const notice = screen.getByTestId('agent-activity-degrade');
+    expect(notice.textContent).toContain('本轮有过程警告');
+    expect(notice.textContent).toContain('模型不可用，已改用规则规划');
+    expand();
+    expect(container.querySelector('[data-event="warning"]')?.getAttribute('data-stage')).toBe(
+      'degrade',
+    );
+  });
+
+  it('用户停止：时间线出现「本轮已停止」，状态是 cancelled 而不是完成', () => {
+    const { container } = render(
+      <AgentActivityPanel activity={[ev('planning', {}), ev('cancelled', { runId: 'r1' })]} />,
+    );
+
+    expand();
+    const row = container.querySelector('[data-event="cancelled"]');
+    expect(row?.textContent).toContain('本轮已停止（未生成最终结果）');
+    expect(row?.className).toContain('muted');
+    expect(screen.getByTestId('agent-activity-status').getAttribute('data-status')).toBe(
+      'cancelled',
+    );
+  });
+
+  it('complete 按结果状态给结论：FAILED 不能写成「本轮运行完成」', () => {
+    const { container } = render(
+      <AgentActivityPanel activity={[ev('complete', { status: 'FAILED' })]} />,
+    );
+
+    expand();
+    expect(container.querySelector('[data-event="complete"]')?.textContent).toContain(
+      '本轮未完成（失败）',
+    );
+    expect(container.textContent).not.toContain('本轮运行完成');
+    expect(screen.getByTestId('agent-activity-status').getAttribute('data-status')).toBe('failed');
+  });
+
+  it('工具没返回数据单独成句（不是「执行完成」）', () => {
+    const { container } = render(
+      <AgentActivityPanel
+        activity={[ev('tool_result', { tool: 'mcp_amap_text_search', result: 'null' })]}
+      />,
+    );
+
+    expand();
+    const row = container.querySelector('[data-event="tool_result"]');
+    expect(row?.textContent).toContain('工具 mcp_amap_text_search 未返回数据');
+    expect(row?.className).toContain('warn');
+  });
+
+  it('同步台账：确认后的模块结果作为独立阶段追加，失败项点名原因与可重试', () => {
+    const execution: ExecutionSummary = {
+      executionId: 'exec-1',
+      planId: 'plan-1',
+      tripId: 7,
+      status: 'PARTIAL_FAILED',
+      modules: [
+        { module: 'calendar', status: 'SUCCEEDED', detail: '已写入 3 个时间块' },
+        { module: 'budget', status: 'FAILED', error: '预算服务超时' },
+        { module: 'footprint', status: 'SUCCEEDED' },
+      ],
+    };
+
+    const { container } = render(
+      <AgentActivityPanel
+        activity={[ev('confirmation', {}), ev('complete', { status: 'COMPLETED' })]}
+        execution={execution}
+      />,
+    );
+
+    // 台账部分失败：整块状态是「部分成功」，不显示成完成
+    expect(screen.getByTestId('agent-activity-status').getAttribute('data-status')).toBe('partial');
+
+    expand();
+    const ledger = container.querySelector('[data-event="ledger"]');
+    expect(ledger?.getAttribute('data-stage')).toBe('ledger');
+    expect(ledger?.querySelector('.aa-stage')?.textContent).toBe('同步台账');
+    expect(ledger?.textContent).toContain('同步台账：日程 已同步、预算 失败、足迹 已同步');
+    expect(ledger?.textContent).toContain('预算：预算服务超时');
+    expect(ledger?.textContent).toContain('可在下方重试');
+  });
+
+  it('同步台账全部成功时给完成态，不加降级结论', () => {
+    const execution: ExecutionSummary = {
+      executionId: 'exec-2',
+      planId: 'plan-2',
+      status: 'SUCCEEDED',
+      modules: [{ module: 'budget', status: 'SUCCEEDED', detail: '预算快照已写入' }],
+    };
+
+    const { container } = render(
+      <AgentActivityPanel
+        activity={[ev('complete', { status: 'COMPLETED' })]}
+        execution={execution}
+      />,
+    );
+
+    expect(screen.getByTestId('agent-activity-status').getAttribute('data-status')).toBe(
+      'complete',
+    );
+    expect(screen.queryByTestId('agent-activity-degrade')).toBeNull();
+    expand();
+    expect(container.querySelector('[data-event="ledger"]')?.textContent).toContain(
+      '同步台账：预算 已同步',
+    );
   });
 });
