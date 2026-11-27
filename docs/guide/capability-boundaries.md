@@ -1,6 +1,6 @@
 # 能力边界与默认口径
 
-> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.16 / Node 20） | 最后验证：2026-11-23 | 事实来源：`travel-agent-server/src/main/resources/application.yml`、`src/main/java/com/travel/agent/{agent,rag,service}/`、`travel-agent-web/src/`、`docs/review/2026-11-22-real-model-acceptance.md`
+> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.16 / Node 20） | 最后验证：2026-11-27 | 事实来源：`travel-agent-server/src/main/resources/application.yml`、`src/main/java/com/travel/agent/{agent,rag,service}/`、`travel-agent-web/src/`、`docs/review/2026-11-22-real-model-acceptance.md`
 
 本文回答一个容易被 README 的「核心能力」列表盖住的问题：**不配置任何 Key 时，产品实际是什么？** 结论先说：
 
@@ -26,6 +26,18 @@
 | 地图 | 未配 `VITE_AMAP_KEY` 时走 OSM / OpenFreeMap 底图 | 可降级 | 地图不可用时明确提示「时间轴仍可用」 |
 
 判断一个能力是不是「真的」，看 `/api/system/status` 的 `*Provider` / `*Verified` 字段，不要看功能是否存在。
+
+### 1.1 记账口径（V30 起：账单可以没有行程）
+
+- **账单可无行程**：没有当前行程时，「今天买咖啡花了 150」解析成功即落库（`expense.trip_id` 为空），
+  回复明确写「这笔未关联行程」。有行程时仍是原口径（落该行程 + 累计支出 + 预算超限提示）。
+- **预算聚合口径不变**：`BudgetService` / `TripReviewService` / 单行程汇总只统计 `trip_id` 非空的账单；
+  未关联行程的通用账目**不进入任何行程预算**，也不会因为记账把行程预算算超。
+- **总览（`/api/expenses/overview`）口径**：`totalSpent` / `monthSpent` / `count` / 分类 / 支付方式包含全部账单；
+  `byTrip` 分成三组——真实行程、`tripId=0`「已删除的行程」、`tripId=-1`「未关联行程」，
+  三者不混组，**分项之和始终等于 `totalSpent`**；最近记录里未关联账单的 `tripName` 显示「未关联行程」。
+- **数据边界**：`expense.schedule_item_id` 是批次 3 发票报销的预留关联列，当前没有写入方，
+  不代表「发票报销」能力已经可用。旅行域之外仍不记账（办公/学习/健康已退役）。
 
 ## 2. 可选增强（显式配置后才生效）
 

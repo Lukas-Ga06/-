@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -32,6 +33,14 @@ public class ExpenseService {
     /** 行程已被删除的账单归到这个分组，保证「分项之和 == 总支出」 */
     private static final Long ORPHAN_TRIP_ID = 0L;
     private static final String ORPHAN_TRIP_NAME = "已删除的行程";
+
+    /**
+     * 未关联行程的通用账目单独成组：它和「行程已删除」是两回事，
+     * 混进同一组会让分项语义失真（账单从没挂过行程，被说成行程被删）。
+     * 负数键不会与自增主键冲突。
+     */
+    private static final Long UNLINKED_TRIP_ID = -1L;
+    private static final String UNLINKED_TRIP_NAME = "未关联行程";
 
     /** 记账总览「最近记录」条数（响应结构的一部分，不要改） */
     private static final int RECENT_LIMIT = 8;
@@ -74,6 +83,13 @@ public class ExpenseService {
     @Transactional
     public Expense add(Long tripId, Long userId, String category, BigDecimal amount, String note,
                        LocalDate spentAt, String paymentMethod) {
+        return add(tripId, null, userId, category, amount, note, spentAt, paymentMethod);
+    }
+
+    /** 记账落库：tripId / scheduleItemId 都可空（未关联行程的通用账目） */
+    @Transactional
+    public Expense add(Long tripId, Long scheduleItemId, Long userId, String category, BigDecimal amount,
+                       String note, LocalDate spentAt, String paymentMethod) {
         if (amount == null || amount.signum() <= 0) {
             throw new BusinessException("金额必须大于 0");
         }
@@ -87,6 +103,7 @@ public class ExpenseService {
         }
         Expense expense = Expense.builder()
                 .tripId(tripId)
+                .scheduleItemId(scheduleItemId)
                 .userId(userId)
                 .category(cat)
                 .amount(amount)
@@ -97,10 +114,20 @@ public class ExpenseService {
         return expenseRepository.save(expense);
     }
 
+    /** 行程内账单删除：tripId 为空时不得 NPE（Objects.equals 处理 null） */
     @Transactional
     public void delete(Long tripId, Long expenseId) {
         Expense expense = expenseRepository.findById(expenseId)
-                .filter(e -> e.getTripId().equals(tripId))
+                .filter(e -> Objects.equals(e.getTripId(), tripId))
+                .orElseThrow(() -> new BusinessException(404, "支出记录不存在"));
+        expenseRepository.delete(expense);
+    }
+
+    /** 按用户归属删除：未关联行程的账单没有行程可校验，只能比 user_id */
+    @Transactional
+    public void deleteOwned(Long expenseId, Long userId) {
+        Expense expense = expenseRepository.findById(expenseId)
+                .filter(e -> Objects.equals(e.getUserId(), userId))
                 .orElseThrow(() -> new BusinessException(404, "支出记录不存在"));
         expenseRepository.delete(expense);
     }
@@ -138,17 +165,23 @@ public class ExpenseService {
 
         Map<Long, BigDecimal> byTrip = new LinkedHashMap<>();
         for (ExpenseRepository.TripTotal row : expenseRepository.sumByTripId(userId)) {
-            // 关键：即使行程已被删除，也要计入分组，否则分项加起来对不上 totalSpent
-            Long tripKey = row.getTripId() != null && tripMap.containsKey(row.getTripId())
-                    ? row.getTripId() : ORPHAN_TRIP_ID;
+            // 关键：三类归属分开计入，否则分项加起来对不上 totalSpent，或语义被合并失真：
+            //   null trip_id → 未关联行程；行程已删除 → 0；其余 → 真实行程 id
+            Long tripKey;
+            if (row.getTripId() == null) {
+                tripKey = UNLINKED_TRIP_ID;
+            } else if (tripMap.containsKey(row.getTripId())) {
+                tripKey = row.getTripId();
+            } else {
+                tripKey = ORPHAN_TRIP_ID;
+            }
             byTrip.merge(tripKey, nonNull(row.getTotal()), BigDecimal::add);
         }
 
         List<ExpenseDtos.TripSpend> tripSpends = byTrip.entrySet().stream()
                 .map(en -> ExpenseDtos.TripSpend.builder()
                         .tripId(en.getKey())
-                        .tripName(tripMap.containsKey(en.getKey())
-                                ? tripMap.get(en.getKey()).getName() : ORPHAN_TRIP_NAME)
+                        .tripName(tripNameFor(en.getKey(), tripMap))
                         .total(en.getValue())
                         .build())
                 .sorted((a, b) -> b.getTotal().compareTo(a.getTotal()))
@@ -160,8 +193,12 @@ public class ExpenseService {
                 .getContent().stream()
                 .map(dto -> {
                     ExpenseDtos.ExpenseDTO d = ExpenseDtos.ExpenseDTO.from(dto);
-                    Trip t = tripMap.get(dto.getTripId());
-                    d.setTripName(t == null ? null : t.getName());
+                    if (dto.getTripId() == null) {
+                        d.setTripName(UNLINKED_TRIP_NAME);
+                    } else {
+                        Trip t = tripMap.get(dto.getTripId());
+                        d.setTripName(t == null ? null : t.getName());
+                    }
                     return d;
                 })
                 .toList();
@@ -185,6 +222,14 @@ public class ExpenseService {
     /** 某行程的全部账单实体（预算对账用） */
     public List<Expense> listEntitiesByTrip(Long tripId) {
         return new ArrayList<>(expenseRepository.findByTripIdOrderBySpentAtDescIdDesc(tripId));
+    }
+
+    private static String tripNameFor(Long tripKey, Map<Long, Trip> tripMap) {
+        if (UNLINKED_TRIP_ID.equals(tripKey)) {
+            return UNLINKED_TRIP_NAME;
+        }
+        Trip trip = tripMap.get(tripKey);
+        return trip == null ? ORPHAN_TRIP_NAME : trip.getName();
     }
 
     private static BigDecimal nonNull(BigDecimal value) {

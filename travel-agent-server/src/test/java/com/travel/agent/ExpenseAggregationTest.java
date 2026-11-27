@@ -1,12 +1,18 @@
 package com.travel.agent;
 
+import com.travel.agent.agent.AgentContext;
+import com.travel.agent.agent.AgentEngine;
+import com.travel.agent.agent.IntentResult;
+import com.travel.agent.dto.AgentDtos;
 import com.travel.agent.dto.ExpenseDtos;
 import com.travel.agent.dto.TripDtos;
 import com.travel.agent.entity.Expense;
 import com.travel.agent.entity.Memo;
 import com.travel.agent.entity.Trip;
+import com.travel.agent.exception.BusinessException;
 import com.travel.agent.repository.ExpenseRepository;
 import com.travel.agent.repository.MemoRepository;
+import com.travel.agent.repository.TripRepository;
 import com.travel.agent.service.ExpenseService;
 import com.travel.agent.service.MemoService;
 import com.travel.agent.service.TripService;
@@ -21,8 +27,10 @@ import org.springframework.data.domain.Sort;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -48,6 +56,15 @@ class ExpenseAggregationTest extends IntegrationTestSupport {
 
     @Autowired
     private MemoRepository memoRepository;
+
+    @Autowired
+    private TripRepository tripRepository;
+
+    @Autowired
+    private AgentEngine agentEngine;
+
+    /** 未关联行程分组在 overview 里的 tripId（服务层约定，负数不会与自增主键冲突） */
+    private static final long UNLINKED_TRIP_ID = -1L;
 
     private Trip createTrip(long userId, String name) {
         TripDtos.TripRequest request = new TripDtos.TripRequest();
@@ -201,5 +218,113 @@ class ExpenseAggregationTest extends IntegrationTestSupport {
         assertThat(page.getContent()).hasSize(2);
         // done asc：未完成在前
         assertThat(page.getContent().get(0).isDone()).isFalse();
+    }
+
+    @Test
+    @DisplayName("没有当前行程也能记账：总览计入、归入「未关联行程」，分项之和仍等于总支出")
+    void unlinkedExpenseIsCountedAndGroupedSeparately() throws Exception {
+        Account account = registerNew();
+        Trip trip = createTrip(account.id(), "有行程");
+
+        expenseService.add(trip.getId(), account.id(), "交通", amount("30.00"), "打车", LocalDate.now(), "支付宝");
+        Expense unlinked = expenseService.add(null, account.id(), "餐饮", amount("150.00"),
+                "今天买咖啡", LocalDate.now(), "现金");
+        assertThat(unlinked.getTripId()).isNull();
+
+        ExpenseDtos.ExpenseOverview overview = expenseService.overview(account.id());
+
+        assertThat(overview.getTotalSpent()).isEqualByComparingTo(amount("180.00"));
+        assertThat(overview.getMonthSpent()).isEqualByComparingTo(amount("180.00"));
+        assertThat(overview.getCount()).isEqualTo(2);
+
+        ExpenseDtos.TripSpend unlinkedSpend = overview.getByTrip().stream()
+                .filter(t -> Long.valueOf(UNLINKED_TRIP_ID).equals(t.getTripId()))
+                .findFirst().orElseThrow();
+        assertThat(unlinkedSpend.getTripName()).isEqualTo("未关联行程");
+        assertThat(unlinkedSpend.getTotal()).isEqualByComparingTo(amount("150.00"));
+        assertThat(overview.getByTrip()).noneMatch(t -> "已删除的行程".equals(t.getTripName()));
+
+        BigDecimal breakdownSum = overview.getByTrip().stream()
+                .map(ExpenseDtos.TripSpend::getTotal)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        assertThat(breakdownSum).isEqualByComparingTo(overview.getTotalSpent());
+
+        // 最近记录：同一天按 id 倒序，后写入的未关联账目在前
+        assertThat(overview.getRecent()).hasSize(2);
+        assertThat(overview.getRecent().get(0).getTripName()).isEqualTo("未关联行程");
+        assertThat(overview.getRecent().get(1).getTripName()).isEqualTo("有行程");
+
+        // 行程预算口径不变：未关联账目不进任何行程
+        assertThat(expenseService.totalOf(trip.getId())).isEqualByComparingTo(amount("30.00"));
+        assertThat(expenseService.totalOf(null)).isEqualByComparingTo(BigDecimal.ZERO);
+    }
+
+    @Test
+    @DisplayName("「未关联行程」与「已删除的行程」是两个分组：不混组，分项之和仍等于总支出")
+    void unlinkedExpenseIsNotMergedWithDeletedTrip() throws Exception {
+        Account account = registerNew();
+        Trip doomed = createTrip(account.id(), "将被删的行程");
+        expenseService.add(doomed.getId(), account.id(), "餐饮", amount("45.00"), null,
+                LocalDate.now(), "现金");
+        // 模拟历史遗留数据：绕过级联清理直接删除行程，账单仍在
+        tripRepository.deleteById(doomed.getId());
+        expenseService.add(null, account.id(), "餐饮", amount("30.00"), null, LocalDate.now(), "现金");
+
+        ExpenseDtos.ExpenseOverview overview = expenseService.overview(account.id());
+
+        assertThat(overview.getTotalSpent()).isEqualByComparingTo(amount("75.00"));
+        assertThat(overview.getByTrip()).hasSize(2);
+        assertThat(overview.getByTrip())
+                .anyMatch(t -> Long.valueOf(0L).equals(t.getTripId()) && "已删除的行程".equals(t.getTripName()));
+        assertThat(overview.getByTrip())
+                .anyMatch(t -> Long.valueOf(UNLINKED_TRIP_ID).equals(t.getTripId())
+                        && "未关联行程".equals(t.getTripName()));
+        BigDecimal breakdownSum = overview.getByTrip().stream()
+                .map(ExpenseDtos.TripSpend::getTotal)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        assertThat(breakdownSum).isEqualByComparingTo(overview.getTotalSpent());
+    }
+
+    @Test
+    @DisplayName("无当前行程时说「今天买咖啡花了 150」也能落库，并回复未关联行程文案")
+    void recordExpenseWithoutTripPersistsGeneralLedgerEntry() throws Exception {
+        Account account = registerNew();
+
+        AgentDtos.AgentResult result = agentEngine.handle(agentContext(account, "今天买咖啡花了 150"));
+
+        assertThat(result.getIntent()).isEqualTo(IntentResult.RECORD_EXPENSE);
+        assertThat(result.getMessage())
+                .contains("✅ 已记账：餐饮 ¥150")
+                .contains("（" + LocalDate.now() + " · 现金）")
+                .contains("这笔未关联行程");
+        List<Expense> saved = expenseRepository.findByUserIdOrderBySpentAtDescIdDesc(account.id());
+        assertThat(saved).hasSize(1);
+        assertThat(saved.get(0).getTripId()).isNull();
+        assertThat(saved.get(0).getCategory()).isEqualTo("餐饮");
+        assertThat(saved.get(0).getAmount()).isEqualByComparingTo(amount("150"));
+    }
+
+    @Test
+    @DisplayName("删除未关联账单：delete(null, id) 不 NPE，deleteOwned 按用户归属校验")
+    void deleteUnlinkedExpenseIsNullSafeAndOwned() throws Exception {
+        Account account = registerNew();
+        Expense saved = expenseService.add(null, account.id(), "餐饮", amount("12.00"), null,
+                LocalDate.now(), "现金");
+
+        assertThatThrownBy(() -> expenseService.deleteOwned(saved.getId(), account.id() + 9999))
+                .isInstanceOf(BusinessException.class);
+        assertThat(expenseRepository.findById(saved.getId())).isPresent();
+
+        expenseService.delete(null, saved.getId());
+        assertThat(expenseRepository.findById(saved.getId())).isEmpty();
+    }
+
+    private static AgentContext agentContext(Account account, String message) {
+        AgentContext ctx = new AgentContext();
+        ctx.setUserId(account.id());
+        ctx.setUsername(account.username());
+        ctx.setSessionId(UUID.randomUUID().toString());
+        ctx.setMessage(message);
+        return ctx;
     }
 }

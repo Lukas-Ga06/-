@@ -85,15 +85,8 @@ public class TravelQueryHandler {
                 .build());
     }
 
-    /** 记账：解析金额与分类后立即落库，并回显累计支出与预算超限提示 */
+    /** 记账：解析金额与分类后立即落库；有行程时回显累计支出与预算超限提示 */
     public AgentDtos.AgentResult recordExpense(AgentContext ctx, IntentResult intent, Trip trip) {
-        if (trip == null) {
-            return complete(ctx, AgentDtos.AgentResult.builder()
-                    .intent(intent.getIntent())
-                    .status(AgentDtos.STATUS_COMPLETED)
-                    .message("记账前请先选择一个行程；进入行程后说「记一笔午餐 45 元」即可。")
-                    .build());
-        }
         MessageParser.ExpenseRequest request = MessageParser.parseExpenseRequest(ctx.getMessage());
         if (request == null) {
             return complete(ctx, AgentDtos.AgentResult.builder()
@@ -104,11 +97,24 @@ public class TravelQueryHandler {
         }
         LocalDate spentAt = LocalDate.now().plusDays(request.dayOffset());
         String note = truncateNote(ctx.getMessage());
-        Expense saved = expenseService.add(trip.getId(), ctx.getUserId(), request.category(),
+        if (trip == null) {
+            // 通用记账：没有当前行程也照常落库（trip_id 为空），不进任何行程预算
+            Expense saved = expenseService.add(null, null, ctx.getUserId(), request.category(),
+                    request.amount(), note, spentAt, request.paymentMethod());
+            return complete(ctx, AgentDtos.AgentResult.builder()
+                    .intent(intent.getIntent())
+                    .status(AgentDtos.STATUS_COMPLETED)
+                    .message("✅ 已记账：" + saved.getCategory() + " ¥" + amountText(saved)
+                            + "（" + spentAt + " · " + saved.getPaymentMethod()
+                            + "）。这笔未关联行程，说「查看预算」可查看行程预算。")
+                    .warnings(new ArrayList<>())
+                    .build());
+        }
+        Expense saved = expenseService.add(trip.getId(), null, ctx.getUserId(), request.category(),
                 request.amount(), note, spentAt, request.paymentMethod());
         BigDecimal total = expenseService.totalOf(trip.getId());
         StringBuilder sb = new StringBuilder("✅ 已记账：").append(saved.getCategory())
-                .append(" ¥").append(saved.getAmount().stripTrailingZeros().toPlainString())
+                .append(" ¥").append(amountText(saved))
                 .append("（").append(spentAt).append(" · ").append(saved.getPaymentMethod()).append("）。本行程累计支出 ¥")
                 .append(total.stripTrailingZeros().toPlainString());
         String over = "";
@@ -126,6 +132,11 @@ public class TravelQueryHandler {
                 .focus(AgentDtos.AgentFocus.builder().type("budget").tripId(trip.getId()).build())
                 .warnings(new ArrayList<>())
                 .build());
+    }
+
+    /** 金额展示：去掉无意义的小数零（150.00 → 150） */
+    private static String amountText(Expense expense) {
+        return expense.getAmount().stripTrailingZeros().toPlainString();
     }
 
     /** 备注取用户原话（截断 200 字），null 消息保持 null */

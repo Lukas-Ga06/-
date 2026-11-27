@@ -147,7 +147,8 @@ classpath:fonts/cjk.* → Windows → Linux/macOS，找不到一律抛业务错�
 否则"注意事项"这类通用知识在有行程时会被全部过滤掉，目录外城市更是直接空结果。
 
 **记账对账**：`ExpenseService.overview` 必须满足「各分项之和 == totalSpent」，
-行程已删除的遗留账单归入 `tripId=0 / 已删除的行程` 分组（前端该分组不可点击跳转）。
+行程已删除的遗留账单归入 `tripId=0 / 已删除的行程` 分组（前端该分组不可点击跳转）；
+V30 起未关联行程的通用账目单独归入 `tripId=-1 / 未关联行程`，与 `0` 不合并。
 
 **预算口径**：计划成本 = 行程项 `cost` 合计、实际 = 记账合计、预算 = `trip.budget`；
 对外统一由 `BudgetService.execution(...)` 产出（`GET /api/trips/{id}/budget`），

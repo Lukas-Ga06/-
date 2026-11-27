@@ -2,7 +2,7 @@
 
 
 
-> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.16 / Node 20） | 最后验证：2026-11-25 | 事实来源：travel-agent-server/src/main/java/com/travel/agent/entity/、travel-agent-server/src/main/java/com/travel/agent/repository/、travel-agent-server/src/main/resources/db/migration/、sql/init.sql
+> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.16 / Node 20） | 最后验证：2026-11-27 | 事实来源：travel-agent-server/src/main/java/com/travel/agent/entity/、travel-agent-server/src/main/java/com/travel/agent/repository/、travel-agent-server/src/main/resources/db/migration/、sql/init.sql
 
 
 
@@ -354,11 +354,14 @@ erDiagram
 
 
 
-### 2.4 `expense` — 记账（`idx_expense_trip (trip_id)`、`idx_expense_user (user_id)`）
+### 2.4 `expense` — 记账（`idx_expense_trip (trip_id)`、`idx_expense_user (user_id)`、`idx_expense_schedule (schedule_item_id)`）
 
 
 
 个人记账，与 `trip.budget`、`itinerary_item.cost` 组成三套预算口径。
+
+**V30 起账单可以没有行程**：`trip_id` 为空 = 未关联行程的通用账目（「今天买咖啡花了 150」），
+有值 = 原有行程账单。预算聚合只认 `trip_id` 非空的行，通用账目不进任何行程预算（口径见 [能力边界 §1.1](capability-boundaries.md#11-记账口径v30-起账单可以没有行程)）。
 
 
 
@@ -368,7 +371,9 @@ erDiagram
 
 | `id` | `BIGINT` | 否 | 主键，自增 |
 
-| `trip_id` | `BIGINT` | 否 | 所属行程（必填，但无外键） |
+| `trip_id` | `BIGINT` | 是 | 所属行程（无外键）；**V30 起可空**，为空 = 未关联行程的通用账目 |
+
+| `schedule_item_id` | `BIGINT` | 是 | V30 新增：报销/账期关联（`schedule_item.id`），批次 3 预留，暂无写入方；索引 `idx_expense_schedule` |
 
 | `user_id` | `BIGINT` | 否 | 归属用户 |
 
@@ -1234,6 +1239,8 @@ tripRepository.delete(trip);
 
 `deleteByTripId` 也在同一事务里。`pending_plan` 不在此列（按 TTL 过期）。`deleteByTripId` 均为单条 DELETE，但**不做归属校验**：调用方必须先 `getOwned(tripId, userId)`。
 
+V30 起账单可以没有行程，`expenseRepository.deleteByTripId` 只删 `trip_id` 等于被删行程的行；未关联行程的通用账目不属于任何行程，删行程不影响它们。
+
 旧 `invoice` 表不参与级联：`trip_id` 可空、无实体，历史 `expense_id` 可能指向已删账单，只作历史数据保留。
 
 
@@ -1242,19 +1249,31 @@ tripRepository.delete(trip);
 
 
 
-`ExpenseService.overview(userId)` 要求「按行程分组的分项加起来等于 `totalSpent`」，为此把已删除行程的账单并入 `trip_id = 0` 的分组：
+`ExpenseService.overview(userId)` 要求「按行程分组的分项加起来等于 `totalSpent`」。三类归属分开成组，**不合并**：
 
-
+| 分组 | `byTrip[].tripId` | 名称 | 语义 |
+| --- | --- | --- | --- |
+| 真实行程 | `trip.id` | 行程名 | 账单挂在该行程上 |
+| 已删除的行程 | `0`（`ORPHAN_TRIP_ID`） | 已删除的行程 | 曾挂过行程，行程后来被删 |
+| 未关联行程 | `-1`（`UNLINKED_TRIP_ID`） | 未关联行程 | V30 起从没挂过行程的通用账目 |
 
 ```java
 
-private static final Long ORPHAN_TRIP_ID = 0L;
+Long tripKey;
 
-private static final String ORPHAN_TRIP_NAME = "已删除的行程";
+if (row.getTripId() == null) {
 
-Long tripKey = e.getTripId() != null && tripMap.containsKey(e.getTripId())
+    tripKey = UNLINKED_TRIP_ID;          // 通用账目：从没挂过行程
 
-        ? e.getTripId() : ORPHAN_TRIP_ID;   // 行程已删除也要计入，否则分项之和对不上
+} else if (tripMap.containsKey(row.getTripId())) {
+
+    tripKey = row.getTripId();
+
+} else {
+
+    tripKey = ORPHAN_TRIP_ID;            // 行程已删除也要计入，否则分项之和对不上
+
+}
 
 byTrip.merge(tripKey, amount, BigDecimal::add);
 
@@ -1262,7 +1281,8 @@ byTrip.merge(tripKey, amount, BigDecimal::add);
 
 
 
-恒等式：`sum(byTrip[*]) == totalSpent == sum(expense.amount where user_id = ?)`。同理 `byPaymentMethod` 把 `null` 归到 `现金`。
+恒等式：`sum(byTrip[*]) == totalSpent == sum(expense.amount where user_id = ?)`，`-1` 与 `0` 是两个不同的组。
+同理 `byPaymentMethod` 把 `null` 归到 `现金`，`recent[].tripName` 对 `trip_id` 为空的账单填「未关联行程」。
 
 
 
@@ -1336,13 +1356,13 @@ b=<budget>|s=<startDate>|e=<endDate>
 
 
 
-### 6.1 迁移链：V1 基线 → V2–V11（便携）→ V12/V13/V14（按方言分目录）→ V15–V29（便携）
+### 6.1 迁移链：V1 基线 → V2–V11（便携）→ V12/V13/V14（按方言分目录）→ V15–V30（便携）
 
 
 
 **schema 的唯一权威是 Flyway**，两个 profile 的 `ddl-auto` 都是 `validate`（见 6.2）：Hibernate 只校验、不改结构。
 
-共 **29 个版本 / 30 个脚本**（V13 两份、V8/V12 在 MySQL 目录、V14 在 H2 目录）：
+共 **30 个版本 / 31 个脚本**（V13 两份、V8/V12 在 MySQL 目录、V14 在 H2 目录）：
 
 
 
@@ -1408,6 +1428,7 @@ b=<budget>|s=<startDate>|e=<endDate>
 
 | 28 | `V28__agent_run_event.sql` | `db/migration` | 建 `agent_run_event`（`data_json LONGTEXT`，唯一键 `uk_agent_run_event (run_id, seq_no)`，索引 `idx_agent_run_event_run`） | SSE 事件持久化：帧 `id=<runId>:<seq>`、`Last-Event-ID` 与续传端点的数据源；随 14 天追踪保留期清理 |
 | 29 | `V29__agent_run_spend.sql` | `db/migration` | 建 `agent_run_spend`（唯一键 `uk_agent_run_spend_run (run_id)`，索引 `idx_agent_run_spend_created` / `idx_agent_run_spend_user`） | 每轮花费落库：run 收尾写一条快照，`GET /api/agent/runs/{runId}` 的 `spend` 数据源；随 14 天追踪保留期清理 |
+| 30 | `V30__expense_general_ledger.sql` | `db/migration` | `expense.trip_id` 放开为可空；新增 `expense.schedule_item_id` + 索引 `idx_expense_schedule` | 记账与行程解绑（没有当前行程也能记账）；`schedule_item_id` 为批次 3 发票报销预留。双方言共用：`MODIFY COLUMN / ADD COLUMN / CREATE INDEX` 在 H2(MODE=MySQL) 与 MySQL 8.0 都成立，由 `H2FlywayMigrationTest` 实测 |
 
 
 
@@ -1419,9 +1440,9 @@ b=<budget>|s=<startDate>|e=<endDate>
 
 | --- | --- | --- |
 
-| 默认（H2） | `classpath:db/migration,classpath:db/migration-h2` | V1–V11 + V13（H2 版）+ V14 + V15–V29；**没有 V12**，且缺口 V8 是预期 |
+| 默认（H2） | `classpath:db/migration,classpath:db/migration-h2` | V1–V11 + V13（H2 版）+ V14 + V15–V30；**没有 V12**，且缺口 V8 是预期 |
 
-| `mysql` | `classpath:db/migration,classpath:db/migration-mysql` | V1–V13 全链（V8 / V12 / V13 是 MySQL 版）+ V15–V29；没有 V14（H2 专属） |
+| `mysql` | `classpath:db/migration,classpath:db/migration-mysql` | V1–V13 全链（V8 / V12 / V13 是 MySQL 版）+ V15–V30；没有 V14（H2 专属） |
 
 
 
@@ -1545,9 +1566,9 @@ spring:
 
 | --- | --- | --- |
 
-| 全新库（空库） | `V1` 建全 15 张基础表 + 14 个索引 → `V2`–`V11` 增量 → 当前 profile 的 `V13` 补齐缺口（`mysql` 另有 `V8`/`V12`）→ `V14`–`V29` → Hibernate `validate` 校验 | **什么都不用**：不再需要手工执行 `sql/init.sql`（该文件已标注弃用，见第 8 节） |
+| 全新库（空库） | `V1` 建全 15 张基础表 + 14 个索引 → `V2`–`V11` 增量 → 当前 profile 的 `V13` 补齐缺口（`mysql` 另有 `V8`/`V12`）→ `V14`–`V30` → Hibernate `validate` 校验 | **什么都不用**：不再需要手工执行 `sql/init.sql`（该文件已标注弃用，见第 8 节） |
 
-| 存量库（有表、无历史或历史停在旧版本） | `baseline-on-migrate` 在 V1 打基线标记，**V1 不重跑**，只执行未应用的增量（含 V29）；`V13` 在存量库上逐条命中「已存在」→ 空转 | 升级前**先跑一次 repair**（V4 checksum 变过，见 6.1.1） |
+| 存量库（有表、无历史或历史停在旧版本） | `baseline-on-migrate` 在 V1 打基线标记，**V1 不重跑**，只执行未应用的增量（含 V30）；`V13` 在存量库上逐条命中「已存在」→ 空转 | 升级前**先跑一次 repair**（V4 checksum 变过，见 6.1.1） |
 
 
 
@@ -1749,7 +1770,7 @@ Remove-Item -Recurse -Force travel-agent-server/data -ErrorAction SilentlyContin
 
 # 3) 重启后端：全新库由 Flyway 建 schema —— V1（基线）→ V2–V11 → 当前 profile 的 V13
 
-#    （mysql profile 另含 V8 / V12）→ V14–V29，随后 Hibernate ddl-auto=validate 校验；
+#    （mysql profile 另含 V8 / V12）→ V14–V30，随后 Hibernate ddl-auto=validate 校验；
 
 #    DataInitializer 重建 demo 账号。不需要手工执行 sql/init.sql。
 
@@ -1795,7 +1816,8 @@ DELETE FROM memo;              DELETE FROM trip;
 
 
 
-注意 `DELETE FROM trip;` 只删主表会留下孤儿账单——它们会继续出现在「已删除的行程」分组里（见 5.2），不会消失。
+注意 `DELETE FROM trip;` 只删主表会留下孤儿账单——它们会继续出现在「已删除的行程」分组里（见 5.2），不会消失；
+`trip_id` 为空的通用账目始终在「未关联行程」分组里，不受行程增删影响。
 
 
 
@@ -1837,11 +1859,19 @@ FROM expense WHERE user_id = 1;
 
 
 
--- 按行程分组，对齐 overview 的 byTrip（含孤儿账单兜底）
+-- 按行程分组，对齐 overview 的 byTrip（真实行程 / 已删除行程=0 / 未关联行程=-1）
 
-SELECT COALESCE(t.id, 0) AS trip_id,
+SELECT CASE WHEN e.trip_id IS NULL THEN -1
 
-       COALESCE(t.name, '已删除的行程') AS trip_name,
+            WHEN t.id IS NULL THEN 0
+
+            ELSE t.id END AS trip_id,
+
+       CASE WHEN e.trip_id IS NULL THEN '未关联行程'
+
+            WHEN t.id IS NULL THEN '已删除的行程'
+
+            ELSE t.name END AS trip_name,
 
        COALESCE(SUM(e.amount), 0) AS total
 
@@ -1851,7 +1881,17 @@ LEFT JOIN trip t ON t.id = e.trip_id AND t.user_id = e.user_id
 
 WHERE e.user_id = 1
 
-GROUP BY COALESCE(t.id, 0), COALESCE(t.name, '已删除的行程')
+GROUP BY CASE WHEN e.trip_id IS NULL THEN -1
+
+              WHEN t.id IS NULL THEN 0
+
+              ELSE t.id END,
+
+         CASE WHEN e.trip_id IS NULL THEN '未关联行程'
+
+              WHEN t.id IS NULL THEN '已删除的行程'
+
+              ELSE t.name END
 
 ORDER BY total DESC;
 
@@ -2015,17 +2055,19 @@ P0 之后下表涉及的 6 张旧模块表（`daily_report` / `mail_item` / `mee
 
 | `repository/` 下 Repository 接口 | **25** | 与实体一一对应 |
 
-| 显式 `@Index` 声明 | **38** 条，分布在 22 个实体上 | 源码 `@Index(` 计数（各表索引已在 2–4 节标题中逐条列出；`idx_pending_plan_claim` 只在 V25，不在实体注解） |
+| 显式 `@Index` 声明 | **39** 条，分布在 22 个实体上 | 源码 `@Index(` 计数（各表索引已在 2–4 节标题中逐条列出；`idx_pending_plan_claim` 只在 V25，不在实体注解） |
 
 | `@UniqueConstraint` | **11** 条 | `users.username`（未命名）、`uk_llm_quota_user_date`、`uk_rag_document_key`、`uk_rag_version`、`uk_schedule_source_key`、`uk_conv_turn_role`、`uk_conv_meta_user_conv`、`uk_agent_run_event`、`uk_agent_run_stage`、`uk_plan_outbox_event`、`uk_plan_outbox_plan_module` |
 
-| Flyway 版本 / 脚本文件 | **29 个版本 / 30 个文件**（V1–V29；V13 双方言两份，V8/V12 仅 MySQL，V14 仅 H2） | `db/migration` 25 个 + `db/migration-mysql` 3 个 + `db/migration-h2` 2 个 |
+| Flyway 版本 / 脚本文件 | **30 个版本 / 31 个文件**（V1–V30；V13 双方言两份，V8/V12 仅 MySQL，V14 仅 H2） | `db/migration` 26 个 + `db/migration-mysql` 3 个 + `db/migration-h2` 2 个 |
 
 | V1 基线内容 | **15 张表 + 14 个索引** | `V1__baseline.sql` 的 `CREATE TABLE` / `CREATE INDEX` 计数 |
 
 | V19 增量内容 | **4 列 + 1 张表（3 索引）+ 8 列（schedule/memo 各 4）** | `V19__travel_closed_loop.sql` |
 
 | V25–V29 增量内容 | **5 列 + 4 张新表 + 13 个索引/唯一键** | `V25`–`V29`；明细见 6.1 与 4.6/4.7 |
+
+| V30 增量内容 | **1 列放开可空 + 1 列 + 1 个索引** | `V30__expense_general_ledger.sql`（`trip_id` 可空、`schedule_item_id`、`idx_expense_schedule`） |
 
 | 后端测试 | **以 `mvn test` / CI 输出为准** | 不在本文维护静态用例数 |
 
