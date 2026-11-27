@@ -24,6 +24,8 @@ public class IntentResult {
     public static final String QUERY_MEMO = "QUERY_MEMO";
     public static final String ADD_SCHEDULE = "ADD_SCHEDULE";
     public static final String QUERY_SCHEDULE = "QUERY_SCHEDULE";
+    /** 只读：查询某天/某范围内的空闲时段（08:00–22:00 窗口） */
+    public static final String QUERY_FREE_TIME = "QUERY_FREE_TIME";
     /** 调用外部 MCP 工具（travel.mcp.servers 注册的 mcp_* 只读工具）；仅 LLM 路径可产出 */
     public static final String INVOKE_TOOL = "INVOKE_TOOL";
     public static final String CHITCHAT = "CHITCHAT";

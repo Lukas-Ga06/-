@@ -43,7 +43,7 @@ public class IntentAgent {
             IntentResult.PLAN_TRIP, IntentResult.MODIFY_ITINERARY, IntentResult.QUERY_BUDGET,
             IntentResult.QUERY_KNOWLEDGE, IntentResult.RECORD_EXPENSE,
             IntentResult.ADD_MEMO, IntentResult.QUERY_MEMO,
-            IntentResult.ADD_SCHEDULE, IntentResult.QUERY_SCHEDULE,
+            IntentResult.ADD_SCHEDULE, IntentResult.QUERY_SCHEDULE, IntentResult.QUERY_FREE_TIME,
             IntentResult.INVOKE_TOOL, IntentResult.CHITCHAT);
 
     private final LlmClient llmClient;
@@ -98,6 +98,7 @@ public class IntentAgent {
                     QUERY_KNOWLEDGE（旅游知识问答，如攻略/推荐/介绍）、RECORD_EXPENSE（记账：记录一笔实际花费，如「记一笔午餐45元」）、
                     ADD_MEMO（添加个人备忘/待办，如「记一下明天办签证」）、QUERY_MEMO（查看备忘/待办列表）、
                     ADD_SCHEDULE（添加出行日程/提醒，如「明天下午3点去办签证」）、QUERY_SCHEDULE（查看日程安排）、
+                    QUERY_FREE_TIME（查询空闲时段，如「明天下午有空吗」「下周哪些时间空闲」）、
                     CHITCHAT（其他闲聊）。
                     %s
                     target 为操作目标：OUTDOOR_ACTIVITY / SELECTED_ITEM / NONE。
@@ -327,7 +328,18 @@ public class IntentAgent {
                     .intent(IntentResult.QUERY_SCHEDULE).target(IntentResult.TARGET_NONE).constraints(constraints).build();
         }
 
-        // 6. 强规划意图：明确的规划动词，或「天数 + 出行词」组合，或「城市 + 天数」的出行说法
+        // 6. 空闲时段查询（只读）：放在排日程判定之后（「明天下午3点开评审会」仍是 ADD_SCHEDULE），
+        //    放在强规划与疑问句之前（「明天有空吗」不该落到知识问答）。
+        //    带规划动词/行程尺度的消息不算空闲查询，交给后面的规划分支。
+        boolean freeTimeQuestion = MessageParser.mentions(message,
+                "有空", "空闲", "空档", "什么时候有时间", "哪些时间", "时间空不空")
+                && !MessageParser.mentions(message, "规划", "想去", "行程", "几天", "天数");
+        if (freeTimeQuestion) {
+            return IntentResult.builder()
+                    .intent(IntentResult.QUERY_FREE_TIME).target(IntentResult.TARGET_NONE).constraints(constraints).build();
+        }
+
+        // 7. 强规划意图：明确的规划动词，或「天数 + 出行词」组合，或「城市 + 天数」的出行说法
         //    （「三个人下周六去北京两天」没有规划动词，但目的地/天数俱全，就是一次规划请求；
         //     带疑问词的「上海三天怎么玩」仍按知识问答处理，交给下面的疑问句分支）
         boolean adviceQuestion = MessageParser.mentions(message,
@@ -343,7 +355,7 @@ public class IntentAgent {
                     .intent(IntentResult.PLAN_TRIP).target(IntentResult.TARGET_NONE).constraints(constraints).build();
         }
 
-        // 7. 疑问句 → 预算 / 知识问答
+        // 8. 疑问句 → 预算 / 知识问答
         boolean money = MessageParser.mentions(message, "预算", "花费", "花多少", "多少钱", "贵不贵", "超支");
         boolean question = MessageParser.mentions(message,
                 "什么", "哪些", "为什么", "怎么", "攻略", "介绍", "注意", "值得", "推荐", "适合", "吗", "？", "?");
