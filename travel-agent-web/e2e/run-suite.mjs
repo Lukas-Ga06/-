@@ -2,25 +2,25 @@
 /**
  * 专项 e2e 套件启动器：把套件名转成 `E2E_SUITE`，再原样透传命令行参数给 Playwright。
  *
- * 为什么不直接在 package.json 里写 `E2E_SUITE=mobile playwright test`：
+ * 为什么不直接在 package.json 里写 `E2E_SUITE=network playwright test`：
  * Windows 的 npm script 走 cmd.exe，不支持 `VAR=value cmd` 前缀；装 cross-env 又会多一个依赖。
  * 用 Node 设环境变量再 spawn，Windows / Linux / macOS 行为一致，且不额外安装任何包。
  *
  * 用法：
- *   node e2e/run-suite.mjs mobile [playwright 参数...]
+ *   node e2e/run-suite.mjs network [playwright 参数...]
  * 等价于：
- *   E2E_SUITE=mobile npx playwright test [playwright 参数...]
+ *   E2E_SUITE=network npx playwright test [playwright 参数...]
  */
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 
-const SUITES = new Set(['default', 'mobile', 'network', 'multi', 'device']);
+const SUITES = new Set(['default', 'network', 'multi', 'device']);
 const [, , suite, ...rest] = process.argv;
 
 if (!suite || !SUITES.has(suite.toLowerCase())) {
   console.error(`[run-suite] 需要套件名：${[...SUITES].join(' | ')}`);
-  console.error('  例：node e2e/run-suite.mjs mobile');
+  console.error('  例：node e2e/run-suite.mjs network');
   process.exit(2);
 }
 

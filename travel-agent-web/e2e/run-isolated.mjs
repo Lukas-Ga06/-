@@ -16,8 +16,8 @@
  * 用法：
  *   npm run build            # preview 需要 dist；脚本检测到缺失会自动构建一次
  *   npm run e2e:isolated     # 默认套件（Chromium 桌面）
- *   npm run e2e:device:isolated  # 移动端 WebKit + 弱网 + 多端并发
- *   node e2e/run-isolated.mjs --suite mobile -- --grep 地图
+ *   npm run e2e:device:isolated  # 弱网 + 多端并发
+ *   node e2e/run-isolated.mjs --suite network -- --grep 地图
  */
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -35,7 +35,7 @@ const suite = suiteIndex >= 0 ? (argv[suiteIndex + 1] ?? '').toLowerCase() : 'de
 const passthrough = argv.filter((_, index) => index !== suiteIndex && index !== suiteIndex + 1);
 if (passthrough[0] === '--') passthrough.shift();
 
-const VALID_SUITES = new Set(['default', 'mobile', 'network', 'multi', 'device']);
+const VALID_SUITES = new Set(['default', 'network', 'multi', 'device']);
 if (!VALID_SUITES.has(suite)) {
   console.error(`[e2e] 未知套件：${suite}（可选：${[...VALID_SUITES].join(' | ')}）`);
   process.exit(2);

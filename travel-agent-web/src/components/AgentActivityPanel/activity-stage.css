@@ -1,0 +1,74 @@
+/* ============================================================
+   Agent 过程时间线的阶段语义（P1-E 3/4）
+   ------------------------------------------------------------
+   面板骨架（.agent-activity / .aa-head / .aa-list …）在 styles/components.css；
+   这里只补「阶段标签」「降级结论」「行轻重」三组规则。
+   颜色取 tokens.css 的语义令牌，不写死色值。
+   ============================================================ */
+
+/* 阶段标签：出现在阶段切换的第一行；降级行每次都带，保证降级始终显式 */
+.agent-activity .aa-stage {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-full);
+  background: var(--surface-3);
+  color: var(--text-3);
+  font-size: 10px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.agent-activity .aa-stage[data-stage='degrade'] {
+  border-color: var(--warn);
+  background: var(--warn-weak);
+  color: var(--warn);
+}
+
+.agent-activity .aa-stage[data-stage='dispatch'] {
+  border-color: var(--border-strong);
+}
+
+/* 阶段切换：留一点上间距，时间线读起来是「几段」而不是「一串」 */
+.agent-activity .aa-row.stage-start {
+  margin-top: 4px;
+}
+
+.agent-activity .aa-row.warn {
+  color: var(--warn);
+}
+
+.agent-activity .aa-row.error {
+  color: var(--danger);
+}
+
+.agent-activity .aa-row.muted {
+  color: var(--ink-3);
+}
+
+/* 降级结论：折叠态也可见，回答「这次结果是不是走了降级路径、为什么」 */
+.agent-activity .aa-degrade {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0 14px 6px 30px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--warn);
+  border-radius: var(--r-sm);
+  background: var(--warn-weak);
+  color: var(--warn);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.agent-activity .aa-degrade .aa-degrade-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 720px) {
+  .agent-activity .aa-degrade {
+    margin-left: 22px;
+  }
+}

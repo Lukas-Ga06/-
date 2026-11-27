@@ -40,10 +40,41 @@ public class McpToolBridge implements SmartLifecycle {
     private final ToolRegistry toolRegistry;
     private final ObjectMapper objectMapper;
     private final List<McpConnection> connections = new CopyOnWriteArrayList<>();
+    /** 每个配置 server 的接入结果与治理闸门；status() 每次据此重新组装，计数是活的 */
+    private final List<ServerEntry> entries = new CopyOnWriteArrayList<>();
     private volatile boolean running = false;
 
-    /** 一个 MCP server 的接入结果（status 数组里的一行） */
-    public record McpServerStatus(String name, boolean connected, int toolCount, String lastError) { }
+    /**
+     * 一个 MCP server 的接入结果（status 数组里的一行）。
+     *
+     * <p>第二阶段新增治理字段：{@code calls/failures/rejected} 是 server 级累计计数，
+     * {@code circuit} 是熔断状态（closed/open/half_open）；{@code callsThisMinute/maxCallsPerMinute}
+     * 是配额窗口的「已用/上限」（两者同为 null 表示未配置配额——不是 0 次调用）。
+     * 旧构造器保留，供不关心治理的调用方（测试、未启动快照）继续使用。
+     */
+    public record McpServerStatus(String name, boolean connected, int toolCount, String lastError,
+                                  int calls, int failures, int rejected, String circuit,
+                                  Integer callsThisMinute, Integer maxCallsPerMinute) {
+
+        /**
+         * 不带配额字段的构造器：{@code callsThisMinute/maxCallsPerMinute} 为 null。
+         *
+         * <p>null 在这里有明确含义——「未配置每分钟配额」或「调用方不关心配额」。
+         * 它<b>不等于</b> 0：0 表示「本窗口确实一次都没调用」（仅在上限已配置时才是可读的事实）。
+         */
+        public McpServerStatus(String name, boolean connected, int toolCount, String lastError,
+                               int calls, int failures, int rejected, String circuit) {
+            this(name, connected, toolCount, lastError, calls, failures, rejected, circuit, null, null);
+        }
+
+        public McpServerStatus(String name, boolean connected, int toolCount, String lastError) {
+            this(name, connected, toolCount, lastError, 0, 0, 0, McpGovernor.CircuitState.CLOSED.tag());
+        }
+    }
+
+    /** 内部：接入结果 + 治理闸门（不对外暴露） */
+    private record ServerEntry(String name, boolean connected, int toolCount, String lastError,
+                               McpGovernor governor) { }
 
     /**
      * 接入状态快照（不可变，volatile 引用整体替换）。
@@ -76,23 +107,25 @@ public class McpToolBridge implements SmartLifecycle {
             return;
         }
         running = true;
-        List<McpServerStatus> serverStatuses = new ArrayList<>();
+        entries.clear();
         for (McpProperties.Server server : properties.getServers()) {
-            serverStatuses.add(connect(server));
+            entries.add(connect(server));
         }
-        int totalTools = serverStatuses.stream().mapToInt(McpServerStatus::toolCount).sum();
-        String lastError = serverStatuses.stream()
-                .map(McpServerStatus::lastError)
+        int totalTools = entries.stream().filter(ServerEntry::connected)
+                .mapToInt(ServerEntry::toolCount).sum();
+        String lastError = entries.stream()
+                .map(ServerEntry::lastError)
                 .filter(error -> error != null && !error.isBlank())
                 .findFirst()
                 .orElse(null);
-        status = new McpStatusSnapshot(true, true, totalTools, List.copyOf(serverStatuses), lastError);
-        log.info("MCP 接入完成：{} 个 server，共 {} 个工具{}", serverStatuses.size(), totalTools,
+        status = new McpStatusSnapshot(true, true, totalTools, rows(), lastError);
+        log.info("MCP 接入完成：{} 个 server，共 {} 个工具{}", entries.size(), totalTools,
                 lastError == null ? "" : "（最近错误：" + lastError + "）");
     }
 
-    private McpServerStatus connect(McpProperties.Server server) {
+    private ServerEntry connect(McpProperties.Server server) {
         String name = displayName(server);
+        McpGovernor governor = new McpGovernor(name, server);
         McpConnection connection = null;
         try {
             McpTransport transport = server.getUrl() != null && !server.getUrl().isBlank()
@@ -102,11 +135,16 @@ public class McpToolBridge implements SmartLifecycle {
             connection.initialize("travel-agent", "0.1.0");
             int registered = 0;
             for (McpConnection.McpToolDef def : connection.listTools()) {
+                // 白名单在注册期就过滤：模型看不到未被允许的工具，提示词与工具清单保持一致
+                if (!governor.permitsTool(def.name())) {
+                    log.info("MCP 工具 [{}] {} 不在 allow-tools 白名单内，跳过注册", name, def.name());
+                    continue;
+                }
                 String registryName = "mcp_" + sanitize(server.getName(), MAX_SERVER_NAME)
                         + "_" + sanitize(def.name(), MAX_TOOL_NAME);
                 AgentTool tool = new McpAgentTool(registryName, def.name(),
                         "(MCP:" + server.getName() + ") " + orDefault(def.description(), def.name()) + paramHint(def.inputSchema()),
-                        server.isReadOnly(), connection);
+                        server.isReadOnly(), connection, name, governor);
                 if (toolRegistry.register(tool)) {
                     registered++;
                 } else {
@@ -118,19 +156,46 @@ public class McpToolBridge implements SmartLifecycle {
             connections.add(connection);
             log.info("MCP 服务器 [{}] ({}) 已接入，注册 {} 个工具", server.getName(),
                     connection.serverName(), registered);
-            return new McpServerStatus(name, true, registered, null);
+            return new ServerEntry(name, true, registered, null, governor);
         } catch (Exception e) {
             // 单个 server 失败只告警：不阻断应用启动，也不影响其余 server
             String error = truncateError(e);
             log.warn("MCP 服务器 [{}] 接入失败，已跳过: {}", server.getName(), error);
             closeQuietly(connection, server.getName());
-            return new McpServerStatus(name, false, 0, error);
+            return new ServerEntry(name, false, 0, error, governor);
         }
     }
 
-    /** 当前接入状态快照（线程安全：整体替换的不可变对象，可被 status 接口任意线程读取） */
+    /**
+     * 当前接入状态快照（线程安全）：接入结果取自 {@code status}，逐 server 计数每次都从
+     * {@link McpGovernor} 现读——否则状态接口在启动后就再也看不到调用/失败/熔断变化。
+     */
     public McpStatusSnapshot status() {
-        return status;
+        McpStatusSnapshot base = status;
+        if (entries.isEmpty()) {
+            return base;
+        }
+        int totalTools = entries.stream().filter(ServerEntry::connected)
+                .mapToInt(ServerEntry::toolCount).sum();
+        String lastError = entries.stream()
+                .map(ServerEntry::lastError)
+                .filter(error -> error != null && !error.isBlank())
+                .findFirst()
+                .orElse(null);
+        return new McpStatusSnapshot(base.enabled(), base.running(), totalTools, rows(), lastError);
+    }
+
+    /** 逐 server 状态行（含实时治理计数；配额未配置时分钟窗口两项为 null，不是 0） */
+    private List<McpServerStatus> rows() {
+        return entries.stream().map(entry -> {
+            McpGovernor.Snapshot snapshot = entry.governor().snapshot();
+            int quota = entry.governor().maxCallsPerMinute();
+            return new McpServerStatus(entry.name(), entry.connected(), entry.toolCount(), entry.lastError(),
+                    snapshot.calls(), snapshot.failures(), snapshot.rejected(),
+                    snapshot.circuit().tag(),
+                    quota > 0 ? snapshot.callsThisMinute() : null,
+                    quota > 0 ? quota : null);
+        }).toList();
     }
 
     private static String displayName(McpProperties.Server server) {
@@ -237,11 +302,14 @@ public class McpToolBridge implements SmartLifecycle {
             }
         }
         connections.clear();
-        // 关闭后不再有可用连接：快照保留「启用过」的事实，但报告为未连接
-        List<McpServerStatus> stopped = status.servers().stream()
-                .map(s -> new McpServerStatus(s.name(), false, 0, s.lastError()))
+        // 关闭后不再有可用连接：快照保留「启用过」的事实，但报告为未连接；
+        // 治理计数保留（停止后仍可解释「这次运行里这个 server 被调了多少次/熔断过没有」）
+        List<ServerEntry> stopped = entries.stream()
+                .map(entry -> new ServerEntry(entry.name(), false, 0, entry.lastError(), entry.governor()))
                 .toList();
-        status = new McpStatusSnapshot(status.enabled(), false, 0, stopped, status.lastError());
+        entries.clear();
+        entries.addAll(stopped);
+        status = new McpStatusSnapshot(status.enabled(), false, 0, rows(), status.lastError());
     }
 
     @Override

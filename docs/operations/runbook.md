@@ -105,13 +105,20 @@ tail -f logs/travel-agent-server.log
 
 ## 2. TravelPlanDegradedHigh (P1)
 
-**现象**：30 分钟窗口内超过 5% 的规划跳过研究/结构化规划；用户拿到"未经审核/模板化"的方案（回复里有"时间预算"提示、SSE 有 `budget_degraded` 事件）。
+**现象**：30 分钟窗口内超过 5% 的规划跳过研究/结构化规划；用户拿到"未经审核/模板化"的方案（回复里有预算提示、SSE 有 `budget_degraded` 事件）。
 
 **排查**：
 1. 先看是否"变慢导致降级"：`agent_stage_seconds` 的 plan/reflect P95，`llm_latency_seconds` 的均值。
 2. `llm.calls{result="failed"}` 是否上升（模型不可用 → 结构化规划失败 → 规则路径）。
 3. 外部工具（高德/天气）是否变慢：看 `external_degraded_total`（T3 已合入时）与工具日志。
 4. 预算是否被调小：`AGENT_BUDGET_TOTAL_MS` 环境变量、`travel.agent.budget.total-ms`。
+5. **是时间还是花费**：回复前缀 `⏳ 本轮预算` 之后会写「时间预算（30.0s）已用尽」或「花费预算（token 已用 X/Y）已用尽」；
+   再看 `travel_agent_spend_total{result="exhausted",limit="..."}` 的分项速率——`limit=tokens|llm_calls` 说明上限设紧或单轮用量变大，
+   `limit=tool_calls` 说明工具调用量异常（工具风暴），`limit=retries` 说明失败在自我放大。
+
+**止血**：调大总预算（`AGENT_BUDGET_TOTAL_MS=45000`，需评估端到端体验）或临时关掉审核/研究；若是花费项触顶，
+按需调 `AGENT_SPEND_MAX_TOKENS` / `AGENT_SPEND_MAX_LLM_CALLS`（费用上限需要真实单价配置才会触发）；
+若是 LLM 变慢，切备用供应商（改 `travel.llm.base-url/model` 后重启）。
 
 **止血**：调大总预算（`AGENT_BUDGET_TOTAL_MS=45000`，需评估端到端体验）或临时关掉审核/研究；若是 LLM 变慢，切备用供应商（改 `travel.llm.base-url/model` 后重启）。
 **回滚**：预算/模型配置回退。
@@ -330,6 +337,137 @@ tail -f logs/travel-agent-server.log
 
 ---
 
+## 16. TravelOutboxDeadPresent (P0)
+
+**现象**：`outbox_status{status="dead"} > 0` 持续 10 分钟——确认提交后的同步待办重试耗尽（`plan_outbox.status=DEAD`）。用户看到「已确认」，但日程 / 预算快照 / 足迹可能没有同步。
+
+**排查**：
+1. 查该行证据：`SELECT plan_id, module, attempts, last_error, updated_at FROM plan_outbox WHERE status='DEAD' ORDER BY updated_at DESC;`
+2. 按 `module` 定位下游：`schedule` / `budget` / `footprint` 各自失败原因不同（幂等冲突、外键数据缺失、下游异常）。
+3. 修复根因（数据问题或代码 bug）后再补投；补投入口：`POST /api/agent/executions/{id}/retry`，或按 [`backup-restore`](backup-restore.md) 同风格的人工 SQL 复核。
+
+**止血**：先修复根因再重排；**不要**直接 `UPDATE status='PENDING'` 掩盖 `last_error` 与 `attempts` 证据。
+**回滚**：无需回滚业务；若根因是本次发布引入，按发布回滚流程处理。**升级**：同步模块 owner。
+
+---
+
+## 17. TravelOutboxBacklogHigh (P1)
+
+**现象**：`outbox_status{status="pending"} > 100` 持续 15 分钟。用户在确认后长时间看到「已提交、待同步」。
+
+**排查**：
+1. 投递器是否在跑：日志里应有周期性「Outbox 投递」轮次；没有则是调度被停/线程池耗尽/进程不健康。
+2. 是否持续失败：`SELECT status, count(*) FROM plan_outbox GROUP BY status;` 与 `last_error` 聚合。
+3. 下游 DB 延迟/锁等待；`travel.outbox.dispatch-interval-ms` 是否被调得过大。
+4. 积压量级：`outbox_status{status="pending"}` 的曲线是台阶式（每次确认 +N）还是持续爬升（投递停滞）。
+
+**止血**：恢复投递器 / 临时调小 `OUTBOX_DISPATCH_INTERVAL_MS`（需评估 DB 压力）；修复下游后再观察积压下降。
+**回滚**：配置回退。**升级**：平台/DB owner（若为基础设施问题）。
+
+---
+
+## 18. TravelAgentRunAbandoned (P1)
+
+**现象**：`increase(agent_run_abandoned_total[30m]) > 0`——恢复任务把心跳超时的 RUNNING 判为 ABANDONED。执行体已不存在、结果未知（不是执行体自报的 FAILED）。
+
+**排查**：
+1. 进程是否重启/崩溃/OOM：看容器重启计数、`kubectl describe pod` 的 `Last State`、JVM OOM 日志。
+2. `SELECT run_id, stage, heartbeat_at, started_at FROM agent_run WHERE status='ABANDONED' ORDER BY ended_at DESC;` 看停在哪一阶段（LLM 调用、外部工具、DB 写入）。
+3. 心跳阈值 `travel.agent.run-recovery.stale-after-ms` 是否被调小到正常慢请求以下（误判）。
+4. 前端/续传端点的行为：ABANDONED 会收到合成 `complete(FAILED)` 提示重试；确认用户没有被挂在「运行中」。
+
+**止血**：修复崩溃根因（内存/外部依赖/线程池）；**不要**把阈值调大来掩盖崩溃。
+**回滚**：无需回滚业务。**升级**：后端 owner；若同一实例 30 分钟内多次出现，按 P0 处理。
+
+---
+
+## 19. TravelPendingPlanSweptHigh (P1)
+
+**现象**：`increase(pending_plan_swept_total[30m]) > 5`——过期 `CONFIRMING` 被清扫回 `PENDING` 的次数异常。每次清扫都意味着一次确认提交没能在租约内完成。
+
+**排查**：
+1. 确认提交耗时：日志里 confirm 段耗时、`travel.pending-plan.lease-minutes`（默认 5 分钟）是否小于正常提交耗时。
+2. DB 延迟/锁等待：提交事务里包含行程落库 + 3 条 Outbox 待办 + 栅栏删除，慢查询会直接推高清扫率。
+3. 进程重启：重启时所有在途 CONFIRMING 都会在租约到期后被清扫。
+4. 是否多实例争抢同一方案（正常并发冲突应返回 409，不应留下 CONFIRMING）。
+
+**止血**：修复 DB 慢查询/提交耗时；**不要**一味调大租约（会延长用户被卡住的时间）。**回滚**：配置回退。**升级**：后端/DB owner。
+
+---
+
+## 20. TravelMcpCircuitOpen (P1)
+
+**现象**：`max by (server, instance) (mcp_server_circuit{state="open"}) == 1` 持续 5 分钟（每条告警对应一个实例；单实例部署下等价于按 server 看）。`travel.mcp.servers[]` 里的某个 server 被治理闸门摘掉：连续失败达到 `failure-threshold` 后熔断打开，冷却期内所有调用被当场拒绝（503），模型拿不到这个 server 的工具（只能换 server 或退回内置工具）。`failure-threshold` 默认 0 = 未启用熔断，此时这条规则**永远不会触发**。
+
+**怎么确认**（先分清三种「工具不见了」，修法完全不同）：
+
+| 判据 | 含义 | 去哪看 |
+| --- | --- | --- |
+| `mcp_server_enabled == 0` | 总开关关了。此时逐 server 序列是 NaN，本告警根本不会触发 | `travel.mcp.enabled` / `MCP_ENABLED` |
+| `mcp_server_connected{server} == 0` | 启动时就没接上（不是运行时熔断） | `/api/system/status` 的 `mcpLastError`、启动日志 `MCP 服务器 [...] 接入失败` |
+| `mcp_server_circuit{state="open"} == 1` | 本告警：运行时被闸门摘掉 | 下方 2–5 步 |
+
+1. **影响面**：`rate(mcp_server_rejected{server="<name>"}[10m])` 涨而 `rate(mcp_server_calls{server="<name>"}[10m])` 不动 = 模型正在被拒绝（真实影响）；两者都不动 = 冷却结束后还没人调用过，告警只是「闸门还开着」。
+2. **原因**：日志 `[MCP-Audit] ... outcome=failure` 的 `reason=`（超时 / 连接失败 / 上游 4xx-5xx / 参数被上游拒绝），同一行尾部 `auditTag` 带 `state=open calls=… failures=… rejected=… [minuteCalls=…/…]`。
+3. **上游本身**：HTTP server（配了 `url`）用容器内 `curl` 直接打它的 `/mcp` 端点；stdio server（配了 `command`）按配置手动跑一次（如 `npx -y @amap/amap-maps-mcp-server`），区分「超时」「凭据/Key 失效」「子进程根本起不来」。
+4. **是不是被配额烧满**：高德 `10021` 与 `max-calls-per-minute` 用尽都会把失败推到阈值；看 `auditTag` 里的 `minuteCalls` 与 `mcp_server_rejected` 的增速。
+
+**处置**：
+
+- **上游已恢复**：不用做任何操作。冷却（`cooldown-ms`，默认 60s）结束后的第一次调用自动半开探测，成功即 `state="closed"`，告警自动解除。
+- **上游已恢复但一直没人调用**：熔断不会自己关（状态机只在调用时推进）。触发一次「无害调用」让它探测（跑一次只读查询，或对 HTTP MCP 端点做一次 `tools/list` 握手）；**不要**为了消警去删指标或改规则。
+- **上游持续故障**：不要只把 `failure-threshold` 调大（闸门消失，失败继续烧工具次数与时间预算）。正确顺序是收紧 `max-calls-per-minute` → `allow-tools` 缩到仍可用的工具 → 该 server `enabled: false` 后重启（让模型看不到坏工具，而不是看得到、每次都失败）。
+- **熔断由我方 bug 触发**（工具 schema/返回值解析变了、适配层一直抛异常）：回滚该适配或修 schema，别用阈值掩盖。
+
+**什么时候算恢复**：`mcp_server_circuit{state="open"}` 回到 0（`state="closed"` 为 1），并且 `rate(mcp_server_failures[10m])` 回落到 30% 以下。如果曲线只是因为**没人调用**而变平，必须看到一次成功的半开探测（`[MCP-Audit] outcome=success` 且 `state=closed`）才算恢复——「没人用」不等于「修好了」。
+
+---
+
+## 21. TravelMcpServerFailureRateHigh (P1)
+
+**现象**：10 分钟窗口内某个 MCP server 在**同一个实例上**的 `mcp_server_failures / mcp_server_calls > 30%`，且该实例 `increase(mcp_server_calls[10m]) >= 5`（分子分母都按 `(server, instance)` 取，跨实例相加会把 A 的失败摊薄进 B 的成功里）。含义是「这个数据源大部分调用都在失败，而模型还在反复试它」——用户侧表现为方案里少了路线/POI/外部资料，或者回复里出现「外部工具暂时不可用」。
+
+**怎么确认**：
+
+1. **先看分母是否可信**：`sum by (server, instance) (increase(mcp_server_calls[10m]))`。规则带小样本保护（≥5），能触发说明样本够；若 `increase` 掉到 5 以下，告警会因为样本不足自行解除，这时的「恢复」不代表修好。
+2. **失败分布**：按 `server` + `tool` 聚合 `[MCP-Audit] ... outcome=failure` 的 `reason=`。超时、连接失败、上游业务错误（如高德 `10021` 配额、Key 无效）、参数校验失败，四类修法完全不同。
+3. **和「被拒绝」区分**：白名单/配额/熔断拒绝记在 `mcp_server_rejected`，**不进** calls/failures，所以失败率偏高不是闸门造成的；若 `rejected` 同时在涨，先按 §20 处理。
+4. **上游与网络**：Key/额度、DNS/出网（容器内 `curl` 复现）、供应商状态页。
+5. **是否刚发布**：工具名或参数 `inputSchema` 变了 → 模型按旧参数调用、每次都失败，失败率往往直接 100%。对照发布记录与 `McpToolBridge#paramHint` 生成的参数说明。
+
+**处置**：
+
+- 上游故障/额度耗尽：换 Key、降并发（`max-calls-per-minute`）、切备用 server。
+- 参数/schema 变化：修适配或提示词里的参数说明，回滚引入变化的发布。
+- 不值得修的数据源：`allow-tools` 去掉对应工具，或该 server `enabled: false`，让模型别再试。
+- **不要**用「调大 `failure-threshold`」当修复：失败照样发生，只是熔断晚一点，预算先被烧掉。
+
+**什么时候算恢复**：失败率回落到 30% 以下并保持 10 分钟（`for` 窗口），且该实例 `increase(mcp_server_calls[10m]) >= 5` 仍成立（证明是「成功变多」而不是「没人用了」）。若 calls 同时归零，按「这个数据源退化成没人用」单独评估（看 §1/§2 的规划降级率与用户可见质量）。
+
+---
+
+## 22. TravelMcpQuotaPressureHigh (P1)
+
+**现象**：某个 MCP server 的 `mcp_server_calls_this_minute / mcp_server_quota > 90%`，在同一实例上持续 5 个 60 秒窗口。含义是「这个 server 的每分钟配额快用尽了」——再上去就会返回 503（`Decision.deny(503, "每分钟调用上限已用尽")`），模型在该 server 上想调也调不到，用户侧表现为方案缺路线/POI/外部资料，或回复里出现「外部工具暂时不可用」。配额未配置（`max-calls-per-minute=0`）时两条序列都是 NaN，本规则不会触发。
+
+**怎么确认**：
+
+1. **是真实负载还是重试风暴**：`rate(mcp_server_calls[10m])` 涨而 `rate(mcp_server_failures[10m])` 也涨 → 先按 §21 修上游，配额只是被失败重试烧掉的；两者都平稳 → 是真实调用量上来了。
+2. **谁在烧配额**：`[MCP-Audit]` 日志按 `server`+`tool` 聚合，看是哪个工具在被高频调用（常见：路线/POI 工具在一次规划里被反复查）。
+3. **是否多实例共用一个上游 Key**：`mcp_server_calls_this_minute` 是**每实例**的本地窗口，若 N 个实例共用同一个上游 Key，N × 配额才是真正打到上游的 QPS——面板上每台都只有 90%，上游已经超了。这种情形要按实例数反推上游配额，不是继续调大。
+4. **是否刚调小过配额**：`max-calls-per-minute` 被下调后，正常运行量也会立刻「压到 90%」；对照发布记录确认是配置变更而不是流量变化。
+
+**处置**：
+
+- 真实负载：按上游实际限额调大 `max-calls-per-minute`（多实例要除以实例数），或降低并发/合并重复查询。
+- 重试风暴：先按 §21 修上游失败，配额自然回落，**不要**只调大配额（那只是把 503 推后）。
+- 长期不够用：`allow-tools` 收窄到必要工具，或该 server `enabled: false` 改用内置工具，让模型别再撞配额。
+- **不要**把 `failure-threshold` 当配额阀（两者无关，调它只会让失败更晚熔断）。
+
+**什么时候算恢复**：`mcp_server_calls_this_minute / mcp_server_quota` 回落到 90% 以下并保持 5 分钟，且 `rate(mcp_server_rejected[10m])` 没有继续上涨（证明不是「没人用了所以不撞墙」）。若 `mcp_server_calls_this_minute` 直接变成 NaN，说明有人把配额删了——那不算恢复，是规则失去观测对象，要确认配置变更是不是有意的。
+
+---
+
 ## 附录 A：日志脱敏核对（P0-D）
 
 目标：JWT / Cookie / API Key / 手机号 / 照片与 SSE 票据不出现在可被运维、外包或日志平台看到的日志里。**当前状态是“部分成立 + 两处已知缺口”**，发布前必须至少完成一次核对并记录。
@@ -437,19 +575,22 @@ curl -sS -b cookies.txt http://127.0.0.1:8081/api/system/status \
 
 ## 附录 C：告警矩阵补充（与 `alerts.yml` 对齐）
 
-现有规则（`alerts.yml`）覆盖规划、确认、SSE、外部依赖、延迟、LLM、RAG、限流。以下 P0-D 关注项**还没有对应指标或规则**，先人工核对，指标补上后再加规则（不要在指标缺失时写“已覆盖”）。
+现有规则（`alerts.yml`，25 条 / 10 组）覆盖规划、确认、SSE、外部依赖、延迟、LLM、RAG、限流、可靠执行链路（Outbox / ABANDONED / 租约清扫）与 MCP 逐 server 治理（熔断 / 失败率 / 配额压力，§20–§22）。以下 P0-D 关注项**还没有对应指标或规则**，先人工核对，指标补上后再加规则（不要在指标缺失时写“已覆盖”）。
 
 | 关注点 | 现有指标 / 告警 | 状态 | 缺口与建议 |
 | --- | --- | --- | --- |
 | LLM 失败率 | `llm_calls_total{result="failed"}` / `TravelLlmFailureHigh` | ✅ 已覆盖 | — |
 | LLM 配额拒绝 | `llm_calls_total{result="quota"}` / `TravelLlmQuotaRejectedHigh` | ✅ 已覆盖 | — |
 | 外部依赖降级 | `external_degraded_total{provider,reason}` / `TravelExternalDegradedHigh`、`TravelExternalProviderDegraded` | ✅ 已覆盖 | `10021` 被归到 `reason="bad_response"`，与无效 Key 混在一起 |
-| **MCP 工具数为 0** | 无指标；`/api/system/status` 有 `mcpToolCount`、`mcpLastError` | ⚠️ **待补指标** | 建议加 gauge（如 `mcp.tools.registered{server}`）；在补上前，用启动后巡检脚本查 `mcpToolCount` 并在为 0 时告警（查询需登录） |
+| **MCP 工具数为 0 / 接入失败 / 配额压力** | `mcp_server_tools{server}`、`mcp_server_connected{server}`、`mcp_server_circuit{server,state}`、`mcp_server_calls_this_minute{server}`、`mcp_server_quota{server}` / `TravelMcpCircuitOpen`（§20）、`TravelMcpServerFailureRateHigh`（§21）、`TravelMcpQuotaPressureHigh`（§22） | ✅ 已覆盖（2026-11-26） | 见 [可观测性 §2.1](../guide/observability.md)。配额窗口两条序列在「未配置 `max-calls-per-minute`」时是 NaN（不是 0 次/分钟）；`/api/system/status` 的 `mcpServers[]` 同步给 `callsThisMinute`/`maxCallsPerMinute`（未配置为 null） |
 | **高德 10021 比例** | `external_degraded_total{provider="amap"}` **只覆盖地理编码**（`AmapGeocodeClient`）；POI/路线走 `AmapDataService`，只打 WARN 日志、不记该指标 | ⚠️ **待补指标** | 10021 在 geocode 侧被归到 `reason="bad_response"`，无法与无效 Key 区分；建议单独记 `amap.qps_limited`（POI/路线/REST/MCP 统一），阈值参考：5 分钟比例 > 1% 告警 |
 | **备份失败** | 无指标 | ⚠️ **待补** | `scripts/backup-drill.ps1` 退出码可接 cron/systemd；建议外部监控记录“最近成功时间”，超过 26 小时告警 |
 | **磁盘容量** | 无应用指标 | ⚠️ **待补/外部** | 用 node_exporter `node_filesystem_avail_bytes` 或宿主监控；阈值参考 [部署与运维 §11.2](../guide/deployment.md)（磁盘 > 80%） |
 | **照片容量** | 无指标；可查 `SELECT SUM(size_bytes) FROM trip_photo` | ⚠️ **待补指标** | 建议加 gauge（按用户/全局），或在备份巡检里顺带查；接近 `PHOTO_MAX_BYTES_PER_USER` 时提醒 |
 | **账号注销失败/残留** | 无指标；日志 `账号删除完成`、`账号注销照片文件清理失败` | ⚠️ **待补指标** | 建议 counter（按结果/表失败数）；补指标前按附录 D 人工核对。照片清理失败只 WARN，必须巡检 |
+| **Outbox 积压 / DEAD** | `outbox_status{status}` / `TravelOutboxBacklogHigh`、`TravelOutboxDeadPresent` | ✅ 已覆盖（2026-11-25） | 抓取时现查库；DB 不可用时序列缺失而非 0 |
+| **ABANDONED 运行** | `agent_run_abandoned_total` / `TravelAgentRunAbandoned` | ✅ 已覆盖（2026-11-25） | 只计数量；runId 走日志/追踪表，不进 tag |
+| **确认租约清扫** | `pending_plan_swept_total` / `TravelPendingPlanSweptHigh` | ✅ 已覆盖（2026-11-25） | 阈值 >5 次/30 分钟；调大租约不是修复手段 |
 | 规划 / 确认 / SSE / RAG / 延迟 | 见 `alerts.yml` | ✅ 已覆盖 | — |
 
 ### C.1 告警落地检查（Prometheus Operator / 裸 Prometheus 通用）
@@ -457,8 +598,11 @@ curl -sS -b cookies.txt http://127.0.0.1:8081/api/system/status \
 - [ ] `alerts.yml` 里 `runbook_url` 的 `OWNER` 占位已替换为真实组织名。
 - [ ] Prometheus 抓取目标 `job="travel-agent-server"` 能抓到 `/actuator/prometheus`（需登录；抓取凭证见 [可观测性](../guide/observability.md)）。
 - [ ] `TravelLowHistogramMissing` 未触发（否则 P95 类告警静默失效）。
-- [ ] 新增/修改规则后 `promtool check rules` 通过（如环境有 promtool）。
-- [ ] 每条 P0 规则都有值班接收人；用一次演练告警确认能送达（不要只配规则不验证）。
+- [ ] 裸 Prometheus 不是直接加载 `alerts.yml`（它是 PrometheusRule CRD）：用
+      `node scripts/alerts-rules-extract.mjs -Out alerts-rules.yml` 抽出 `groups:` 后再 `promtool check rules`。
+- [ ] 路由按 severity 落到真实渠道：`alertmanager.yml` 渲染后 `amtool check-config` 通过（见[告警路由](alert-routing.md) §3.2）。
+- [ ] 每条 P0 规则都有值班接收人；用一次演练告警确认能送达（不要只配规则不验证）：
+      `scripts/alert-routing-drill.ps1`（本地链路）→ 真实渠道用 `-Mode synthetic`，人工确认后回填证据 summary。
 
 ## 附录 D：账号注销后仍有残留（核对步骤）
 

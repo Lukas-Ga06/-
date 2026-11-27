@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Empty } from 'antd';
 import { WalletOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import AppShell from '../../components/AppShell';
 import CountUp from '../../components/CountUp';
 import Skeleton from '../../components/Skeleton';
+import RunStatus from '../../components/RunStatus';
 import { getExpenseOverview } from '../../api/expense';
 import {
   CATEGORY_COLORS,
@@ -18,13 +18,28 @@ export default function Expenses() {
   const navigate = useNavigate();
   const [overview, setOverview] = useState<ExpenseOverview | null>(null);
   const [loading, setLoading] = useState(true);
+  /** 加载失败与「确实没有支出」必须分开：此前 catch 里置 null，会把接口故障显示成空账本 */
+  const [error, setError] = useState<string | null>(null);
+
+  /** 只做请求与结果落盘：effect 体内不同步 setState（取数写法与 Travel/Reviews 一致） */
+  const fetchOverview = () =>
+    getExpenseOverview()
+      .then((data) => {
+        setOverview(data);
+        setError(null);
+      })
+      .catch((e: any) => setError(e?.message || '支出记录加载失败'))
+      .finally(() => setLoading(false));
 
   useEffect(() => {
-    getExpenseOverview()
-      .then(setOverview)
-      .catch(() => setOverview(null))
-      .finally(() => setLoading(false));
+    void fetchOverview();
   }, []);
+
+  const retry = () => {
+    setLoading(true);
+    setError(null);
+    void fetchOverview();
+  };
 
   const payTotal = overview
     ? Object.values(overview.byPaymentMethod).reduce((s, v) => s + v, 0)
@@ -54,11 +69,23 @@ export default function Expenses() {
               <Skeleton.Paragraph lines={4} />
             </div>
           </div>
+        ) : error ? (
+          <div className="run-state-block run-state-block--danger" role="alert">
+            <RunStatus
+              status="failed"
+              text="支出记录加载失败"
+              detail={error}
+              testId="expenses-error"
+              actions={[{ label: '重试', onClick: retry }]}
+            />
+          </div>
         ) : !overview || overview.count === 0 ? (
           <div className="empty-trips">
-            <Empty
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
-              description="还没有支出记录，去行程里记一笔吧"
+            <RunStatus
+              status="empty"
+              text="还没有支出记录"
+              detail="进入行程，在「记账」面板记一笔；也可以对助理说「记一笔午餐 45 元」。"
+              testId="expenses-empty"
             />
           </div>
         ) : (

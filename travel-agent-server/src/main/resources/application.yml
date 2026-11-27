@@ -135,6 +135,21 @@ travel:
       # 端到端总预算（毫秒，默认 30s）。注意：复杂多日行程的合法长规划也可能接近该值，
       # 预算不够时不会失败，而是降级并明确告知「未经审核，可稍后重试」。
       total-ms: ${AGENT_BUDGET_TOTAL_MS:30000}
+      # 第二阶段：叠加在时间预算上的「花费预算」。时间有界、花费无界——同样的 30s 里，
+      # 研究循环换参数重试、结构化规划带反馈重试、工具连发都能把 token 与调用次数放大数倍，
+      # 而 deadline 到点时这些钱已经花掉了。任一项到顶都按同一套降级语义收尾（如实告知，不伪造结果）。
+      # 取值口径：负数 = 不设限，0 = 一次都不允许。默认值刻意宽松（拦失控循环，不给正常请求设 SLO）。
+      spend:
+        enabled: ${AGENT_SPEND_ENABLED:true}
+        # 正常一轮约 8–15 次 LLM 调用；30 次只拦「循环里停不下来」的情况
+        max-llm-calls: ${AGENT_SPEND_MAX_LLM_CALLS:30}
+        # 确定性规划每天约 8 次工具，7 天行程合法用量 60+；200 次拦的是工具风暴，不是日常用量
+        max-tool-calls: ${AGENT_SPEND_MAX_TOOL_CALLS:200}
+        max-retries: ${AGENT_SPEND_MAX_RETRIES:5}
+        max-tokens: ${AGENT_SPEND_MAX_TOKENS:200000}
+        # 费用上限只在 travel.llm.prompt-price-per-1k-usd / completion-price-per-1k-usd
+        # 配了真实单价后才可能触发；未配价目表时费用恒为 0，不会拿猜测的单价卡请求。
+        max-cost-usd: ${AGENT_SPEND_MAX_COST_USD:1.0}
   conversation:
     # 会话记忆：按「用户 + conversationId」保留最近 N 条**消息**（不是轮数；一轮问答 = 2 条），
     # 喂给 LLM 做指代消解（「那把第二天的酒店也换掉」）。历史只参与意图识别，不进入规划产物。
@@ -157,6 +172,13 @@ travel:
     # Open-Meteo 地址可配置：测试用 WireMock 指向本地，业务代码不再硬编码外网域名
     geocode-base-url: ${WEATHER_GEOCODE_BASE_URL:https://geocoding-api.open-meteo.com/v1/search}
     forecast-base-url: ${WEATHER_FORECAST_BASE_URL:https://api.open-meteo.com/v1/forecast}
+  ocr:
+    # 发票 OCR：默认 none（关闭）。配 baidu + 密钥后才真正识别；未配置时明确报不可用，不返回模拟结果。
+    # 只暴露 provider 与两个 Key；超时、单图大小上限等调优项走 service/ocr/OcrProperties 的代码默认值。
+    provider: ${OCR_PROVIDER:none}
+    baidu:
+      api-key: ${OCR_BAIDU_API_KEY:}
+      secret-key: ${OCR_BAIDU_SECRET_KEY:}
   mcp:
     # MCP（Model Context Protocol）工具生态：启动时把外部 MCP server 的工具注册进 ToolRegistry（只读）。
     # 默认关闭；接入后模型可经 INVOKE_TOOL 调用 mcp_<server>_<tool>。单个 server 失败只告警、不影响启动。
@@ -172,6 +194,14 @@ travel:
         read-only: true
         # npx 首次冷启动要下载包，默认 20s 偏紧
         timeout-ms: 30000
+        # 逐 server 治理（第二阶段）：默认全关 = 与治理前行为一致。
+        # 四个开关用扁平环境变量覆盖，改配置只需重启（不重建镜像）；取值语义、建议值与
+        # 「list 元素 env 绑定的坑」见 docs/guide/mcp-amap.md §2.4。
+        # 新增第二个 server 时整段复制，env 名前缀换成该 server 的别名（MCP_<别名>_...）。
+        allow-tools: ${MCP_AMAP_ALLOW_TOOLS:}                       # 逗号分隔的远端原始工具名；留空 = 全部工具
+        max-calls-per-minute: ${MCP_AMAP_MAX_CALLS_PER_MINUTE:0}   # 跨 run 配额；0 = 不限（压高德 10021）
+        failure-threshold: ${MCP_AMAP_FAILURE_THRESHOLD:0}          # 连续失败打开熔断；0 = 关闭
+        cooldown-ms: ${MCP_AMAP_COOLDOWN_MS:60000}                  # 熔断冷却；结束后放行一次半开探测
   # 知识库版本化（batch10 / C）：见 docs/proposals/batch10-contract.md §3.2
   rag:
     # 除 ACTIVE 版本外，额外保留最近 N 个历史版本的 chunk（更老的 INACTIVE 版本块由每日任务清理；
@@ -180,6 +210,26 @@ travel:
     # 问答低相似度阈值（P1）：低于该余弦相似度的命中不进入回答上下文，改为如实说「暂无可靠资料」。
     # 只影响问答；知识库搜索与 Planner 研究仍能看到完整候选与分数。
     min-score: ${RAG_MIN_SCORE:0.05}
+  # P0 可靠确认链路（见 V25/V26 与 docs/proposals）：确认租约 + 事务性 Outbox。
+  # 这里只放「可运维调整的时长/次数」，默认值即安全值；改错不会丢数据，只会改变重试节奏。
+  pending-plan:
+    # 确认租约（分钟）：claim 后超过该时长仍停在 CONFIRMING 视为处理者崩溃，清扫回 PENDING。
+    # 必须大于一次确认提交的正常耗时（通常 <1s），否则会把正在提交的请求误判成崩溃。
+    lease-minutes: ${PENDING_PLAN_LEASE_MINUTES:5}
+    # 清扫间隔（毫秒）：默认 30s；启动时另会立即清扫一次
+    sweep-interval-ms: ${PENDING_PLAN_SWEEP_INTERVAL_MS:30000}
+  outbox:
+    # 投递间隔（毫秒）：fixedDelay，默认 5s（上一轮结束后再计时，慢轮次不会堆积）
+    dispatch-interval-ms: ${OUTBOX_DISPATCH_INTERVAL_MS:5000}
+    # 每轮最多投递条数：避免一轮拖太久
+    batch-size: ${OUTBOX_BATCH_SIZE:20}
+    # DISPATCHING 行的领取租约（分钟）：超过即视为执行者崩溃，改回可投递并 attempts+1
+    dispatching-lease-minutes: ${OUTBOX_DISPATCHING_LEASE_MINUTES:10}
+    # 失败重试上限：达到后置 DEAD（保留 last_error 作为证据，等人工/运维介入）
+    max-attempts: ${OUTBOX_MAX_ATTEMPTS:8}
+    # 指数退避：第 n 次失败后等待 base * 2^(n-1) 秒，封顶 max-backoff-seconds
+    base-backoff-seconds: ${OUTBOX_BASE_BACKOFF_SECONDS:10}
+    max-backoff-seconds: ${OUTBOX_MAX_BACKOFF_SECONDS:3600}
   channels:
     # 多渠道入口：同一个 AgentEngine 同时服务网页与外部渠道，数据与账号体系完全一致。
     telegram:

@@ -1,8 +1,7 @@
 /* ============================================================
    AI 助手页：页面级高度与底部输入区
    ------------------------------------------------------------
-   空态居中但限制最大高度；输入区吸底并处理 safe-area，
-   页面底部再留出与移动底栏的 12–16px 间距。
+   空态居中但限制最大高度；输入区吸底并处理 safe-area。
    ============================================================ */
 .assistant-page {
   min-height: 0;
@@ -34,12 +33,12 @@
 
 @media (max-width: 720px) {
   .assistant-page .assistant-panel {
-    height: calc(100dvh - 150px - var(--tabbar-h) - var(--safe-bottom));
+    height: calc(100dvh - 150px - var(--safe-bottom));
     min-height: 380px;
   }
 
   .assistant-page .assistant-panel > .chat-input-area {
-    /* 与固定底栏隔开 12px，再叠加 home 指示条安全区 */
+    /* 与 home 指示条安全区隔开 */
     padding-bottom: calc(12px + var(--safe-bottom));
   }
 

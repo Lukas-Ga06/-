@@ -43,21 +43,20 @@ const BACKEND_SCRIPT = path.resolve(configDir, '../scripts/start-e2e-backend.mjs
  * 按 `E2E_SUITE` 选择要跑哪一套（默认 = 默认套件，行为与历史版本完全一致）。
  *
  * - `default`：桌面 Chromium 冒烟/规划/无障碍，跑在默认 `npm run e2e` 上（CI 门禁）；
- * - `mobile` ：Playwright **WebKit + iPhone 13 预设**（模拟 Safari 引擎，≠ iOS 真机）；
- * - `network`：Chromium + CDP 弱网/离线（WebKit 不支持 CDP，无法挂在 mobile 项目上）；
- * - `device` ：移动端 + 弱网 + 多端并发一次跑完（本地全量核对用）。
+ * - `network`：Chromium + CDP 弱网/离线；
+ * - `multi`  ：Chromium，两个独立 context 同账号；
+ * - `device` ：桌面 + 弱网 + 多端并发一次跑完（本地全量核对用）。
  *
- * 关键：默认跑法**不会**把 WebKit 与 CDP 用例拉进来 —— 每个项目用 testMatch 正向认领自己的文件，
- * 互不可见，于是 CI 的 `npx playwright test` 既不会变慢、也不会因为没装 webkit 而变红。
+ * 关键：默认跑法**不会**把 CDP 与多端用例拉进来 —— 每个项目用 testMatch 正向认领自己的文件，
+ * 互不可见，于是 CI 的 `npx playwright test` 既不会变慢，也不会被专项用例的抖动拖红。
  */
 const suite = (process.env.E2E_SUITE ?? 'default').trim().toLowerCase();
 
-const MOBILE_SUITE = suite === 'mobile' || suite === 'device';
 const NETWORK_SUITE = suite === 'network' || suite === 'device';
 const MULTI_DEVICE_SUITE = suite === 'multi' || suite === 'device';
 /**
  * 是否注册默认的桌面 Chromium 项目（冒烟/规划/无障碍那一批）。
- * 只有 default / device 需要它：network / multi / mobile 是专项套件，
+ * 只有 default / device 需要它：network / multi 是专项套件，
  * 再挂一个 chromium 会把整套桌面用例一起跑一遍（实测：network 套件因此跑了 14 条无关用例，
  * 其中 a11y 的首页对比度用例还让专项套件无谓变红）。
  */
@@ -70,9 +69,8 @@ const ALWAYS_IGNORED = ['**/visual/**'];
  * 默认套件的文件白名单：**显式列出**桌面套件的文件，而不是「排除掉专项文件」。
  *
  * 为什么不能用排除法：默认项目（chromium）走 `testIgnore`，专项项目走 `testMatch`，
- * 两者在 `device` 汇总套件里会同时生效 —— 于是 mobile-safari.spec.ts 既被默认 chromium
- * 项目跑一遍（没装 webkit 也会用 Chromium 跑，断言必然失败），又被 mobile-safari 项目跑一遍。
- * 改成正向白名单后，每个文件只属于一个项目，互不交叉。
+ * 两者在 `device` 汇总套件里会同时生效 —— 专项文件会被默认 chromium 项目也跑一遍，
+ * 两边的断言口径不同，必然互相污染。改成正向白名单后，每个文件只属于一个项目，互不交叉。
  *
  * 新增桌面 e2e 文件时把它加到这里；新增专项文件则加进下面各自的 *_SPEC。
  */
@@ -81,11 +79,11 @@ const DEFAULT_SPECS = [
   'isolation.spec.ts',
   'maplibre-vendor.spec.ts',
   'planner-form.spec.ts',
+  'run-state.spec.ts',
   'smoke.spec.ts',
+  'timeline-map-linkage.spec.ts',
 ];
 
-/** 移动端项目：WebKit + iPhone 预设，独立文件与独立 npm script */
-const MOBILE_SPEC = /[\\/]mobile-safari\.spec\.ts$/;
 /** 弱网项目：Chromium + CDP，独立文件与独立 npm script */
 const NETWORK_SPEC = /[\\/]network-conditions\.spec\.ts$/;
 /** 多端并发：Chromium，两个独立 context 同账号 */
@@ -114,27 +112,12 @@ export default defineConfig({
   },
   /**
    * 项目清单按套件收窄：默认套件只有 chromium，与历史配置一致。
-   * mobile / network / multi 各自只有在对应 E2E_SUITE 下才注册，
-   * 这样 `npx playwright test` 不会因为没有安装 webkit 浏览器而失败。
+   * network / multi 各自只有在对应 E2E_SUITE 下才注册，
+   * 这样 `npx playwright test` 不会把专项用例一起拉进来。
    */
   projects: [
     ... (DEFAULT_SUITE
       ? [{ name: 'chromium', testMatch: DEFAULT_SPECS, use: { ...devices['Desktop Chrome'] } }]
-      : []),
-    /**
-     * 移动端：WebKit + iPhone 13 预设（UA / 视口 390×664 / DPR 3）。
-     * **这是模拟 Safari 引擎，不等于 iOS 真机**：safe-area、真机手势、老 iOS 版本差异都不覆盖。
-     */
-    ...(MOBILE_SUITE
-      ? [
-          {
-            name: 'mobile-safari',
-            testMatch: MOBILE_SPEC,
-            // 直接铺开 iPhone 13 预设（UA / 视口 390×664 / DPR 3 / hasTouch）。
-            // 不做任何覆盖：一旦在这里改视口，断言就不再代表真机的窄屏宽度
-            use: { ...devices['iPhone 13'] },
-          },
-        ]
       : []),
     /** 弱网/离线：CDP 只有 Chromium 有，因此固定在 Desktop Chrome 上跑 */
     ...(NETWORK_SUITE

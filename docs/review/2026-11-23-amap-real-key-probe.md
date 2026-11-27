@@ -3,6 +3,10 @@
 > 目的：把「后端高德 Key 是 JS Key、会被拒」这一旧结论更新为可复核事实，并实测 1.5 里的高德边界项。
 > 结论：当前 `travel-agent-server/.env.local` 的 `AMAP_KEY` **可作 Web 服务 Key 使用**：地理编码、POI、驾车路线均 `status=1/10000`；并发 20 请求复现 **9 次 `10021`（QPS 超限）**；跨城同名 POI 与 polyline 正常。
 > 仍未验证：MCP 场景的 `AMAP_MAPS_API_KEY`（那是另一个 Key/变量，历史记录里仍是 `USERKEY_PLAT_NOMATCH`）、真实 LLM 20 次压测（余额 ¥0.66，按计划应先充值）。
+>
+> **更正（2026-11-25）**：上句「MCP 的 `AMAP_MAPS_API_KEY` 仍未验」与 2026-11-22 的证据冲突——
+> 那天已用真实 Web服务 Key 跑通 12 个工具（`McpAmapLiveTest` 2/2，22.63 s）并让真模型自主选用 `mcp_amap_maps_weather`；
+> 本句沿用了 11-19 的失败记录。口径以 [2026-11-25 外部阻断项复核](2026-11-25-external-blockers-closeout.md) §1 为准。
 
 ## 1. 环境与方法
 

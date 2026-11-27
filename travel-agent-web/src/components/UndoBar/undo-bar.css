@@ -119,10 +119,8 @@
   transition: width 0.25s linear;
 }
 
-/* 移动端让开底部标签栏（约 92px 含安全区），否则撤销按钮会被导航压住 */
 @media (max-width: 720px) {
   .undo-bar {
-    bottom: calc(96px + env(safe-area-inset-bottom));
     left: var(--sp-2);
     right: var(--sp-2);
     width: auto;

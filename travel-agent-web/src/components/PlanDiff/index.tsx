@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Alert, Checkbox, Modal, Tag } from 'antd';
 import {
   ArrowRightOutlined,
@@ -67,11 +67,13 @@ export default function PlanDiff({ open, result, onConfirm, onCancel, loading }:
   // requiresAcknowledgement 是 review.blocked 的派生字段；旧后端两者都没有 → false
   const ackRequired = result?.confirmation?.requiresAcknowledgement ?? blocked;
   const [ack, setAck] = useState(false);
-
-  // 每次弹窗打开/换成另一个方案都重新要求勾选
-  useEffect(() => {
+  // 每次弹窗打开/换成另一个方案都重新要求勾选：在渲染期收敛（值变化时调整 state），
+  // 避免 effect 内同步 setState 多跑一轮渲染。
+  const [ackSeed, setAckSeed] = useState({ open, planId: result?.planId });
+  if (ackSeed.open !== open || ackSeed.planId !== result?.planId) {
+    setAckSeed({ open, planId: result?.planId });
     setAck(false);
-  }, [open, result?.planId]);
+  }
 
   const handleOk = () => {
     if (ackRequired && !ack) return; // 按钮已 disabled，这里只做兜底

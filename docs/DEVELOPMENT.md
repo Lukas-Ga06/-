@@ -117,7 +117,7 @@ HIGH 风险只表示"方案需要显式确认"（超预算），不是"抛异常
 传输层二选一：streamable HTTP（`url`）或本机子进程 stdio（`command`，Windows 下 npx 需
 `cmd /c` 前缀）。注册名固定 `mcp_{server}_{tool}` 且默认只读；工具描述会拼上从 inputSchema
 提取的参数提示供 LLM 生成参数。`IntentAgent` 只在 LLM 路径产出 `INVOKE_TOOL`，且必须命中
-已注册的 mcp_* 工具（否则拦回规则引擎）；规则路径永远不产出该意图，保证离线行为可预期。
+已注册的可调用工具（`mcp_*` 或内置白名单 `ocr_invoice`，否则拦回规则引擎）；规则路径永远不产出该意图，保证离线行为可预期。
 单个 server 接入失败只告警，**不允许**让 MCP 故障阻断应用启动。
 
 **多渠道入口**：外部渠道一律复用 `AgentEngine.handle(ctx)`，不要绕开引擎另写业务逻辑。
@@ -147,7 +147,8 @@ classpath:fonts/cjk.* → Windows → Linux/macOS，找不到一律抛业务错�
 否则"注意事项"这类通用知识在有行程时会被全部过滤掉，目录外城市更是直接空结果。
 
 **记账对账**：`ExpenseService.overview` 必须满足「各分项之和 == totalSpent」，
-行程已删除的遗留账单归入 `tripId=0 / 已删除的行程` 分组（前端该分组不可点击跳转）。
+行程已删除的遗留账单归入 `tripId=0 / 已删除的行程` 分组（前端该分组不可点击跳转）；
+V30 起未关联行程的通用账目单独归入 `tripId=-1 / 未关联行程`，与 `0` 不合并。
 
 **预算口径**：计划成本 = 行程项 `cost` 合计、实际 = 记账合计、预算 = `trip.budget`；
 对外统一由 `BudgetService.execution(...)` 产出（`GET /api/trips/{id}/budget`），
@@ -292,7 +293,9 @@ claim（PENDING→CONFIRMING）语义与 TTL 30 分钟都不许动。
 （表现为整块地图空白，DOM 里能看到 canvas 但尺寸为 0）。首页 `.hg-map` 因此写成 `flex: none; height: 380px`，
 **改布局时不要退回 flex 高度**。
 
-**响应式**：≥1080px 侧栏 232px；720–1080px 收成 76px 图标栏（隐藏 `.sb-label`）；<720px 换成底部标签栏 `.app-tabbar`。
+**响应式**：≥1080px 侧栏 232px；≤1080px 收成 76px 图标栏（隐藏 `.sb-label`）。
+**没有移动端布局分支**：底部标签栏、行程页分段视图、规划页固定底栏已移除；手机浏览器只落在这套桌面布局上，
+承诺的只是「不横向溢出」，不承诺移动交互可用。
 文件里 `@media (max-width: 900px)` 那段"侧栏变横向顶栏"的历史规则与新方案冲突，
 已在文件末尾的新媒体查询里逐条覆盖（`position` / `flex-direction` / `align-items` / `.sb-*` 都要显式重置）。
 **新增窄屏规则请写在文件末尾**，否则会被旧规则抢先生效。

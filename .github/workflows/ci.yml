@@ -46,6 +46,13 @@ jobs:
       - name: Maven verify
         run: mvn -B verify
 
+      # P0 发布验收（5 条关键用例）：双确认只提交一次、旧方案确认必失败、提交后同步可独立补投、
+      # 断线不再产生无意义调用、LLM 不可用时规则规划器仍产出可审核方案。
+      # 这些用例已被 mvn verify 覆盖；此步把它们作为**命名的发布门禁**单独暴露，
+      # 失败时直接指向「哪条可靠性承诺被打破」，而不是淹没在 600+ 用例里。
+      - name: Release acceptance (P0 reliability)
+        run: mvn -B -Dtest=ReleaseAcceptanceTest -DfailIfNoTests=false test
+
       - name: Upload coverage and static analysis reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -129,8 +136,10 @@ jobs:
       - name: Type check
         run: npm run typecheck
 
-      - name: Lint
-        run: npm run lint
+      # ratchet：`lint` 只看 error（本地与历史口径不变），CI 用 `lint:ci` 把 warning 也当失败。
+      # 2026-11-27 起存量 47 条已清零，因此阈值是 --max-warnings 0；以后只许保持 0，不得上调。
+      - name: Lint (warning = failure, ratchet)
+        run: npm run lint:ci
 
       - name: Format check
         run: npm run format:check
@@ -264,11 +273,12 @@ jobs:
           cache: npm
           cache-dependency-path: travel-agent-web/package-lock.json
 
-      # 前端依赖漏洞：high/critical 阻断。当前存量（vite-plugin-pwa 的 glob/minimatch moderate）
-      # 低于该级别，不会误伤；升级后应把级别收紧到 moderate，见 docs/guide/ci.md。
-      - name: npm audit（high+）
+      # 前端依赖漏洞：2026-11-27 起收紧到 moderate（存量已归零：vitest 4.1.12 + workbox-build 的
+      # glob 用 override 提到 ≥14.0.2）。门禁只收紧不放宽；以后出现 moderate 要么修、要么走
+      # docs/guide/ci.md §6 的临时豁免流程。
+      - name: npm audit（moderate+）
         working-directory: travel-agent-web
-        run: npm ci --ignore-scripts && npm audit --audit-level=high
+        run: npm ci --ignore-scripts && npm audit --audit-level=moderate
 
       # Maven 依赖漏洞：Trivy 扫依赖清单，忽略「无修复版本」的条目，避免无解除的告警常驻红灯。
       - name: Trivy dependency scan
@@ -373,15 +383,14 @@ jobs:
             travel-agent-web/test-results
             travel-agent-web/playwright-report
           retention-days: 7
-  # 移动端 / 弱网 / 多端并发：已改用隔离后端（H2 内存库 + LLM/MCP/AMAP 全关），
+  # 弱网 / 多端并发：已改用隔离后端（H2 内存库 + LLM/MCP/AMAP 全关），
   # 但**仍保持观察模式（continue-on-error）**：剩下的不确定性是共享 runner 上
-  # WebKit 与弱网耗时阈值的抖动，不是外部 Key 污染。
+  # 弱网耗时阈值的抖动，不是外部 Key 污染。
   # 转正条件（写进 docs/guide/ci.md，2026-12-06 前复盘）：
-  #   1) 连续 2 周在隔离后端上无「只有 CI 红、本地绿」的抖动；
-  #   2) PR 模板已写明「Playwright WebKit 模拟 ≠ 真实 iOS Safari」。
+  #   1) 连续 2 周在隔离后端上无「只有 CI 红、本地绿」的抖动。
   # 不得并入上面的 `e2e` job —— 桌面门禁口径保持稳定。
   e2e-device:
-    name: E2E / 移动端(WebKit) + 弱网(CDP) + 多端并发（隔离后端，观察中）
+    name: E2E / 弱网(CDP) + 多端并发（隔离后端，观察中）
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
@@ -419,12 +428,11 @@ jobs:
         working-directory: travel-agent-web
         run: npm run build
 
-      # webkit 必须显式安装：主 e2e job 只装了 chromium
-      - name: Install Playwright browsers (chromium + webkit)
+      - name: Install Playwright browser (chromium)
         working-directory: travel-agent-web
-        run: npx playwright install --with-deps chromium webkit
+        run: npx playwright install --with-deps chromium
 
-      # device = 13 条主冒烟 + 8 条新增（移动端 3 / 弱网 3 / 多端并发 2），全部跑隔离后端
+      # device = 桌面全套 + 弱网 3 条 + 多端并发 2 条，全部跑隔离后端
       - name: Run device suites（隔离后端）
         working-directory: travel-agent-web
         env:

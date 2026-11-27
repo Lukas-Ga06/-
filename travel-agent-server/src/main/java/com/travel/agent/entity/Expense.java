@@ -7,11 +7,12 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
-/** 行程支出记录：个人记账（实际花费），与行程预算对比 */
+/** 记账记录：个人实际花费。trip_id 为空表示未关联行程的通用账目 */
 @Entity
 @Table(name = "expense", indexes = {
         @Index(name = "idx_expense_trip", columnList = "trip_id"),
-        @Index(name = "idx_expense_user", columnList = "user_id")
+        @Index(name = "idx_expense_user", columnList = "user_id"),
+        @Index(name = "idx_expense_schedule", columnList = "schedule_item_id")
 })
 @Getter
 @Setter
@@ -31,8 +32,13 @@ public class Expense {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "trip_id", nullable = false)
+    /** 关联行程；为空 = 未关联行程的通用账目 */
+    @Column(name = "trip_id")
     private Long tripId;
+
+    /** 关联的日程条目（报销/账期）：批次 3 发票报销在确认提交时写入（同日期未完成日程），手工记账为空 */
+    @Column(name = "schedule_item_id")
+    private Long scheduleItemId;
 
     @Column(name = "user_id", nullable = false)
     private Long userId;

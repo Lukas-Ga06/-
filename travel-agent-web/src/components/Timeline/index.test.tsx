@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import Timeline from './index';
 import type { ItineraryItem, RouteLeg } from '../../types/trip';
 import { useUIStore } from '../../store/uiStore';
@@ -61,6 +61,34 @@ function twoItems(): ItineraryItem[] {
     }),
   ];
 }
+
+describe('Timeline · 选中态（uiStore.selectedElement 是唯一选中源）', () => {
+  it('点卡片写 selectedElement；外部写入（例如地图标记点击）同样让对应行高亮', () => {
+    render(<Timeline trip={null} items={twoItems()} focus={null} />);
+
+    // 初始没有选中：两行都不高亮
+    expect(document.getElementById('ti-1')?.className).not.toContain('selected');
+    expect(document.getElementById('ti-2')?.className).not.toContain('selected');
+
+    // 时间线自己写：行与卡片同时高亮
+    const card = document.querySelector('#ti-2 .t-card') as HTMLElement;
+    fireEvent.click(card);
+    expect(useUIStore.getState().selectedElement).toEqual({
+      type: 'attraction',
+      id: 2,
+      title: '豫园',
+    });
+    expect(document.getElementById('ti-2')?.className).toContain('selected');
+    expect(card.className).toContain('selected');
+
+    // 地图侧写同一个字段：时间线不需要额外通知就跟着高亮（没有第二套选中态）
+    act(() => {
+      useUIStore.getState().setSelectedElement({ type: 'attraction', id: 1, title: '外滩' });
+    });
+    expect(document.getElementById('ti-1')?.className).toContain('selected');
+    expect(document.getElementById('ti-2')?.className).not.toContain('selected');
+  });
+});
 
 describe('Timeline · 转场行（FR-07 route-legs）', () => {
   it('同一天相邻两条安排之间插入转场行：距离 / 驾车 / 步行 / 打车估算 + 估算徽标', () => {

@@ -29,6 +29,8 @@ import {
   tripDays,
   tripRangeLabel,
 } from './footprintData';
+import RunStatus from '../RunStatus';
+import { knownRunState } from '../../lib/runState';
 
 const CHINA_OVERVIEW: [number, number] = [110.5, 34.5];
 
@@ -122,6 +124,8 @@ export default function FootprintMap({
   const [engineError, setEngineError] = useState<string | null>(null);
   /** 递增触发重新加载地图引擎（首次失败后给用户「重试」按钮） */
   const [loadAttempt, setLoadAttempt] = useState(0);
+  /** 引擎加载失败是「资源不可用」而不是「没有足迹」：统一走 resource→error（failed）这一档 */
+  const mapFailedState = knownRunState('resource', 'error');
 
   // 高德底图用 GCJ-02，OSM 用 WGS-84；业务 points 始终是 WGS-84。
   const geoPoints = useMemo(
@@ -129,20 +133,28 @@ export default function FootprintMap({
     [points, activeBasemap],
   );
 
+  // 渲染期不写 ref：把最新 props 镜像进 ref 供地图事件/定时器等异步回调读取。
+  // 本 effect 必须声明在下面所有依赖这些 ref 的 effect 之前，同一轮提交里才先更新镜像再使用。
   const pointsRef = useRef(geoPoints);
   const modeRef = useRef(mode);
   const selectRef = useRef(onSelect);
   const cityClickRef = useRef(onCityClick);
   const tourStateRef = useRef(onTourStateChange);
-  pointsRef.current = geoPoints;
-  modeRef.current = mode;
-  selectRef.current = onSelect;
-  cityClickRef.current = onCityClick;
-  tourStateRef.current = onTourStateChange;
-
   useEffect(() => {
+    pointsRef.current = geoPoints;
+    modeRef.current = mode;
+    selectRef.current = onSelect;
+    cityClickRef.current = onCityClick;
+    tourStateRef.current = onTourStateChange;
+  });
+
+  // activeBasemap 是 props.basemap 的可写镜像（瓦片不可达时会被降级成 osm），
+  // 因此用「prop 变化时在渲染期收敛」而不是 effect + setState，避免多跑一轮提交。
+  const [basemapSeed, setBasemapSeed] = useState(basemap);
+  if (basemapSeed !== basemap) {
+    setBasemapSeed(basemap);
     setActiveBasemap(basemap);
-  }, [basemap]);
+  }
 
   // 把「地图不可用」上报给父级：父级用它区分「没有足迹」与「地图加载失败」
   useEffect(() => {
@@ -251,30 +263,33 @@ export default function FootprintMap({
   }, []);
 
   /** 标记元素：城市节点 / 行程节点共用，city 模式额外显示到访次数 */
-  const markerElement = (label: string, initial: string, color: string, visits?: number) => {
-    const el = document.createElement('button');
-    el.type = 'button';
-    el.className = `fp-marker ${theme === 'dark' ? 'fp-dark' : ''}`;
-    el.style.setProperty('--mc', color);
-    el.setAttribute('aria-label', visits && visits > 1 ? `${label}，${visits} 次到访` : label);
+  const markerElement = useCallback(
+    (label: string, initial: string, color: string, visits?: number) => {
+      const el = document.createElement('button');
+      el.type = 'button';
+      el.className = `fp-marker ${theme === 'dark' ? 'fp-dark' : ''}`;
+      el.style.setProperty('--mc', color);
+      el.setAttribute('aria-label', visits && visits > 1 ? `${label}，${visits} 次到访` : label);
 
-    const ring = document.createElement('span');
-    ring.className = 'fp-ring';
-    const dot = document.createElement('span');
-    dot.className = 'fp-dot';
-    dot.textContent = initial;
-    const text = document.createElement('span');
-    text.className = 'fp-label';
-    text.textContent = label;
-    el.append(ring, dot, text);
-    if (visits && visits > 1) {
-      const badge = document.createElement('span');
-      badge.className = 'fp-visits';
-      badge.textContent = `×${visits}`;
-      el.append(badge);
-    }
-    return el;
-  };
+      const ring = document.createElement('span');
+      ring.className = 'fp-ring';
+      const dot = document.createElement('span');
+      dot.className = 'fp-dot';
+      dot.textContent = initial;
+      const text = document.createElement('span');
+      text.className = 'fp-label';
+      text.textContent = label;
+      el.append(ring, dot, text);
+      if (visits && visits > 1) {
+        const badge = document.createElement('span');
+        badge.className = 'fp-visits';
+        badge.textContent = `×${visits}`;
+        el.append(badge);
+      }
+      return el;
+    },
+    [theme],
+  );
 
   /** 航线坐标：city 模式按首次到访顺序串城市，trip 模式按行程时间顺序 */
   const routeOf = useCallback((): [number, number][] => {
@@ -359,7 +374,7 @@ export default function FootprintMap({
     });
 
     return located;
-  }, [cityPopup, routeOf, showPopupAt, theme, tripPopup]);
+  }, [cityPopup, markerElement, routeOf, showPopupAt, tripPopup]);
 
   const fitAll = useCallback((duration = 2200) => {
     const engine = engineRef.current;
@@ -663,8 +678,10 @@ export default function FootprintMap({
       cancelled = true;
       dispose?.();
     };
+    // 初始视角只在首次初始化时生效：下面的重建键就是全部触发条件。
+    // draw/fitAll/startSpin/stopSpin/stopTour 每次渲染都会重建引用，进依赖数组会把
+    // 「数据变化」变成「重建地图」（丢相机与覆盖物），因此只按这四个键重建。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    // 初始视角只在首次初始化时生效；pitch/bearing 变化会重建地图（首页给的是固定值）
   }, [theme, activeBasemap, initialPitch, initialBearing, initialZoom, loadAttempt]);
 
   // 数据或模式变化时重绘
@@ -676,6 +693,7 @@ export default function FootprintMap({
     } else {
       map.once('load', () => draw());
     }
+    // draw 依赖 geoPoints/mode，后两者已在依赖数组里；显式只按数据键重绘
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [geoPoints, mode]);
 
@@ -684,6 +702,7 @@ export default function FootprintMap({
     if (focusTripId != null) {
       flyToTrip(focusTripId);
     }
+    // 只在外部信号变化时飞行一次；flyToTrip 会随主题/数据重建，进依赖会重复飞行
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusTripId]);
 
@@ -692,6 +711,7 @@ export default function FootprintMap({
     if (playSignal > 0) {
       startTour();
     }
+    // playSignal 是自增信号，只在变化时触发一次回放；startTour 每次渲染都会重建
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playSignal]);
 
@@ -715,21 +735,24 @@ export default function FootprintMap({
             fontSize: 13,
           }}
         >
-          正在加载地图引擎…
+          <RunStatus status="loading" text="正在加载地图引擎…" size="sm" />
         </div>
       )}
       {engineError && (
-        <div className="fp-engine-error" role="alert">
-          <b>地图暂时不可用</b>
-          <span className="fp-engine-hint">足迹列表与行程时间轴仍可正常查看。</span>
-          <button
-            type="button"
-            className="fp-ctl"
-            onClick={() => setLoadAttempt((value) => value + 1)}
-            aria-label="重试加载地图"
-          >
-            <ReloadOutlined aria-hidden="true" /> 重试地图
-          </button>
+        <div className="fp-engine-error" role="alert" data-testid="footprint-map-error">
+          <RunStatus
+            status={mapFailedState}
+            text="地图暂时不可用"
+            detail="足迹列表与行程时间轴仍可正常查看。"
+            actions={[
+              {
+                label: '重试地图',
+                icon: <ReloadOutlined aria-hidden="true" />,
+                onClick: () => setLoadAttempt((value) => value + 1),
+                testId: 'footprint-map-retry',
+              },
+            ]}
+          />
         </div>
       )}
       {globe && (

@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { App } from 'antd';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import Workbench from './index';
 import type { RunDetail, RunSummary } from '../../types/agent';
 
@@ -112,7 +112,8 @@ describe('Workbench · Agent 运行观察', () => {
 
     renderPage();
 
-    expect(await screen.findByText('还没有运行记录，去 AI 助手发起一次旅行规划吧')).toBeTruthy();
+    expect(await screen.findByText('还没有运行记录')).toBeTruthy();
+    expect(screen.getByText('去 AI 助手发起一次旅行规划吧')).toBeTruthy();
     expect(screen.getByText('选择左侧运行查看任务链与工具调用')).toBeTruthy();
     expect(api.getRunDetail).not.toHaveBeenCalled();
   });
@@ -124,7 +125,7 @@ describe('Workbench · Agent 运行观察', () => {
 
     renderPage();
 
-    expect((await screen.findAllByText('部分完成')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('部分成功')).length).toBeGreaterThan(0);
     // 关键：运行徽标不能是绿色（任务级「成功」徽标属于另一层，不受此约束）
     expect(document.querySelector('.run-row .run-badge.ok')).toBeNull();
     expect(document.querySelector('.run-row .run-badge.warn')).toBeTruthy();
@@ -144,5 +145,74 @@ describe('Workbench · Agent 运行观察', () => {
     expect((await screen.findAllByText('成功')).length).toBeGreaterThan(0);
     expect(document.querySelector('.run-row .run-badge.ok')).toBeTruthy();
     expect(screen.queryByTestId('run-partial-note')).toBeNull();
+  });
+});
+
+describe('Workbench · ABANDONED 与加载失败', () => {
+  it('ABANDONED 显示「结果未知（进程重启或心跳超时）」+ degraded，绝不显示成「已取消」', async () => {
+    const abandoned: RunSummary = {
+      ...run,
+      runId: 'run-abandoned',
+      status: 'ABANDONED',
+      message: '帮我规划杭州两日游',
+    };
+    api.getRuns.mockResolvedValue([abandoned]);
+    api.getRunDetail.mockResolvedValue({ ...detail, run: abandoned });
+
+    renderPage();
+
+    // 列表徽标 + 详情说明都要出现，用户能看出「不是自己取消的」
+    expect((await screen.findAllByText('结果未知')).length).toBeGreaterThan(0);
+    const note = await screen.findByTestId('run-abandoned-note');
+    expect(note.textContent).toContain('结果未知（进程重启或心跳超时）');
+    expect(screen.queryByText('已取消')).toBeNull();
+    // 语义档位：degraded（warn），不是 muted（取消）也不是 fail（失败）
+    expect(document.querySelector('.run-row .run-badge.warn')).toBeTruthy();
+    expect(document.querySelector('.run-row .run-badge.muted')).toBeNull();
+    expect(document.querySelector('.run-row .run-badge.fail')).toBeNull();
+    expect(note.querySelector('[data-status="degraded"]')).toBeTruthy();
+  });
+
+  it('ABANDONED 的「重跑」把原请求带回 AI 助手，可原样重发', async () => {
+    const abandoned: RunSummary = {
+      ...run,
+      runId: 'run-abandoned',
+      status: 'ABANDONED',
+      message: '帮我规划杭州两日游',
+      tripId: 7,
+    };
+    api.getRuns.mockResolvedValue([abandoned]);
+    api.getRunDetail.mockResolvedValue({ ...detail, run: abandoned });
+
+    function LocationProbe() {
+      const location = useLocation();
+      return <div data-testid="probe-loc">{location.pathname + location.search}</div>;
+    }
+    render(
+      <MemoryRouter initialEntries={['/settings/diagnostics']}>
+        <App>
+          <LocationProbe />
+          <Workbench />
+        </App>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByTestId('run-rerun'));
+
+    const loc = decodeURIComponent(screen.getByTestId('probe-loc').textContent ?? '');
+    expect(loc).toContain('/assistant?q=');
+    expect(loc).toContain('帮我规划杭州两日游');
+    expect(loc).toContain('tripId=7');
+  });
+
+  it('列表加载失败显示可重试的错误，不能伪装成「还没有运行记录」', async () => {
+    api.getRuns.mockRejectedValue(new Error('500 内部错误'));
+
+    renderPage();
+
+    expect(await screen.findByText('运行记录加载失败')).toBeTruthy();
+    expect(screen.getByText('500 内部错误')).toBeTruthy();
+    expect(screen.queryByText('还没有运行记录')).toBeNull();
+    expect(screen.getByTestId('workbench-runs-retry')).toBeTruthy();
   });
 });

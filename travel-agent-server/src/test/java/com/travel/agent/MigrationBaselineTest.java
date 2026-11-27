@@ -78,7 +78,8 @@ class MigrationBaselineTest {
             "idx_expense_user_spent_at", "idx_expense_trip_spent_at", "idx_memo_user_done",
             "idx_trip_user_start_date", "idx_schedule_item_user_sched_date",
             "idx_conversation_message_user_conv_created", "idx_operation_history_trip_created",
-            "idx_pending_plan_user", "idx_rag_document_user");
+            "idx_pending_plan_user", "idx_rag_document_user",
+            "schedule_item_id", "idx_expense_schedule");
 
     /** V13 两个方言版补的缺口列（同一份清单，防止两边漂移）。 */
     private static final List<String> GAP_COLUMNS = List.of(
@@ -114,6 +115,26 @@ class MigrationBaselineTest {
         core.add(23);
         // V24：users.token_version（注销后吊销全部 token），双方言中性 SQL（单列 ALTER TABLE ADD COLUMN）
         core.add(24);
+        // V25–V28：P0 可靠执行链路，均为双方言中性 SQL
+        //   V25 pending_plan 确认租约（claim_token / claimed_at）
+        //   V26 plan_outbox 事务性 Outbox（确认提交同事务写待办 + 独立投递）
+        //   V27 agent_run 状态机快照 / 心跳 / request_id + agent_run_stage 迁移历史
+        //   V28 agent_run_event SSE 事件持久化（Last-Event-ID 续传）
+        core.add(25);
+        core.add(26);
+        core.add(27);
+        core.add(28);
+        // V29：第二阶段每轮花费落库（agent_run_spend），双方言中性 SQL
+        core.add(29);
+        // V30：记账与行程解绑（expense.trip_id 可空 + expense.schedule_item_id + 索引），
+        // MODIFY COLUMN / ADD COLUMN / CREATE INDEX 在 H2(MODE=MySQL) 与 MySQL 8.0 都成立
+        core.add(30);
+        // V31：操作历史支持日程域（operation_history.trip_id 可空 + domain 列 + 索引），
+        // 同样是 MODIFY COLUMN / ADD COLUMN / CREATE INDEX，双方言中性 SQL
+        core.add(31);
+        // V32：照片通道支持发票用途（trip_photo.kind VARCHAR(20) DEFAULT 'PHOTO'），
+        // 单列 ADD COLUMN，双方言中性 SQL
+        core.add(32);
         Set<Integer> mysqlExpected = new LinkedHashSet<>(core);
         mysqlExpected.addAll(List.of(8, 12, 13));
         Set<Integer> h2Expected = new LinkedHashSet<>(core);

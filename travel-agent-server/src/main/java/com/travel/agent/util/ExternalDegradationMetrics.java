@@ -14,10 +14,11 @@ import java.util.concurrent.TimeoutException;
 /**
  * 外部依赖降级的统一指标口：{@code external.degraded{provider,reason}}。
  *
- * <p>为什么集中在一处：高德 / LLM / Embedding / Redis / S3 / 天气 的失败路径分散在各自的 catch 里，
+ * <p>为什么集中在一处：高德 / LLM / Embedding / Redis / S3 / 天气 / 发票 OCR 的失败路径分散在各自的 catch 里，
  * 若每处自造标签，「超时」在 A 处叫 {@code timeout}、B 处叫 {@code io_timeout}，看板与告警就无法聚合。
  * 这里固定 provider（{@value #PROVIDER_AMAP} / {@value #PROVIDER_LLM} / {@value #PROVIDER_EMBEDDING}
- * / {@value #PROVIDER_REDIS} / {@value #PROVIDER_S3} / {@value #PROVIDER_WEATHER}）与 reason（{@value #REASON_TIMEOUT} /
+ * / {@value #PROVIDER_REDIS} / {@value #PROVIDER_S3} / {@value #PROVIDER_WEATHER} / {@value #PROVIDER_OCR}）
+ * 与 reason（{@value #REASON_TIMEOUT} /
  * {@value #REASON_RATE_LIMITED} / {@value #REASON_SERVER_ERROR} / {@value #REASON_BAD_RESPONSE} /
  * {@value #REASON_CONNECTION_ERROR}）两枚低基数标签。
  *
@@ -40,6 +41,12 @@ public final class ExternalDegradationMetrics {
      * 属于输入边界，不计入本指标（见 WeatherLookup 的原因常量）。
      */
     public static final String PROVIDER_WEATHER = "weather";
+
+    /**
+     * 发票 OCR（百度云，默认关闭）：只统计「客户端调用失败」（网络 / 鉴权 / 服务端错误码）；
+     * 「识别出来了但没有金额」属于图片质量问题，不进降级指标，由回复如实告知用户重拍。
+     */
+    public static final String PROVIDER_OCR = "ocr";
 
     /** 连接或读超时（含 Spring 的 ResourceAccessException 包装与 S3 的 ApiCallTimeoutException） */
     public static final String REASON_TIMEOUT = "timeout";

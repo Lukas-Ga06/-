@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { App, Button, Dropdown, Empty, Input, Popconfirm, Tabs, Tooltip } from 'antd';
+import { App, Button, Empty, Input, Popconfirm, Tabs, Tooltip } from 'antd';
 import {
   CalendarOutlined,
   CarryOutOutlined,
@@ -7,7 +7,7 @@ import {
   CompassOutlined,
   DeleteOutlined,
   GlobalOutlined,
-  MoreOutlined,
+  ReloadOutlined,
   RobotOutlined,
   StopOutlined,
   UndoOutlined,
@@ -25,13 +25,13 @@ import {
   successOrEmpty,
   type ResourceState,
 } from '../../lib/resource';
+import { knownRunState } from '../../lib/runState';
 import { useAuthStore } from '../../store/authStore';
 import { useTripStore } from '../../store/tripStore';
 import VoiceButton from '../../components/VoiceButton';
-import Skeleton from '../../components/Skeleton';
 import PaginationBar from '../../components/PaginationBar';
 import AppShell from '../../components/AppShell';
-import EmptyState from '../../components/EmptyState';
+import RunStatus from '../../components/RunStatus';
 import Schedule from '../Schedule';
 import Footprint from '../Footprint';
 
@@ -96,7 +96,7 @@ function matchesFilter(t: Trip, filter: StatusFilter): boolean {
  * 待确认/即将出发/进行中/已结束/已取消靠筛选区分，而不是全塞进同一列表。
  */
 export default function Travel() {
-  const { message, modal } = App.useApp();
+  const { message } = App.useApp();
   const navigate = useNavigate();
   const trips = useTripStore((s) => s.trips);
   const tripsLoading = useTripStore((s) => s.tripsLoading);
@@ -112,12 +112,13 @@ export default function Travel() {
   const tabParam = params.get('tab');
   const activeTab = tabParam === 'schedule' || tabParam === 'footprint' ? tabParam : 'trips';
 
-  // 列表状态按统一模型区分：加载中 / 成功 / 空 / 失败（P0-04）
+  // 列表状态按统一模型区分：加载中 / 成功 / 空 / 失败（P0-04）；七态经 toRunState('resource')
   const tripsResource: ResourceState<Trip[]> = tripsError
     ? errorResource<Trip[]>(tripsError, { previous: trips })
     : tripsLoading
       ? loadingResource<Trip[]>(trips)
       : successOrEmpty(trips);
+  const tripsRunState = knownRunState('resource', tripsResource.status);
 
   const keyword = query.trim().toLowerCase();
   const filtered = trips
@@ -147,12 +148,15 @@ export default function Travel() {
   useEffect(() => {
     // 失败由 tripsError 渲染（带重试），这里不再弹一次性 toast 掩盖问题
     loadTrips().catch(() => {});
-  }, []);
+  }, [loadTrips]);
 
-  // 筛选/搜索变化后回到第一页，避免停在越界页码上
-  useEffect(() => {
+  // 筛选/搜索变化后回到第一页，避免停在越界页码上。
+  // 在渲染期收敛（React 官方「prop/派生值变化时调整 state」写法），省一轮提交与闪帧。
+  const [pageSeed, setPageSeed] = useState({ filter, keyword });
+  if (pageSeed.filter !== filter || pageSeed.keyword !== keyword) {
+    setPageSeed({ filter, keyword });
     setPage(0);
-  }, [filter, keyword]);
+  }
 
   const start = (value?: string) => {
     const prompt = (value ?? text).trim();
@@ -171,18 +175,6 @@ export default function Travel() {
     } catch (e: any) {
       message.error(e.message);
     }
-  };
-
-  /** 移动端「更多」里的删除：二次确认带行程名，避免误触 */
-  const confirmRemove = (trip: Trip) => {
-    modal.confirm({
-      title: '确定删除该行程？',
-      content: `「${trip.name}」删除后无法恢复。`,
-      okText: '删除',
-      okButtonProps: { danger: true },
-      cancelText: '取消',
-      onOk: () => remove(trip.id),
-    });
   };
 
   const changeStatus = async (id: number, status: string) => {
@@ -311,44 +303,54 @@ export default function Travel() {
                   </div>
 
                   {tripsResource.status === 'error' ? (
-                    <div className="load-error" role="alert">
-                      <div className="le-title">行程列表加载失败</div>
-                      <div className="le-detail">{tripsResource.message}</div>
-                      <div className="le-actions">
-                        {canRetry(tripsResource) && (
-                          <Button
-                            size="small"
-                            type="primary"
-                            onClick={() => loadTrips().catch(() => {})}
-                          >
-                            重试
-                          </Button>
-                        )}
-                        <Button size="small" onClick={() => navigate('/planner')}>
-                          直接规划新行程
-                        </Button>
-                      </div>
+                    <div className="run-state-block run-state-block--danger" role="alert">
+                      <RunStatus
+                        status={tripsRunState}
+                        text="行程列表加载失败"
+                        detail={tripsResource.message}
+                        testId="trips-error"
+                        actions={[
+                          ...(canRetry(tripsResource)
+                            ? [
+                                {
+                                  label: '重试',
+                                  icon: <ReloadOutlined aria-hidden="true" />,
+                                  onClick: () => loadTrips().catch(() => {}),
+                                  testId: 'trips-retry',
+                                },
+                              ]
+                            : []),
+                          { label: '直接规划新行程', onClick: () => navigate('/planner') },
+                        ]}
+                      />
                       {tripsResource.previous && tripsResource.previous.length > 0 && (
-                        <div className="le-note">下面是上次加载到的结果，可能不是最新</div>
+                        <div className="run-state-block-note">
+                          下面是上次加载到的结果，可能不是最新
+                        </div>
                       )}
                     </div>
                   ) : null}
 
                   {tripsResource.status === 'loading' && trips.length === 0 && (
-                    <div className="inset-list fade-up" aria-hidden="true">
-                      {[0, 1, 2].map((i) => (
-                        <Skeleton.ListItem key={i} />
-                      ))}
+                    <div className="run-state-block fade-up" aria-busy="true">
+                      <RunStatus status={tripsRunState} text="正在加载行程…" size="sm" />
                     </div>
                   )}
 
                   {tripsResource.status === 'empty' ? (
                     <div className="empty-trips">
-                      <EmptyState
+                      <RunStatus
+                        status={tripsRunState}
+                        text="还没有行程"
+                        detail="点右上角「新建行程」，或用一句话描述你想去哪、几天、几个人。"
                         testId="trips-empty"
-                        icon={<CompassOutlined aria-hidden="true" />}
-                        title="还没有行程，输入一个旅行想法让 AI 帮你规划吧"
-                        hint="点右上角「新建行程」，或用一句话描述你想去哪、几天、几个人。"
+                        actions={[
+                          {
+                            label: '规划第一次旅行',
+                            onClick: () => navigate('/planner'),
+                            testId: 'trips-empty-plan',
+                          },
+                        ]}
                       />
                     </div>
                   ) : null}
@@ -441,52 +443,25 @@ export default function Travel() {
                                   {action.label}
                                 </Button>
                               )}
-                              {/* 桌面：删除保持低频图标按钮；移动端收进「更多」，不与状态/预算抢一行 */}
-                              <span className="tr-delete-desktop">
-                                <Tooltip title="删除行程">
-                                  <Popconfirm
-                                    title="确定删除该行程？"
-                                    description={`「${t.name}」删除后无法恢复`}
-                                    okText="删除"
-                                    okButtonProps={{ danger: true }}
-                                    cancelText="取消"
-                                    onConfirm={() => remove(t.id)}
-                                  >
-                                    <Button
-                                      type="text"
-                                      danger
-                                      size="small"
-                                      icon={<DeleteOutlined />}
-                                      aria-label={`删除行程 ${t.name}`}
-                                    />
-                                  </Popconfirm>
-                                </Tooltip>
-                              </span>
-                              <span className="tr-more-mobile">
-                                <Tooltip title="更多操作">
-                                  <Dropdown
-                                    trigger={['click']}
-                                    menu={{
-                                      items: [
-                                        {
-                                          key: 'delete',
-                                          danger: true,
-                                          icon: <DeleteOutlined />,
-                                          label: '删除行程',
-                                          onClick: () => confirmRemove(t),
-                                        },
-                                      ],
-                                    }}
-                                  >
-                                    <Button
-                                      type="text"
-                                      size="small"
-                                      icon={<MoreOutlined />}
-                                      aria-label={`更多操作：${t.name}`}
-                                    />
-                                  </Dropdown>
-                                </Tooltip>
-                              </span>
+                              {/* 删除是低频动作：图标按钮 + Popconfirm，不与状态/预算抢视觉权重 */}
+                              <Tooltip title="删除行程">
+                                <Popconfirm
+                                  title="确定删除该行程？"
+                                  description={`「${t.name}」删除后无法恢复`}
+                                  okText="删除"
+                                  okButtonProps={{ danger: true }}
+                                  cancelText="取消"
+                                  onConfirm={() => remove(t.id)}
+                                >
+                                  <Button
+                                    type="text"
+                                    danger
+                                    size="small"
+                                    icon={<DeleteOutlined />}
+                                    aria-label={`删除行程 ${t.name}`}
+                                  />
+                                </Popconfirm>
+                              </Tooltip>
                             </div>
                           </div>
                         );

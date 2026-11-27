@@ -127,8 +127,14 @@ curl -sS -H "Authorization: Bearer $LLM_API_KEY" "$LLM_BASE_URL/models"
 | `S3_SECRET_KEY` | `PHOTOS_STORE=s3` 时必填 | 空 | `<secret-key>` | **是** | compose 映射为 `TRAVEL_PHOTOS_S3_SECRET_KEY` |
 | `TZ` | **是** | Dockerfile `Asia/Shanghai` | `Asia/Shanghai` | 否 | 容器时区；compose 已透传，MySQL 另由 compose 固定 |
 | `APP_TIMEZONE` | **是** | `Asia/Shanghai` | `Asia/Shanghai` | 否 | 应用时区，钉死 JVM 默认时区；compose 已透传（Dockerfile 另有同值默认） |
-| `AGENT_BUDGET_ENABLED` | 否 | `true` | `true` | 否 | 端到端预算开关 |
+| `AGENT_BUDGET_ENABLED` | 否 | `true` | `true` | 否 | 端到端预算总开关（时间 + 花费） |
 | `AGENT_BUDGET_TOTAL_MS` | 否 | `30000` | `30000` | 否 | 总预算；耗尽按 ADR-002 降级并标注，不报错 |
+| `AGENT_SPEND_ENABLED` | 否 | `true` | `true` | 否 | 花费预算开关（调用次数/工具/重试/token/费用） |
+| `AGENT_SPEND_MAX_LLM_CALLS` | 否 | `30` | `30` | 否 | 单轮 LLM 调用次数上限（含失败尝试） |
+| `AGENT_SPEND_MAX_TOOL_CALLS` | 否 | `200` | `200` | 否 | 单轮工具调用次数上限；拦工具风暴，不是日常用量 |
+| `AGENT_SPEND_MAX_RETRIES` | 否 | `5` | `5` | 否 | 单轮重试上限（结构化规划重试 + 审核重规划） |
+| `AGENT_SPEND_MAX_TOKENS` | 否 | `200000` | `200000` | 否 | 单轮 token 上限，来自供应商 `usage`（缺失不估算） |
+| `AGENT_SPEND_MAX_COST_USD` | 否 | `1.0` | `1.0` | 否 | 单轮费用上限；仅当配置了 LLM 单价时可能触发 |
 | `CONVERSATION_HISTORY_LIMIT` | 否 | `10` | `10` | 否 | 喂给模型的最近消息条数 |
 | `CONVERSATION_RETENTION_DAYS` | 否 | `7` | `7` | 否 | 会话消息保留天数 |
 | `RAG_CHUNK_VERSION_RETENTION` | 否 | `2` | `2` | 否 | 知识块历史版本保留数；compose 已透传 |
@@ -152,13 +158,79 @@ curl -sS -H "Authorization: Bearer $LLM_API_KEY" "$LLM_BASE_URL/models"
 | LLM Key | `LLM_API_KEY` | 仅调用 `/chat/completions`（本服务不用的能力不要授权） | 供应商控制台看余额、限流、用量；本服务另有 `LLM_DAILY_QUOTA` | 控制台新建 Key → 更新环境变量 → 重启 → 验证 `/api/system/status` 的 `llmVerified=true` → 旧 Key 作废 | 轮换窗口内调用失败会降级规则引擎；不丢数据 |
 | Embedding Key | `EMBEDDING_API_KEY` | 仅 `/embeddings` | 以控制台为准；本服务无独立配额 | 同 LLM；还需注意模型切换要重建知识库 | 失败会**进程内锁定**本地哈希，恢复需重启 |
 | 高德 REST Key | `AMAP_KEY` | 「Web 服务」类型，仅地理编码/POI/路线 | 高德控制台看日配额/QPS；代码只在 `10021` 时退避重试 1 次 | 控制台新建 Key → 更新环境变量 → 重启 → 看 `amapVerified` / `routeProvider` | 失效时定位退 OSM、路线转 `estimated`，不丢数据 |
-| 高德 MCP Key | `AMAP_MAPS_API_KEY` | 「Web 服务」类型，供 MCP 子进程 | 同上（与 REST Key 共享账号配额） | 同 REST；改完重启让 `npx` 子进程重新握手 | 失效时 MCP 工具缺失、只 WARN，不影响启动 |
+| 高德 MCP Key | `AMAP_MAPS_API_KEY` | 「Web 服务」类型，供 MCP 子进程 | 同上（与 REST Key 共享账号配额） | 同 REST；改完重启让 `npx` 子进程重新握手（完整步骤与验证读数见 §3.1） | 失效时 MCP 工具缺失、只 WARN，不影响启动 |
 | 前端高德 Key | `VITE_AMAP_KEY` / `VITE_AMAP_SECURITY_CODE` | 「Web 端(JS API)」，按域名白名单 | 高德控制台 | 改构建参数 → **重新构建 web 镜像**（不是重启） | 旧前端产物仍带旧 Key，需重新发布静态资源 |
 | MySQL 业务口令 | `MYSQL_PASSWORD` | 仅 `travel_agent` 库 DML/DDL（Flyway 需要 DDL） | 本地实例 | 先 `ALTER USER` 改库内口令 → 同步环境变量 → 滚动重启 backend | 顺序反了会让应用连不上；不要在数据卷初始化后只改 compose 变量 |
 | MySQL root 口令 | `MYSQL_ROOT_PASSWORD` | 仅初始化与健康检查 | 本地实例 | 同上；compose 健康检查命令内联了该变量，必须同步 | 不同步会导致 mysql 容器一直 unhealthy |
 | S3 访问密钥 | `S3_ACCESS_KEY` / `S3_SECRET_KEY`（compose 映射为 `TRAVEL_PHOTOS_S3_*`） | 仅目标 bucket 的 Put/Get/Head/Delete | 以对象存储控制台为准；建议配生命周期与版本控制 | 新建子账号密钥 → 更新 `.env` 的 `S3_*` → `docker compose up -d` 重建 backend → 上传/读取各验一次 → 停用旧密钥 | 照片读写 500；已有对象不受影响 |
 | Webhook 密钥 | `CHANNEL_WEBHOOK_SECRET` | 仅校验 `X-Webhook-Secret` | 无 | 换随机串 → 更新环境变量 → 重启 → 通知调用方同步 | 旧调用方全部 401 |
 | 微信公众号 | `WECHAT_OA_TOKEN` / `APPID` / `SECRET` | 公众号服务器配置与客服消息 | 微信公众平台 | 平台重置 → 同步环境变量 → 重启 → 平台侧验证 | 渠道消息失败；不影响主站 |
+
+### 3.1 MCP 逐 server 治理与高德两把钥匙的轮换
+
+> 字段语义、可用的环境变量写法（含 Spring 对 list 元素的两个绑定坑）、建议白名单与每分钟配额的推算依据，
+> 见 [高德 MCP 接入 §2.4](../guide/mcp-amap.md)。本节只写**怎么注入、怎么轮换、怎么验**。
+
+**两把钥匙，一个账号。** 后端 REST 用 `AMAP_KEY`，MCP 子进程用 `AMAP_MAPS_API_KEY`（见 §2.5）。两者都必须是
+「Web 服务」类型、都不是前端 JS API Key，且共享同一高德账号的月配额与 QPS。轮换时**两把一起换**：只换一把会出现
+「路线真实、MCP 工具全挂」（或反过来）。
+
+**轮换步骤：**
+
+1. 高德控制台新建「Web 服务」Key，**旧 Key 先别删**；
+2. 更新 `.env` 的 `AMAP_KEY` 与 `AMAP_MAPS_API_KEY`（两行，值可以相同，但不能是 `VITE_AMAP_KEY` 那枚 JS API Key）；
+3. 重建 backend 容器，让 npx 子进程重新握手：
+
+   ```bash
+   docker compose up -d --force-recreate backend
+   ```
+
+   `docker compose restart backend` **不会**重新读环境变量；只 reload 配置也不会重建 MCP 子进程——
+   高德包在模块加载期读 Key，缺 Key/换 Key 都必须是新进程；
+4. 验证（两项都过再删旧 Key）：
+   - REST：`/api/system/status` 的 `amapConfigured=true`，且跑一次算路后 `GET /api/trips/{id}/route-legs` 有 `source=amap`
+     （只看 `routeProvider=amap` 不够，它只代表读到了 Key，见 ADR-006）；
+   - MCP：`mcpEnabled=true`、`mcpConnected=true`、`mcpToolCount` > 0（配了白名单时是白名单内的数量）、
+     `mcpServers[].lastError` 为空，日志出现 `[MCP-Audit]` 调用行；
+5. 旧 Key 在高德控制台删除。
+
+**失败表现**（别误判成重启失败）：REST Key 失效是**静默降级**——定位退 OSM、路线 `estimated`，日志不报错；
+MCP Key 失效是启动 WARN `MCP 服务器 [amap] 接入失败，已跳过` + 工具缺失，状态页 `mcpLastError` 有原因。
+
+**治理四项怎么注入（不改镜像，只需重启容器）。** `docker-compose.yml` 的 `backend.environment` 目前只透传
+`MCP_ENABLED` / `AMAP_*`，**没有** `MCP_AMAP_ALLOW_TOOLS` / `MCP_AMAP_MAX_CALLS_PER_MINUTE` /
+`MCP_AMAP_FAILURE_THRESHOLD` / `MCP_AMAP_COOLDOWN_MS`；compose 也没用 `env_file`，所以只写 `.env` 不会进容器。
+两条可用路径：
+
+```yaml
+# docker-compose.override.yml（本地/生产服务器上维护，不进仓库）
+services:
+  backend:
+    environment:
+      MCP_AMAP_ALLOW_TOOLS: ${MCP_AMAP_ALLOW_TOOLS:-}
+      MCP_AMAP_MAX_CALLS_PER_MINUTE: ${MCP_AMAP_MAX_CALLS_PER_MINUTE:-0}
+      MCP_AMAP_FAILURE_THRESHOLD: ${MCP_AMAP_FAILURE_THRESHOLD:-0}
+      MCP_AMAP_COOLDOWN_MS: ${MCP_AMAP_COOLDOWN_MS:-60000}
+```
+
+```yaml
+# 兜底：compose 完全没暴露的字段走 SPRING_APPLICATION_JSON（> 把 JSON 折叠成一行）。
+# 必须把整条 server 抄全：只写治理四项会把 name/command/env 清掉（实测见 docs/guide/mcp-amap.md §2.4.1）
+services:
+  backend:
+    environment:
+      SPRING_APPLICATION_JSON: >-
+        {"travel":{"mcp":{"servers":[{"name":"amap","command":["npx","-y","@amap/amap-maps-mcp-server"],
+        "env":{"AMAP_MAPS_API_KEY":"$${AMAP_MAPS_API_KEY:}"},"read-only":true,"timeout-ms":30000,
+        "allow-tools":["maps_direction_driving","maps_weather"],"max-calls-per-minute":30}]}}}
+```
+
+`$$` 是 compose 的转义（compose 先做一遍插值，`$` 要写两遍）；systemd / bare metal 上直接写 `${AMAP_MAPS_API_KEY:}`。
+改完 override 同样要 `docker compose up -d --force-recreate backend` 才会重新读环境变量。
+
+> **与 §5 的统计口径**：本节新增的 4 个变量是**应用侧已声明但 compose 未透传**，所以实际口径是
+> **59 个应用侧声明 / 50 个直接透传 / 9 个未透传**（§5 表里仍是改动前的 55/50/5）。
+> 后续把这四项加进 `docker-compose.yml` 的 `backend.environment` 时一并重算 §5。
 
 ---
 
@@ -215,7 +287,7 @@ curl -sS -b cookies.txt http://localhost:8081/api/system/status
 | `mcpEnabled` / `mcpConnected` | boolean | `mcpConnected` 仅在“桥接已启动且至少一个 server 连接成功”时为 true |
 | `mcpToolCount` | int | MCP 桥接注册的工具总数；0 = 没有可用的外部工具 |
 | `amapMcpToolCount` | int | 从注册表发现的高德语义工具数；与 `mcpToolCount` 口径不同，分开看 |
-| `mcpServers` | array | 每个 server 的 `name/connected/toolCount/lastError`，用于定位是哪一个失败 |
+| `mcpServers` | array | 每个 server 的 `name/connected/toolCount/lastError` 与治理计数 `calls/failures/rejected/circuit`；配额窗口 `callsThisMinute/maxCallsPerMinute`（未配置配额时同为 `null`，不是 0） |
 | `mcpLastError` / `mcpHint` | string | 最近一次接入失败原因与中文提示；`mcpHint` 不会夸大接入状态 |
 | `routeProvider` | `amap` / `estimated` | 只有最近一次真实路径调用成功才允许 `amap` |
 | `amapVerified` / `routeLastError` | boolean / string | 高德路径是否真实成功、失败原因（含 infocode，不含 Key） |

@@ -43,7 +43,7 @@ export default function Profile() {
     systemStatus()
       .then(setStatus)
       .catch(() => undefined);
-  }, []);
+  }, [loadTrips]);
 
   const openDelete = () => {
     setDeletePassword('');

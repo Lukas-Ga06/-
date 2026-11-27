@@ -2,6 +2,72 @@
 
 按主题记录行为变化。**第四节是最需要注意的**：其中几项改变了原有的使用习惯。
 
+## 依赖安全：moderate 存量归零，npm audit 收紧到 moderate（2026-11-27）
+
+- **前端依赖漏洞清零**：`npm audit` 从 **7 moderate** 降到 **0**。两处根因分开处理——
+  `vitest` / `@vitest/coverage-v8` 4.1.11 → **4.1.12**（修手动 mock 注入与 `@vitest/mocker` 的 Windows
+  反斜杠绕过，4.1.12 是 4.x 修复版）；`glob` / `minimatch` 是 `workbox-build@7.4.1` 的传递依赖，
+  上游还没发修复版，用 `package.json` 的 `overrides.workbox-build.glob: ^14.0.2` 顶到 **glob 14.0.6**。
+- **override 的证据是产物不变**：升级前后 `dist/sw.js` 均 5289 B / precache 82 项、首屏 JS 合计 598,949 B
+  不变，`npm test` 557/557。glob 只在构建期扫自家 `dist/`，不随产物发布，也不处理用户输入。
+- **门禁收紧**：CI 的 `npm audit` 从 `--audit-level=high` 改为 **`--audit-level=moderate`**
+  （R8「只收紧不放宽」）。以后再出现 moderate，要么修、要么走 [CI §6](guide/ci.md) 的临时豁免流程。
+- 依据与解除条件见 [CI §5.1](guide/ci.md)：`workbox-build`/`vite-plugin-pwa` 一旦依赖 `glob >=14.0.2`，
+  就删掉 override 并重跑三项证据。
+- **后端依赖按真实版本分诊并覆盖**：用 `mvn dependency:list`（181 个运行时依赖）+ OSV 查出
+  **24 条公告 / 8 个包（8 CRITICAL、6 HIGH、10 MODERATE）**——这些在 Trivy 的 `ignore-unfixed` 视角下
+  不一定可见。按「同一维护线的已修版本」显式覆盖 4 个包：`tomcat.version=10.1.62`、
+  `netty.version=4.1.141.Final`、`log4j2.version=2.26.1`、`commons-lang3.version=3.22.0`
+  （写法与既有 `jackson-bom.version` 一致，候选版本均先经 OSV 确认为 CLEAN）。
+  覆盖后只剩 **2 条**：Spring 6.2.19 的两条 CRITICAL，仍走既有 `.trivyignore.yaml` 豁免
+  （6.2 线无修复版本，修复需 Spring 7 / Boot 4），到期 2026-12-31。
+- 证据：`mvn -B verify` **735/735**；本地 Trivy（CI 同参）只剩上述 2 条；分诊方法与复现见
+  [CI §5.2](guide/ci.md) 与[依赖分诊快照](review/2026-11-27-dependency-triage.md)。
+
+## 花费可见性与 MCP 配额指标（2026-11-26）
+
+- **运行详情现在能看到每轮花费**：运行记录抽屉展开后新增「本轮花费」（LLM 调用 / 工具调用 / 重试 /
+  输入输出 token / 费用），位置在「任务链」之前。数据来自上一批落库的 `agent_run_spend`（V29）与
+  `GET /api/agent/runs/{runId}` 的 `spend` 字段。**缺席不补 0**：V29 之前的老 run 整块不渲染，
+  字段缺省则整项不显示；金额 `0` 照实显示 `$0.0000`（未配置单价），`0 < v < 0.0001` 显示 `<$0.0001`；
+  `exhausted` 有值时追加「预算触顶：<项>」警示。见[评审](review/2026-11-26-spend-visible-and-mcp-quota.md)。
+- **MCP 每分钟配额可观测**：新增 `mcp_server_calls_this_minute` 与 `mcp_server_quota`（Gauge，tag `server`），
+  闸门窗口用量与上限成对出现，比值即余量。**未配置 `max-calls-per-minute` 时两条都是 NaN**——
+  `McpGovernor` 此时 `callsThisMinute` 恒为 0，若照抄就会把「没开配额」读成「这个 server 很闲」；
+  因此 `McpServerStatus` 用 `Integer`（null=没有这个事实）而不是 `int`。
+- **状态接口纯增量**：`/api/system/status` 的 `mcpServers[]` 每行新增 `callsThisMinute`/`maxCallsPerMinute`，
+  未配置配额为 `null`。既有键含义未变，旧构造器保留，消费方无需改动。
+- **新增告警 `TravelMcpQuotaPressureHigh`**（warning，`>90%` 持续 5 分钟），与既有
+  `TravelMcpCircuitOpen`、`TravelMcpServerFailureRateHigh` 组成第 9 组 `travel-agent.mcp`；
+  规则总数 22→**25 条 / 10 组**，Runbook 补 §20–§22。三条规则都写明「什么时候算恢复」，
+  其中两条明确「没人用了 ≠ 修好了」。
+- 边界（详见评审 §5）：首屏 JS 预算余量降到 **1,051 B**（`AgentRunsDrawer` 在同步 chunk 内）；
+  MCP 指标只有单测与 `PrometheusMeterRegistry` 抓取，未起真实 Prometheus；新规则与既有 22 条一样
+  仍缺真实 webhook 与值班人；未做真机/像素级验收。
+
+## 第二阶段：Agent 统一花费预算（2026-11-25）
+
+- **新增花费预算 `AgentSpend`，叠加在既有时间预算上**：单轮上限覆盖 LLM 调用次数、工具调用次数、重试次数、
+  token 总量与估算费用；任一到顶都按 ADR-002 既有语义降级（回复 + SSE `budget_degraded` + DEGRADE 任务），
+  **不报错、不伪造结果**。入口在 `AgentBudget.chat`（唯一 LLM 出口）与 `ToolInvoker.invoke`（唯一工具出口），
+  新增阶段自动计费，不依赖调用方自觉。
+- **token 只认供应商 `usage`**：`LlmClient#takeLastUsage` 返回解析到的真实用量（一次性消费），
+  缺失即不计；费用上限只在配置了 `LLM_PROMPT_PRICE_PER_1K_USD` / `LLM_COMPLETION_PRICE_PER_1K_USD`
+  时才可能触发，绝不用猜测单价卡请求。
+- **工具触顶是降级而不是失败**：超预算的工具调用直接跳过（返回 `null`，规划侧按「查不到」处理：少排一个点、
+  路线成本记 0），回复里写明「花费预算耗尽，未执行工具」。这一条是本批修掉的真实坑：最初实现选择抛异常，
+  结果一次正常三日游规划（内部工具调用 20+）被打成 `FAILED`，由 `AgentBudgetIntegrationTest` 当场抓到。
+- **默认值按真实用量校准**：`max-llm-calls=30`（正常一轮 8–15）、`max-tool-calls=200`（确定性规划每天约 8 次工具，
+  7 天行程 60+）、`max-retries=5`、`max-tokens=200000`、`max-cost-usd=1.0`。默认值拦失控循环，不是给正常请求设 SLO。
+- **可观测**：新增 `travel.agent.spend{result=within|exhausted, limit=none|llm_calls|tool_calls|retries|tokens|cost}`
+  指标；每轮收尾一条 `Agent 本轮花费: runId=... llm=... tool=... tokens=... cost=...` INFO 日志；
+  DEGRADE 任务摘要改为带具体原因（「时间不够」还是「哪一项花费到顶」）；用户文案区分「时间预算」与「花费预算」。
+- **配置**：新增 6 个 `AGENT_SPEND_*` 变量（`application.yml`、`docker-compose.yml`、`.env.production.example`、
+  部署/生产配置文档同步）。`application.yml` 占位 62→68，环境变量合计 81→87。
+- 边界（未验证/未覆盖，详见[验收记录](review/2026-11-25-spend-budget.md)）：每轮花费**不落库**（需新迁移，暂用日志 + 指标）；
+  另有 4 处辅助调用（知识问答 `RagService#answer`、城市目录 `OnlineCityService` 两条路径、行程回顾 `TripReviewService`）
+  仍是单发、不经 Agent 预算（润色 `PlanNarrationService` 本批已接入）；真实供应商的 token 记账未在测试环境跑过（测试不触网）。
+
 ## 安全门禁收口：dependency-review 硬门禁、CI gitleaks、SECURITY.md、推送拦截实测（2026-11-25）
 
 - **dependency-review 转为硬门禁**：仓库改 Public 并开启 Dependency graph 后，删除 `ci.yml` 里

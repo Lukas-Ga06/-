@@ -18,7 +18,6 @@ import { useNavigate } from 'react-router-dom';
 import { useAgentStore } from '../../store/agentStore';
 import { useAuthStore } from '../../store/authStore';
 import { useUIStore } from '../../store/uiStore';
-import { useIsMobile } from '../../hooks/useMediaQuery';
 import { retryExecution } from '../../api/agent';
 import VoiceButton from '../VoiceButton';
 import AgentActivityPanel from '../AgentActivityPanel';
@@ -72,23 +71,22 @@ export default function ChatPanel({ tripId, placeholder }: Props) {
   const selectedElement = useUIStore((s) => s.selectedElement);
   const setSelectedElement = useUIStore((s) => s.setSelectedElement);
   const { message } = App.useApp();
-  const isMobile = useIsMobile();
-  const effectivePlaceholder = isMobile
-    ? '告诉我想完成什么…'
-    : (placeholder ?? '输入旅行需求，或对行程提出调整…');
+  const effectivePlaceholder = placeholder ?? '输入旅行需求，或对行程提出调整…';
   const [text, setText] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
 
-  // 执行结果面板：用户点关闭后隐藏，收到新的 execution（新一次确认提交）再出现
+  // 执行结果面板：用户点关闭后隐藏，收到新的 execution（新一次确认提交）再出现。
+  // 用「值变化时在渲染期收敛」重置，避免 effect 内同步 setState 多跑一轮渲染。
   const [executionHidden, setExecutionHidden] = useState(false);
+  const [executionSeed, setExecutionSeed] = useState(lastExecution?.executionId);
+  if (executionSeed !== lastExecution?.executionId) {
+    setExecutionSeed(lastExecution?.executionId);
+    setExecutionHidden(false);
+  }
   const [retrying, setRetrying] = useState(false);
   const [runsOpen, setRunsOpen] = useState(false);
   /** 最近会话抽屉（§8.6）：继续历史对话或开新对话 */
   const [conversationsOpen, setConversationsOpen] = useState(false);
-
-  useEffect(() => {
-    setExecutionHidden(false);
-  }, [lastExecution?.executionId]);
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
@@ -166,8 +164,9 @@ export default function ChatPanel({ tripId, placeholder }: Props) {
   return (
     <>
       <div className="chat-messages" ref={listRef}>
-        {/* 过程时间线在消息区内部、首次问候之前；空数组时组件自身返回 null */}
-        <AgentActivityPanel activity={activity} />
+        {/* 过程时间线在消息区内部、首次问候之前；空数组时组件自身返回 null。
+            同步台账不是 SSE 事件，由确认提交后的 ExecutionSummary 驱动，作为「同步台账」阶段追加 */}
+        <AgentActivityPanel activity={activity} execution={lastExecution} />
         {messages.length === 0 && (
           <div className="chat-empty" data-testid="chat-empty">
             <div className="chat-row">

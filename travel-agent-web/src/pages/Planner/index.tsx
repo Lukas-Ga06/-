@@ -4,7 +4,6 @@ import { ArrowLeftOutlined, WarningOutlined } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import PlanDiff from '../../components/PlanDiff';
 import { useAgentStore } from '../../store/agentStore';
-import { useIsMobile } from '../../hooks/useMediaQuery';
 import { useAgentScope } from '../../hooks/useAgentScope';
 import {
   clampPlanMessage,
@@ -39,7 +38,7 @@ import PlanStepShell from './components/PlanStepShell';
 import PlanStepBasics from './components/PlanStepBasics';
 import PlanStepPreferences from './components/PlanStepPreferences';
 import { PlanStepConfirm, RequirementAside } from './components/PlanReview';
-import PlannerFooter, { PlannerMobileBar } from './components/PlannerFooter';
+import PlannerFooter from './components/PlannerFooter';
 import WorkspacePane from './components/WorkspacePane';
 import './planner.css';
 
@@ -48,13 +47,12 @@ import './planner.css';
  * 三步各自只问一段信息，第 1 步是唯一必填步骤，其余可整段跳过。
  *
  * 页面本身只负责：步骤状态与门禁、草稿读写、需求编译与提交，以及视图切换；
- * 各步骤的表单、只读摘要、页脚/移动端操作栏与工作区在 components/ 下。
+ * 各步骤的表单、只读摘要、页脚与工作区在 components/ 下。
  */
 export default function Planner() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const { message } = App.useApp();
-  const isMobile = useIsMobile();
   // 会话隔离（阶段 C）：规划器有自己的对话作用域；进入/离开不再 reset 整个 store
   useAgentScope('planner');
   const streaming = useAgentStore((s) => s.streaming);
@@ -101,7 +99,7 @@ export default function Planner() {
       clearCommitted();
       navigate(`/trip/${id}`);
     }
-  }, [committedTripId]);
+  }, [committedTripId, clearCommitted, navigate]);
 
   // §8.3「离开时若生成中要提示」：草稿本身有自动保存兜底，
   // 但流式生成中的回复只存在内存里，刷新就没了，所以只在生成中拦截一次。
@@ -315,7 +313,6 @@ export default function Planner() {
               </div>
 
               <PlannerFooter
-                isMobile={isMobile}
                 step={step}
                 streaming={streaming}
                 blockingIssue={blockingIssue}
@@ -327,23 +324,10 @@ export default function Planner() {
               />
             </div>
 
-            {!isMobile && (
-              <RequirementAside asideRows={asideRows} missingRequired={missingRequired} />
-            )}
+            <RequirementAside asideRows={asideRows} missingRequired={missingRequired} />
           </div>
         )}
       </div>
-
-      {!inWorkspace && isMobile && (
-        <PlannerMobileBar
-          step={step}
-          streaming={streaming}
-          blockingIssue={blockingIssue}
-          onBack={goBack}
-          onNext={goNext}
-          onSubmit={submit}
-        />
-      )}
 
       <PlanDiff
         open={!!pendingConfirm}

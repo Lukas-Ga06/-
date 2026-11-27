@@ -1556,6 +1556,7 @@ export interface components {
             createdAt?: string;
             /** Format: int64 */
             id?: number;
+            kind?: string;
             originalName?: string;
             /** Format: int64 */
             sizeBytes?: number;
@@ -1699,6 +1700,7 @@ export interface components {
         };
         RunDetail: {
             run?: components["schemas"]["RunSummary"];
+            spend?: components["schemas"]["SpendView"];
             tasks?: components["schemas"]["TaskView"][];
             toolCalls?: components["schemas"]["ToolCallView"][];
         };
@@ -1751,6 +1753,22 @@ export interface components {
             id?: number;
             title?: string;
             type?: string;
+        };
+        SpendView: {
+            /** Format: int64 */
+            completionTokens?: number;
+            costUsd?: number;
+            exhausted?: string;
+            /** Format: int32 */
+            llmCalls?: number;
+            /** Format: int64 */
+            promptTokens?: number;
+            /** Format: int32 */
+            retries?: number;
+            /** Format: int32 */
+            toolCalls?: number;
+            /** Format: int64 */
+            totalTokens?: number;
         };
         SseEmitter: {
             /** Format: int64 */
@@ -1904,7 +1922,7 @@ export interface components {
         };
         UndoRequest: {
             /** Format: int64 */
-            tripId: number;
+            tripId?: number;
         };
         UpdateItemRequest: {
             cost?: number;
@@ -3535,7 +3553,9 @@ export interface operations {
     };
     upload: {
         parameters: {
-            query?: never;
+            query?: {
+                kind?: string;
+            };
             header?: never;
             path: {
                 tripId: number;

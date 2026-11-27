@@ -14,7 +14,6 @@ import {
   ReadOutlined,
   SettingOutlined,
   SunOutlined,
-  UserOutlined,
   WalletOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
@@ -62,14 +61,6 @@ const GROUPS: {
   },
 ];
 
-/** 窄屏底部标签栏：只放最高频的四个入口（主题切换已移入「我的」） */
-const TABS: { key: NavModule; label: string; path: string; icon: React.ReactNode }[] = [
-  { key: 'home', label: '首页', path: '/', icon: <HomeOutlined /> },
-  { key: 'travel', label: '行程', path: '/travel', icon: <CompassOutlined /> },
-  { key: 'assistant', label: '助手', path: '/assistant', icon: <MessageOutlined /> },
-  { key: 'profile', label: '我的', path: '/profile', icon: <UserOutlined /> },
-];
-
 export type NavModule =
   | 'home'
   | 'planner'
@@ -88,7 +79,7 @@ export type NavModule =
 /** 嵌套在已有外壳内时不再重复渲染侧栏（例如旅行页用 Tabs 复用日程/足迹页） */
 const InsideShell = createContext(false);
 
-/** 智能旅行助手应用外壳：左侧固定侧栏（窄屏收成底部标签栏）+ 右侧内容区 */
+/** 智能旅行助手应用外壳：左侧固定侧栏（窄屏收成图标栏）+ 右侧内容区 */
 export default function AppShell({
   active,
   children,
@@ -243,22 +234,6 @@ export default function AppShell({
           </div>
         </aside>
         <main className="app-content">{children}</main>
-        <nav className="app-tabbar" aria-label="主导航">
-          {TABS.map((t) => (
-            <button
-              key={t.key}
-              type="button"
-              className={`tb-item ${active === t.key ? 'on' : ''}`}
-              aria-current={active === t.key ? 'page' : undefined}
-              onClick={() => navigate(t.path)}
-            >
-              <span className="tb-icon" aria-hidden="true">
-                {t.icon}
-              </span>
-              <span>{t.label}</span>
-            </button>
-          ))}
-        </nav>
       </div>
     </InsideShell.Provider>
   );

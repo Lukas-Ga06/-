@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Button, Empty, Spin, Tag } from 'antd';
+import { Button, Tag } from 'antd';
 import {
   ArrowRightOutlined,
   BookOutlined,
@@ -9,6 +9,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import AppShell from '../../components/AppShell';
 import EmptyState from '../../components/EmptyState';
+import RunStatus from '../../components/RunStatus';
 import { listTrips } from '../../api/trip';
 import { daysOf, tripPhaseClass, tripPhaseLabel, type Trip } from '../../types/trip';
 import './reviews.css';
@@ -38,18 +39,25 @@ export default function Reviews() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const load = () => {
-    setLoading(true);
-    setError(null);
+  /** 只做请求与结果落盘：挂载路径调用它，因此 effect 体内不会发生同步 setState */
+  const fetchTrips = () =>
     listTrips()
-      .then((rows) => setTrips(Array.isArray(rows) ? rows : []))
+      .then((rows) => {
+        setTrips(Array.isArray(rows) ? rows : []);
+        setError(null);
+      })
       .catch((e: any) => setError(e?.message || '行程列表加载失败'))
       .finally(() => setLoading(false));
+
+  /** 用户点「刷新」时重拉：先切骨架屏 */
+  const load = () => {
+    setLoading(true);
+    void fetchTrips();
   };
 
   useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // loading 初值已是 true、error 初值已是 null：挂载即拉数据不需要再同步 setState
+    void fetchTrips();
   }, []);
 
   const ordered = (trips ?? [])
@@ -83,18 +91,20 @@ export default function Reviews() {
         </div>
 
         {loading && (
-          <div
-            className="dash-card"
-            style={{ display: 'grid', placeItems: 'center', minHeight: 200 }}
-          >
-            <Spin size="large" />
+          <div className="dash-card review-state" style={{ minHeight: 200 }} aria-busy="true">
+            <RunStatus status="loading" text="正在加载行程…" size="sm" />
           </div>
         )}
 
         {!loading && error && (
-          <div className="dash-card review-state">
-            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={error} />
-            <Button onClick={load}>重试</Button>
+          <div className="dash-card review-state" role="alert">
+            <RunStatus
+              status="failed"
+              text="行程列表加载失败"
+              detail={error}
+              testId="reviews-error"
+              actions={[{ label: '重试', onClick: load }]}
+            />
           </div>
         )}
 

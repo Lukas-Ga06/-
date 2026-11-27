@@ -52,16 +52,16 @@ class ApiErrorHandlingTest extends IntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("撤销请求缺少 tripId 返回 400")
-    void undoWithoutTripIdIsBadRequest() throws Exception {
+    @DisplayName("撤销请求缺少 tripId 时按「撤销最近一次日程清空」处理：没有记录返回 404")
+    void undoWithoutTripIdTargetsScheduleClear() throws Exception {
         Account account = registerNew();
 
         mockMvc.perform(post("/api/agent/undo")
                         .header("Authorization", account.bearer())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value(400));
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value(404));
     }
 
     @Test

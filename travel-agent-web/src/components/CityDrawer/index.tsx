@@ -92,6 +92,7 @@ export default function CityDrawer({
   // 打开城市时汇总该城市所有行程的照片
   useEffect(() => {
     if (!city || trips.length === 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 切换城市时先清空旧照片，否则会显示上一个城市的图；photos 还要被上传/删除就地改写，不能改成派生值
       setPhotos([]);
       return;
     }

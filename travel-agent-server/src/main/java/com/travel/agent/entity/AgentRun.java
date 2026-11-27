@@ -15,11 +15,18 @@ import java.time.LocalDateTime;
  * <p>写入策略：{@code AgentTraceService} 的方法用 REQUIRES_NEW 独立事务，
  * 主流程半途失败时已产生的 run/task/trace 仍然落库——「失败也要留痕」
  * 是追踪表的本职（否则超时/异常轮次在追踪里完全消失）。
+ *
+ * <p>P0 起额外维护运行状态机快照：{@link #stage}（当前阶段）、{@link #heartbeatAt}
+ * （最近一次阶段推进时间）、{@link #requestId}（客户端幂等标识，SSE 重连据此找回原 run）。
+ * 进程崩溃后，恢复任务按心跳超时把 RUNNING 判为 {@link #STATUS_ABANDONED}，
+ * 不再让「实际上已经死掉」的运行永远显示为运行中。
  */
 @Entity
 @Table(name = "agent_run", indexes = {
         @Index(name = "idx_agent_run_user", columnList = "user_id, id"),
-        @Index(name = "uk_agent_run_run_id", columnList = "run_id", unique = true)
+        @Index(name = "uk_agent_run_run_id", columnList = "run_id", unique = true),
+        @Index(name = "idx_agent_run_status_heartbeat", columnList = "status, heartbeat_at"),
+        @Index(name = "idx_agent_run_user_request", columnList = "user_id, request_id")
 })
 @Getter
 @Setter
@@ -37,6 +44,20 @@ public class AgentRun {
     public static final String STATUS_PARTIAL = "PARTIAL_SUCCESS";
     public static final String STATUS_FAILED = "FAILED";
     public static final String STATUS_CANCELLED = "CANCELLED";
+    /**
+     * 被拒绝/放弃的运行（P0）：心跳超时或进程重启，服务恢复时无法确认结果。
+     * 与 FAILED 区分：FAILED 是执行体自己报的失败，ABANDONED 是「没人知道发生了什么」。
+     */
+    public static final String STATUS_ABANDONED = "ABANDONED";
+
+    // ==================== 终态阶段（agent_run.stage） ====================
+    // stage 列宽 32；这些是 run 收尾时写入的终态，运行中则是 AgentState 的名字。
+
+    /** 正常收尾（SUCCEEDED / PARTIAL_SUCCESS） */
+    public static final String STAGE_DONE = "DONE";
+    public static final String STAGE_FAILED = "FAILED";
+    public static final String STAGE_CANCELLED = "CANCELLED";
+    public static final String STAGE_ABANDONED = "ABANDONED";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -67,6 +88,18 @@ public class AgentRun {
     @Column(length = 500)
     private String error;
 
+    /** 当前阶段快照（RECEIVE / UNDERSTAND / PLAN / ... / DONE / FAILED / CANCELLED / ABANDONED） */
+    @Column(length = 32)
+    private String stage;
+
+    /** 最近一次阶段推进时间；进程崩溃后恢复任务据此判断运行是否已经死掉 */
+    @Column(name = "heartbeat_at")
+    private LocalDateTime heartbeatAt;
+
+    /** 客户端幂等标识；同一 (user_id, request_id) 可回到原 run，SSE 重连不重复规划 */
+    @Column(name = "request_id", length = 64)
+    private String requestId;
+
     @Column(name = "started_at", nullable = false)
     private LocalDateTime startedAt;
 
@@ -80,6 +113,9 @@ public class AgentRun {
         }
         if (startedAt == null) {
             startedAt = LocalDateTime.now();
+        }
+        if (heartbeatAt == null) {
+            heartbeatAt = startedAt;
         }
     }
 

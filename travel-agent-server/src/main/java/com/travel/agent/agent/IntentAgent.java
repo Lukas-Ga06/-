@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
@@ -39,12 +40,21 @@ public class IntentAgent {
     static final int MAX_ALSO_REQUESTED = 3;
     static final int MAX_ALSO_REQUESTED_LENGTH = 40;
 
+    /**
+     * 内置可调用工具白名单（{@code INVOKE_TOOL} 的另一半候选源）。
+     *
+     * <p>只收「用户命令型、只读、零参数」的内置工具：{@code mcp_*} 是外部数据查询，
+     * 内置工具默认不暴露给模型，只有登记在这里的才进工具目录、才允许模型选中。
+     * 规划期取证步骤走 {@code PlannerAgent.RESEARCH_TOOLS}，是另一份白名单，两者不共用。
+     */
+    private static final Set<String> BUILTIN_INVOKABLE_TOOLS = Set.of("ocr_invoice");
+
     private static final List<String> INTENTS = List.of(
             IntentResult.PLAN_TRIP, IntentResult.MODIFY_ITINERARY, IntentResult.QUERY_BUDGET,
-            IntentResult.QUERY_KNOWLEDGE, IntentResult.RECORD_EXPENSE,
+            IntentResult.QUERY_KNOWLEDGE, IntentResult.RECORD_EXPENSE, IntentResult.RECORD_INVOICE,
             IntentResult.ADD_MEMO, IntentResult.QUERY_MEMO,
-            IntentResult.ADD_SCHEDULE, IntentResult.QUERY_SCHEDULE,
-            IntentResult.INVOKE_TOOL, IntentResult.CHITCHAT);
+            IntentResult.ADD_SCHEDULE, IntentResult.QUERY_SCHEDULE, IntentResult.QUERY_FREE_TIME,
+            IntentResult.CLEAR_SCHEDULE, IntentResult.INVOKE_TOOL, IntentResult.CHITCHAT);
 
     private final LlmClient llmClient;
     private final ObjectMapper objectMapper;
@@ -73,18 +83,26 @@ public class IntentAgent {
     }
 
     /**
-     * 模型越界分类的兜底：只认注册过的 mcp_* 工具；模型编造工具名时交回规则引擎。
+     * 模型越界分类的兜底：只认「已注册」且属于可调用白名单（{@code mcp_*} 或
+     * {@link #BUILTIN_INVOKABLE_TOOLS}）的工具；模型编造工具名时交回规则引擎。
      */
     private boolean plausible(IntentResult result, String message) {
-        // INVOKE_TOOL 只认注册过的 mcp_* 工具：模型编造工具名时交回规则引擎
-        if (IntentResult.INVOKE_TOOL.equals(result.getIntent())
-                && (result.getToolName() == null || result.getToolName().isBlank()
-                    || !result.getToolName().startsWith("mcp_")
-                    || toolRegistry.get(result.getToolName()) == null)) {
-            log.info("模型给出了不可用的 MCP 工具「{}」，交回规则引擎", result.getToolName());
-            return false;
+        if (IntentResult.INVOKE_TOOL.equals(result.getIntent())) {
+            String toolName = result.getToolName();
+            AgentTool tool = toolName == null || toolName.isBlank() ? null : toolRegistry.get(toolName);
+            // 注册了但不在白名单的内置工具也不许直接调（如规划期取证工具）
+            if (tool == null || !invokable(tool)) {
+                log.info("模型给出了不可调用的工具「{}」，交回规则引擎", toolName);
+                return false;
+            }
         }
         return true;
+    }
+
+    /** {@code INVOKE_TOOL} 的可调用口径：{MCP 外部工具} ∪ {内置白名单}，两份名单都不含写工具 */
+    private static boolean invokable(AgentTool tool) {
+        String name = tool.getName();
+        return name != null && (name.startsWith("mcp_") || BUILTIN_INVOKABLE_TOOLS.contains(name));
     }
 
     private IntentResult llmDetect(AgentContext ctx, Trip trip, String message, AgentBudget budget) {
@@ -96,8 +114,13 @@ public class IntentAgent {
                     PLAN_TRIP（规划新行程；用户说「重新规划/重排整个行程」也归这里）、
                     MODIFY_ITINERARY（只改某一项或某一天，如换掉某个景点、调整时间）、QUERY_BUDGET（查询预算花费）、
                     QUERY_KNOWLEDGE（旅游知识问答，如攻略/推荐/介绍）、RECORD_EXPENSE（记账：记录一笔实际花费，如「记一笔午餐45元」）、
+                    RECORD_INVOICE（报销发票：把用户最新上传的那张发票照片识别成账单并生成待确认方案，
+                    如「报销这张发票」「把这张发票入账」）、
                     ADD_MEMO（添加个人备忘/待办，如「记一下明天办签证」）、QUERY_MEMO（查看备忘/待办列表）、
                     ADD_SCHEDULE（添加出行日程/提醒，如「明天下午3点去办签证」）、QUERY_SCHEDULE（查看日程安排）、
+                    QUERY_FREE_TIME（查询空闲时段，如「明天下午有空吗」「下周哪些时间空闲」）、
+                    CLEAR_SCHEDULE（批量清空某段时间的全部日程，如「下周一清空所有日程」「删掉明天的所有提醒」；
+                    只处理日程本身，不涉及行程条目；没给日期范围的也要归到这里，由后续步骤追问）、
                     CHITCHAT（其他闲聊）。
                     %s
                     target 为操作目标：OUTDOOR_ACTIVITY / SELECTED_ITEM / NONE。
@@ -214,17 +237,22 @@ public class IntentAgent {
         return result;
     }
 
-    /** 注册的 MCP 外部工具目录；未接入任何 MCP 工具时提示模型禁用 INVOKE_TOOL */
+    /**
+     * 可调用工具目录（{@code mcp_*} 外部工具 + 内置白名单）；一个都没有时提示模型禁用 {@code INVOKE_TOOL}。
+     */
     private String renderToolCatalog() {
-        List<AgentTool> mcpTools = toolRegistry.all().values().stream()
-                .filter(t -> t.getName().startsWith("mcp_"))
+        List<AgentTool> tools = toolRegistry.all().values().stream()
+                .filter(IntentAgent::invokable)
                 .toList();
-        if (mcpTools.isEmpty()) {
-            return "外部工具：本次未接入任何 MCP 外部工具，不要使用 INVOKE_TOOL。";
+        if (tools.isEmpty()) {
+            return "外部工具：本次未接入任何 MCP 外部工具或内置只读工具，不要使用 INVOKE_TOOL。";
         }
         StringBuilder sb = new StringBuilder(
-                "INVOKE_TOOL（通过外部 MCP 工具查询外部数据，如地图/百科/搜索；仅当用户明确要查外部数据且下面的工具适用时使用）。可用外部工具：\n");
-        for (AgentTool tool : mcpTools) {
+                "INVOKE_TOOL（调用只读工具查询外部数据或内置能力，如地图/百科/搜索/发票识别；"
+                        + "只读、不会写入任何数据；用户要报销/入账发票时仍归 RECORD_INVOICE，这里只用于"
+                        + "「先看看发票上识别出什么」这类只读查询；仅当用户明确要查外部数据或要识别发票、"
+                        + "且下面的工具适用时使用）。可用工具：\n");
+        for (AgentTool tool : tools) {
             sb.append("- ").append(tool.getName()).append("：").append(tool.getDescription()).append('\n');
         }
         return sb.toString();
@@ -256,6 +284,62 @@ public class IntentAgent {
     }
 
     private IntentResult ruleDetect(AgentContext ctx, Trip trip, String message) {
+        IntentResult detected = detectByRules(ctx, trip, message);
+        // 清空日程的追问续接：只把「本来会落到 CHITCHAT 的纯日期回答」升级成清空，
+        // 这一轮若明确说了别的事（排日程、记账…）仍按原意图处理（其余意图保持优先）。
+        IntentResult continuation = clearScheduleFollowUp(ctx, message);
+        return continuation != null && IntentResult.CHITCHAT.equals(detected.getIntent())
+                ? continuation
+                : detected;
+    }
+
+    /**
+     * 上一轮助手问「要清空哪段时间的日程」，这一轮用户只回「下周一」时规则引擎本会落到 CHITCHAT；
+     * 这里据历史把纯日期回答接回清空日程。
+     */
+    private IntentResult clearScheduleFollowUp(AgentContext ctx, String message) {
+        if (!lastAssistantMentions(ctx.getHistory(), ScheduleCommandHandler.CLEAR_SCHEDULE_RANGE_ASK)
+                || MessageParser.parseExplicitRange(message, java.time.LocalDate.now()) == null) {
+            return null;
+        }
+        return IntentResult.builder()
+                .intent(IntentResult.CLEAR_SCHEDULE).target(IntentResult.TARGET_NONE)
+                .constraints(new HashMap<>()).build();
+    }
+
+    /** 历史里最后一条 assistant 消息是否包含指定追问原文 */
+    private static boolean lastAssistantMentions(List<com.travel.agent.entity.ConversationMessage> history,
+                                                 String text) {
+        if (history == null) {
+            return false;
+        }
+        for (int i = history.size() - 1; i >= 0; i--) {
+            com.travel.agent.entity.ConversationMessage item = history.get(i);
+            if (item != null && "assistant".equals(item.getRole())) {
+                return item.getContent() != null && item.getContent().contains(text);
+            }
+        }
+        return false;
+    }
+
+    private IntentResult detectByRules(AgentContext ctx, Trip trip, String message) {
+        // 0. 批量清空日程必须排在「修改类关键词」（删掉/取消/移除…）之前，
+        //    否则「删掉明天所有日程」会被 MODIFY_ITINERARY 抢走，落到行程修改而不是日程。
+        //    对象只认「日程」；「提醒」单独出现不算（「提醒我明天清空购物车」是备忘），
+        //    带「所有/全部」时才是要清空的日程对象（「删掉明天的所有提醒」）。
+        boolean clearScheduleVerb = MessageParser.mentions(message,
+                "清空", "全删", "删光", "清掉", "清除", "删除所有", "删掉所有", "都删掉",
+                "取消所有", "全部删除", "全部删掉")
+                || (MessageParser.mentions(message, "删除", "删掉", "取消", "移除")
+                        && MessageParser.mentions(message, "所有", "全部"));
+        boolean scheduleObject = MessageParser.mentions(message, "日程")
+                || (MessageParser.mentions(message, "提醒") && MessageParser.mentions(message, "所有", "全部"));
+        if (clearScheduleVerb && scheduleObject) {
+            return IntentResult.builder()
+                    .intent(IntentResult.CLEAR_SCHEDULE).target(IntentResult.TARGET_NONE)
+                    .constraints(new HashMap<>()).build();
+        }
+
         Map<String, Object> constraints = new HashMap<>();
         if (MessageParser.mentions(message, "雨")) {
             constraints.put("weather", "rain");
@@ -288,7 +372,20 @@ public class IntentAgent {
                     .intent(IntentResult.MODIFY_ITINERARY).target(target).constraints(constraints).build();
         }
 
-        // 2. 记账：消息中能解析出有效金额且带有记账/花费表述
+        // 2. 发票报销：必须同时有「发票」这个对象和报销/入账类动作。
+        //    放在记账之前：「报销这张发票」里没有金额，落到 RECORD_EXPENSE 只会解析失败；
+        //    放在修改之后：带「取消/删掉」的句子仍按修改处理（先撤销再谈记账）。
+        //    只提「记一下明天办签证」没有发票对象 → 仍是 ADD_MEMO；
+        //    「记一笔午餐45元」没有发票对象 → 仍是 RECORD_EXPENSE。
+        boolean invoiceNoun = MessageParser.mentions(message, "发票");
+        boolean invoiceAction = MessageParser.mentions(message,
+                "报销", "报一下", "记账", "记一笔", "记一下", "识别", "入账");
+        if (invoiceNoun && invoiceAction) {
+            return IntentResult.builder()
+                    .intent(IntentResult.RECORD_INVOICE).target(IntentResult.TARGET_NONE).constraints(constraints).build();
+        }
+
+        // 3. 记账：消息中能解析出有效金额且带有记账/花费表述
         if (MessageParser.parseExpenseRequest(message) != null
                 && MessageParser.mentions(message, "记", "花", "支出", "消费")) {
             return IntentResult.builder()
@@ -327,7 +424,20 @@ public class IntentAgent {
                     .intent(IntentResult.QUERY_SCHEDULE).target(IntentResult.TARGET_NONE).constraints(constraints).build();
         }
 
-        // 6. 强规划意图：明确的规划动词，或「天数 + 出行词」组合，或「城市 + 天数」的出行说法
+        // 6. 空闲时段查询（只读）：放在排日程判定之后（「明天下午3点开评审会」仍是 ADD_SCHEDULE），
+        //    放在强规划与疑问句之前（「明天有空吗」不该落到知识问答）。
+        //    带规划动词/行程尺度的消息不算空闲查询，交给后面的规划分支。
+        //    裸「哪些时间」不算触发词：「去西湖哪些时间去人少」问的是人流规律，不是空闲；
+        //    只有「空闲/有空」这类明确表述才路由到空闲查询。
+        boolean freeTimeQuestion = MessageParser.mentions(message,
+                "有空", "空闲", "空档", "什么时候有时间", "时间空不空")
+                && !MessageParser.mentions(message, "规划", "想去", "行程", "几天", "天数");
+        if (freeTimeQuestion) {
+            return IntentResult.builder()
+                    .intent(IntentResult.QUERY_FREE_TIME).target(IntentResult.TARGET_NONE).constraints(constraints).build();
+        }
+
+        // 7. 强规划意图：明确的规划动词，或「天数 + 出行词」组合，或「城市 + 天数」的出行说法
         //    （「三个人下周六去北京两天」没有规划动词，但目的地/天数俱全，就是一次规划请求；
         //     带疑问词的「上海三天怎么玩」仍按知识问答处理，交给下面的疑问句分支）
         boolean adviceQuestion = MessageParser.mentions(message,
@@ -343,7 +453,7 @@ public class IntentAgent {
                     .intent(IntentResult.PLAN_TRIP).target(IntentResult.TARGET_NONE).constraints(constraints).build();
         }
 
-        // 7. 疑问句 → 预算 / 知识问答
+        // 8. 疑问句 → 预算 / 知识问答
         boolean money = MessageParser.mentions(message, "预算", "花费", "花多少", "多少钱", "贵不贵", "超支");
         boolean question = MessageParser.mentions(message,
                 "什么", "哪些", "为什么", "怎么", "攻略", "介绍", "注意", "值得", "推荐", "适合", "吗", "？", "?");

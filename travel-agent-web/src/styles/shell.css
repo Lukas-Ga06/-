@@ -186,48 +186,6 @@
   margin: 0 auto;
 }
 
-/* 移动端底部标签栏：桌面隐藏 */
-
-.app-tabbar {
-  display: none;
-}
-
-/* 底栏入口是真按钮（P0-05）：可 Tab、可回车；触控目标不小于 44px */
-
-.app-tabbar .tb-item {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  min-height: 44px;
-  padding: 6px 0 4px;
-  font: inherit;
-  font-size: 10.5px;
-  color: var(--text-3);
-  background: transparent;
-  border: 0;
-  text-decoration: none;
-  cursor: pointer;
-}
-
-.app-tabbar .tb-item.on {
-  color: var(--accent);
-  font-weight: 600;
-}
-
-.app-tabbar .tb-item:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-  border-radius: var(--r-sm);
-}
-
-.app-tabbar .tb-icon {
-  font-size: 17px;
-  line-height: 1;
-}
-
 /* ---------- 离线提示条（PWA 离线查看缓存数据） ----------
    固定在视口顶部、不占文档流：离线时出现，恢复在线自动消失，可手动关闭。
    顶部内边距吃掉 iOS 刘海（viewport-fit=cover 之后才拿得到 safe-area-inset-top）。 */
@@ -282,7 +240,7 @@
   background: var(--surface-3);
 }
 
-/* ---------- 窄屏：≤1080 收成图标栏，≤720 换底部标签栏 ---------- */
+/* ---------- 窄屏：≤1080 收成图标栏 ---------- */
 
 @media (max-width: 1080px) {
   .app-sidebar {
@@ -362,34 +320,6 @@
   .app-content {
     margin-left: var(--sidebar-rail);
     padding: var(--sp-5);
-  }
-}
-
-@media (max-width: 720px) {
-  .app-sidebar {
-    display: none;
-  }
-}
-
-@media (max-width: 720px) {
-  .app-content {
-    margin-left: 0;
-    /* 92px 让出底部标签栏；再叠加 iOS home 指示条的安全区 */
-    padding: var(--sp-4) var(--sp-4) calc(92px + env(safe-area-inset-bottom));
-  }
-}
-
-@media (max-width: 720px) {
-  .app-tabbar {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 40;
-    display: flex;
-    padding: 4px var(--sp-2) calc(4px + env(safe-area-inset-bottom));
-    background: var(--surface);
-    border-top: 1px solid var(--border);
   }
 }
 

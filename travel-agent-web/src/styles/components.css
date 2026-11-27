@@ -1255,6 +1255,7 @@
 }
 
 /* 足迹地图引擎失败：紧凑错误态，不把技术错误原文暴露给用户 */
+/* 地图引擎失败：文案与重试按钮由 components/RunStatus 统一渲染，这里只负责覆盖层定位 */
 .fp-engine-error {
   position: absolute;
   inset: 0;
@@ -1268,16 +1269,6 @@
   text-align: center;
   background: var(--surface);
   color: var(--text-2);
-}
-
-.fp-engine-error b {
-  font-size: 14px;
-  color: var(--text);
-}
-
-.fp-engine-hint {
-  font-size: 12px;
-  color: var(--text-3);
 }
 
 /* 移动端输入区：只隐藏诊断类低频入口（运行记录），保留「最近会话 / 新对话」——

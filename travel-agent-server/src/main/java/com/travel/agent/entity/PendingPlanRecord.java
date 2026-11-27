@@ -66,6 +66,25 @@ public class PendingPlanRecord {
     private String contentHash;
 
     /**
+     * 本次确认/取消的所有权令牌（V25，P0 可靠链路）。
+     *
+     * <p>claim 时生成并写入，release / 提交栅栏（deleteClaimed）都按它匹配：
+     * 行若已被清扫回 PENDING 或被别的请求重新 claim（令牌不同），旧令牌就再也动不了这一行，
+     * 从而把「一个租约只能提交一次」变成数据库层面的既成事实。
+     */
+    @Column(name = "claim_token", length = 64)
+    private String claimToken;
+
+    /**
+     * 本次 claim 的时间（V25）。
+     *
+     * <p>清扫任务按 {@code claimed_at + 租约时长} 判断是否过期：进程在「抢到所有权」与
+     * 「提交完成」之间崩溃时，行不会再永久停在 CONFIRMING，而是由后续请求重新确认。
+     */
+    @Column(name = "claimed_at")
+    private LocalDateTime claimedAt;
+
+    /**
      * 确认状态（PENDING / CONFIRMING）。
      *
      * 用 columnDefinition 带 DEFAULT：存量表由 ddl-auto 补列时，MySQL/H2 的

@@ -28,7 +28,7 @@
 | 高德 JS API / maplibre-gl | 2.0 / **6.15.0**（精确锁定，无 `^`） | 行程页 2D/3D 地图（高德）/ 足迹球体投影（MapLibre + 高德栅格底图） |
 | zustand | ^4.5.5 | 全局状态（5 个 store，见第 5 节） |
 | dayjs | ^1.11.13 | 日期格式化与 Day 映射 |
-| vitest / happy-dom | ^4.1.11 / ^21.0.4 | 单元测试；组件类用例的 DOM 环境 |
+| vitest / happy-dom | ^4.1.12 / ^21.0.4 | 单元测试；组件类用例的 DOM 环境 |
 | @testing-library/react | ^16.3.3 | 组件测试（现有用例偏逻辑，见第 9 节） |
 | @playwright/test | ^1.64.1 | e2e 冒烟 |
 
@@ -81,7 +81,7 @@ travel-agent-web/
 | 层 | 文件 | 内容 |
 | --- | --- | --- |
 | 基础 | `tokens.css` | `:root` 令牌、暗色覆盖、antd 令牌对齐 |
-| 外壳 | `shell.css` | 侧栏 / 底部标签栏 / 页面框架 |
+| 外壳 | `shell.css` | 侧栏（含 ≤1080px 图标栏）/ 页面框架 |
 | 原子 | `buttons.css`、`cards.css`、`status.css` | 按钮、卡片、状态徽标 |
 | 共享布局 | `shared.css` | 跨页页头、390px 防溢出契约、antd 覆盖 |
 | 跨页组件 | `components.css` | ChatPanel / PlanDiff / AgentActivityPanel / FootprintMap / Skeleton / Toast / Citation / SwipeRow / ReminderBell / memo |
@@ -174,7 +174,7 @@ API：`getTripsMap`、`getExpenseOverview`、`getMemos`/`toggleMemo`、`listSche
 攻略正文、不可修改项、特别要求，可空）→ ③ 确认需求（只读结构化摘要 + 冲突 + 待核实字段）。
 两种模式：`guides`（粘贴参考攻略正文整合）与 `scratch`（从零规划）；攻略模式在第 2→3 步之间要求至少一篇正文。
 API：不直接调 REST，全部经 `useAgentStore.send({ transport: 'post' })`。
-布局：桌面右侧吸顶需求摘要，移动端（`useIsMobile`）底部固定「上一步 / 步骤 x/3 / 继续·生成计划」；
+布局：右侧吸顶需求摘要 + 卡片页脚（上一步 / 继续·生成计划）；
 `?prompt=` 进入时仍先跑 `parsePrompt` 回填，第 3 步会列出低置信字段与「方案会替用户做的假设」。
 
 **草稿**：`planDraft.ts`（纯逻辑，可单测）负责 localStorage 读写与校验，
@@ -191,7 +191,7 @@ key `travel:planner-draft:v1` 带版本号；空白表单不产生草稿；进�
 
 ### 4.4 Trip（`/trip/:id`）
 
-行程详情主战场 —— 桌面：时间轴主栏 + 地图/AI 侧栏；移动：`行程 / 地图 / AI` 分段视图（默认行程）。
+行程详情主战场 —— 时间轴主栏 + 地图/AI 侧栏（右侧面板用 `sideView` 切换，地图保持 keep-alive）。
 顶部按阶段收敛一级动作（行中=记账，行前=预算分析），其余进「更多」菜单。
 
 **行中执行流程（§7.3）**：
@@ -203,6 +203,10 @@ key `travel:planner-draft:v1` 带版本号；空白表单不产生草稿；进�
   并显示逐项结果（成功/失败+原因+重试）。服务端明确拒绝（带状态码）不入队，直接提示原因。
 - **侧栏 keep-alive**：地图与 AI 面板一次挂载、只切可见性（`data-active`），切走再切回不会重新初始化地图、不丢缩放；
   切回可见时调用 `MapProvider.resize?.()` 校正画布（隐藏期间窗口可能变过尺寸）。
+- **时间线 ↔ 地图双向联动（P1-E 4/4）**：两侧共用 `uiStore.selectedElement` 这一个选中源，**地图不另存选中态**。
+  点时间线卡片 → `selectedElement` 变化 → 地图只把选中投影到标记上（`MapProvider.select()`：改类 + `setCenter` 平移，不重绘、不改缩放）；
+  点地图标记 → 回写同一个 `selectedElement`、切到它所在的 Day、再 `scrollToItem` 滚到 `#ti-<id>`。
+  路线来源（`amap` 实测 / `estimated` 估算）两侧都要能读到：时间线转场行的徽标 + 地图来源图例（`.map-legend`）与标记徽标（`.m3d-src`）。
 API：`getTrip`/`getItinerary`/`getBudgetExecution`、`undoTrip`、`updateItemStatus`、`getTripReview`/`getTripEvents`（见 `api/trip.ts`）。
 组件：`MapView`、`Timeline`、`ChatPanel`、`PlanDiff`、`BudgetChart`、`BudgetExecution`、`ExpensePanel`。
 P1 交互：`ItineraryCard` 提供「开始 / 完成 / 跳过 / 重置」状态按钮（`statusBusy` 防连点，`status/startedAt/completedAt/visitedAt` 展示实际时间）；
@@ -336,6 +340,11 @@ action：`setAuth(token, user)`（登录成功后写入）、`setUser(user)`（`
 `selectedElement`（`{type, id, title}`）是「多模态上下文」：`Timeline` 里点一个条目，`ChatPanel` 发送时带上它，
 后端即可理解“把**这个**换成别的”这类指代。
 
+它同时是**行程时间线 ↔ 地图的唯一选中源**（P1-E 4/4）：写入者只有 `Timeline` 的卡片点击、`MapView` 的标记点击
+（同一个 `setSelectedElement`）与 `ChatPanel` 的「取消选中」；读取者有 `Timeline`（行/卡片高亮）、`MapView`
+（投影成标记高亮 + 相机平移）、`ChatPanel`（上下文与已选中提示）。地图**没有**自己的 `selectedMarkerId` 之类第二套状态，
+`AMapProvider` 里的 `selectedId` 只是「最近一次投影」的记忆，用于重绘后恢复高亮，不是独立数据源。
+
 ### 5.4 statusQueue（离线待同步队列，§7.3 第 4 条 / §10.3）
 
 | 层 | 文件 | 职责 |
@@ -410,24 +419,42 @@ http.interceptors.response.use(unwrapApiResponse, handleResponseError);
 ### 6.3 SSE 客户端：消费 `/api/agent/stream`（主线二）
 
 Agent 的执行过程通过 SSE 推给前端，前端再把「过程」变成阶段文案与地图动作。
-事件名清单见 `api/agent.ts` 的 `EVENT_NAMES`（顺序即 `addEventListener` 注册顺序）：
-`start`、`intent`、`planning`、`tool_call`、`tool_result`、`rag_result`、`plan_update`、
-`focus`、`confirmation`、`complete`、`error`。
+事件名清单见 `api/agent.ts` 的 `EVENT_NAMES`（顺序即 `addEventListener` 注册顺序，共 **18** 个）：
+`run`、`start`、`intent`、`planning`、`replan`、`tool_call`、`tool_result`、`rag_result`、
+`plan_update`、`focus`、`confirmation`、`budget_degraded`、`complete`、`cancelled`、`error`、
+`delegate`、`recover`、`conflict`。
+
+`resume_timeout` **不在**这个数组里：它只出现在续传端点（`/api/agent/runs/{runId}/events`），
+语义是「结束这条续传连接」，由 GET 版 `attachEventSource` 末尾的专用监听器 / POST 版 `handleBlock`
+按终止处理。
+
+> **EventSource 只能按登记过的事件名监听**：漏登记就是浏览器直接丢弃该帧，连报错都没有。
+> `budget_degraded` 曾因此只在 POST 通道能收到；而且两个通道的时间线都还不认识它（见 §6.3.1）。
 
 | 事件 | data 载荷 | 后端何时发 | 前端反应 |
 | --- | --- | --- | --- |
+| `run` | `{runId}` | 连接建立后 | 记录 `currentRun`（运行记录锚点） |
 | `start` | `{sessionId}` | 会话开始 | stage「已连接 Agent…」 |
 | `intent` | `{intent, target}` | 意图识别完成 | stage「意图识别：PLAN_TRIP」 |
 | `planning` | `{message}` | 进入规划/重规划 | stage「正在规划行程…」 |
-| `tool_call` / `tool_result` | `{tool, args}` / `{tool, result}` | 工具调用前后（`ToolInvoker`） | stage「调用工具 X…」/「工具 X 执行完成」；`search_city_online` 特判为联网查询文案 |
-| `rag_result` | `{sources}` | 知识库检索后 | stage「检索旅游知识库…」 |
+| `replan` | `{attempt, issues[]}` | 审核未通过，进入有限重规划 | 时间线「规划」阶段 |
+| `tool_call` / `tool_result` | `{tool, args}` / `{tool, result}` | 工具调用前后（`ToolInvoker`） | stage「调用工具 X…」/「工具 X 执行完成」；`search_city_online` 特判为联网查询文案；`result` 为 `null`/`"null"` 时时间线写「未返回数据」 |
+| `rag_result` | `{sources, citations}` | 知识库检索后 | stage「检索旅游知识库…」+ 时间线展示引用 |
 | `plan_update` | `{diff, budget}` | 方案预览产出 | stage「生成方案对比…」 |
-| `focus` | `AgentFocus` | 需要定位时 | **除 stage 外还写 `lastFocus`**，驱动地图 `flyTo` 与时间轴滚动 |
+| `focus` | `AgentFocus` | 需要定位时 | **除 stage 外还写 `lastFocus`**，驱动地图 `flyTo` 与时间轴滚动；不单独成时间线行 |
 | `confirmation` | `ConfirmationRequest` | 需要用户确认 | stage「等待你的确认…」 |
-| `complete` | `AgentResult` | **每轮必有，最后一条** | 终止流、追加 assistant 气泡、按 status 设 `pendingConfirm`/`committedTripId` |
-| `error` | `{message}` | 服务端主动报错 | 只 `onError` 提示，**不终止**（后端随后还会发 `complete`） |
+| `budget_degraded` | `{stage, detail, remainingMs}` | 预算（时间或花费）耗尽、跳过某阶段（`AgentContext.recordBudgetDegradation`） | 时间线「降级」阶段 + 折叠态降级结论；**状态压过 complete**，不显示成绿色完成 |
+| `delegate` / `recover` / `conflict` | `{taskId, receiver, taskType, …}` | 任务图委派 / 回收重派 / 前置未完成被拒 | 时间线「冲突/重派」阶段（`conflict` 是错误档，状态降级） |
+| `complete` | `AgentResult` | **每轮必有，最后一条** | 终止流、追加 assistant 气泡、按 status 设 `pendingConfirm`/`committedTripId`；时间线结论按 `status` 写（FAILED 不写成「完成」） |
+| `cancelled` | `{runId?}` | 后端保留常量，**当前主链路未 emit**（断连走 `AgentRun.status=CANCELLED`）；续传补发只在库里真有该事件时才会下发 | 终止流并 `onCancelled`；用户主动停止由 `agentStore.abort()` 合成同名的本地活动行 |
+| `error` | `{message, code?}` | 服务端主动报错（含线程池 503） | **过程警告**：写 `warnings` 与时间线「降级」阶段，**不终止**（后端随后还会发 `complete`） |
+| `resume_timeout` | `{runId, lastEventId, message}` | 仅续传端点：等待 120s 仍未终态 | 按终止处理，提示「连接中断且运行超时，可稍后查看运行记录」 |
 
 **`complete` 携带的 `AgentResult`（`types/agent.ts`）是渲染核心**：`status`（`COMPLETED` / `NEED_CONFIRMATION` / `FAILED`）、`focus`、`diff`（`{changes[], budgetBefore, budgetAfter}`）、`budget`、`confirmation`（`{planId, summary, riskLevel}`）、`warnings`。前端几乎不按 intent 分支渲染，只按 **`status` + `diff` + `confirmation` + `focus`** 决定 UI —— 这是后端的明确契约。
+
+**三条终止路径的判定**（`dispatchFrame`，GET / POST 共用）：
+`complete` → `onComplete`；`cancelled` → `onCancelled`；**连接层中断**（EventSource `onerror` 无 data、
+fetch 读流异常/提前 EOF）→ 先尝试一次续传，失败才 `onError`。`error` 事件是过程警告，绝不在这里终止流。
 
 **两条传输通道**，同一套 handlers：
 
@@ -462,6 +489,40 @@ ChatPanel 输入 → doSend()
 `riskLevel === 'HIGH'` 的风险提示；点「确认修改」→ `store.confirm()` → `POST /api/agent/confirm` →
 后端单事务落地 → 返回新的 `AgentResult`；取消走 `/agent/cancel`。
 **刷新不丢**：`Assistant` 把 planId 写进 URL，重进时用 `getPendingPlan` 取回。
+
+#### 6.3.1 过程时间线的阶段语义（`AgentActivityPanel`）
+
+时间线不是「一个 SSE 事件一行」，而是把事件按**用户能理解的阶段**聚合。映射只写在
+`src/lib/activityStage.ts`（纯函数 + 单测），渲染层不再逐个事件名判断：
+
+| 阶段 | 覆盖事件 / 数据源 | 用户看到的 |
+| --- | --- | --- |
+| 准备 | `run` / `start` / `intent` | 已连接、理解需求 |
+| 研究检索 | `rag_result` | 检索攻略与引用来源 |
+| 工具调用 | `tool_call` / `tool_result` | 调了哪个工具、有没有拿到数据 |
+| 规划 | `planning` / `replan` / `plan_update` / `delegate` | 规划、重规划、方案对比、子任务委派 |
+| 冲突/重派 | `recover` / `conflict` | 前置未完成被拒后回收、任务被重派 |
+| 降级 | `budget_degraded` / `warning` / `resume_timeout` | 哪一步被跳过、为什么 |
+| 确认 | `confirmation` | 等待你确认 |
+| 同步台账 | 非 SSE：`ExecutionSummary`（`lastExecution`） | 确认后日程 / 预算 / 足迹的同步结果与失败原因 |
+| 收尾 | `complete` / `cancelled` / `error` | 本轮怎么结束（结论按 `AgentResult.status`） |
+
+规则（实现见 `components/AgentActivityPanel`）：
+
+- **阶段标签只在阶段切换时出现**；`降级` 行每行都带标签（降级必须显式），一个阶段不逐行重复。
+- **降级压过完成**：`activityRunState` 按「失败 > 取消 > 部分成功 > 降级 > 完成 > 进行中」合成状态，
+  预算降级的一轮不能显示成绿色「完成」。
+- **降级结论上浮到折叠态**：有 `budget_degraded` 时头部下方固定一行
+  「本次结果走了降级路径：`detail`」，`detail` 来自服务端事件载荷，前端不编原因；
+  只有过程警告时写「本轮有过程警告」，不冒充预算降级。
+- **同步台账不是 SSE 事件**：确认提交后 `ChatPanel` 把 `lastExecution` 传给面板，追加一行「同步台账」，
+  失败模块点名原因并提示可重试；它同时参与整块状态（`PARTIAL_FAILED` → 部分成功）。
+- `focus` 不占行（只驱动地图/时间轴定位）；未登记的新事件不猜语义（`activityStage` 返回 null，不渲染）。
+
+**现状边界（2026-11-27 核实）**：外部依赖降级（高德 MCP/REST POI 回退、路线估算、天气不可用）**没有独立 SSE 事件**，
+只进运行追踪指标 `external.degraded`、日志与 `AgentResult.warnings`（结果卡的「待核实」列表）。
+时间线能显式呈现的降级只有 `budget_degraded`、SSE `error` 过程警告和工具「未返回数据」；
+要让 MCP/高德降级在时间线独立成阶段，需要后端补事件（后续卡），前端不得用文案猜测替代。
 
 ### 6.4 ticket.ts：为什么需要短期票据
 
@@ -513,7 +574,7 @@ export function clearAccessTicketCache(): void;                                 
 
 | 组件 | 路径 | props | 职责 |
 | --- | --- | --- | --- |
-| `AppShell` | `AppShell.tsx` | `active: NavModule`, `children` | 应用外壳：分组侧栏（备忘角标、提醒铃铛、用户区、主题切换）、内容区、窄屏底部标签栏；已在壳内（`InsideShell` context）时**只渲染 children** |
+| `AppShell` | `AppShell.tsx` | `active: NavModule`, `children` | 应用外壳：分组侧栏（备忘角标、提醒铃铛、用户区、主题切换）、内容区；≤1080px 由 CSS 收成图标栏；已在壳内（`InsideShell` context）时**只渲染 children** |
 | `OfflineBanner` | `OfflineBanner/index.tsx` | 无 | 断网时置顶显示「离线：显示缓存数据」+「N 项待同步」，恢复在线自动消失（`useOnlineStatus` + 原生 `online`/`offline` 事件）；**同时是待同步队列的全局出口**：`usePendingSync()` 自动重放，显示「正在同步 / N 项同步失败（重试）/ N 项待同步（立即同步）/ N 项离线记录已同步」；可手动关闭，恢复在线后重置关闭状态（见 11.3、5.4） |
 | `ChatPanel` | `ChatPanel/index.tsx` | `tripId?`, `placeholder?` | 聊天面板：消息列表 + 语音输入 + 发送；自动滚到底；带 `tripId`/`currentDay`/`selectedElement` 上下文 |
 | `MapView` | `MapView/index.tsx` | `items`, `focus`, `focusDay`, `routeLegs?`, `active?=true` | 地图容器与引擎切换（见第 8 节），含底图失败降级提示与 3D 巡航按钮；`active=false` 不卸载地图，重新可见时 `resize()`（侧栏 keep-alive） |
@@ -608,6 +669,11 @@ export interface MapProvider {
   加载完成前 destroy 不会继续建图。
 - **Focus 联动**：`focus.latitude/longitude` 优先；缺失时退回 `focus.itemId` 在 `items` 里找坐标，
   通过 `setZoomAndCenter` 定位；巡航中来了 focus 会先 `stopTour()`。
+- **选中联动**（与时间线共用 `uiStore.selectedElement`）：`MapView` 只订阅这一个字段并调用
+  `provider.select(id)`；`AMapProvider.select()` 只改已画出标记的 `m3d-selected` 类与相机中心
+  （`setCenter`；旧版 SDK 没有该方法时用当前 `getZoom()` 回填 `setZoomAndCenter`），**不调用 `render()`**，
+  所以点击一次时间线不会整图重绘、也不会重置用户缩放。跨 Day 的标记被点击时会切 Day，
+  此时 `focusDay` 参与渲染 key，会重建一次覆盖物（Day 强调色变了），相机仍然不动。
 - **失败与恢复**：加载异常或 12 秒无 `complete` 时显示高德配置/网络提示；失败后若底图恢复，
   `complete` 会再次上报 `ok` 并清除提示。成功之后忽略个别瓦片错误。
 - **替换服务商**：新实现满足 `MapProvider` 即可；`setPitched`/`startTour` 仍是可选扩展。
@@ -675,7 +741,7 @@ return undefined;
 `playwright.config.ts`：`testDir: './e2e'`、`baseURL: 'http://localhost:4173'`、`trace: 'retain-on-failure'`、`locale: 'zh-CN'`、单 chromium project、`timeout: 30_000`；`webServer.command = 'npm run preview'` 自动起 preview（CI 下 `reuseExistingServer: false`）。
 跑法：终端 1 `cd travel-agent-server && mvn spring-boot:run`；终端 2 `cd travel-agent-web && npm run build && npm run e2e`。
 
-当前 **4 个 spec、13 个用例**（`npm run e2e` 实测 13/13 通过：8 条功能 + 5 条无障碍扫描）：
+默认套件（`playwright.config.ts` 的 `DEFAULT_SPECS` 白名单）当前 **7 个 spec、20 个用例**：
 
 - `e2e/smoke.spec.ts` **3 例**：① **未登录访问首页 → 跳登录页**（`browser.newContext()` 显式空 `storageState`，才是真正的匿名访客）；
   ② **登录 → 建行程 → 行程页与路书可达** —— 登录态来自 `globalSetup` 写入的 `storageState`，用 `page.request.post` 建行程（数据准备不走 UI 表单），
@@ -685,9 +751,14 @@ return undefined;
   **从零规划模式**（填目的地与天数 → 生成 → 确认 → 新行程），都走规则路径、不依赖 LLM 与外部服务。
 - `e2e/a11y.spec.ts` **5 例**：`@axe-core/playwright` 扫登录/首页/助手/旅行/回顾，WCAG 2.0/2.1 A+AA，critical/serious 必须为 0。
 - `e2e/maplibre-vendor.spec.ts` **3 例**：地图引擎 vendor 文件可发布、浏览器可 import、worker 与样式相对路径可解析。
+- `e2e/isolation.spec.ts` **1 例**：`/api/system/status` 证明本轮跑在隔离后端上（LLM/Embedding/MCP/AMAP 全关、限流关闭）。
+- `e2e/run-state.spec.ts` **4 例**：模块级失败可重试、地图失败但时间轴可用、预算降级与冲突/重派各自成阶段。
+- `e2e/timeline-map-linkage.spec.ts` **2 例**：点时间线 → 地图选中并平移（断言不动缩放、两侧来源标签都在）；
+  点地图标记 → 时间线选中并滚动到 `#ti-<id>`（跨 Day 会先切 Day）。隔离环境没有高德 Key，标记由
+  `e2e/support-amap.ts` 的替身 SDK 在第三方边界上提供，点击链路仍是应用真实代码。
 
 另有**独立的视觉回归套件**（不在此列，因为不需要后端与登录）：`npm run test:visual`，
-`playwright.visual.config.ts` + `e2e/visual/`，11 张关键页面截图基线，说明见 [frontend-quality.md §6](frontend-quality.md#6-视觉回归截图基线)。
+`playwright.visual.config.ts` + `e2e/visual/`，10 张关键页面截图基线，说明见 [frontend-quality.md §6](frontend-quality.md#6-视觉回归截图基线)。
 
 ---
 
@@ -704,7 +775,7 @@ return undefined;
 | **懒加载** | 新页面一律 `React.lazy` + `Suspense`；页面内重型组件（echarts/地图）再 `lazy` 一层，别回到单包 3MB |
 | **样式令牌** | `styles/tokens.css` 的 `:root` 是唯一来源。主用名 `--bg/--surface/--border/--text/--text-2/--text-3/--accent/--ok/--warn/--danger/--r-*/--sp-*`，旧名（`--ink/--line/--blue/--lg-*`）是别名 |
 | **色板与暗色** | `main.tsx` 的 `PALETTE` 与 `tokens.css` 是同一套值（主色 `#1f6feb`、圆角 8、边框 `#e4e6eb`），**改色板两处一起改**；`[data-theme='dark']` 只覆盖令牌层，`index.html` 首帧前预设属性避免闪白；canvas 图表（echarts）读不到 CSS 变量，**必须按主题给两套色值**。完整机制（含 `localStorage` 键、三处入口）见 **11.1** |
-| **响应式** | ≥1080px 侧栏 232px；720–1080px 收成 76px 图标栏；<720px 换底部标签栏 `.app-tabbar`。**新增窄屏规则写在 `shared.css` 的 390px 段**，否则会被旧的 `@media (max-width: 900px)` 抢先覆盖；390px 实测场景与溢出修复清单见 **11.2** |
+| **响应式** | ≥1080px 侧栏 232px；≤1080px 收成 76px 图标栏。**没有移动端布局分支**（行程页/规划页/外壳都不再按视口切结构），手机浏览器只落在这套桌面布局上。**新增窄屏防溢出规则写在 `shared.css` 的 390px 段**，否则会被旧的 `@media (max-width: 900px)` 抢先覆盖；溢出修复清单见 **11.2** |
 | **外壳复用** | 子页面（`Schedule`/`Footprint`）自带 `AppShell`，被嵌套复用时靠 `InsideShell` context 退化为纯内容，不必删壳 |
 | **纯逻辑抽离** | 复杂计算抽成同目录 `.ts`（`planForm.ts`、`footprintData.ts`、`reminderNotify.ts`、`markerElement.ts`），组件只做渲染 —— 这些也是单测的主要目标 |
 
@@ -728,7 +799,7 @@ return undefined;
 | 无存值 | 跟随系统 `prefers-color-scheme`（没有 `matchMedia` 时按浅色） | `themeStore.systemPrefersDark` |
 | 存了但非法/损坏 | **回落 light**（绝不把非法值写进 `data-theme`） | `themeStore.readStoredTheme` |
 | 首帧不闪白 | `index.html` 的 `<head>` 内联脚本在样式表加载**之前**写 `document.documentElement.dataset.theme`；三条规则与 `themeStore` 逐条一致 | `index.html` |
-| 入口 | 侧栏/底栏的主题按钮（`AppShell`）+「我的 → 外观」（`pages/Profile`） | `AppShell.tsx`、`pages/Profile/index.tsx:96-110` |
+| 入口 | 侧栏的主题按钮（`AppShell`）+「我的 → 外观」（`pages/Profile`） | `AppShell.tsx`、`pages/Profile/index.tsx:96-110` |
 
 对外 API（`themeStore.ts`）：`mode` / `setMode` / `toggle`、`THEME_STORAGE_KEY`、`isThemeMode`、`readStoredTheme`、
 `resolveInitialMode`、`applyTheme(mode)`。`main.tsx` 在 `useEffect` 里把 `mode` 同步到 `<html data-theme>`。
@@ -738,9 +809,11 @@ return undefined;
 
 ### 11.2 窄屏（390px）防横向滚动
 
+> 移动端专属布局（底部标签栏、行程分段视图、规划固定底栏）已于 2026-11 移除；本节规则**保留**，作为手机浏览器打开页面、或桌面窗口拖窄时的防溢出兜底。
+
 - **安全区**：`index.html` 的 `<meta name="viewport" ... viewport-fit=cover>` 让 iOS 安全区生效；
-  顶部栏用 `env(safe-area-inset-top)` 吃掉刘海，底栏/抽屉底部用 `env(safe-area-inset-bottom)` 避开 home 指示条。
-- **实测口径**：390×844 视口下 **7 个场景** `document.documentElement.scrollWidth == clientWidth == 390`
+  顶部栏用 `env(safe-area-inset-top)` 吃掉刘海，抽屉底部用 `env(safe-area-inset-bottom)` 避开 home 指示条。
+- **实测口径**（移动布局移除前的验收证据）：390×844 视口下 **7 个场景** `document.documentElement.scrollWidth == clientWidth == 390`
   （规划页、行程页、账单抽屉、预算抽屉、备忘页、账单总览、暗色行程页）。
 - **修掉的溢出点**（都在 `styles/shared.css` 的 390px `@media` 块里）：
 
@@ -806,6 +879,8 @@ const ITINERARY_API_PATTERN =
 | --- | --- |
 | 加一个页面 | `pages/<Name>/index.tsx` + `App.tsx` 加 lazy 与 `<Protected>` 路由 + `AppShell` 的 `NavModule` / `GROUPS` |
 | 改聊天阶段文案 / SSE 事件处理 | `store/agentStore.ts` 的 `STAGE_TEXT` / `api/agent.ts` 的 `EVENT_NAMES` 与 handlers |
+| 统一运行状态 / 文案映射 | `src/lib/runState.ts` + [运行状态映射（RunState 七态）](run-state-mapping.md) |
+| 页面加载 / 空 / 失败 / 部分成功态 | `components/RunStatus`（图标 + 文案 + 下一步操作）；后端运行态徽标走 `src/lib/agentRunBadge.ts` 的 `agentRunBadge()`，不要另写 `switch` |
 | 改确认弹窗 | `components/PlanDiff/index.tsx` |
 | 改列表分页 | `api/client.ts` 的 `getPage` / `DEFAULT_PAGE_SIZE` + `components/PaginationBar` |
 | 换行程地图服务商 | `components/MapView/` 下的 `MapProvider`；当前高德实现见 `AMapProvider` 与 `amapLoader` |

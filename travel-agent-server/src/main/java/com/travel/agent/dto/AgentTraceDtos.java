@@ -79,6 +79,42 @@ public class AgentTraceDtos {
         private RunSummary run;
         private List<TaskView> tasks;
         private List<ToolCallView> toolCalls;
+        /** 本轮花费快照（第二阶段，V29）；未启用花费预算或落库失败时为 null */
+        private SpendView spend;
+    }
+
+    /**
+     * 一轮运行的花费快照（来自 {@code agent_run_spend}）。
+     *
+     * <p>字段口径与 {@code AgentSpend.Snapshot} 一致：只记真实用量；
+     * {@code totalTokens} 是输入+输出的展示值，{@code exhausted} 是触顶项 tag（未触顶为 null）。
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class SpendView {
+        private Integer llmCalls;
+        private Integer toolCalls;
+        private Integer retries;
+        private Long promptTokens;
+        private Long completionTokens;
+        private Long totalTokens;
+        private java.math.BigDecimal costUsd;
+        private String exhausted;
+    }
+
+    public static SpendView from(com.travel.agent.entity.AgentRunSpend spend) {
+        return SpendView.builder()
+                .llmCalls(spend.getLlmCalls())
+                .toolCalls(spend.getToolCalls())
+                .retries(spend.getRetries())
+                .promptTokens(spend.getPromptTokens())
+                .completionTokens(spend.getCompletionTokens())
+                .totalTokens(spend.totalTokens())
+                .costUsd(spend.getCostUsd())
+                .exhausted(spend.getExhausted())
+                .build();
     }
 
     public static RunSummary from(com.travel.agent.entity.AgentRun run) {

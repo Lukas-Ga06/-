@@ -1,6 +1,6 @@
 # 部署与运维
 
-> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.16 / Node 20） | 最后验证：2026-11-19 | 事实来源：docker-compose.yml、docker-compose.infra.yml、travel-agent-server/Dockerfile、travel-agent-web/Dockerfile、travel-agent-web/nginx.conf、travel-agent-server/src/main/resources/application*.yml
+> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.16 / Node 20） | 最后验证：2026-11-25 | 事实来源：docker-compose.yml、docker-compose.infra.yml、travel-agent-server/Dockerfile、travel-agent-web/Dockerfile、travel-agent-web/nginx.conf、travel-agent-server/src/main/resources/application*.yml、travel-agent-server/src/main/java/com/travel/agent/service/
 
 > 面向负责上线与运维的同学：从一台干净的服务器把「AI 智能旅行助手」跑起来，并知道它坏了怎么查、数据怎么备。
 > 全部命令、服务名、端口、变量名均取自仓库当前 HEAD 的 **源码**（`docker-compose.yml`、两个 Dockerfile、
@@ -302,8 +302,8 @@ docker compose down -v                # ⚠️ 连卷一起删：MySQL 数据与
 - **来源二**：`docs/DEVELOPMENT.md` 开头「环境变量」表（是否必需 / 未配置时的行为）。
 - **来源三（权威，已修复补齐）**：`application.yml` / `application-mysql.yml` 的 `${VAR:default}` 占位，
   以及 Java 的 `@Value("${...}")`；全仓库主代码**没有** `System.getenv`。
-- 合并去重后共 **67 个**用户可见变量（应用侧 55 + 3 个前端构建期 + 4 个仅 Docker 面 + 5 个 S3 映射，明细见 §5.8）；三源差异见 §5.9。
-- `docker-compose.yml` 当前可注入 61 个变量名（50 个应用侧 + 11 个 compose 面/构建期）；`SPRING_DATA_REDIS_HOST/PORT` 由 compose 固定为内置服务，不计入用户变量。
+- 合并去重后共 **90 个**用户可见变量（应用侧 76 + 3 个前端构建期 + 4 个仅 Docker 面 + 7 个 S3 映射，明细见 §5.8）；三源差异见 §5.9。
+- `docker-compose.yml` 当前有 **64 个 `${VAR}` 输入**（含 3 个 VITE 构建期与 7 个 S3 映射）；`SPRING_DATA_REDIS_HOST/PORT` 由 compose 固定为内置服务，不计入用户变量。
 
 > **默认值优先级**：环境变量 > `travel-agent-server/.env.local`（`spring.config.import` 加载，`[.properties]` 解析）
 > > `application.yml` 默认值。容器内不带 `.env.local`（已列入 `.dockerignore`），所以 compose 环境就是最终来源。
@@ -342,17 +342,56 @@ docker compose down -v                # ⚠️ 连卷一起删：MySQL 数据与
 | `EMBEDDING_MODEL` | `BAAI/bge-m3` | 可选 | Embedding 模型名 | `BAAI/bge-m3`；**换模型需清空 `rag_document`/`rag_chunk`/`rag_document_version` 重建** |
 | `RAG_MIN_SCORE` | `0.05` | 可选 | RAG 检索最低相似度阈值；低于该值的命中不进入回答/引用 | 0.05 |
 
-### 5.3.1 Agent 主链路时间预算（V2.2 收口）
+### 5.3.1 Agent 主链路预算：时间（V2.2 收口）+ 花费（第二阶段）
 
 | 变量 | 默认值 | 是否必需 | 作用 | 未配置时的行为 |
 | --- | --- | --- | --- | --- |
-| `AGENT_BUDGET_ENABLED` | `true` | 可选 | 是否给 `/api/agent/chat` 与 `/api/agent/stream` 创建端到端时间预算 | 默认开启；设 `false` 完全回退旧行为（不建 deadline、所有阶段检查放行） |
+| `AGENT_BUDGET_ENABLED` | `true` | 可选 | 是否给 `/api/agent/chat` 与 `/api/agent/stream` 创建端到端预算（时间 + 花费） | 默认开启；设 `false` 完全回退旧行为（不建 deadline、不建花费预算、所有阶段检查放行） |
 | `AGENT_BUDGET_TOTAL_MS` | `30000` | 可选 | 端到端总预算（毫秒），含排队时间；**耗尽不报错**，按 ADR-002 降级（intent→规则、research 跳过、结构化规划→规则规划、审核跳过） | 30 秒 |
+| `AGENT_SPEND_ENABLED` | `true` | 可选 | 是否叠加花费预算（调用次数/工具次数/重试/token/费用） | 默认开启；设 `false` 只保留时间预算 |
+| `AGENT_SPEND_MAX_LLM_CALLS` | `30` | 可选 | 单轮 LLM 调用次数上限（含失败/超时尝试）；正常一轮约 8–15 次 | 30 次 |
+| `AGENT_SPEND_MAX_TOOL_CALLS` | `200` | 可选 | 单轮工具调用次数上限；确定性规划每天约 8 次工具（7 天行程 60+），这里拦的是工具风暴 | 200 次 |
+| `AGENT_SPEND_MAX_RETRIES` | `5` | 可选 | 单轮重试次数上限（结构化规划带反馈重试 + 审核重规划） | 5 次 |
+| `AGENT_SPEND_MAX_TOKENS` | `200000` | 可选 | 单轮 token 总量上限（输入+输出，取自供应商 `usage`，缺失不计、不估算） | 20 万 |
+| `AGENT_SPEND_MAX_COST_USD` | `1.0` | 可选 | 单轮估算费用上限（美元）；**只在配置了 LLM 单价时才可能触发** | 1.00 美元 |
 
 预算耗尽时的可观测面：回复里明确写「跳过审核/研究、结果未经完整校验，可稍后重试」；SSE 发 `budget_degraded` 事件；
-日志 WARN 带 `runId` 与剩余预算；运行追踪多一条 `taskType=DEGRADE` 任务。
+日志 WARN 带 `runId`、剩余预算与花费摘要；运行追踪多一条 `taskType=DEGRADE` 任务；每轮收尾还有一条
+`Agent 本轮花费: ... exhausted=...` INFO 日志与 `travel.agent.spend{result,limit}` 指标。
 调大该值不会让请求变慢失控——单次 LLM 读超时也会被压到「剩余预算」以内；但**审核阶段内部的外部调用
 （高德算路 6s / 天气 5s / MCP 工具）仍受各自超时约束**，不受预算收紧，这是已知边界。
+
+花费预算的三条边界（第二阶段）：
+- **token/费用是软上限**：次数类在发起前判定，token 与费用只能从响应里读到，因此一次在途调用可能刚越过上限，
+  越界量被「一次调用」封顶，下一次调用一定被拒。
+- **费用上限需要真实价目表**：`LLM_PROMPT_PRICE_PER_1K_USD` / `LLM_COMPLETION_PRICE_PER_1K_USD` 为 0 时费用恒为 0，
+  该项不会误伤——绝不用猜测单价卡用户请求。
+- **工具触顶是降级不是失败**：超预算的工具调用直接跳过（返回 null，规划侧按「查不到」处理：少排一个点、
+  路线成本记 0），并在回复里说明；**不会**把整轮请求打成 FAILED。
+
+### 5.3.2 可靠执行链路（P0）
+
+这些键在 `application.yml` 中带 `${VAR:default}` 占位；两个调度间隔由 `@Scheduled(fixedDelayString=...)` 直接读取，
+其余由 `@Value` 读取。**默认值即安全值**，不配置不会丢数据，只影响租约/重试节奏。
+
+| 变量 | 默认值 | 是否必需 | 作用 | 未配置时的行为 |
+| --- | --- | --- | --- | --- |
+| `PENDING_PLAN_LEASE_MINUTES` | `5` | 可选 | 确认租约时长（分钟）；超过仍停在 `CONFIRMING` 视为处理者崩溃 | 5 分钟；**必须大于一次正常提交耗时**，否则会把正在提交的请求误判成崩溃 |
+| `PENDING_PLAN_SWEEP_INTERVAL_MS` | `30000` | 可选 | 过期确认租约清扫间隔（毫秒）；启动时另跑一次 | 30 秒 |
+| `OUTBOX_DISPATCH_INTERVAL_MS` | `5000` | 可选 | Outbox 投递轮次间隔（毫秒，fixedDelay） | 5 秒 |
+| `OUTBOX_BATCH_SIZE` | `20` | 可选 | 每轮最多投递条数 | 20 |
+| `OUTBOX_DISPATCHING_LEASE_MINUTES` | `10` | 可选 | `DISPATCHING` 行领取租约（分钟），超时视为执行者崩溃并重新排队 | 10 分钟 |
+| `OUTBOX_MAX_ATTEMPTS` | `8` | 可选 | 失败次数上限，达到后置 `DEAD` 等人工介入 | 8 次 |
+| `OUTBOX_BASE_BACKOFF_SECONDS` | `10` | 可选 | 指数退避基数（秒）：第 n 次失败等待 `base × 2^(n-1)` | 10 秒起 |
+| `OUTBOX_MAX_BACKOFF_SECONDS` | `3600` | 可选 | 退避上限（秒） | 1 小时 |
+
+> **compose 透传缺口**：`docker-compose.yml` 当前**没有**注入这 8 个变量（默认值可用）。
+> 容器部署要覆盖时，补 `environment:` 透传，或用 `SPRING_APPLICATION_JSON` 直接给
+> `travel.pending-plan.*` / `travel.outbox.*`；只在宿主机 `.env` 里写不会自动进容器。
+>
+> **运行恢复的三个键没有环境变量占位**：`travel.agent.run-recovery.stale-after-ms`（默认 600000）、
+> `interval-ms`（默认 300000）、`initial-delay-ms`（默认 300000）只在 `@Value` 中读取，
+> 需要时用配置文件或 `SPRING_APPLICATION_JSON` 覆盖；**不存在 `AGENT_RUN_RECOVERY_*` 变量**。
 
 ### 5.4 地图与天气
 
@@ -365,6 +404,22 @@ docker compose down -v                # ⚠️ 连卷一起删：MySQL 数据与
 | `VITE_FOOTPRINT_BASEMAP` | `amap` | 可选 | 足迹地图底图：`amap`（高德栅格 + MapLibre 球体）或 `osm`（原 OSM/OpenFreeMap） | 默认高德；高德瓦片不可达时运行时回退 OSM。商用前确认高德瓦片授权 |
 | `WEATHER_SIMULATION` | `false` | 可选 | **仅测试/离线演示**：`true` 时返回确定性模拟天气 | 默认走 Open-Meteo 真实预报（免费无 Key，窗口今天起 16 天）；拿不到即不可用——依赖天气的修改返回 `status=FAILED`（业务码 503）并说明原因，普通规划如实标注「未做天气校验」 |
 | `WEATHER_FAILURE_CACHE_SECONDS` | `60` | 可选 | 天气失败负缓存秒数，避免离线时一次规划反复等连接超时 | `0` = 不缓存失败；负缓存只影响重试频率，不影响正确性 |
+
+### 5.4.1 发票 OCR（可选增强，默认关闭）
+
+发票报销（「报销这张发票」）默认**关闭**：不配置时明确报「OCR 发票识别未配置」，不识别、不生成方案，
+**不会返回模拟识别结果**。开启后只用于增值税发票照片（复用照片通道上传，`kind=INVOICE`）。
+
+| 变量 | 默认值 | 是否必需 | 作用 | 未配置/失败时的行为 |
+| --- | --- | --- | --- | --- |
+| `OCR_PROVIDER` | `none` | 可选 | OCR 提供方：`none`（关闭）/ `baidu`（百度云增值税发票识别） | 关闭：识别请求一律返回「未配置」，不生成记账方案 |
+| `OCR_BAIDU_API_KEY` | 空 | 开启 OCR 时必需 | 百度云应用 API Key（`travel.ocr.baidu.api-key`） | 与 Secret 缺任一都按「未配置」处理 |
+| `OCR_BAIDU_SECRET_KEY` | 空 | 开启 OCR 时必需 | 百度云应用 Secret Key（`travel.ocr.baidu.secret-key`）；只经环境变量注入，不入库、不进日志 | 同上 |
+
+> 超时（默认 3s / 5s）与单图识别上限（默认 8MB）**没有环境变量占位**，在 `service/ocr/OcrProperties` 里给默认值，
+> 需要时用配置文件或 `SPRING_APPLICATION_JSON` 覆盖。`docker-compose.yml` 当前未透传这三个变量，
+> 容器部署要在 `environment:` 里补，或用 `SPRING_APPLICATION_JSON` 给 `travel.ocr.*`。
+> 旧的 `TESSERACT_CMD` / `TESSDATA_PREFIX` 属于已退役的本地 OCR，**不是**这条链路的配置。
 
 ### 5.5 渠道入口
 
@@ -408,6 +463,8 @@ docker compose down -v                # ⚠️ 连卷一起删：MySQL 数据与
 > | `S3_BUCKET` | `TRAVEL_PHOTOS_S3_BUCKET` | `PHOTOS_STORE=s3` 时必填 |
 > | `S3_ACCESS_KEY` | `TRAVEL_PHOTOS_S3_ACCESS_KEY` | 只授予目标 bucket 的 Put/Get/Head/Delete |
 > | `S3_SECRET_KEY` | `TRAVEL_PHOTOS_S3_SECRET_KEY` | 密钥，不入库、不进日志 |
+> | `S3_PATH_STYLE` | `TRAVEL_PHOTOS_S3_PATH_STYLE` | MinIO 等兼容端点通常 `true`；AWS S3 保持 `false`（默认） |
+> | `S3_CHECKSUM_VALIDATION` | `TRAVEL_PHOTOS_S3_CHECKSUM_VALIDATION` | 仅用于不返回校验头的兼容网关；AWS/MinIO 保持 `true`（默认） |
 >
 > `PHOTOS_STORE=s3` 但 bucket/AK/SK 缺失会**启动失败**。Redis 运行期不可用时 `RedisRateCounter` 记 WARN、计 `ratelimit.failopen` 并放行（fail-open）；启动阶段 Redis 容器不健康会因 `depends_on` 阻止 backend 启动。
 
@@ -439,32 +496,36 @@ docker compose down -v                # ⚠️ 连卷一起删：MySQL 数据与
 | --- | --- | --- |
 | 认证与安全 | 8 | `JWT_SECRET` `JWT_EXPIRE_HOURS` `COOKIE_SECURE` `CORS_ALLOWED_ORIGINS` `DEMO_ACCOUNT` `APP_TIMEZONE` `MYSQL_ROOT_PASSWORD` `TICKET_TTL_SECONDS` |
 | LLM 与 Embedding | 14 | `LLM_ENABLED` `LLM_API_KEY` `LLM_BASE_URL` `LLM_MODEL` `LLM_MODEL_PROBE_ENABLED` `LLM_TEMPERATURE` `LLM_CONNECT_TIMEOUT_MS` `LLM_READ_TIMEOUT_MS` `LLM_DAILY_QUOTA` `EMBEDDING_ENABLED` `EMBEDDING_BASE_URL` `EMBEDDING_API_KEY` `EMBEDDING_MODEL` `RAG_MIN_SCORE` |
-| 地图与天气 | 7 | `AMAP_KEY` `AMAP_MAPS_API_KEY` `VITE_AMAP_KEY` `VITE_AMAP_SECURITY_CODE` `VITE_FOOTPRINT_BASEMAP` `WEATHER_SIMULATION` `WEATHER_FAILURE_CACHE_SECONDS` |
+| 地图与天气 | 9 | `AMAP_KEY` `AMAP_MAPS_API_KEY` `VITE_AMAP_KEY` `VITE_AMAP_SECURITY_CODE` `VITE_FOOTPRINT_BASEMAP` `WEATHER_SIMULATION` `WEATHER_FAILURE_CACHE_SECONDS` `WEATHER_FORECAST_BASE_URL` `WEATHER_GEOCODE_BASE_URL` |
+| 发票 OCR | 3 | `OCR_PROVIDER` `OCR_BAIDU_API_KEY` `OCR_BAIDU_SECRET_KEY` |
 | 渠道入口 | 7 | `TELEGRAM_BOT_TOKEN` `TELEGRAM_POLL_TIMEOUT` `CHANNEL_WEBHOOK_ENABLED` `CHANNEL_WEBHOOK_SECRET` `WECHAT_OA_TOKEN` `WECHAT_OA_APPID` `WECHAT_OA_SECRET` |
-| 存储与限流 | 12 | `PHOTO_MAX_PER_TRIP` `PHOTO_MAX_BYTES_PER_USER` `RATE_LIMIT_ENABLED` `RATE_LIMIT_AUTH` `RATE_LIMIT_AGENT` `RATE_LIMIT_UPLOAD` `RATE_LIMIT_DEFAULT` `RATE_LIMIT_SESSION` `RATE_LIMIT_WINDOW_SECONDS` `RATE_LIMIT_STORE` `RATE_LIMIT_TRUSTED_PROXIES` `PHOTOS_STORE` |
-| S3 映射（compose 转 `TRAVEL_PHOTOS_S3_*`） | 5 | `S3_ENDPOINT` `S3_REGION` `S3_BUCKET` `S3_ACCESS_KEY` `S3_SECRET_KEY` |
+| 存储与限流 | 13 | `PHOTO_MAX_PER_TRIP` `PHOTO_MAX_BYTES_PER_USER` `RATE_LIMIT_ENABLED` `RATE_LIMIT_AUTH` `RATE_LIMIT_AGENT` `RATE_LIMIT_UPLOAD` `RATE_LIMIT_DEFAULT` `RATE_LIMIT_EXPORT` `RATE_LIMIT_SESSION` `RATE_LIMIT_WINDOW_SECONDS` `RATE_LIMIT_STORE` `RATE_LIMIT_TRUSTED_PROXIES` `PHOTOS_STORE` |
+| S3 映射（compose 转 `TRAVEL_PHOTOS_S3_*`） | 7 | `S3_ENDPOINT` `S3_REGION` `S3_BUCKET` `S3_ACCESS_KEY` `S3_SECRET_KEY` `S3_PATH_STYLE` `S3_CHECKSUM_VALIDATION` |
 | 数据库与其他 | 11 | `SPRING_PROFILES_ACTIVE` `MYSQL_HOST` `MYSQL_PORT` `MYSQL_DATABASE` `MYSQL_USERNAME` `MYSQL_PASSWORD` `MCP_ENABLED` `RAG_CHUNK_VERSION_RETENTION` `JAVA_OPTS` `TZ` `H2_CONSOLE_ENABLED` |
 | 会话记忆 | 2 | `CONVERSATION_HISTORY_LIMIT` `CONVERSATION_RETENTION_DAYS` |
-| Agent 时间预算 | 2 | `AGENT_BUDGET_ENABLED` `AGENT_BUDGET_TOTAL_MS` |
-| **合计** | **67** | 应用侧 55（两份 yml 去重）+ 3 个前端构建期变量 + 4 个仅 Docker 面变量（`MYSQL_ROOT_PASSWORD`、`SPRING_PROFILES_ACTIVE`、`JAVA_OPTS`、`TZ`）+ 5 个 S3 映射输入 |
+| Agent 预算（时间 + 花费） | 8 | `AGENT_BUDGET_ENABLED` `AGENT_BUDGET_TOTAL_MS` `AGENT_SPEND_ENABLED` `AGENT_SPEND_MAX_LLM_CALLS` `AGENT_SPEND_MAX_TOOL_CALLS` `AGENT_SPEND_MAX_RETRIES` `AGENT_SPEND_MAX_TOKENS` `AGENT_SPEND_MAX_COST_USD` |
+| 可靠执行链路（P0） | 8 | `PENDING_PLAN_LEASE_MINUTES` `PENDING_PLAN_SWEEP_INTERVAL_MS` `OUTBOX_DISPATCH_INTERVAL_MS` `OUTBOX_BATCH_SIZE` `OUTBOX_DISPATCHING_LEASE_MINUTES` `OUTBOX_MAX_ATTEMPTS` `OUTBOX_BASE_BACKOFF_SECONDS` `OUTBOX_MAX_BACKOFF_SECONDS` |
+| **合计** | **90** | 应用侧 76（两份 yml 去重）+ 3 个前端构建期变量 + 4 个仅 Docker 面变量（`MYSQL_ROOT_PASSWORD`、`SPRING_PROFILES_ACTIVE`、`JAVA_OPTS`、`TZ`）+ 7 个 S3 映射输入 |
 
-> 口径提示：`TESSERACT_CMD`、`TESSDATA_PREFIX`、`INVOICE_DIR`、`INVOICE_STORE` 已随发票/OCR 退役删除，不再是有效配置项；`INVOICE_DIR` 也已从 `docker-compose.yml` / Dockerfile 移除。
+> 口径提示：`TESSERACT_CMD`、`TESSDATA_PREFIX`、`INVOICE_DIR`、`INVOICE_STORE` 已随旧发票/OCR 退役删除，不再是有效配置项；
+> 2026-11-27 的发票 OCR 是**新**的可选增强（`OCR_PROVIDER` / `OCR_BAIDU_*`，默认 `none`），与这批已退役变量无关。
+> `INVOICE_DIR` 也已从 `docker-compose.yml` / Dockerfile 移除。
 > `SPRING_DATA_REDIS_HOST` / `SPRING_DATA_REDIS_PORT` 由 compose 固定为内置 `redis` 服务，属内部连接项，不计入用户变量；外部 Redis 才需要 override。
 
 来源分布（按定义位置；一个变量可能出现于多份配置文件）：
 
 | 来源 | 数量 | 说明 |
 | --- | --- | --- |
-| `application.yml` 的 `${VAR:default}` 占位 | 50 | P0-A 新增 `LLM_MODEL_PROBE_ENABLED` 后重新核对（`AMAP_KEY` 只在 `travel.amap.key`，`AMAP_MAPS_API_KEY` 只在 `travel.mcp.servers[].env`） |
+| `application.yml` 的 `${VAR:default}` 占位 | 71 | 第二阶段新增 6 个花费预算占位（`AGENT_SPEND_*`）后重新核对（P0 可靠链路新增 8 个；2026-11-27 发票 OCR 新增 3 个；`AMAP_KEY` 只在 `travel.amap.key`，`AMAP_MAPS_API_KEY` 只在 `travel.mcp.servers[].env`） |
 | `application-mysql.yml` 的占位 | 5 | `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_DATABASE` / `MYSQL_USERNAME` / `MYSQL_PASSWORD` |
-| 两份 yml 合计（去重） | **55** | P0 删除发票/OCR 配置后重新核对 |
+| 两份 yml 合计（去重） | **76** | P0 删除旧发票/OCR 配置、新增可靠链路与花费预算占位，2026-11-27 又新增发票 OCR 的 3 个占位后重新核对 |
 | Java 代码内独立 env 占位 | **0** | 主代码不再有独立 env 占位（`@Value` 只读配置项默认值） |
 | 仅由 `docker-compose.yml` / Dockerfile 提供 | 4 | `MYSQL_ROOT_PASSWORD`、`TZ`、`SPRING_PROFILES_ACTIVE`、`JAVA_OPTS`（后端 `ENTRYPOINT` 消费） |
-| S3 映射输入 | 5 | `S3_*` → `TRAVEL_PHOTOS_S3_*`（`docker-compose.yml` 的 `environment` 右侧） |
+| S3 映射输入 | 7 | `S3_*` → `TRAVEL_PHOTOS_S3_*`（`docker-compose.yml` 的 `environment` 右侧，含 `S3_PATH_STYLE` / `S3_CHECKSUM_VALIDATION`） |
 | 前端构建期变量 | 3 | `VITE_AMAP_KEY`、`VITE_AMAP_SECURITY_CODE`、`VITE_FOOTPRINT_BASEMAP` |
 | `System.getenv` 直接读取 | **0** | 全仓库主代码没有 `System.getenv`（测试代码只用 `System.getProperty`） |
 
-对账：55（yml 去重）+ 3（前端构建期）+ 4（仅 Docker 面）+ 5（S3 映射）= **67**。复核命令：
+对账：76（yml 去重）+ 3（前端构建期）+ 4（仅 Docker 面）+ 7（S3 映射）= **90**。复核命令：
 
 ```bash
 grep -rhoE '\$\{[A-Z0-9_]+' travel-agent-server/src/main/resources/application*.yml | sed 's/^..//' | sort -u | wc -l
@@ -547,7 +608,7 @@ mvn spring-boot:run -Dspring-boot.run.profiles=mysql # 或 --spring.profiles.act
 ### 6.3 Flyway 迁移链、`validate` 与 checksum repair
 
 - **执行时机**：每次后端启动时、在 Hibernate 初始化**之前**执行未应用的迁移；记录在 `flyway_schema_history`。
-- **迁移链**（`travel-agent-server/src/main/resources/db/`）：**14 个版本 / 15 个脚本**（V13 双方言各一份、V14 为 H2 专属）。
+- **迁移链**（`travel-agent-server/src/main/resources/db/`）：**28 个版本 / 29 个脚本**（V13 双方言各一份、V14 为 H2 专属）；完整逐版本说明以 [数据模型](data-model.md) §6.1 为准，这里只列部署时要认得的版本。
 
   | 版本 | 脚本（目录） | 内容 |
   | --- | --- | --- |
@@ -566,6 +627,12 @@ mvn spring-boot:run -Dspring-boot.run.profiles=mysql # 或 --spring.profiles.act
   | 13 | `V13__baseline_gap.sql`（`migration-mysql`） | **MySQL 专属**：幂等补齐 9 列 + `trip_photo` 表 + 6 个索引 |
   | 13 | `V13__baseline_gap_h2.sql`（`migration-h2`） | 同一份缺口的 H2 方言版（原生 `IF NOT EXISTS`） |
   | 14 | `V14__llm_quota_unique_h2.sql`（`migration-h2`） | **H2 专属**：`llm_quota_usage` 的唯一键（MySQL 侧由 V8 负责，H2 之前从未建过） |
+  | 15–19 | `V15`–`V19`（`migration`） | 追踪三表、`plan_execution` / `content_hash`、`party_size`、任务图三列、旅行闭环（`itinerary_item.status` / `trip_event`） |
+  | 20–24 | `V20`–`V24`（`migration`） | 写意图幂等台账、会话 scope、`schedule_item.source_key` 唯一、会话轮次 + `conversation_meta`、`users.token_version` |
+  | 25 | `V25__pending_plan_claim_lease.sql` | 确认租约：`pending_plan.claim_token` / `claimed_at` + `idx_pending_plan_claim` |
+  | 26 | `V26__plan_outbox.sql` | 事务性 Outbox 表（两个唯一键 + 两个索引） |
+  | 27 | `V27__agent_run_state.sql` | `agent_run.stage` / `heartbeat_at` / `request_id` + 两个索引；`agent_run_stage` 历史表 |
+  | 28 | `V28__agent_run_event.sql` | `agent_run_event` 事件持久化表（唯一键 + 索引），SSE 续传的数据源 |
 
 - **两个 profile 的 `flyway.locations`**：默认（H2）= `classpath:db/migration,classpath:db/migration-h2`；
   `mysql` = `classpath:db/migration,classpath:db/migration-mysql`。两边**各自只看到一个 V13**，不会撞重复版本号。
@@ -741,7 +808,8 @@ server {
 | `rateLimitEnabled` | boolean | 限流是否开启 |
 | `llmQuotaUsed` / `llmQuotaLimit` | int（仅配额开启且已登录时出现） | 当前用户今日已用/上限 |
 
-> P0 起**不再返回 `ocrConfigured` / `ocrHint`**；发票/OCR 能力已退役。
+> P0 起**不再返回 `ocrConfigured` / `ocrHint`**：旧的本地 Tesseract 发票/OCR 已退役；
+> 2026-11-27 的发票 OCR 是可选的百度云增强项（§5.4.1，默认关闭），自检响应不对它作「可用」承诺。
 
 > **MCP 的接入状态不在这个接口里**：`amapConfigured` 只反映 REST 用的 `AMAP_KEY`，与 MCP 子进程的 `AMAP_MAPS_API_KEY` 无关。
 > MCP 是否真的接上、注册了几个工具，看启动日志（[高德 MCP 接入](mcp-amap.md) §4.3）。
@@ -970,7 +1038,9 @@ docker compose start backend
 | 来源 | 量级依据 | 治理 |
 | --- | --- | --- |
 | 照片 | 单用户上限 `PHOTO_MAX_BYTES_PER_USER` 默认 500 MB；单行程张数 `PHOTO_MAX_PER_TRIP` 默认 200 | 按用户数 × 上限估算；逼近时下调配额或迁 S3 |
-| `pending_plan` | 每次规划一条，TTL **30 分钟**，仅在写入新方案时清理过期行 | 量很小；量大时定期 `DELETE FROM pending_plan WHERE created_at < NOW() - INTERVAL 1 DAY` |
+| `pending_plan` | 每次规划一条，TTL **30 分钟**，仅在写入新方案时清理过期行；`CONFIRMING` 租约默认 5 分钟，过期由 `PendingPlanRecoveryJob` 清扫 | 量很小；量大时定期 `DELETE FROM pending_plan WHERE created_at < NOW() - INTERVAL 1 DAY` |
+| `plan_outbox` | 每次确认 3 条（calendar/budget/footprint），成功/死信后保留行；失败退避最长 1h、8 次后 `DEAD` | 量小；`DEAD` 行需人工处理，不要盲目批量删除（先看 `last_error`）；行程删除会清理对应行 |
+| `agent_run` / `agent_run_event` / `agent_run_stage` / `agent_task` / `tool_call_trace` | 每次运行 1 条 run + 事件数（含 SSE 每帧一条，大方案事件可能很大）+ 阶段历史/任务/工具追踪 | 统一 14 天保留期，由每日 04:40 的 `AgentTraceRetentionJob` 清理；事件表是新增的主要追踪增长项 |
 | `conversation_message` | 按「用户 + 会话」保留最近 10 条消息（约 5 轮）喂给模型；超过 `CONVERSATION_RETENTION_DAYS`（默认 7 天）的消息自动清理（写入侧快路径每小时最多一次 + 每日 04:30 定时任务） | 清理已自动化；需要时再定期归档 |
 | `rag_chunk` | 10 篇内置知识 × 段落数；版本化之后旧块不随指纹变化删除，但**只保留最近 `RAG_CHUNK_VERSION_RETENTION`（默认 2）个历史版本**，更老的块由每日 04:30 的 `RagChunkRetentionJob` 清理（版本行与正文保留）；**切换 Embedding 模型需重建** | 变更前清空 `rag_chunk`、`rag_document_version` 与 `rag_document`，重启自动重建（见 [数据模型](data-model.md) §7.3） |
 | 容器日志 | `backend` / `web` 的 `json-file` 轮转为 10m × 3（约 30m/容器上限）；`mysql` / `redis` 未配轮转 | 如将 `mysql`/`redis` 日志也外置或排障，可补同样 `logging.options`；否则长期运行仍可能被这两个容器日志占满 |
@@ -985,12 +1055,12 @@ docker compose start backend
 
 本文以仓库当前 HEAD 的源码为准做了逐项核对：
 
-- **环境变量总数：67**——应用侧 55（= 两份 yml 去重；含 `LLM_MODEL_PROBE_ENABLED`）
+- **环境变量总数：90**——应用侧 76（= 两份 yml 去重；含 `LLM_MODEL_PROBE_ENABLED`、P0 可靠链路的 8 个与 2026-11-27 发票 OCR 的 3 个）
   \+ 3 个前端构建期变量（`VITE_AMAP_KEY`、`VITE_AMAP_SECURITY_CODE`、`VITE_FOOTPRINT_BASEMAP`）
   \+ 仅 Docker 面 4（`MYSQL_ROOT_PASSWORD`、`SPRING_PROFILES_ACTIVE`、`JAVA_OPTS`、`TZ`）
-  \+ S3 映射 5（`S3_*` → `TRAVEL_PHOTOS_S3_*`）。分组明细见 §5.8；
-- **来源分布**：`application.yml` 50 个不同占位、`application-mysql.yml` 5 个、
-  `docker-compose.yml`/Dockerfile 4 个、S3 映射 5 个、`System.getenv` 直接读取 **0** 个；**Java 代码内不再有独立 env 占位**
+  \+ S3 映射 7（`S3_*` → `TRAVEL_PHOTOS_S3_*`）。分组明细见 §5.8；
+- **来源分布**：`application.yml` 71 个不同占位、`application-mysql.yml` 5 个、
+  `docker-compose.yml`/Dockerfile 4 个、S3 映射 7 个、`System.getenv` 直接读取 **0** 个；**Java 代码内不再有独立 env 占位**
   （P0 删除的 `TESSERACT_CMD` / `TESSDATA_PREFIX` 是最后一处）；
 - **compose 变更的验证边界**：本次 `docker-compose.yml` 重写**未在本机执行 `docker compose config`**（本机无 Docker），
   只用 `python -c "import yaml; yaml.safe_load(open('docker-compose.yml'))"` 做了 YAML 语法检查（通过）；真实渲染、启动与 healthcheck 行为属于未验证项，发布前必须在有 Docker 的环境跑一次。

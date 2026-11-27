@@ -1789,6 +1789,9 @@
             "format" : "int64",
             "type" : "integer"
           },
+          "kind" : {
+            "type" : "string"
+          },
           "originalName" : {
             "type" : "string"
           },
@@ -2183,6 +2186,9 @@
           "run" : {
             "$ref" : "#/components/schemas/RunSummary"
           },
+          "spend" : {
+            "$ref" : "#/components/schemas/SpendView"
+          },
           "tasks" : {
             "items" : {
               "$ref" : "#/components/schemas/TaskView"
@@ -2311,6 +2317,41 @@
           },
           "type" : {
             "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "SpendView" : {
+        "properties" : {
+          "completionTokens" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "costUsd" : {
+            "type" : "number"
+          },
+          "exhausted" : {
+            "type" : "string"
+          },
+          "llmCalls" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "promptTokens" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "retries" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "toolCalls" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "totalTokens" : {
+            "format" : "int64",
+            "type" : "integer"
           }
         },
         "type" : "object"
@@ -2730,7 +2771,6 @@
             "type" : "integer"
           }
         },
-        "required" : [ "tripId" ],
         "type" : "object"
       },
       "UpdateItemRequest" : {
@@ -4925,6 +4965,13 @@
           "schema" : {
             "format" : "int64",
             "type" : "integer"
+          }
+        }, {
+          "in" : "query",
+          "name" : "kind",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
           }
         } ],
         "requestBody" : {

@@ -16,6 +16,7 @@ import {
 import { useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import AppShell from '../../components/AppShell';
+import RunStatus from '../../components/RunStatus';
 import { getTripReview } from '../../api/trip';
 import { photoSrc } from '../../api/photo';
 import { useAccessTicket } from '../../api/ticket';
@@ -92,8 +93,9 @@ export default function TripReviewPage() {
   };
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- tripId 变化即重拉回顾数据：既有「依赖变化即取数」写法，收敛到数据层 hook 属另开卡的重构
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只按 tripId 重拉：load 每次渲染都会重建，进依赖数组会变成「每次渲染都请求」
   }, [tripId]);
 
   const percent = review ? Math.max(0, Math.min(100, Math.round(review.completionRate * 100))) : 0;
@@ -131,18 +133,20 @@ export default function TripReviewPage() {
         </div>
 
         {loading && (
-          <div
-            className="dash-card"
-            style={{ display: 'grid', placeItems: 'center', minHeight: 220 }}
-          >
-            <Spin size="large" />
+          <div className="dash-card review-state" style={{ minHeight: 220 }} aria-busy="true">
+            <RunStatus status="loading" text="正在加载旅行回顾…" size="sm" />
           </div>
         )}
 
         {!loading && error && (
-          <div className="dash-card review-state">
-            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={error} />
-            <Button onClick={load}>重试</Button>
+          <div className="dash-card review-state" role="alert">
+            <RunStatus
+              status="failed"
+              text="旅行回顾加载失败"
+              detail={error}
+              testId="trip-review-error"
+              actions={tripId > 0 ? [{ label: '重试', onClick: load }] : undefined}
+            />
           </div>
         )}
 

@@ -1,6 +1,6 @@
 # 架构与核心设计（Agent 引擎 / RAG / 工具层 / SSE）
 
-> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.16 / Node 20） | 最后验证：2026-11-19 | 事实来源：travel-agent-server/src/main/java/com/travel/agent/、travel-agent-web/src/
+> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.16 / Node 20） | 最后验证：2026-11-25 | 事实来源：travel-agent-server/src/main/java/com/travel/agent/、travel-agent-server/src/main/resources/db/migration/、travel-agent-web/src/
 
 一句话导读：本文从源码出发，讲清一条用户消息如何穿过 Controller → AgentEngine 状态机 → 四 Agent → ToolInvoker / RagService / LlmClient，并以「preview → Diff → 确认 → commit」的方式落到数据库。
 
@@ -182,6 +182,48 @@ flowchart LR
 
 **边界**：`RESEARCH` 仍在 `PLAN` 任务体内由规划器调用，不单独声明依赖边；确认提交后的 `COMMIT` 由 `PlanConfirmationService` 用 `traceService.task` 记录并挂回同一 `runId`，不在 `Coordinator` 的派发路径上、也没有依赖边。
 
+### 2.5 运行状态落库与崩溃恢复（P0）
+
+状态机不再只是内存枚举。`AgentEngine.handle` 在**第一个 SSE 事件之前**调用
+`AgentTraceService.startRun(userId, tripId, message, requestId)`，run 创建即写入
+`status=RUNNING`、`stage=RECEIVE`、`heartbeat_at=now`；随后才 `emit("start")` / `emit("run")`。
+这样 `agent_run_event` 的 `run_id` 与 SSE 帧 id 从第一条事件起就是完整的。
+
+之后的每次 `ctx.setState(...)` 都经 `AgentEngine` 注入的 stage sink 调用
+`AgentTraceService.enterStage(runId, stage)`：
+
+| 写入 | 表 / 列 | 语义 |
+| --- | --- | --- |
+| 当前阶段快照 | `agent_run.stage` + `agent_run.heartbeat_at` | 回答「这个 run 现在走到哪了」；心跳用于判断进程是否还活着 |
+| 阶段迁移历史 | `agent_run_stage(run_id, seq_no, stage, entered_at, detail)` | 每次推进追加一行，`seq` 在 run 内从 1 单调递增，唯一键 `uk_agent_run_stage (run_id, seq_no)`；并行阶段推进撞键时按唯一键重试 |
+| 终态 | `agent_run.status` + `agent_run.stage` + `ended_at` | 收尾 `finishRun` 写 `DONE` / `FAILED` / `CANCELLED`；恢复任务写 `ABANDONED` |
+
+`agent_run.status` 取值：`RUNNING` / `SUCCEEDED` / `PARTIAL_SUCCESS` / `FAILED` / `CANCELLED` / `ABANDONED`。
+`ABANDONED` 与 `FAILED` 刻意分开：`FAILED` 是执行体自己报的失败，`ABANDONED` 是
+「心跳超时或进程重启，没人知道结果」——服务恢复时按 `travel.agent.run-recovery.stale-after-ms`
+（默认 10 分钟；`heartbeat_at` 为空时用 `started_at`）把陈旧的 `RUNNING` 改成 `ABANDONED`，
+同时补一条 `stage=ABANDONED` 迁移历史。恢复任务在应用启动时跑一次，之后按
+`travel.agent.run-recovery.interval-ms`（默认 5 分钟）固定延迟执行。
+
+`request_id` 单独落库，服务写操作幂等（`AgentCommandIdempotency` 闸门）与按
+`(user_id, request_id)` 回查运行记录使用（`AgentTraceService#findLatestRun`）；
+**SSE 续传不使用 `request_id`**：它认帧 id 里的 `runId`（见 §8.7），因此不存在
+「重连时按 requestId 另起一次规划」的路径。
+
+### 2.6 可靠执行链路总览（P0）
+
+一次确认提交与后续同步，以及一次流式运行，可靠性由五段机制共同保证。任何一段单独看都
+不够——租约解决「谁有权提交」，栅栏解决「旧租约不能提交」，Outbox 解决「提交后不会丢同步」，
+运行状态解决「崩溃后知道走到哪」，事件持久化解决「断线后不用重规划」。
+
+| 环节 | 解决的问题 | 机制 | 细节 |
+| --- | --- | --- | --- |
+| 确认所有权 | 同一方案被并发确认 / 进程崩溃后永久停在 `CONFIRMING` | `pending_plan` 条件更新 `PENDING→CONFIRMING` + UUID `claim_token` + `claimed_at`；定时清扫过期租约 | §9.2 |
+| 提交栅栏 | 租约被清扫 / 被重新抢占后，旧持有者仍提交 | 单事务 `executorAgent.commit` + 3 条 `plan_outbox(PENDING)` + `deleteClaimed(plan_id, token)` 必须影响 1 行；否则抛 `LeaseLostException` 整体回滚 | §9.2、§9.4 |
+| 跨模块同步 | 行程已提交、日程/预算/足迹未同步时进程崩溃 | 事务性 Outbox：独立投递器条件领取、至少一次投递、失败指数退避、耗尽置 `DEAD` | §9.4 |
+| 运行状态 | 崩溃后无法回答「这个 run 走到哪了」 | `agent_run.stage` / `heartbeat_at` 快照 + `agent_run_stage` 历史 + 恢复任务置 `ABANDONED` | §2.5 |
+| SSE 断线 | 断线后整段重新规划，重复消耗 LLM 配额 | 事件按 run 内 `seq` 持久化；帧 `id=<runId>:<seq>`；`Last-Event-ID` 与 `GET /api/agent/runs/{runId}/events` 续传 | §8.7 |
+
 ---
 
 ## 3. 四个 Agent 的职责
@@ -208,7 +250,7 @@ public IntentResult detect(AgentContext ctx, Trip trip) {
 | 可信度复核 | `IntentAgent.plausible` | LLM 已给出结果 | 判为不可信 → 回落规则 |
 | 规则 | `IntentAgent.ruleDetect` | 总是可用 | 兜底返回 `CHITCHAT` |
 
-`plausible`（`:69-84`）只拦一类越界：`INVOKE_TOOL` 但 `toolName` 不以 `mcp_` 开头或 `toolRegistry.get()` 为 null（防模型编造工具名）。规则路径优先级（`IntentAgent.java:227-348`）：**改写（1）> 记账（2）> 备忘（4）> 日程（5）> 强规划（6）> 疑问句（7）> 兜底闲聊**；办公/日报/健康分支已删除。其中「添加日程」判定格外严格：必须同时有 `scheduleNoun`（日程/会议/开会/排期…）**且**（`EXPLICIT_TIME` 明确时间点或排期动词），这样「今天开会好累」不会写成真实日程。`ctx.history` 只喂给 LLM 路径（`renderHistory`），规则路径不看历史，保证无模型时行为可预期。
+`plausible`（`:89-100`）只拦一类越界：`INVOKE_TOOL` 但 `toolName` 未注册或不在可调用白名单（`mcp_*` 或内置白名单 `ocr_invoice`），防模型编造工具名、也防误调规划期取证工具。规则路径优先级（`IntentAgent.java:227-348`）：**改写（1）> 记账（2）> 备忘（4）> 日程（5）> 强规划（6）> 疑问句（7）> 兜底闲聊**；办公/日报/健康分支已删除。其中「添加日程」判定格外严格：必须同时有 `scheduleNoun`（日程/会议/开会/排期…）**且**（`EXPLICIT_TIME` 明确时间点或排期动词），这样「今天开会好累」不会写成真实日程。`ctx.history` 只喂给 LLM 路径（`renderHistory`），规则路径不看历史，保证无模型时行为可预期。
 
 ### 3.2 PlannerAgent：规则路径 vs StructuredPlanner
 
@@ -421,8 +463,8 @@ public interface AgentTool {
 | 拉起 | `McpToolBridge`（`SmartLifecycle`）→ `StdioMcpTransport` | `command: ["npx","-y","@amap/amap-maps-mcp-server"]`；Windows 自动补 `cmd /c` |
 | 握手 / 列举 | `McpConnection.initialize` → `tools/list` | 实测 **12** 个 `maps_*` 工具；`tools/list` 不访问网络，**Key 无效也能列出来** |
 | 注册 | `mcp_amap_<工具名>`，只读 | 最长的 `mcp_amap_maps_direction_transit_integrated` 42 字符（上限 39 只作用于工具名段，整名不截断）；`ToolRegistry` 只读闸门 + `SafetyInterceptor` 审计 |
-| 进提示词 | `IntentAgent.renderToolCatalog()` | 已注册的 `mcp_*` 工具名与参数提示自动拼进 `INVOKE_TOOL` 段；一个也没有时提示模型禁用该意图——**不需要额外接线** |
-| 越界防护 | `IntentAgent.plausible` | 工具名必须以 `mcp_` 开头且能在 `ToolRegistry` 查到，否则判为不可信、回落规则路径 |
+| 进提示词 | `IntentAgent.renderToolCatalog()` | 已注册的 `mcp_*` 工具名与参数提示、内置白名单工具（`ocr_invoice`）自动拼进 `INVOKE_TOOL` 段；一个可调用工具也没有时提示模型禁用该意图——**不需要额外接线** |
+| 越界防护 | `IntentAgent.plausible` | 工具名必须已注册且属于可调用白名单（`mcp_*` 或内置白名单），否则判为不可信、回落规则路径 |
 | 执行 | `ToolInvoker` → `McpAgentTool` → `McpConnection.callTool` | `isError:true` 也包成 `BusinessException(502)`，用户看到的是原因而不是「系统异常」 |
 | 降级 | `McpToolBridge.connect` 的 `catch` | 单个 server 握手失败/超时只 `WARN` 跳过，不影响启动与其它工具 |
 | 语义层（可选） | `mcp/AmapMcpAdapter` | 把真名映射为 `city_geocode` / `route_transit` / `poi_text_search` 等 12 个语义名并产出 `promptSummary()`；**当前没有生产调用方**，未接线时返回空串、零副作用 |
@@ -524,7 +566,7 @@ RAG 不再只是独立的「知识问答」：Planner 在规划/修改时**直�
 
 ### 8.2 事件类型与 payload
 
-事件名是 `AgentContext.emit(String, Object)` 的第一个参数，全仓库共 **16 种**（第十三批加 `replan`，第十五批加 `delegate` / `recover` / `conflict`）：
+事件名是 `AgentContext.emit(String, Object)` 的第一个参数，全仓库共 **18 种**（第十三批加 `replan`，第十五批加 `delegate` / `recover` / `conflict`，P0 加 `budget_degraded` 与续传专属 `resume_timeout`）：
 
 | 事件 | 触发位置 | payload 字段 |
 | --- | --- | --- |
@@ -542,8 +584,10 @@ RAG 不再只是独立的「知识问答」：Planner 在规划/修改时**直�
 | `plan_update` | `planAndPresent:461` | `diff`（`PlanDiff`）、`budget`（`BudgetSummary`） |
 | `focus` | `planAndPresent:464` | `AgentFocus` |
 | `confirmation` | `planAndPresent:467` | `ConfirmationRequest`：`planId`、`summary`、`riskLevel` |
-| `complete` | `AgentEngine.complete:689` | 整个 `AgentResult` |
+| `budget_degraded` | `AgentContext.recordBudgetDegradation:157` | `stage`、`detail`、`remainingMs`（预算耗尽后的降级说明） |
+| `complete` | `AgentEngine.complete:942` | 整个 `AgentResult` |
 | `error` | `AgentEngine:231,243` / `AgentController:150` | `message` |
+| `resume_timeout` | `AgentController.resumeLoop:443` | `runId`、`lastEventId`、`message`；仅续传端点，等待 120s 仍未终态时下发后关闭 |
 
 前端 GET 版按 `EVENT_NAMES` 白名单注册监听（`travel-agent-web/src/api/agent.ts:27-32`），POST 版逐帧解析任意事件名（`:157-187`）；新增事件必须同步进白名单，否则 GET 通道会静默丢弃。
 
@@ -627,6 +671,28 @@ SSE 的「客户端已经走了」在服务端只是一次 Servlet 回调。本�
 但「预览 → 用户确认 → 提交」的**端到端时延**跨两次 HTTP 请求，尚未纳入指标体系；要量它需要在
 `confirmation` 事件里带生成时间戳并在 `confirm` 时回传，属另一个范围。
 
+### 8.7 事件持久化与断线续传（P0）
+
+SSE 事件不再只是「连接上的一次性输出」：每个事件先落库，再实时下发。断线后客户端凭
+`Last-Event-ID` 或独立续传端点补齐缺失事件，不会重新规划。
+
+| 环节 | 实现 | 关键语义 |
+| --- | --- | --- |
+| 事件序号 | `AgentContext#emit`（`synchronized`）为每个事件分配 run 内从 **1** 开始的 `seq` | 同一 run 的「落库 + 下发」串行化，实时流不会乱序，断线时不会漏掉尚未下发的序号 |
+| 落库 | `AgentRunEventService#append` → `agent_run_event`，`REQUIRES_NEW` 独立事务 | **先落库再下发**；写库失败只记 DEBUG、不影响实时流；载荷超过约 **1,000,000 字符**截断并 WARN（截断后可能是非法 JSON，补发时按文本兜底） |
+| 帧 id | `AgentController.doStream`：`frame.id(runId + ":" + seq)` | `<runId>:<seq>`；runId 为空或 seq=0 的早期事件不带 id（不可续传） |
+| 首连续传 | `GET /api/agent/stream` / `POST /api/agent/stream` 读 `Last-Event-ID` 头 | 头存在即解析为 `<runId>:<seq>` 并转续传，**不新开 run**；格式非法 → 业务错误 **400**；run 不属于当前用户 → **404** |
+| 独立端点 | `GET /api/agent/runs/{runId}/events?lastEventId=N`，`text/event-stream` | 补发 `seq > N` 的持久化事件；EventSource 场景可用 `?ticket=`（用途 `agent-stream`）；对 OpenAPI 隐藏 |
+| 终态收尾 | 补发完事件后重读 `agent_run.status` | 已终态 → 关闭连接；若补发集合里没有 `complete` / `cancelled`，**合成一条 `complete`**（`status=FAILED`、`message=运行已中断…请重试`），不让客户端永远停在流式中 |
+| 运行中续传 | 每 **500ms** 轮询新事件，单批最多 200 条 | 最长等待 **120s**；超时发 `resume_timeout`（`{runId,lastEventId,message}`）后关闭；续传连接断开**不会**取消原始 run（`StreamLifecycle` 只挂在 `/api/agent/stream` 上） |
+| 线程池满 | `CompletableFuture.runAsync(..., agentTaskExecutor)` 抛 `RejectedExecutionException` | 续传端点抛业务错误 **503**「服务器繁忙，请稍后重试」 |
+
+前端（`travel-agent-web/src/api/agent.ts`）记录每一帧的 `id` 为 `runId + lastSeq`：连接层中断时
+先显式 `close()` 原 `EventSource`，再用同一份票据向 `GET /api/agent/runs/{runId}/events` 自动续传**一次**；
+补发事件与实时事件走同一个 `dispatchFrame`，按 `seq` 去重，`complete` / `cancelled` / `onError`
+全局只回调一次。续传失败或 `resume_timeout` 只报一次错，不无限重试。POST/fetch 传输没有
+`EventSource` 的自动重连，手工解析 `id:` 行；断流后同样转为 GET 续传端点。
+
 ---
 
 ## 9. 会话记忆与待确认方案
@@ -667,22 +733,66 @@ SSE 的「客户端已经走了」在服务端只是一次 Servlet 回调。本�
 | --- | --- |
 | 实体 / 表 | `PendingPlanRecord` / `pending_plan` |
 | 主键 | `plan_id`（即 `AgentPlan.planId`，Planner 生成的 UUID） |
-| 关键列 | `user_id`、`trip_id`、`plan_json`、`preview_json`、`plan_revision`、`created_at` |
+| 关键列 | `user_id`、`trip_id`、`plan_json`、`preview_json`、`plan_revision`、`content_hash`、`status`、`claim_token`、`claimed_at`、`created_at` |
 | TTL | `TTL_MINUTES = 30`；`put` 后顺带 `purgeExpired()`，防止表无限增长 |
 | 方法语义 | `peek` 过期即删返回 null、`userId` 不匹配也返回 null；`take` = peek + 删除；`toPending` 反序列化失败则删该行，避免反复报错 |
 
-`PlanConfirmationService.confirm`（`:72-157`，由 `AgentEngine.confirm` 委托）用的是 **`peek` 而不是 `take`**：先 `peek` → 有 `tripId` 时重算 `ItineraryService.planRevision` 与存下的 `planRevision` 比对（不一致则 `remove` 并提示「行程在你确认前已经发生变化…」）→ `executorAgent.commit` → 成功后 `remove`。「提交成功后才移除」意味着提交失败时用户仍可重试，不必重新发起规划。`pendingPreview`（`:254-260`）供前端刷新后凭 `planId` 取回 `preview`，不存在时抛 `BusinessException(404)`，对应 `GET /api/agent/plans/{planId}`。
+**确认链路（V25 + P0）**：`PlanConfirmationService.confirm` 不再用 `peek → commit → remove`，而是：
+
+1. `peek` 确认方案存在且属于当前用户；
+2. `claim` 用一条条件 UPDATE 把 `PENDING` 改成 `CONFIRMING`，同时写入本次的 UUID
+   `claim_token` 与 `claimed_at`。并发确认同一方案时后来者拿不到令牌，返回业务失败（不是 500，也不重复落库）；
+3. 在 claim 与 commit 之间的**短窗口**内做内容指纹、行程 `planRevision` 与审核门校验；
+   拒绝路径按令牌 `release`（方案不被消费，可重试），版本失效则 `remove`；
+4. 提交走 `ConfirmCommitTx` 的**单事务**：`executorAgent.commit`（行程/条目/操作历史）+
+   同事务写 3 条 `plan_outbox(PENDING)` + `deleteClaimed(plan_id, token)` 栅栏；
+5. 栅栏必须影响 1 行。行已被清扫改回 `PENDING`、或被别的请求重新 claim（令牌不同）时删除影响 0 行，
+   抛 `LeaseLostException` 让整个事务回滚——**旧的租约绝不可能在失效后再落库一次**；
+   调用方按令牌 `release`（令牌已不匹配时是空操作）并返回业务失败「处理租约已失效…请刷新后重新确认」；
+6. 成功路径由栅栏在同一事务里删除方案行，不再二次 `remove`。
+
+批量清空日程的方案没有行程（`trip_id=null`）：`ConfirmCommitTx` 跳过 `plan_outbox` 入队，
+`PlanConfirmationService` 也跳过确认后的三模块同步（否则会把一次无对象的「同步失败」误报给用户）；
+版本校验改由 `PlanRevisionService` 按「日程范围」重算指纹（见 §9.3）。
+
+崩溃窗口由 `PendingPlanRecoveryJob` 兜底：启动时立即清扫一次，之后按
+`travel.pending-plan.sweep-interval-ms`（默认 30s）把 `claimed_at` 早于
+`travel.pending-plan.lease-minutes`（默认 5 分钟）的 `CONFIRMING` 改回 `PENDING` 并清空令牌。
+租约时长必须大于一次正常提交耗时（通常远小于 1 秒），否则会把正在提交的请求误判成崩溃。
+取消（`cancel`）同样先 `claim` 再删除，避免与正在提交的确认交错。
+`pendingPreview` 仍用 `peek`，供前端刷新后凭 `planId` 取回 `preview`，不存在时抛
+`BusinessException(404)`，对应 `GET /api/agent/plans/{planId}`。
+
+### 9.4 事务性 Outbox（P0）
+
+确认提交的「行程落库」与「日程 / 预算快照 / 足迹」跨模块同步不再靠提交后的进程内尽力而为：
+
+| 环节 | 实现 | 语义 |
+| --- | --- | --- |
+| 入队 | `ConfirmCommitTx` 在提交事务内调用 `PlanOutboxService.enqueueAll` | 每个方案写 3 条 `plan_outbox(PENDING)`：`calendar`、`budget`、`footprint`；`uk_plan_outbox_plan_module (plan_id, module)` 保证同一模块只有一条待办，重复提交/重放不翻倍 |
+| 同步路径 | `PlanConfirmationService` 提交成功后调 `PlanExecutionService.syncConfirmedPlan` | 先按 `claimForPlan` 条件领取该方案到期/可接管的 Outbox 行，再逐模块执行并写 `plan_execution` 台账；与定时投递器互斥 |
+| 定时投递 | `PlanOutboxDispatcher`，`fixedDelay=5s`、每轮 `batch=20`，启动即跑 | 先恢复超租约的 `DISPATCHING`，再按 `status=PENDING AND next_attempt_at<=now` 领取；执行成功置 `DONE` |
+| 失败重试 | 失败 `attempts+1`、写 `last_error`、`next_attempt_at = now + min(10s × 2^(n-1), 1h)` | 默认第 **8** 次失败置 `DEAD`（保留 `last_error` 作为证据，等人工/运维介入） |
+| 崩溃恢复 | `DISPATCHING` 行领取超过 `travel.outbox.dispatching-lease-minutes`（默认 10 分钟）改回可投递 | 恢复也消耗一次 attempt，避免「恢复 → 崩溃」无限循环；次数耗尽直接 `DEAD` |
+| 迟到补建 | `PlanExecutionService.executeDispatched` | 进程在提交后、同步前崩溃时，dispatcher 仍能按 Outbox 补建台账与日程；成功模块不重复创建 |
+| 重试端点 | `retry(executionId)` 只重跑 `FAILED` 模块 | 同步对应 Outbox：成功置 `DONE`，仍失败重新排队，不重复入队 |
+| 清理 | `PlanExecutionService.cleanupForTrip` | 删除该 trip 的 Outbox 行，与行程删除同一事务路径 |
+
+所有投递都是**至少一次 + 幂等消费**：多实例同时跑时靠 `UPDATE ... WHERE id=? AND status='PENDING'`
+影响 1 行才执行；台账与业务唯一键负责最终幂等。投递失败/进程崩溃只让事件留在表里，重启后补投。
 
 ### 9.3 行程指纹校验与撤销
 
 `ItineraryService.planRevision(trip, items)`（`:243-259`）产出 32 字符 hex（SHA-256 前 16 字节），输入是 `b=<budget>|s=<startDate>|e=<endDate>|<id>:<dayIndex>:<title>:<startTime>:<endTime>:<cost>:<itemType>:<status>|...`，条目按 `id` 排序（null 排最后）。生成时机在 `AgentEngine.planAndPresent`（`:453-454`）：算一次存进 `PendingPlanStore.PendingPlan.planRevision`；确认时再算一次比对。指纹覆盖「日期 + 预算 + 全部条目的计划字段与执行状态」——另一个标签页改了安排、预算或日期，或旅行中推进了状态，这份 Diff 就失效（需重新生成）；实际时间不参与指纹。
 
+日程不在 `itinerary_item` 里，所以批量清空日程的方案由 `agent/PlanRevisionService` 另算指纹：行程基指纹（有行程时）与「该用户该范围内全部日程（含 `done`）按 id 排序的字段摘要」一起进 SHA-256；范围存在 `plan.extras.scheduleScopeFrom/To`（ISO 日期）。生成（`ScheduleCommandHandler`）与确认（`PlanConfirmationService`）两侧调同一方法；确认期间范围内日程新增/删除/改时间 → 指纹不一致 → 拒绝并删除该方案行，文案说明是日程变化。`pending_plan.plan_revision` 是 `VARCHAR(64)`，故「行程基指纹 + 日程摘要」合并成一次哈希（`|schedule=` 只出现在哈希材料里），不直接拼两段 32 字符 hex。
+
 | 操作 | 方法 | 结果 |
 | --- | --- | --- |
 | 取消方案 | `PlanConfirmationService.cancel:231-248`（`AgentEngine.cancel` 委托） | `peek` 到就 `remove`，返回「已取消该方案，行程未做任何修改。」 |
-| 撤销上一步 | `PlanConfirmationService.undo:263-271`（`AgentEngine.undo` 委托）→ `OperationHistoryService.undoLatest` | 取最新 `STATUS_ACTIVE` 历史；`OP_TRIP_CREATE` 走删除整个行程，其余用 `before` 快照 `replaceAll` 还原 |
+| 撤销上一步 | `PlanConfirmationService.undo`（`AgentEngine.undo` 委托）：带 `tripId` → `OperationHistoryService.undoLatest`；不带 → `undoLatestSchedule` | 行程链取该行程最新 `STATUS_ACTIVE` 历史（`OP_TRIP_CREATE` 走删除整个行程，其余用 `before` 快照 `replaceAll` 还原）；日程链取该用户最新一条 `domain=SCHEDULE` 的 ACTIVE 历史，按 `ScheduleSnapshot` 重新插入并置 `UNDONE` |
 
-历史三类来源：`OP_AGENT_COMMIT`（Agent 确认提交）、`OP_MANUAL_EDIT`（界面手工改动，经 `withHistory` 包裹）、`OP_TRIP_CREATE`（Agent 新建行程）。P1 行程项状态推进也走 `OP_MANUAL_EDIT`：`withHistory` 在变更**之前**做 `snapshot(items)`，因此 `before` 快照包含 `status/startedAt/completedAt/visitedAt`，撤销「完成/跳过」能还原成未开始（修复了此前 before 与 after 共用受管实体、快照被就地改写的问题）。
+历史四个来源：`OP_AGENT_COMMIT`（Agent 确认提交）、`OP_MANUAL_EDIT`（界面手工改动，经 `withHistory` 包裹）、`OP_TRIP_CREATE`（Agent 新建行程）、`OP_SCHEDULE_CLEAR`（批量清空日程，V31 起的 `SCHEDULE` 域，`trip_id` 为空）。P1 行程项状态推进也走 `OP_MANUAL_EDIT`：`withHistory` 在变更**之前**做 `snapshot(items)`，因此 `before` 快照包含 `status/startedAt/completedAt/visitedAt`，撤销「完成/跳过」能还原成未开始（修复了此前 before 与 after 共用受管实体、快照被就地改写的问题）。
 
 ---
 

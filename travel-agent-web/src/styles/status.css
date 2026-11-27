@@ -18,37 +18,26 @@
   color: var(--ink-3);
 }
 
-/* 列表加载失败：占位在原列表位置，明确「失败」并给重试，不伪装成空列表（P0-04） */
+/* 页面级状态块（partial / failed）：给七态一个统一外框，避免每个页面各画一版错误卡片。
+   左侧色条只做辅助，状态本身由 RunStatus 的图标 + 文案表达（不能只靠颜色）。 */
 
-.load-error {
+.run-state-block {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-left: 3px solid var(--danger);
+  border-left: 3px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 16px 18px;
+  padding: 14px 16px;
 }
 
-.load-error .le-title {
-  font-weight: 650;
-  font-size: 14px;
-  color: var(--text);
-  margin-bottom: 4px;
+.run-state-block--warn {
+  border-left-color: var(--warn);
 }
 
-.load-error .le-detail {
-  font-size: 12.5px;
-  color: var(--text-2);
-  overflow-wrap: break-word;
+.run-state-block--danger {
+  border-left-color: var(--danger);
 }
 
-.load-error .le-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-top: 10px;
-}
-
-.load-error .le-note {
+.run-state-block .run-state-block-note {
   margin-top: 8px;
   font-size: 12px;
   color: var(--text-3);
@@ -347,6 +336,17 @@
   background: var(--surface-3);
 }
 
+/* ABANDONED / 未登记状态：徽标之外的补充说明，必须比普通辅助文字更醒目 */
+.run-state-note {
+  font-size: 11.5px;
+  color: var(--warn);
+  overflow-wrap: anywhere;
+}
+
+.runs-state-note {
+  margin: 8px 0;
+}
+
 .runs-drawer .run-body {
   display: flex;
   flex-direction: column;
@@ -435,15 +435,44 @@
   color: var(--ink-3);
 }
 
-.runs-drawer .run-error-box {
+/* 本轮花费（V29）：一行 compact 的标签 + 数值，缺省字段整项不出现；
+   触顶警示单独一行，用「部分完成」的橙色，只提示不阻断 */
+
+.runs-drawer .runs-spend {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 12px;
-  border: 1px solid var(--danger);
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
   border-radius: var(--r-sm);
-  background: var(--danger-weak);
+  background: var(--surface);
+  min-width: 0;
+}
+
+.runs-drawer .spend-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.runs-drawer .spend-label {
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+.runs-drawer .spend-value {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.runs-drawer .runs-spend-warn {
+  font-size: 12px;
+  color: var(--warn);
+  overflow-wrap: anywhere;
 }
 
 @media (max-width: 720px) {

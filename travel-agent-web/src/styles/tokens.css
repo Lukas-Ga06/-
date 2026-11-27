@@ -93,7 +93,6 @@
   --sidebar: 232px;
   --sidebar-rail: 76px;
   --content-max: 1180px;
-  --tabbar-h: 56px;
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 
   /* ---------- 兼容别名：旧变量名 → 新令牌 ---------- */

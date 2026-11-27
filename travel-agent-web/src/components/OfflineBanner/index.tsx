@@ -26,6 +26,34 @@ function summarize(results: SyncResult[]): {
 }
 
 /**
+ * 离线提示条。
+ * `dismissed` 只属于「这一次断网」：恢复在线后本组件随离线分支一起卸载，
+ * 状态自然丢弃——再次断网会重新提示，不需要在 effect 里同步 setState 复位。
+ */
+function OfflineNotice({ pending }: { pending: number }) {
+  const [dismissed, setDismissed] = useState(false);
+  if (dismissed) return null;
+  return (
+    <div className="offline-banner" role="status" aria-live="polite" data-testid="offline-banner">
+      <span className="ob-dot" aria-hidden="true" />
+      <span className="ob-text">
+        离线：显示缓存数据
+        {pending > 0 ? ` · ${pending} 项待同步` : ''}
+      </span>
+      <button
+        type="button"
+        className="ob-close"
+        aria-label="关闭离线提示"
+        title="关闭离线提示"
+        onClick={() => setDismissed(true)}
+      >
+        <CloseOutlined aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
+
+/**
  * 离线提示条 + 待同步队列状态（§7.3 第 4 条 / §10.3）。
  *
  * 三件事都在这一个全局位置做，因为行程页会被卸载，而队列不能：
@@ -43,13 +71,6 @@ export default function OfflineBanner() {
   const flush = useStatusQueueStore((s) => s.flush);
   usePendingSync();
 
-  const [dismissed, setDismissed] = useState(false);
-
-  // 恢复在线后重置关闭状态：下次断网应该再提示一次，而不是永久静默
-  useEffect(() => {
-    if (online) setDismissed(false);
-  }, [online]);
-
   // 同步成功的结果是一次性回执：看一眼就够，不占着屏幕
   const { ok, failed, firstError } = summarize(lastResults);
   useEffect(() => {
@@ -59,26 +80,7 @@ export default function OfflineBanner() {
   }, [syncing, failed, ok, clearResults]);
 
   if (!online) {
-    if (dismissed) return null;
-    const pending = entries.length;
-    return (
-      <div className="offline-banner" role="status" aria-live="polite" data-testid="offline-banner">
-        <span className="ob-dot" aria-hidden="true" />
-        <span className="ob-text">
-          离线：显示缓存数据
-          {pending > 0 ? ` · ${pending} 项待同步` : ''}
-        </span>
-        <button
-          type="button"
-          className="ob-close"
-          aria-label="关闭离线提示"
-          title="关闭离线提示"
-          onClick={() => setDismissed(true)}
-        >
-          <CloseOutlined aria-hidden="true" />
-        </button>
-      </div>
-    );
+    return <OfflineNotice pending={entries.length} />;
   }
 
   if (syncing) {

@@ -110,6 +110,20 @@ class TravelMetricsTest {
     }
 
     @Test
+    @DisplayName("阶段三可靠性计数：ABANDONED 运行 / 租约清扫 / 0 不创建序列")
+    void reliabilityCounters() {
+        TravelMetrics metrics = metrics();
+
+        metrics.agentRunAbandoned(3);
+        metrics.pendingPlanSwept(2);
+        metrics.agentRunAbandoned(0);
+        metrics.pendingPlanSwept(0);
+
+        assertThat(registry.get(TravelMetrics.AGENT_RUN_ABANDONED).counter().count()).isEqualTo(3.0);
+        assertThat(registry.get(TravelMetrics.PENDING_PLAN_SWEPT).counter().count()).isEqualTo(2.0);
+    }
+
+    @Test
     @DisplayName("usage 缺失（0/0）：不创建任何空指标，避免把「没数据」画成 0")
     void zeroUsageCreatesNoMeters() {
         TravelMetrics metrics = metrics();

@@ -74,6 +74,9 @@ class AgentTraceApiTest extends IntegrationTestSupport {
         assertThat(detail.path("tasks").size()).isGreaterThanOrEqualTo(1);
         assertThat(detail.path("tasks").get(0).path("receiver").asText()).isEqualTo("intent-agent");
         assertThat(detail.path("toolCalls").size()).isEqualTo(0);
+        // 第二阶段：闲聊同样收尾花费快照（LLM/工具计数可以为 0，但行必须在）
+        assertThat(detail.path("spend").isObject()).isTrue();
+        assertThat(detail.path("spend").path("toolCalls").asInt()).isZero();
     }
 
     @Test
@@ -109,6 +112,16 @@ class AgentTraceApiTest extends IntegrationTestSupport {
             tools.add(c.path("toolName").asText());
         });
         assertThat(tools).contains("search_hotel");
+
+        // 第二阶段：详情接口直接给出本轮花费快照（V29），不必再翻日志
+        JsonNode spend = detail.path("spend");
+        assertThat(spend.isObject()).as("运行详情必须能查到花费快照").isTrue();
+        assertThat(spend.path("llmCalls").asInt()).as("LLM 调用数应落库").isGreaterThanOrEqualTo(0);
+        assertThat(spend.path("toolCalls").asInt()).as("工具调用数应与 toolCalls 追踪一致").isGreaterThanOrEqualTo(3);
+        assertThat(spend.path("totalTokens").asLong()).isGreaterThanOrEqualTo(0);
+        assertThat(spend.hasNonNull("costUsd")).isTrue();
+        assertThat(spend.path("exhausted").isNull() || spend.path("exhausted").isMissingNode())
+                .as("默认上限宽松，正常规划不应触顶").isTrue();
     }
 
     @Test

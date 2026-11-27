@@ -1,9 +1,22 @@
-import { useEffect, useState } from 'react';
-import { App, Button, DatePicker, Input, Select, Spin, TimePicker } from 'antd';
-import { CalendarOutlined, CheckOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
+import { useCallback, useEffect, useState } from 'react';
+import { App, Button, DatePicker, Input, Select, TimePicker } from 'antd';
+import {
+  CalendarOutlined,
+  CheckOutlined,
+  DeleteOutlined,
+  PlusOutlined,
+  ReloadOutlined,
+} from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import AppShell from '../../components/AppShell';
-import EmptyState from '../../components/EmptyState';
+import RunStatus from '../../components/RunStatus';
+import {
+  errorResource,
+  loadingResource,
+  successOrEmpty,
+  type ResourceState,
+} from '../../lib/resource';
+import { knownRunState } from '../../lib/runState';
 import {
   addSchedule,
   deleteSchedule,
@@ -17,6 +30,8 @@ export default function Schedule() {
   const { message } = App.useApp();
   const [items, setItems] = useState<ScheduleItem[]>([]);
   const [loading, setLoading] = useState(true);
+  /** 加载失败必须显示「失败 + 重试」，不能伪装成「日程是空的」（P0-04） */
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   /** toggle 请求在途的行：toggle 是取反语义，连点两次会互相抵消，必须挡住并发 */
   const [pending, setPending] = useState<Set<number>>(new Set());
@@ -26,22 +41,38 @@ export default function Schedule() {
   const [recurrence, setRecurrence] = useState('NONE');
   const [repeatUntil, setRepeatUntil] = useState<Dayjs | null>(null);
 
-  const load = async () => {
+  /** 只做请求与结果落盘：挂载路径调用它，因此 effect 体内不会有同步 setState */
+  const fetchSchedule = useCallback(
+    () =>
+      listSchedule()
+        .then((next) => {
+          setItems(next);
+          setLoadError(null);
+        })
+        .catch((e: any) => setLoadError(e?.message || '日程加载失败'))
+        .finally(() => setLoading(false)),
+    [],
+  );
+
+  /** 用户主动刷新/写入后重拉：先切骨架屏（事件处理器里同步 setState 是安全的） */
+  const load = useCallback(() => {
     setLoading(true);
-    try {
-      setItems(await listSchedule());
-    } catch (e: any) {
-      message.error(e.message);
-    } finally {
-      setLoading(false);
-    }
-  };
+    return fetchSchedule();
+  }, [fetchSchedule]);
 
   useEffect(() => {
-    load();
-  }, []);
+    // loading 初值已是 true：挂载即拉数据不需要再同步 setState
+    void fetchSchedule();
+  }, [fetchSchedule]);
 
   const today = dayjs().format('YYYY-MM-DD');
+  /** 列表状态按统一模型区分：加载中 / 成功 / 空 / 失败；七态经 toRunState('resource') */
+  const scheduleResource: ResourceState<ScheduleItem[]> = loadError
+    ? errorResource<ScheduleItem[]>(loadError)
+    : loading
+      ? loadingResource<ScheduleItem[]>()
+      : successOrEmpty(items);
+  const scheduleState = knownRunState('resource', scheduleResource.status);
   /** 重复日程按"下一次发生日期"参与今天/待办的划分 */
   const effectiveDate = (s: ScheduleItem) => s.nextOccurrence ?? s.date;
   const sorted = items
@@ -232,8 +263,29 @@ export default function Schedule() {
           </div>
         </div>
 
-        {loading ? (
-          <Spin style={{ display: 'block', margin: '50px auto' }} />
+        {scheduleState === 'loading' ? (
+          <div className="run-state-block" aria-busy="true">
+            <RunStatus status={scheduleState} text="正在加载日程…" size="sm" />
+          </div>
+        ) : scheduleState === 'failed' ? (
+          <div className="run-state-block run-state-block--danger" role="alert">
+            <RunStatus
+              status={scheduleState}
+              text="日程加载失败"
+              detail={loadError ?? undefined}
+              testId="schedule-error"
+              actions={[
+                {
+                  label: '重试',
+                  icon: <ReloadOutlined aria-hidden="true" />,
+                  onClick: () => {
+                    void load();
+                  },
+                  testId: 'schedule-retry',
+                },
+              ]}
+            />
+          </div>
         ) : (
           <>
             {todayItems.length > 0 && (
@@ -251,14 +303,19 @@ export default function Schedule() {
             </div>
             <div className="inset-list fade-up">
               {upcoming.length === 0 && todayItems.length === 0 ? (
-                <EmptyState
+                <RunStatus
+                  status="empty"
+                  text="日程是空的"
+                  detail="用上方输入框添加，或对助理说「明天下午3点开评审会」，到点会提醒你。"
                   testId="schedule-empty"
-                  icon={<CalendarOutlined aria-hidden="true" />}
-                  title="日程是空的，添加第一项吧"
-                  hint="用上方输入框添加，或对助理说「明天下午3点开评审会」，到点会提醒你。"
                 />
               ) : upcoming.length === 0 ? (
-                <EmptyState title="其余日期暂无日程" hint="今天以后暂时没有安排。" />
+                <RunStatus
+                  status="empty"
+                  text="其余日期暂无日程"
+                  detail="今天以后暂时没有安排。"
+                  size="sm"
+                />
               ) : (
                 upcoming.map((s) => renderRow(s, effectiveDate(s) === today))
               )}

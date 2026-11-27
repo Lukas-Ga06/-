@@ -115,8 +115,9 @@ export default function ExpensePanel({ tripId, budget, planned }: Props) {
   };
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 行程切换即重拉预算明细：既有「依赖变化即取数」写法，收敛到数据层 hook 属另开卡的重构
     load(0);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只按 tripId 重拉：load 每次渲染都会重建，进依赖数组会变成「每次渲染都请求」
   }, [tripId]);
 
   const { total, byCategory } = summary;

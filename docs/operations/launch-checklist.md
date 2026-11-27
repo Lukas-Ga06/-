@@ -2,18 +2,20 @@
 
 > 状态：执行清单（计划文档，不是验收快照）｜最后更新：2026-11-24｜事实来源：[上线路线图](../PROJECT_ROADMAP.md)、[P0/P1 执行快照](../review/2026-11-22-p0-execution.md)、[GitHub 安全设置清单](github-security-settings.md)、2026-11-24 本机环境核对
 > 本文把"真实 iOS Safari"这一 v1 硬阻断替换为"真实 Android 设备"；**不修改任何源码、配置或测试用例**。
+>
+> **2026-11-27 口径变更**：移动端专属布局（底部标签栏、行程分段视图、规划固定底栏）与移动端模拟套件（WebKit/iPhone）已从仓库移除，产品只承诺桌面布局。本文 §2 第 7 项与 §5.1 的 Android 真机验收相应降级为**可选项**：只有决定「手机浏览器也要可用」时才需要恢复移动端布局并重开该批次。
 
 ## 0. 口径变更（先读这段）
 
 | 项 | 原口径 | 新口径 |
 | --- | --- | --- |
 | 真机门禁 | 真实 iPhone + Safari | 真实 Android + Chrome，另加一台国产 ROM 或微信内置浏览器 |
-| 模拟口径 | Playwright WebKit + iPhone 预设 | **代码未改**：仍是 Chromium 桌面 + WebKit iPhone 预设（[mobile-safari.spec.ts](../../travel-agent-web/e2e/mobile-safari.spec.ts)） |
+| 模拟口径 | Playwright WebKit + iPhone 预设 | **已移除（2026-11-27）**：只保留 Chromium 桌面套件（默认套件 + 弱网 + 多端并发）；不再维护移动端模拟或真机用例 |
 | 验收记录 | 待补 iOS 真机记录 | `docs/review/2026-11-XX-android-device.md`（新快照，含设备/版本/网络/截图） |
 
 换口径的理由：产品没有 iOS 独占能力；公众号渠道在 Android 上运行于微信 WebView（Chromium/X5 内核），这条路径只有真机才能验，Android 真机比 iOS 更贴近实际用户路径；PWA 安装、离线、下载在 Android Chrome 上也更容易完整验收。
 
-需要承认的代价：模拟套件的设备逼近仍是 WebKit/iPhone 预设，换成 Android 口径后**模拟的代表性下降**（见 §9 风险 R1）。本文只改验收目标，不改测试代码；若长期以 Android 为主口径，需要一个单独的代码批次（Chromium Android 设备仿真 + PR 模板措辞），不在本文范围。
+需要承认的代价：原先的模拟逼近（WebKit/iPhone 预设）现在也不再有——移动端支持整个退出承诺范围，手机浏览器打开时只保证不横向溢出（见 §9 风险 R1）。本文只改验收目标，不改测试代码；若将来要恢复手机交付，需要一个单独的代码批次（移动端布局 + Chromium Android 设备仿真 + PR 模板措辞），不在本文范围。
 
 ### 0.1 本机环境核对（2026-11-23 00:0x 首测，19:2x 复核）
 
@@ -27,16 +29,20 @@
 | 视觉基线 | 只有 `*-win32.png`，无 `*-chromium-linux.png` | 阶段 2.2 仍缺 Linux 基线 |
 
 > **2026-11-24 复核**：阶段 0 已收口 —— PR [#17](https://github.com/Lukas-Ga06/-/pull/17) 合入 `main`（`7eadbd1`），tag `v0.1.1`；同日 11 张 Linux 视觉基线已生成并提交（§2 第 8 项）。剩余阻断项见 §2（序号 4/6/7/9/12）。
+>
+> **2026-11-25 复核**：第 6 项的高德 MCP 口径过期已更正（MCP 12 工具 2026-11-22 已验、2026-11-25 复跑通过）；真实 S3 验收收敛为一条命令 `scripts/s3-real-e2e.ps1`；法务与值班分别有[签署单](../legal/signoff-sheet.md)与[路由配置](alertmanager.yml)。逐项证据见[外部阻断项复核](../review/2026-11-25-external-blockers-closeout.md)。
+>
+> **2026-11-25 晚补**：第 12 项的工程侧收口 —— [alertmanager.yml](alertmanager.yml) 落地（severity 路由 + 抑制）、`scripts/alert-routing-drill.ps1` 跑通「firing → 路由 → 抑制 → 送达 → resolved」并留证（接收端为本地 Sink，标 `LOCAL-SINK`）；第 12 项**只剩三个真实 webhook 与主/备值班姓名**。证据见[告警路由演练](../review/2026-11-25-alert-routing-drill.md)。
 
 ## 1. 上线分级判断
 
 | 级别 | 现在 | 主要卡点 |
 | --- | --- | --- |
 | A 内部演示 | **具备** | 无；构建必须串行，不要并发共享 `target` |
-| B 受控灰度 | **未具备** | 高德 MCP Key、告警值班 |
-| C 公网 v1 | **未具备** | B 全部 + Android 真机、法务/许可证、回滚演练；Linux 视觉基线已完成（§2 第 8 项） |
+| B 受控灰度 | **未具备** | 值班人与三个真实 webhook（配置与链路已验，见[告警路由](alert-routing.md) §1）、生产 MCP Key 容器内复验；灰度收照片则需真实 S3 或先 `PHOTOS_STORE=local` |
+| C 公网 v1 | **未具备** | B 全部 + 法务/许可证、回滚演练；Linux 视觉基线已完成（§2 第 8 项）；Android 真机自 2026-11-27 起降级为可选 |
 
-代码侧完成度不低：639 个后端用例、537 个前端用例、隔离 E2E 桌面 14/14、设备 22/22（依据见 [执行快照](../review/2026-11-22-p0-execution.md)）。真正的距离是**这些绿灯全部来自 Windows 本机**，而生产是 Linux 容器 + 真实 MySQL + 真机 + 真实外部服务。
+代码侧完成度不低：639 个后端用例、537 个前端用例、隔离 E2E 桌面 14/14、设备 22/22（2026-11-22 口径，含移动端 WebKit；2026-11-27 起设备套件只含弱网 + 多端并发，依据见 [执行快照](../review/2026-11-22-p0-execution.md)）。真正的距离是**这些绿灯全部来自 Windows 本机**，而生产是 Linux 容器 + 真实 MySQL + 真机 + 真实外部服务。
 
 ## 2. 离上线差什么（12 项，按阻断性排序）
 
@@ -46,14 +52,14 @@
 | 2 | 真实 MySQL 8.4 | **已完成（2026-11-23）**：全量 23 条迁移 + 备份恢复演练实测（48.8 MB 恢复 5.06 s）；RTO/RPO 目标值仍待业务确认 | — | ✅ | — |
 | 3 | 容器冷启动 | **已完成（2026-11-24 补充）**：全栈起停 + 限流按真实源 IP 分桶；S3 用本地协议桩验通上传/读回/删除（真实端点与凭证未验）；H2 控制台口径已按实测改为「API 401 / 经 nginx 为 SPA 首页」，不再要求 404；infra compose 的 `mysql:8.4` 新卷冷启动 + 23 条 Flyway 迁移已实测（[快照](../review/2026-11-24-infra-mysql84-cold-start.md)） | 真实 S3 端点验收 | 我 | ✅（真实 S3 待凭证） |
 | 4 | GitHub 安全开关 | ✅ **已完成（2026-11-25）**：仓库 Public；Dependency graph、Code scanning（67 条告警待分诊）、Secret scanning + Push protection（**拦截已实测**）、`main` 分支保护（10 个必需检查）、PVR + `SECURITY.md`、CI gitleaks、dependency-review 硬门禁全部落地，`scripts/github-security-settings.mjs` 复核 4/4 | 剩余：67 条告警分诊 | 你 | 完成 |
-| 5 | 真实 LLM 压测 | **已完成并修正（2026-11-24）**：20 连重跑 15 planned + 5 asked_back + **0 failed**、零 429、中位 30.9 s、花费 ¥0.64；旧版 run-18 假绿已修 | 高德 MCP Key 仍为空，`10021` 退避与降级告警待验 | 我 | ✅ |
-| 6 | 高德真实边界 | **REST 已实测**：20 并发复现 9 次 `10021`，跨城同名 POI 与 polyline 正常；MCP Key 未验 | 生产 Web 服务 Key + MCP `AMAP_MAPS_API_KEY` 复验 | 我 / 你 | 0.5d |
-| 7 | **Android 真机**（原 iPhone） | 只有 WebKit 模拟 | 两台真机跑 §5.1 矩阵并留证 | 你 | 0.5d |
-| 8 | Linux 视觉基线 | ✅ **已完成（2026-11-24）**：`visual-baseline.yml` 在 Playwright 固定容器生成 11 张 `*-chromium-linux.png` 并提交；CI `visual` job 检测到基线后由「跳过」转为逐像素比较（仍 `continue-on-error` 观察） | 观察稳定后转硬门禁 | ✅ | — |
-| 9 | 法务与许可证 | 5 处占位 + 留存期待确认 + LICENSE 专有 | 法务替换、生效日期、隐私页上线 | 你 | 外部 |
+| 5 | 真实 LLM 压测 | **已完成并修正（2026-11-24）**：20 连重跑 15 planned + 5 asked_back + **0 failed**、零 429、中位 30.9 s、花费 ¥0.64；旧版 run-18 假绿已修 | MCP 已单独验（[2026-11-25 复核](../review/2026-11-25-external-blockers-closeout.md) §1）；仍缺生产 Key 容器内复验 | 我 | ✅ |
+| 6 | 高德真实边界 | **REST 与 MCP 均已实测**：REST 20 并发复现 9 次 `10021`、跨城同名 POI 与 polyline 正常；MCP 12 工具逐项 + 真模型调用（2026-11-22），2026-11-25 复跑 2/2（19.54 s） | 生产 Web 服务 Key 进容器验 MCP 12 工具 + MCP 侧 `10021` 时序 | 我 | 0.25d |
+| 7 | ~~**Android 真机**（原 iPhone）~~ | **已降级为可选（2026-11-27）**：移动端布局与模拟套件已移除，v1 只承诺桌面布局 | 仅在决定「手机浏览器也要可用」时执行：先恢复移动端布局，再按 §5.1 跑两台真机 | 你 | 0（可选批次 0.5d） |
+| 8 | Linux 视觉基线 | ✅ **已完成（2026-11-24）**：`visual-baseline.yml` 在 Playwright 固定容器生成 11 张 `*-chromium-linux.png` 并提交（2026-11-27 移除移动基线后为 10 张）；CI `visual` job 检测到基线后由「跳过」转为逐像素比较（仍 `continue-on-error` 观察） | 观察稳定后转硬门禁 | ✅ | — |
+| 9 | 法务与许可证 | 5 处占位 + 留存期待确认 + LICENSE 专有 | 按[法务定稿签署单](../legal/signoff-sheet.md)回填 5 字段与 5 裁定；法务替换、生效日期、隐私页上线 | 你 | 外部 |
 | 10 | 账号级数据导出 | **已完成**：`GET /api/auth/me/export` + 个人中心入口；JSON 快照，照片只给清单（H2 契约测试） | 上线前补一次 MySQL 实机复核 | 我 | ✅ |
 | 11 | JWT 注销复用 | **已完成（V24）**：JWT 带 `uid` + `token_version`，注销先版本 +1 再删用户 | 上线后旧 token 整体失效一次，需在发布记录/公告写明；无需禁用近期注销名 | 我 | ✅ |
-| 12 | 回滚与告警 | **告警已实跑（2026-11-24 补齐高德降级）**：`TravelAgentServerDown`（后端掉线 3 分钟）、`TravelExternalProviderDegraded{provider="amap"}`（`for: 15m`）与 `TravelExternalDegradedHigh`（`for: 10m`）均真实 firing 并在降级停止后恢复；回滚已本机演练（N-1 jar，RTO≈15s） | **只剩灰度值班人未定**（另一半归属：你） | 我 / 你 | 0.5d |
+| 12 | 回滚与告警 | **告警链路已验（2026-11-25 晚）**：`TravelAgentServerDown`（后端掉线 3 分钟）、`TravelExternalProviderDegraded{provider="amap"}`（`for: 15m`）与 `TravelExternalDegradedHigh`（`for: 10m`）均真实 firing 并恢复；[alertmanager.yml](alertmanager.yml) 落地 severity 路由 + 抑制，`scripts/alert-routing-drill.ps1` 判定 critical/warning/info/兜底四路送达、抑制、resolved 全部通过（接收端为本地 Sink）；回滚已本机演练（N-1 jar，RTO≈15s） | **只剩三个真实 webhook + 主/备值班姓名**（见[告警路由与值班](alert-routing.md) §4.2/§5） | 我 / 你 | 0.5d |
 
 首屏 JS 只剩 2,831 B 余量（597,169 / 600,000），首屏 CSS 剩 8,380 B（57,156 / 65,536）。v1 前任何新增首屏依赖都会撞预算，这是约束，不是任务。
 
@@ -107,8 +113,8 @@ node scripts/docs-check.mjs
 | --- | --- |
 | 后端 | 639 用例，0 failures，0 errors，3 skipped（2 个真实 MCP + 1 个真实 MySQL） |
 | 前端单测 | 537 用例通过；核心目录覆盖率达标 |
-| E2E | 隔离后端 14/14；设备套件 22/22 |
-| 视觉 | 11/11（Windows 基线） |
+| E2E | 隔离后端 14/14；设备套件（弱网 + 多端并发）全绿；2026-11-27 起套件不再包含移动端 WebKit |
+| 视觉 | 10/10（Windows 基线；2026-11-27 移除移动基线后） |
 | 文档 | 0 断链、0 失效命令 |
 
 ### 3.4 push 并开 PR
@@ -165,18 +171,20 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/mysql-it.ps1
 
 ### 4.6 告警与值班
 
-起 Prometheus 加载 [alerts.yml](alerts.yml)、导入 [Grafana 面板](grafana-travel-agent.json)，停后端、断 AMAP 各触发一次，确认告警真的送达；同时定灰度值班人和反馈渠道。
+起 Prometheus 加载 [alerts.yml](alerts.yml)（裸 Prometheus 先用 `scripts/alerts-rules-extract.mjs` 抽 `spec.groups`）、导入 [Grafana 面板](grafana-travel-agent.json)，停后端、断 AMAP 各触发一次，确认告警真的送达；同时定灰度值班人和反馈渠道。路由配置、送达演练（`scripts/alert-routing-drill.ps1`）、真实渠道确认与值班表见[告警路由与值班](alert-routing.md)。
 
 ## 5. 阶段 2：公网 v1 硬阻断（5–8 天 + 外部等待）
 
-### 5.1 Android 真机验收（替换原 iPhone 项）
+### 5.1 Android 真机验收（可选批次，2026-11-27 起不再阻断 v1）
+
+> 仅当决定「手机浏览器也要可用」时执行；当前仓库已移除移动端布局，直接跑只会看到桌面布局在窄屏下的表现。
 
 至少 2 台设备：一台接近原生（Pixel / Android 11+），一台国产 ROM（MIUI / ColorOS / 鸿蒙）或微信内置浏览器。
 
 | 维度 | 验收点 | 通过标准 |
 | --- | --- | --- |
 | 视口 | 360×800、393×873、412×915、768×1024，横竖屏 | 无横向滚动；长标题不超过两行 |
-| 安全区 | 手势导航 + 三键导航两种模式 | 底部 Tab、sticky 输入框不被系统条遮挡 |
+| 安全区 | 手势导航 + 三键导航两种模式 | sticky 输入框不被系统条遮挡 |
 | 软键盘 | 聊天输入、记账金额、日期选择 | 输入框不被键盘盖住，页面不跳动 |
 | 返回 | 系统返回键与返回手势 | 不误退出 PWA，不丢未确认的 Diff |
 | PWA | Chrome 菜单"安装应用"→ 桌面图标 → standalone 启动 | 正常启动；离线可只读行程；恢复后同步 |
@@ -188,13 +196,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/mysql-it.ps1
 
 通过标准：每条路径附截图与设备型号、Android 版本、Chrome 版本、ROM、网络条件、时间，写成 `docs/review/2026-11-XX-android-device.md` 并登记到 [评审索引](../review/README.md)。
 
-注意：本文不改代码，所以不要把"Chrome 自动弹出安装提示"当作验收项——安装入口按浏览器菜单走。
+注意：本文不改代码，所以不要把"Chrome 自动弹出安装提示"当作验收项——安装入口按浏览器菜单走。移动端专用的「底部 Tab / 底栏安全区」验收点已随布局移除，不再列入。
 
 ### 5.2 Linux 视觉基线
 
 ✅ **已完成（2026-11-24）**：`visual-baseline.yml` 在 Playwright 固定容器 `v1.64.1-jammy` 生成 11 张
 `*-chromium-linux.png` 并随 PR 提交（run 45381999718）；`visual` job 已由「跳过」转为逐像素比较，
 仍保持 `continue-on-error` 观察，转硬门禁与 `e2e-device` 一起在 **2026-12-06** 复盘时决定。
+2026-11-27 移除 390px 移动基线后，当前基线为 **10 张**。
 
 ### 5.3 法务、许可与数据导出
 
@@ -233,7 +242,7 @@ P2 的 OTA 实时库存、真实 Embedding 调优、照片轨迹、继续 UI 打
 
 | 编号 | 风险 | 影响 | 处置 |
 | --- | --- | --- | --- |
-| R1 | 模拟套件仍是 WebKit/iPhone 预设，真机口径已改 Android | 模拟通过不代表 Android 通过 | 真机验收必须人工做；长期需单独的 Chromium Android 仿真代码批次 |
+| R1 | 移动端支持已退出承诺范围（2026-11-27） | 手机浏览器可能显示桌面布局，不做移动交互保证；没有模拟或真机证据 | 对外表述按 [能力边界](../guide/capability-boundaries.md) 写「桌面布局」；若要恢复手机交付，单独立项补布局与设备验证 |
 | R2 | ~~Docker Desktop 因 WSL2 缺失起不来~~ **已解除**；换成「Docker Desktop 不能从 shell 里启动」 | shell 一被终止，引擎与 npipe 一起消失 | 用 WMI `Win32_Process.Create` 拉起（见快照 §2.3） |
 | R3 | ~~infra 用 mysql:8.0，生产用 8.4~~ **已解除（2026-11-24）** | 版本漂移已消除：两个 compose 同为 `mysql:8.4`；旧 8.0 数据卷升级不可回退 | 镜像已对齐；升级处置（备份或删卷重建）写进[部署文档 §6.2](../guide/deployment.md) |
 | R4 | 首屏 JS 余量 2,831 B / CSS 余量 8,380 B | 新依赖直接撞预算 | v1 前只做分割，不调阈值 |

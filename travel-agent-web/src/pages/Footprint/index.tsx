@@ -32,19 +32,25 @@ export default function FootprintPage() {
   const [playSignal, setPlaySignal] = useState(0);
   const [touring, setTouring] = useState(false);
 
-  const load = async () => {
+  /** 只做请求与结果落盘：挂载路径调用它，因此 effect 体内不会发生同步 setState */
+  const fetchPoints = () =>
+    getTripsMap()
+      .then((rows) => {
+        setPoints(rows);
+        setError(null);
+      })
+      .catch((e: any) => setError(e?.message || '足迹加载失败'));
+
+  /** 用户点刷新/重试时重拉：先清掉上一次的错误并回到加载态 */
+  const load = () => {
     setError(null);
     setPoints(null);
-    try {
-      setPoints(await getTripsMap());
-    } catch (e: any) {
-      setError(e?.message || '足迹加载失败');
-    }
+    void fetchPoints();
   };
 
   useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // points 初值已是 null、error 初值已是 null：挂载即拉数据不需要再同步 setState
+    void fetchPoints();
   }, []);
 
   // 足迹只认真实打卡：计划/未来行程不计入「去过」，也不上图

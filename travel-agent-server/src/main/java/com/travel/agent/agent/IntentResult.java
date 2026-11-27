@@ -20,11 +20,26 @@ public class IntentResult {
     public static final String QUERY_BUDGET = "QUERY_BUDGET";
     public static final String QUERY_KNOWLEDGE = "QUERY_KNOWLEDGE";
     public static final String RECORD_EXPENSE = "RECORD_EXPENSE";
+    /**
+     * 发票报销：取该用户最新一张 {@code kind=INVOICE} 的照片 → OCR 识别金额/商户/日期/类目 →
+     * 规则匹配同日日程与覆盖该日期的行程 → 生成「记账 + 关联」的待确认方案。
+     *
+     * <p>识别只读；未配置 OCR 或识别失败时明确报不可用，<b>不生成方案、不用模拟结果</b>；
+     * 真正落账在用户确认后由 {@code ExecutorAgent.commit} 单事务完成。
+     */
+    public static final String RECORD_INVOICE = "RECORD_INVOICE";
     public static final String ADD_MEMO = "ADD_MEMO";
     public static final String QUERY_MEMO = "QUERY_MEMO";
     public static final String ADD_SCHEDULE = "ADD_SCHEDULE";
     public static final String QUERY_SCHEDULE = "QUERY_SCHEDULE";
-    /** 调用外部 MCP 工具（travel.mcp.servers 注册的 mcp_* 只读工具）；仅 LLM 路径可产出 */
+    /** 只读：查询某天/某范围内的空闲时段（08:00–22:00 窗口） */
+    public static final String QUERY_FREE_TIME = "QUERY_FREE_TIME";
+    /**
+     * 批量清空某段日期范围内的全部日程：只产出待确认方案（N 个 REMOVE_SCHEDULE），
+     * 用户确认后才由 ExecutorAgent 单事务删除并写 SCHEDULE 域历史（可撤销）。
+     */
+    public static final String CLEAR_SCHEDULE = "CLEAR_SCHEDULE";
+    /** 调用只读工具（{@code mcp_*} 外部工具或内置白名单，如 {@code ocr_invoice}）；仅 LLM 路径可产出 */
     public static final String INVOKE_TOOL = "INVOKE_TOOL";
     public static final String CHITCHAT = "CHITCHAT";
 
@@ -51,7 +66,7 @@ public class IntentResult {
     @Builder.Default
     private List<String> alsoRequested = List.of();
 
-    /** INVOKE_TOOL：要调用的 MCP 工具名（mcp_*）与参数 */
+    /** INVOKE_TOOL：要调用的只读工具名（{@code mcp_*} 或内置白名单）与参数 */
     private String toolName;
     private Map<String, Object> toolArgs;
 

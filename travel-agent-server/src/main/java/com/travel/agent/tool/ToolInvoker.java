@@ -1,6 +1,8 @@
 package com.travel.agent.tool;
 
+import com.travel.agent.agent.AgentBudget;
 import com.travel.agent.agent.AgentContext;
+import com.travel.agent.agent.AgentSpend;
 import com.travel.agent.service.AgentTraceService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -36,6 +38,19 @@ public class ToolInvoker {
             log.warn("工具不存在: {}", toolName);
             return null;
         }
+        // 第二阶段（花费预算）：工具次数在这里收口——所有工具调用都经本门面，新增调用点自动计数。
+        // 触顶后既不执行也不抛异常：抛异常会把「只是一次可选查询超预算」升级成整轮规划 FAILED。
+        // 这里的降级语义与既有工具契约一致——返回 null 表示「这次没查到/不可用」，
+        // 调用方（选点降级跳过、路线成本记 0、聊天回复说明未执行）本来就都能处理 null。
+        AgentSpend spend = ctx.getBudget().spend();
+        if (!spend.allowsToolCall()) {
+            log.warn("工具调用花费预算已耗尽，跳过本次工具: tool={} {}", toolName, spend.describeExhaustion());
+            // 同一阶段只留第一条记录（AgentContext 内部去重），SSE/日志里能看到「为什么没查」
+            ctx.recordBudgetDegradation(AgentBudget.STAGE_TOOL,
+                    "工具调用花费预算耗尽，未执行工具「" + toolName + "」");
+            return null;
+        }
+        spend.recordToolCall();
         ctx.emit("tool_call", Map.of("tool", toolName, "args", args == null ? Map.of() : args));
         safetyInterceptor.check(ctx.getUsername(), tool, args);
         long startedAt = System.currentTimeMillis();

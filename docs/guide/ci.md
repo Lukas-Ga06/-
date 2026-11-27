@@ -6,7 +6,7 @@
 
 | job | 触发 | 关键门禁 | 本地等价 |
 | --- | --- | --- | --- |
-| `backend` | push/PR | `mvn verify`：测试 + JaCoCo + Checkstyle + SpotBugs | `cd travel-agent-server && mvn -B verify` |
+| `backend` | push/PR | `mvn verify`：测试 + JaCoCo + Checkstyle + SpotBugs；随后独立命名步骤 `Release acceptance (P0 reliability)` 跑 `ReleaseAcceptanceTest` | `cd travel-agent-server && mvn -B verify`，再 `mvn -B -Dtest=ReleaseAcceptanceTest -DfailIfNoTests=false test` |
 | `mysql-migration` | push/PR | 真实 MySQL 8.4 上 Flyway 全量迁移 + Hibernate validate | `powershell -File scripts/mysql-it.ps1`（见 [mysql-migration.md](mysql-migration.md)） |
 | `frontend` | push/PR | typecheck / lint / format / 覆盖率 / 包体预算 / 契约类型漂移 | `cd travel-agent-web && npm run typecheck && npm run lint && npm run format:check && npm run test:coverage && node scripts/check-core-coverage.mjs && npm run build:check && npm run api:check` |
 | `contract` | push/PR | OpenAPI 快照无漂移；PR 上 oasdiff 破坏性变更 | 见第 4 节 |
@@ -14,8 +14,8 @@
 | `security` | push/PR | 依赖漏洞（dependency-review【硬门禁】/ npm audit / Trivy） | 见第 5 节 |
 | `secret-scan` | push/PR | gitleaks 全历史密钥扫描（固定 8.30.1 + SHA-256，命中即失败） | 见第 5 节 |
 | `e2e` | push/PR | Playwright **14 条**（Chromium 桌面）：登录/建行程/路书/PWA 资源、地图引擎运行时加载、**5 个页面的 axe 无障碍扫描（critical/serious 必须为 0）**、**1 条隔离自证**；后端是独立 H2 内存库 + LLM/MCP/AMAP 全关 | `cd travel-agent-web && npm run e2e:isolated` |
-| `e2e-device` | push/PR | **观察中（`continue-on-error: true`，不阻塞合并）**：移动端 WebKit/iPhone 预设 3 条 + CDP 弱网/离线 3 条 + 多端并发 2 条（连同 13 条主冒烟，共 21 条），同样跑隔离后端 | `cd travel-agent-web && npm run e2e:device:isolated` |
-| `visual` | push/PR | 11 张截图逐像素比较（`maxDiffPixelRatio: 0`）；**仅有 Linux 基线时比较**，当前 `continue-on-error: true` 观察 | `cd travel-agent-web && npm run test:visual`（需 Linux 基线，见第 3 节 visual） |
+| `e2e-device` | push/PR | **观察中（`continue-on-error: true`，不阻塞合并）**：CDP 弱网/离线 3 条 + 多端并发 2 条，连同桌面主冒烟一起跑隔离后端 | `cd travel-agent-web && npm run e2e:device:isolated` |
+| `visual` | push/PR | 10 张截图逐像素比较（`maxDiffPixelRatio: 0`）；**仅有 Linux 基线时比较**，当前 `continue-on-error: true` 观察 | `cd travel-agent-web && npm run test:visual`（需 Linux 基线，见第 3 节 visual） |
 | `CodeQL` | push/PR/每周 | Java + TypeScript SAST | 本地无法等价，靠 PR 结果（第 6 节） |
 
 ### 1.1 e2e 后端为什么必须隔离
@@ -43,7 +43,6 @@
 
 | 套件 | 现状 | 原因 / 接入条件 |
 | --- | --- | --- |
-| 移动端 WebKit | 已进 CI，**观察模式** | 隔离后端已解决外部污染；剩余风险是共享 runner 上 WebKit 与耗时阈值的抖动。转正条件：连续 2 周无「只有 CI 红、本地绿」，且 PR 模板写明「WebKit 模拟 ≠ iOS 真机」 |
 | 弱网 / 离线 | 已进 CI，**观察模式** | 依赖 `Network.emulateNetworkConditions`（仅 Chromium）；断言是耗时阈值（用例按 ≤20s，实测 8.3s，约 2.4 倍余量），共享 runner 上需观察波动 |
 | 多端并发 | 已进 CI，**观察模式** | 两个独立 `browserContext` 同账号并发；依赖后端关限流（隔离后端已关） |
 | 视觉回归 | 已接 CI，**观察模式** | 2026-11-24 起仓库有两套基线：`-chromium-win32.png`（本机人工回归）与 `-chromium-linux.png`（`.github/workflows/visual-baseline.yml` 在固定 Playwright 容器生成，本次 run 45381999718）；`visual` job 检测到 Linux 基线后已由「跳过」转为逐像素比较，稳定后再摘 `continue-on-error` |
@@ -62,8 +61,8 @@ CI 只证明「不联网、无真实 Key 时也能正确失败并自报」。**�
 | **天气真实预报可用** | ❌ 人工 | e2e 用 `WEATHER_SIMULATION=true` 隔离外呼，`WeatherServiceTest` 也只覆盖 WireMock 解析——都**不证明能连上真实 Open-Meteo** | 部署后看 `/api/system/status` 的 `weatherProvider=open-meteo` 与 `weatherHint` |
 | **LLM 真实可用** | ❌ 人工 | CI 不持有 `LLM_API_KEY`，只验回落规则规划器 | 配 Key 后跑 [真实模型验收](v2.2-iteration.md) 流程并留存证据 |
 | **高德 POI / 路线真实可用** | ❌ 人工 | 需要真实 `AMAP_KEY` 且有 QPS 配额 | `.e2e/amap-real-key-probe.ps1`，结果写进 `docs/review/` |
-| 移动端真机（Android） | ❌ 人工 | CI 只有 WebKit/iPhone 预设，模拟 ≠ 真机 | 按 [发布检查单](../operations/launch-checklist.md) §5.1 跑真机矩阵 |
-| 视觉回归基线 | ✅ 自动比较（Linux 基线） | Linux 基线已入库（11 张，Playwright `v1.64.1-jammy` 生成），CI 用同一镜像逐像素比较；重新生成仍需人工触发 | 有意改视觉时跑 `.github/workflows/visual-baseline.yml` 并人工 review 图片 diff |
+| 移动端布局与交互 | ❌ 不在支持范围 | 仓库只承诺桌面布局（≥1080px 侧栏 / ≤1080px 图标栏），没有移动端布局分支，也没有 WebKit/iPhone 模拟或真机用例 | 若要在手机上交付，需要先恢复移动端布局并新增独立批次；见 [发布检查单](../operations/launch-checklist.md) §5.1 |
+| 视觉回归基线 | ✅ 自动比较（Linux 基线） | Linux 基线已入库（10 张，Playwright `v1.64.1-jammy` 生成），CI 用同一镜像逐像素比较；重新生成仍需人工触发 | 有意改视觉时跑 `.github/workflows/visual-baseline.yml` 并人工 review 图片 diff |
 | 生产部署配置（密钥、`DEMO_ACCOUNT=false`、`WEATHER_SIMULATION=false`） | ❌ 人工 | CI 用的是隔离配置 | 按 [生产配置](../operations/production-config.md) 逐项核对 `/api/system/status` |
 
 判定规则：**CI 失败 = 不能合并**；**上表 ❌ 项未人工验收 = 不能算「能力可用」**，只能算「代码路径存在」。
@@ -89,7 +88,7 @@ cd .. && node scripts/docs-check.mjs
 cd travel-agent-web
 npm run build
 npm run e2e:isolated            # Chromium 桌面门禁
-npm run e2e:device:isolated     # WebKit 移动端 + 弱网 + 多端并发（观察）
+npm run e2e:device:isolated     # 弱网 + 多端并发（观察）
 
 # 真实 MySQL 迁移（需本地实例，见 mysql-migration.md）
 cd ..
@@ -100,6 +99,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/mysql-it.ps1
 
 ### backend
 - 失败点与处置见 [quality-gates.md](quality-gates.md)：覆盖率低于阈值 → 补测试；Checkstyle 违规 → 修代码或按 ratchet 流程改 `config/checkstyle/suppressions.xml`；SpotBugs 命中 → 先认定为真缺陷并修，确认误报才加精确 exclude。
+- `Maven verify` 之后是命名步骤 `Release acceptance (P0 reliability)`：`mvn -B -Dtest=ReleaseAcceptanceTest -DfailIfNoTests=false test`。
+  它把 P0 可靠链路的发布承诺（确认租约/栅栏、Outbox 补投、断线停止、LLM 不可用可规划）单独暴露；
+  失败时先看这 5 类断言中的哪一类，不要先去重跑整轮。该步骤与 verify 里的同一套件重复执行是有意的。
 - 产物：`backend-reports`（JaCoCo HTML/CSV、SpotBugs XML、Checkstyle XML）。
 
 ### mysql-migration
@@ -156,7 +158,7 @@ oasdiff breaking /tmp/openapi-base.json docs/api/openapi.json --fail-on ERR
 | 检查 | 触发 | 阈值 | 处置 |
 | --- | --- | --- | --- |
 | dependency-review | PR | `fail-on-severity: high`，只评新增依赖；**2026-11-25 起无 `continue-on-error`，为硬门禁** | 升级到修复版本，或说明为何必须引入并申请豁免 |
-| `npm audit --audit-level=high` | push/PR | high + critical | 升级/low-risk fix；无修复版本时评估替代依赖 |
+| `npm audit --audit-level=moderate` | push/PR | moderate + high + critical（**2026-11-27 起从 high 收紧**） | 升级/low-risk fix；无修复版本时用 `overrides` 顶到已修复的传递版本（须证明构建产物不变），或走 §6 临时豁免 |
 | Trivy（Maven 依赖） | push/PR | CRITICAL,HIGH，`ignore-unfixed` | 升级依赖；确实无修复版本则记录风险与到期时间 |
 | CodeQL | push/PR/每周 | security-and-quality | 公开仓库已上传 SARIF；67 条告警分诊中，误报加抑制注释并说明 |
 | gitleaks | push/PR（`secret-scan` job） | 全历史 `--log-opts=--all`，固定 8.30.1 + SHA-256，命中即失败 | 真实密钥泄露：立即轮换 → 清理历史 → 复盘 |
@@ -171,6 +173,57 @@ gitleaks 放行范围只有四类，全部是**精确值或本地文件**：测�
 2026-11-25 首次 CI 实跑后逐条核实的 7 条历史测试值/占位/文档示例（见
 [安全设置清单 §2.6](../operations/github-security-settings.md)），以及本地 `.env.local` 与验收证据目录
 （`.gitignore` 已排除，存在时也不该阻断）。**不要**把整个 `src/` 或 `docs/` 加进 paths 放行。
+
+### 5.1 依赖分诊与版本覆盖（2026-11-27）
+
+#### 前端（npm）
+
+| 包 | 处理 | 原因 |
+| --- | --- | --- |
+| `vitest` / `@vitest/coverage-v8` | 4.1.11 → **4.1.12** | 修 GHSA-qxg6-89mg-rqv8（手动 mock 注入）与 GHSA-xp26-3454-mjgp（`@vitest/mocker` Windows 反斜杠绕过），4.1.12 是 4.x 的修复版 |
+| `glob` / `minimatch`（经 `workbox-build@7.4.1` → `vite-plugin-pwa`） | `package.json` 增加 `overrides.workbox-build.glob: ^14.0.2`，实际解析到 **glob 14.0.6** | 公告区间 glob `9.0.0–14.0.1`、minimatch `7.0.0–<11.0.1`；workbox-build 仍依赖 `glob ^11.0.1`（glob 11 自带 minimatch 10），上游**没有**可用的修复版本，只能把传递依赖顶到已修复的 major |
+
+为什么敢顶 major：`workbox-build` 只用 `globSync(pattern, {cwd, follow, ignore})` 扫 `dist/`，
+输入是自己的构建产物，不是用户输入；glob 14 保留了该 API 与这三个选项。**证据是产物逐项不变**：
+升级前后 `dist/sw.js` 都是 5289 B / precache 82 项，首屏 JS 合计 598,949 B 不变，`npm test` 557/557，
+`npm audit` 归零。override **不影响 ship 出去的代码**（glob 只在构建期运行）。
+
+解除条件：`workbox-build` 或 `vite-plugin-pwa` 发布依赖 `glob >=14.0.2` 的版本后，删掉 `overrides`
+并重跑「build:check 产物对比 + 全量前端用例 + npm audit」三项；不要把 override 当永久补丁留着。
+
+#### 后端（Maven）
+
+Trivy 的 `ignore-unfixed` 只保证「有修复版本的告警会红」，**不等于**「依赖树里没有已知漏洞」：
+本例中 4 个包在 Boot 3.5.16 BOM 下的版本都带公告，而 CI 当时是绿的（公告晚于上一次扫描 / BOM 未跟进）。
+所以依赖侧还要一次「按解析后的真实版本查公告」的分诊，命令见 §5.2。
+
+| 包（Boot 3.5.16 BOM 默认） | 处理 | 依据 |
+| --- | --- | --- |
+| `org.apache.tomcat.embed:tomcat-embed-core` `10.1.55` | `pom.xml` 显式覆盖 `tomcat.version=10.1.62` | 10.1 线上已发布的修复版本；OSV 对 10.1.62 返回 CLEAN |
+| `io.netty:*` `4.1.135.Final`（lettuce / AWS SDK 带入） | `netty.version=4.1.141.Final` | 同上，4.1 线最新；OSV CLEAN |
+| `org.apache.logging.log4j:log4j-api` `2.24.3` | `log4j2.version=2.26.1` | 同上 |
+| `org.apache.commons:commons-lang3` `3.17.0`（springdoc → swagger-core 带入） | `commons-lang3.version=3.22.0` | 同上 |
+| `org.springframework:spring-webmvc` `6.2.19` | **不覆盖**，保留 `.trivyignore.yaml` 的两条 CRITICAL 豁免 | 6.2 线最新仍受影响（修复在 Spring 7 / Boot 4），且本项目无 `@Controller`/XsltView/视图渲染，攻击前提不成立；到期 2026-12-31 |
+
+分诊结果：181 个运行时依赖，按 OSV 查 **24 条公告 / 8 个包（8 CRITICAL、6 HIGH、10 MODERATE）**
+→ 覆盖后 **2 条 / 1 个包**（即上面已豁免的两条 Spring 公告）。
+
+### 5.2 依赖分诊的可复现命令
+
+不引入新工具链：用 Maven 解析真实版本 + OSV 公共 API 按版本查公告（OSV 同时覆盖 GHSA/CVE，
+比单看 Trivy 的 `ignore-unfixed` 结果更完整）。
+
+```bash
+cd travel-agent-server
+mvn -B -q dependency:list -DoutputFile=../.evidence/deps.txt -DincludeScope=runtime
+# 抽出 groupId:artifactId:version（去重）后逐条 POST https://api.osv.dev/v1/querybatch
+# （ecosystem=Maven），对命中的 advisory id 再 GET https://api.osv.dev/v1/vulns/{id} 取 severity
+```
+
+判读纪律：**先确认「候选修复版本」本身是 CLEAN**（对候选版本再查一次 OSV），再改 pom；
+改完必须重跑 `mvn -B verify` 与一次 Trivy（本地命令与 CI 同参：`--severity CRITICAL,HIGH --ignore-unfixed`），
+并核对 `dependency:list` 里的实际解析版本（属性覆盖不生效时 Maven 会静默沿用 BOM 版本）。
+结论与证据见 [依赖分诊快照](../review/2026-11-27-dependency-triage.md)。
 
 ## 6. 临时豁免流程
 

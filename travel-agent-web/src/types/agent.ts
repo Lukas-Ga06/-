@@ -110,8 +110,13 @@ export interface AgentResult {
  * 运行总状态。
  * PARTIAL_SUCCESS（部分完成）表示本轮正常收尾但有阶段失败/降级、过程警告或预算降级，
  * 结论可能不完整——界面上不能与 SUCCEEDED 共用同一个绿色标签（P0-07）。
+ *
+ * ABANDONED（结果未知）是心跳超时/进程重启后执行体已不存在、本轮没有收尾的状态。
+ * 后端刻意把它与 FAILED、CANCELLED 分开（`AgentRun.java:51`）：它不是失败报告，
+ * 也不是用户取消，前端不得归入这两档；显示口径见 `lib/runState.ts`（degraded）。
  */
-export type AgentRunStatus = 'RUNNING' | 'SUCCEEDED' | 'PARTIAL_SUCCESS' | 'FAILED' | 'CANCELLED';
+export type AgentRunStatus =
+  'RUNNING' | 'SUCCEEDED' | 'PARTIAL_SUCCESS' | 'FAILED' | 'CANCELLED' | 'ABANDONED';
 
 /** GET /api/agent/runs 列表项 */
 export interface RunSummary {
@@ -134,12 +139,12 @@ export type TaskReceiver =
   | 'executor-agent'
   | 'reflect-agent'
   | 'tool-invoker'
-  /** 预算守卫：时间预算耗尽时落一条 DEGRADE 任务（后端契约 AgentEngine.BUDGET_TASK_TYPE） */
+  /** 预算守卫：时间或花费预算耗尽时落一条 DEGRADE 任务（后端契约 AgentEngine.BUDGET_TASK_TYPE） */
   | 'budget-guard';
 
 /**
  * REPLAN 是 V2.2 FR-06 新增的任务类型：审核发现 HIGH 问题后的一次有限重规划。
- * DEGRADE 是 P1 时间预算的降级留痕：summary 写明哪个阶段因预算被跳过。
+ * DEGRADE 是预算降级的留痕：summary 写明哪个阶段因哪种预算（时间 / 花费）被跳过。
  */
 export type TaskType =
   'INTENT' | 'RESEARCH' | 'PLAN' | 'PREVIEW' | 'REVIEW' | 'REPLAN' | 'TOOL' | 'COMMIT' | 'DEGRADE';
@@ -179,9 +184,39 @@ export interface ToolCallView {
   startedAt: string;
 }
 
+/**
+ * 单轮运行的花费快照（V29 起后端记录；字段与 OpenAPI 的 SpendView 一一对齐）。
+ *
+ * 缺席语义：V29 之前的 run 没有这条记录，`spend` 整个缺省——缺省不等于「零花费」，
+ * 调用方不得把它补成 0，也不该渲染成空壳。
+ */
+export interface SpendView {
+  /** 输出 token 数（后端 int64） */
+  completionTokens?: number;
+  /** 美元金额，后端存 6 位小数；0 通常表示未配置单价，不代表「免费」 */
+  costUsd?: number;
+  /**
+   * 触顶的预算项 tag：llm_calls / tool_calls / retries / tokens / cost；
+   * 未触顶时后端不返回该字段（与 OpenAPI 契约一致，故不声明 null）。
+   */
+  exhausted?: string;
+  /** LLM 调用次数（后端 int32） */
+  llmCalls?: number;
+  /** 输入 token 数（后端 int64） */
+  promptTokens?: number;
+  /** 重试次数（后端 int32） */
+  retries?: number;
+  /** 工具调用次数（后端 int32） */
+  toolCalls?: number;
+  /** 合计 token 数（后端 int64） */
+  totalTokens?: number;
+}
+
 /** GET /api/agent/runs/{runId} 响应（他人 run 返回 404 业务错误） */
 export interface RunDetail {
   run: RunSummary;
+  /** 本轮花费快照；V29 之前的老 run 缺省（不渲染花费区块） */
+  spend?: SpendView | null;
   tasks: TaskView[];
   toolCalls: ToolCallView[];
 }

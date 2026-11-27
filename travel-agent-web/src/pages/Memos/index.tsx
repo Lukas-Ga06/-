@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { App, Button, Empty, Input } from 'antd';
+import { App, Button, Input } from 'antd';
 import {
   CheckOutlined,
   CheckSquareOutlined,
@@ -9,6 +9,7 @@ import {
 import AppShell from '../../components/AppShell';
 import SwipeRow from '../../components/SwipeRow';
 import Skeleton from '../../components/Skeleton';
+import RunStatus from '../../components/RunStatus';
 import PaginationBar from '../../components/PaginationBar';
 import { addMemo, deleteMemo, getMemosPage, toggleMemo } from '../../api/memo';
 import { DEFAULT_PAGE_SIZE } from '../../api/client';
@@ -20,6 +21,8 @@ export default function Memos() {
   const [items, setItems] = useState<Memo[]>([]);
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(true);
+  /** 首屏/重试失败：必须与「确实没有备忘」分开，否则接口挂了会显示成空列表（P0-04） */
+  const [loadError, setLoadError] = useState<string | null>(null);
   /** 翻页/静默刷新请求态：只禁用翻页按钮，不切骨架屏（避免丢滚动位置） */
   const [paging, setPaging] = useState(false);
   const [offset, setOffset] = useState(0);
@@ -34,11 +37,16 @@ export default function Memos() {
   const [pending, setPending] = useState<Set<number>>(new Set());
 
   const fetchPage = async (nextOffset: number, options: { silent?: boolean } = {}) => {
-    if (options.silent) setPaging(true);
-    else setLoading(true);
+    if (options.silent) {
+      setPaging(true);
+    } else {
+      setLoading(true);
+      setLoadError(null);
+    }
     try {
       const page = await getMemosPage({ limit: DEFAULT_PAGE_SIZE, offset: nextOffset });
       setItems(page.items);
+      setLoadError(null);
       setOffset(nextOffset);
       setMeta({
         total: page.pagination?.total ?? page.items.length,
@@ -47,7 +55,9 @@ export default function Memos() {
         limit: page.pagination?.limit ?? DEFAULT_PAGE_SIZE,
       });
     } catch (e: any) {
-      message.error(e.message);
+      // 静默刷新失败保留现有列表，只提示；首屏失败必须进入错误态
+      if (options.silent) message.error(e.message);
+      else setLoadError(e?.message || '备忘加载失败');
     } finally {
       setLoading(false);
       setPaging(false);
@@ -58,8 +68,9 @@ export default function Memos() {
   const load = () => fetchPage(offset, { silent: true });
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 挂载即拉第一页备忘：既有「挂载即取数」写法，收敛到数据层 hook 属另开卡的重构
     fetchPage(0);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在挂载时拉第一页：fetchPage 依赖 offset/message，进依赖数组会随翻页重复请求
   }, []);
 
   const open = items.filter((m) => !m.done);
@@ -218,11 +229,26 @@ export default function Memos() {
               </div>
             ))}
           </div>
+        ) : loadError ? (
+          <div className="run-state-block run-state-block--danger" role="alert">
+            <RunStatus
+              status="failed"
+              text="备忘加载失败"
+              detail={loadError}
+              testId="memos-error"
+              actions={[{ label: '重试', onClick: () => void fetchPage(offset) }]}
+            />
+          </div>
         ) : (
           <div className="inset-list fade-up">
             {items.length === 0 ? (
               <div style={{ padding: 10 }}>
-                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="备忘录是空的" />
+                <RunStatus
+                  status="empty"
+                  text="备忘录是空的"
+                  detail="在上方输入框添加一条，例如「明天上午办签证」。"
+                  testId="memos-empty"
+                />
               </div>
             ) : (
               <>

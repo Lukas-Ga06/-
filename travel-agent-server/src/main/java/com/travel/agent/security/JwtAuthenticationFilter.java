@@ -21,8 +21,9 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
-    /** 票据唯一允许的两类只读路径（精确匹配，不做前缀/后缀放宽） */
+    /** 票据唯一允许的三类只读路径（精确匹配，不做前缀/后缀放宽） */
     private static final String SSE_URI = "/api/agent/stream";
+    private static final Pattern SSE_RESUME_URI = Pattern.compile("^/api/agent/runs/[A-Za-z0-9_-]{1,64}/events$");
     private static final Pattern PHOTO_RAW_URI = Pattern.compile("^/api/photos/\\d+/raw$");
 
     private final JwtService jwtService;
@@ -106,14 +107,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     }
 
     /**
-     * 查询参数票据只对"无法自定义请求头"的两个只读场景生效：
-     * GET /api/agent/stream（EventSource）与 GET /api/photos/{id}/raw（&lt;img&gt;）。
+     * 查询参数票据只对"无法自定义请求头"的三个只读场景生效：
+     * GET /api/agent/stream（EventSource）、GET /api/agent/runs/{runId}/events（断线续传，
+     * 同为 EventSource）与 GET /api/photos/{id}/raw（&lt;img&gt;）。
      *
      * <p>票据会随 URL 进入代理/网关日志、浏览器历史与 Referer，因此必须收窄用途：
      * 之前对任意 method/path 都接受票据，等于"泄漏一条日志 = 完整账号接管"，
      * 还可用票据调 POST /api/access-ticket 自我续期。这里用白名单彻底关掉这条路径。
      *
-     * <p>同时校验票据 aud：照片路径只认 {@code media-read}，SSE 只认 {@code agent-stream}，
+     * <p>同时校验票据 aud：照片路径只认 {@code media-read}，SSE（含续传）只认 {@code agent-stream}，
      * 两种票据互不通用（旧的无 aud 票据按 {@code agent-stream} 处理，兼容窗口 5 分钟）。
      *
      * <p>POST /api/agent/stream 本来就不接受票据（这里要求 GET），浏览器 fetch 自带 Cookie，
@@ -126,7 +128,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         // getRequestURI() 不含 query string，也不含 context path（本项目 context path 为 /）
         String uri = request.getRequestURI();
         String expectedPurpose;
-        if (SSE_URI.equals(uri)) {
+        if (SSE_URI.equals(uri) || SSE_RESUME_URI.matcher(uri).matches()) {
             expectedPurpose = AccessTicketService.PURPOSE_AGENT_STREAM;
         } else if (PHOTO_RAW_URI.matcher(uri).matches()) {
             expectedPurpose = AccessTicketService.PURPOSE_MEDIA_READ;

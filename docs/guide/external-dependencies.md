@@ -1,6 +1,6 @@
-# 外部依赖降级矩阵（高德 / LLM / Embedding / 天气 / Redis / S3）
+# 外部依赖降级矩阵（高德 / LLM / Embedding / 天气 / 发票 OCR / Redis / S3）
 
-> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.16 / AWS SDK 2.25.70 / WireMock 3.13.1） | 最后验证：2026-11-23 | 事实来源：`travel-agent-server/src/main/java/com/travel/agent/{service,llm,rag,security,config}/*.java`、`src/main/resources/application.yml`、`src/test/java/com/travel/agent/{service,resilience}/*`
+> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.16 / AWS SDK 2.25.70 / WireMock 3.13.1） | 最后验证：2026-11-27 | 事实来源：`travel-agent-server/src/main/java/com/travel/agent/{service,llm,rag,security,config}/*.java`、`src/main/resources/application.yml`、`src/test/java/com/travel/agent/{service,resilience}/*`
 
 本文只写**代码与测试能证明的现状**：每个外部依赖的超时预算从哪来、重试到底有没有、
 失败后变成什么、用户看到什么、哪个指标会涨、哪个测试类守住它。
@@ -18,7 +18,7 @@
 统一降级指标（由本矩阵负责埋点，可观测性文档只消费、不重复定义）：
 
 ```
-external.degraded{provider=amap|llm|embedding|weather|redis|s3,
+external.degraded{provider=amap|llm|embedding|weather|ocr|redis|s3,
                   reason=timeout|rate_limited|server_error|bad_response|connection_error}
 ```
 
@@ -49,6 +49,7 @@ sum by (provider) (rate(external_degraded_total[5m])) > 0.2
 | LLM（OpenAI 兼容） | 5000ms / 30000ms（可配，另受 Agent 端到端预算封顶） | **0** | `null`，上层用规则模板继续回复 | 无错误文案；回复来自模板而非模型 | `LlmResilienceTest` |
 | 真实 Embedding | 5000ms / 15000ms（默认值，`application.yml` 未覆盖） | **0** | 本地字符 bigram 哈希向量（256 维），**进程内永久锁存** | 无错误文案；RAG 召回质量下降 | `EmbeddingResilienceTest` |
 | 天气（Open-Meteo） | 3000ms / 5000ms（`WeatherService` 硬编码） | **0** | **不降级、不模拟**：返回 `WeatherLookup.unavailable(reason)`；依赖天气的修改被明确拒绝（`status=FAILED`，业务码 503），普通规划如实标注未校验 | 拒绝文案含日期与原因；方案警告写「未获取真实天气（原因），本次未做雨天/户外校验」 | `WeatherServiceTest`、`WeatherDependentModificationTest` |
+| 发票 OCR（百度云，默认关闭） | 3000ms / 5000ms（`OcrProperties` 默认值） | **0** | **不降级、不模拟**：识别不可用时 `InvoiceLookup(available=false, reason)`，「报销这张发票」不生成方案；`external.degraded{provider=ocr}` 只记客户端调用失败 | 「OCR 发票识别未配置（…）」/「发票识别失败（原因）。没有生成记账方案；可以重拍或手动记账。」 | `BaiduOcrClientTest`（解析与错误码）、`InvoiceOcrFlowTest`（未配置/失败/成功落账，脚本替身） |
 | Redis 限流计数 | Lettuce 命令超时（未配置 → Lettuce 默认 60s）；连接不可达时立即失败 | **0** | fail-open **放行**，`Retry-After` 至少 1s | 无错误文案；限流实际未生效（多实例额度不再共享） | `RedisResilienceTest` |
 | S3 兼容对象存储 | AWS SDK 默认 2s / 30s；可用 `api-call-timeout-ms` 设总超时 | **3 次**（SDK 默认，可配 0） | 写/读转 `BusinessException(500)`；读 404 转 `BusinessException(404)`；`exists` 404 → `false` | 「照片保存失败，请重试」/「照片读取失败，请重试」/「照片文件不存在（可能已被清理）」 | `S3ResilienceTest` |
 
@@ -68,6 +69,9 @@ sum by (provider) (rate(external_degraded_total[5m])) > 0.2
 
 - 配置：`travel.llm.base-url` / `connect-timeout-ms`（默认 5000）/ `read-timeout-ms`（默认 30000，`application.yml` 用 `LLM_CONNECT_TIMEOUT_MS` / `LLM_READ_TIMEOUT_MS` 覆盖）。
 - 单次调用还可带独立读超时：`AgentBudget.chat` 在端到端预算（`travel.agent.budget.*`，默认 30s）开启时把读超时压到「配置值与剩余预算的较小者」，避免最后一个阶段越过 deadline。
+- 花费口径（第二阶段）：`AgentBudget.chat` 同时是**唯一的 LLM 花费记账口**——调用次数与响应 `usage` 里的 token 计入 `AgentSpend`，
+  单项到顶即拒绝下一次调用并按降级语义收尾（`travel.agent.spend`）。响应没有 `usage` 时不记 token（不估算）；
+  费用上限只在 `LLM_PROMPT_PRICE_PER_1K_USD` / `LLM_COMPLETION_PRICE_PER_1K_USD` 配了真实单价时才可能触发。
 - 重试：**0**。`OpenAiCompatibleLlmClient.chat` 失败即返回 `null`。
 - 降级链：`OpenAiCompatibleLlmClient` → `null`；`DelegatingLlmClient` 在未配置/配额耗尽/真实调用失败时同样返回 `null`（分别记 `llm.calls{result=skipped|quota|failed}`）；上层 `AgentEngine`/`StructuredPlanner` 用 `MessageTemplates` 的模板化输出继续回复。
 - 用户提示：无错误文案（`application.yml` 注释口径：「未配置或调用失败……自动降级为规则规划器 + 模板回复：主流程仍可跑通，但能力弱于模型」）。`/api/system/status` 的 `llmVerified` 会如实显示最近一次真实调用失败（`LlmRuntimeStatus`）。
@@ -102,6 +106,44 @@ sum by (provider) (rate(external_degraded_total[5m])) > 0.2
 - 恢复语义：无锁存；负缓存到期后的下一次成功调用即恢复 `weatherProvider=open-meteo`。
 - 测试覆盖：`WeatherServiceTest`（模拟开关、不可达、超窗口、WireMock 200/500/坏 JSON、负缓存与指标）、`WeatherDependentModificationTest`（依赖天气的修改被 503 拒绝且不落待确认方案）。
 
+### 3.4.1 发票 OCR（百度云，默认关闭）
+
+- 启用条件：`travel.ocr.provider=baidu`（`OCR_PROVIDER=baidu`）且 `OCR_BAIDU_API_KEY` / `OCR_BAIDU_SECRET_KEY` 都非空。
+  判定唯一入口是 `OcrProperties#usable()`；不满足即「未配置」，**不会发起任何外呼**。
+- 调用形态：先 `POST {endpoint}/oauth/2.0/token`（client_credentials）取 access_token，进程内缓存并按 `expires_in`
+  提前 60 秒过期；再 `POST {endpoint}/rest/2.0/ocr/v1/vat_invoice`（`application/x-www-form-urlencoded`，`image=<base64>`）。
+  地址可由 `travel.ocr.baidu.endpoint` 覆盖（私有代理/测试指向本地）。
+- 超时：`SimpleClientHttpRequestFactory`，连接 3000ms / 读 5000ms（`OcrProperties` 默认值，无环境变量占位）。
+- 重试：**0**。失败即返回「不可用 + 原因」，由用户在对话里决定重拍或手动记账。
+- 不降级、不模拟：没有「猜一份识别结果」的分支。金额缺失（或 ≤0）单独判为「没有识别出金额」，
+  同样不生成方案；这种情况属于图片质量问题，**不计入** `external.degraded`（与天气的「输入边界不记指标」同一口径）。
+- 用户提示：`InvoiceCommandHandler` 的三段文案（未上传 / 未配置 / 识别失败）原文见
+  [能力边界](capability-boundaries.md) §1.2 与 [接口语义](api-reference.md) §5.2；全部是 `status=COMPLETED`，不是 500。
+- 指标：`provider=ocr`；reason 复用统一词表（HTTP 429→`rate_limited`、5xx→`server_error`、超时→`timeout`、
+  连不上→`connection_error`、其余（含百度 `error_code` 非 0）→`bad_response`）。
+- 恢复语义：无锁存；下次调用成功即恢复（access_token 过期会重新获取）。
+- 测试覆盖：`BaiduOcrClientTest`（纯单测：直接喂响应 JSON，覆盖价税合计优先、`TotalAmount` 回落、中文/横线日期、`error_code` 非 0、空响应）；
+  `InvoiceOcrFlowTest`（脚本化 `OcrClient` 替身：未配置 / 识别失败 / 没识别出金额 / 成功经确认落账 / 无候选不关联 / 工具只读）；
+  `OcrInvoiceLiveTest`（**默认 skipped**，只在 `OCR_REAL=true` 时打真实百度接口，见下条）。
+- 真实验收怎么跑（人工、不进 CI；没开 `OCR_REAL` 时整类跳过，不发请求）：
+
+  ```bash
+  cd travel-agent-server
+  OCR_REAL=true OCR_PROVIDER=baidu OCR_BAIDU_API_KEY=… OCR_BAIDU_SECRET_KEY=… \
+    mvn -B -Dtest=OcrInvoiceLiveTest -DfailIfNoTests=false test
+  ```
+
+  Key 只从环境变量读：该测试不读 `.env.local`、不硬编码、不回显 Key / token（R7）；缺 Key 时用例自己 skip，
+  即使误开 `OCR_REAL` 也不会拿空 Key 发请求。两个用例的验收口径不同：
+  - `realApiRejectsNonInvoiceImageExplicitly`：用仓库内合成版式图 `data/ocr-acceptance/invoice.png`
+    断言**抛 `OcrException` 且消息含「服务错误码」**。它证明鉴权、请求组装与错误映射打通；
+    合成图不是真实发票，`vat_invoice` 按票面模板匹配会返回 282103（模板不匹配），**识别失败就是预期结果**，
+    不能据此认为「OCR 已验收」。
+  - `recognizesRealInvoiceWhenSampleProvided`：只有给了 `OCR_SAMPLE_INVOICE=<真实发票照片路径>` 才执行，
+    断言金额非空、商户非空、开票日期非空，并打印脱敏后的金额 / 商户 / 日期 / 类目；
+    可加 `OCR_EXPECT_AMOUNT=128.50` 断言金额。
+  - 真实字段识别必须用**真实增值税发票照片**；识别率、配额与百度侧字段差异只有这一步能验证。
+
 ### 3.5 Redis 限流计数
 
 - 启用条件：`travel.rate-limit.store=redis`（默认 `memory`）。
@@ -131,10 +173,10 @@ sum by (provider) (rate(external_degraded_total[5m])) > 0.2
 
 ```bash
 cd travel-agent-server
-# 只跑降级矩阵（*ResilienceTest 5 个类 + 天气两个测试类；WireMock 直接用已声明的 test scope 依赖，无需 Docker/Redis/S3）
-mvn -B -Dtest='*ResilienceTest,WeatherServiceTest,WeatherDependentModificationTest' test
+# 只跑降级矩阵（*ResilienceTest 5 个类 + 天气两个测试类 + 发票 OCR 两个测试类；WireMock 直接用已声明的 test scope 依赖，无需 Docker/Redis/S3）
+mvn -B -Dtest='*ResilienceTest,WeatherServiceTest,WeatherDependentModificationTest,InvoiceOcrFlowTest,BaiduOcrClientTest' test
 # 离线环境（依赖已在本地仓库时）
-mvn -B -o -Dtest='*ResilienceTest,WeatherServiceTest,WeatherDependentModificationTest' test
+mvn -B -o -Dtest='*ResilienceTest,WeatherServiceTest,WeatherDependentModificationTest,InvoiceOcrFlowTest,BaiduOcrClientTest' test
 # 单个依赖
 mvn -B -Dtest=AmapResilienceTest test
 ```
@@ -153,3 +195,10 @@ mvn -B -Dtest=AmapResilienceTest test
 5. 测试覆盖的是 HTTP 层故障（WireMock 注入的状态码/延迟/坏包体）与端口不可达，**不覆盖**真实 TLS 握手失败、DNS 劫持、代理层截断等网络故障；这些只能靠线上指标与 Runbook 兜底。
 6. 本文的指标只包含 `external.degraded`；业务结果类指标（`travel.plan.outcome`、`travel.llm.tokens` 等）见 `docs/guide/observability.md`，两边不重名。
 7. 天气的「不可用」是产品语义而不是降级：离线部署 + 未开 `WEATHER_SIMULATION` 时，所有依赖天气的修改都会 503。这是刻意的（宁可不排，也不拿模拟数据改行程），部署前应确认出站 HTTPS 可达 Open-Meteo。
+8. 发票 OCR 的**真实字段识别质量仍没有验收**（缺百度云真实票面，2026-11-27）：现在有可重复的
+   `OcrInvoiceLiveTest`（`OCR_REAL=true` + 环境变量 Key）能验证鉴权 / 请求 / 错误映射，
+   但金额 / 商户 / 日期这些字段只有在提供真实发票照片（`OCR_SAMPLE_INVOICE`）时才验得到；
+   在真实票面跑过之前，不要对外声称「识别率已验证」。
+   开启前需用真实票面自测：金额取价税合计还是合计金额、商户/日期字段是否与本实现一致、百度侧限额与计费。
+   另外 token 请求按百度文档用 query 参数传 client_id / client_secret——本实现从不把异常原文（含 URL）写进日志或用户文案（R7），
+   但真实链路上的抓包/代理日志仍可能记录该 URL，属于部署侧责任。

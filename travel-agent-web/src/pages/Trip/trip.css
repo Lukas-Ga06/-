@@ -27,7 +27,8 @@
   flex-wrap: wrap;
 }
 
-/* 地图不可用：明确「时间轴仍可用」并给出两个出口，不暴露 Key / 环境变量 */
+/* 地图不可用：明确「时间轴仍可用」并给出出口，不暴露 Key / 环境变量。
+   文案与重试按钮由 components/RunStatus 统一渲染，这里只负责压在地图上的位置与外层留白 */
 .map-unavailable {
   position: absolute;
   inset: 0;
@@ -41,30 +42,6 @@
   text-align: center;
   background: var(--surface);
   color: var(--text-2);
-}
-
-.map-unavailable b {
-  font-size: 15px;
-  color: var(--text);
-}
-
-.map-unavailable .mu-hint {
-  font-size: 12.5px;
-  color: var(--text-3);
-}
-
-.map-unavailable .mu-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 6px;
-}
-
-.map-unavailable .mu-actions .map-ctl-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
 }
 
 .map-ctl-group {
@@ -135,6 +112,9 @@
   left: 30px;
   top: 50%;
   transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 2px 9px;
   border-radius: 999px;
   background: var(--surface);
@@ -144,6 +124,82 @@
   white-space: nowrap;
   pointer-events: none;
   box-shadow: 0 2px 8px rgba(31, 41, 92, 0.08);
+}
+
+/* 标记上的路线来源：与时间轴转场行同一套徽标，估算不冒充实测 */
+.m3d-marker .m3d-src {
+  font-size: 10px;
+  padding: 0 6px;
+  line-height: 16px;
+}
+
+/* 选中投影（时间线 ↔ 地图共用 uiStore.selectedElement）：标记自己把选中画出来，
+   不只靠地图相机停在哪儿——相机是坐标，不是选中态 */
+.m3d-marker.m3d-selected {
+  z-index: 2;
+}
+
+.m3d-marker.m3d-selected .m3d-dot {
+  border-width: 3px;
+  box-shadow:
+    0 0 0 3px rgba(0, 122, 255, 0.35),
+    0 2px 10px rgba(0, 0, 0, 0.24);
+  transform: scale(1.12);
+}
+
+.m3d-marker.m3d-selected .m3d-ring {
+  opacity: 0.9;
+  animation-duration: 1.1s;
+}
+
+.m3d-marker.m3d-selected .m3d-label {
+  border-color: var(--blue);
+  font-weight: 700;
+}
+
+/* 标记可以键盘选中（Enter/Space），焦点必须有可见指示，否则等于没有键盘可达性 */
+.m3d-marker:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 3px;
+  border-radius: 50%;
+}
+
+/* 路线来源图例：地图左下角，只列真正画出来的来源 */
+.map-legend {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--lg-border);
+  background: var(--surface);
+  box-shadow: 0 4px 14px rgba(31, 41, 92, 0.1);
+  font-size: 11px;
+}
+
+.map-legend .ml-title {
+  color: var(--ink-3);
+}
+
+.map-legend .ml-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.map-legend .ml-line {
+  width: 22px;
+  height: 0;
+  border-top: 3px solid var(--blue);
+}
+
+.map-legend .ml-line.dashed {
+  border-top-style: dashed;
+  border-top-color: var(--ink-3);
 }
 
 /* ============================================================
@@ -582,7 +638,7 @@
   }
 }
 
-/* ---------- 行程页：桌面「时间轴主栏 + 地图/AI 侧栏」，移动端「行程/地图/AI」分段 ---------- */
+/* ---------- 行程页：桌面「时间轴主栏 + 地图/AI 侧栏」 ---------- */
 .trip-workbench {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);
@@ -590,8 +646,6 @@
   align-items: start;
 }
 
-.trip-map-card,
-.trip-chat-card,
 .trip-timeline-card {
   display: flex;
   flex-direction: column;
@@ -616,11 +670,6 @@
   flex: 1;
   flex-direction: column;
   min-height: 420px;
-}
-
-/* 移动端分段视图：行程 / 地图 / AI 互斥，默认行程（P1-04） */
-.trip-view-switch {
-  margin-bottom: var(--sp-3);
 }
 
 .trip-map-body {
@@ -728,26 +777,6 @@
   }
 }
 
-@media (max-width: 720px) {
-  /* 分段视图一次只显示一块：各自占满剩余视口，避免地图/聊天挤成一条缝 */
-  .trip-map-body {
-    min-height: 60vh;
-  }
-
-  .trip-chat-body,
-  .trip-side-body {
-    min-height: 60vh;
-  }
-
-  .trip-timeline-card .tl-scroll {
-    max-height: none;
-  }
-
-  .next-up {
-    margin: var(--sp-2) var(--sp-2) 0;
-  }
-}
-
 /* 「更多」菜单：没有可撤销动作时写明原因，而不是让用户点了才知道 */
 .menu-with-hint {
   display: inline-flex;
@@ -758,11 +787,4 @@
 .menu-with-hint .menu-hint {
   font-size: 11px;
   color: var(--text-3);
-}
-
-/* 移动端时间轴底部的安全区：分页/撤销条不压住 home 指示条 */
-@media (max-width: 720px) {
-  .trip-timeline-card {
-    padding-bottom: calc(12px + var(--safe-bottom));
-  }
 }

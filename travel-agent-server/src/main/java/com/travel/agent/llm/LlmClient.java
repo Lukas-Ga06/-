@@ -21,6 +21,21 @@ public interface LlmClient {
         return chat(messages, temperature);
     }
 
+    /**
+     * 取走「最近一次调用」解析到的 token 用量（一次性消费：读后即清空）。
+     *
+     * <p>为什么不改 {@link #chat} 的返回值：{@code String} 是既有的、被大量调用方与测试桩
+     * 依赖的契约，为了记账改签名会牵动整条链路。这里做成默认方法：
+     * 真实实现（{@code OpenAiCompatibleLlmClient}）在解析响应时记录，规则实现与测试桩
+     * 无需实现即返回 {@link LlmUsage#NONE}——「没有用量」是合法且诚实的默认值。
+     *
+     * <p>一次性语义很重要：同一个线程上连续多次调用时，读走即清空，避免把上一次的
+     * 用量重复记到下一次（记账宁少不重）。
+     */
+    default LlmUsage takeLastUsage() {
+        return LlmUsage.NONE;
+    }
+
     /** 当前客户端是否可用（有真实模型接入） */
     boolean available();
 }

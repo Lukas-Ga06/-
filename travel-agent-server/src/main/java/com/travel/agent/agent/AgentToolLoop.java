@@ -148,6 +148,18 @@ public class AgentToolLoop {
                 continue;
             }
             called.add(dedupKey);
+            // 第二阶段（花费预算）：工具次数触顶时继续让模型决策毫无意义（它想调的工具不会被放行），
+            // 直接按「部分完成」收尾，把已查到的事实留给下游；一条成功观察都没有才算未完成。
+            if (!budget.spend().allowsToolCall()) {
+                ctx.recordBudgetDegradation(AgentBudget.STAGE_TOOL,
+                        "工具调用花费预算耗尽，研究循环提前结束（已收集的观察仍然保留）");
+                LoopResult spendPartial = partialResult("可用工具次数", steps);
+                if (spendPartial != null) {
+                    return spendPartial;
+                }
+                count("spend_exhausted");
+                return new LoopResult(false, "工具调用花费预算耗尽", steps);
+            }
             String observation = executeAndObserve(ctx, toolName, args, steps);
             observations.add(observation);
         }

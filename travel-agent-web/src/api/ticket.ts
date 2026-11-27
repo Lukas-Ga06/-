@@ -92,11 +92,8 @@ export function useAccessTicket(
   const [ticket, setTicket] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!user) return;
     let alive = true;
-    if (!user) {
-      setTicket(null);
-      return;
-    }
     getAccessTicket(purpose)
       .then((value) => {
         if (alive) setTicket(value);
@@ -109,5 +106,6 @@ export function useAccessTicket(
     };
   }, [user, purpose]);
 
-  return ticket;
+  // 未登录直接返回 null：不把「没有登录态」也塞进 state，省掉一次 effect 内同步 setState
+  return user ? ticket : null;
 }

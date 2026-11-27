@@ -123,8 +123,8 @@
 | ✅ | `E2E / Playwright smoke（后端 H2 + 前端 preview）` |
 | ✅ | `Analyze (java-kotlin)` |
 | ✅ | `Analyze (javascript-typescript)` |
-| ⬜ 暂不必需 | `E2E / 移动端(WebKit) + 弱网(CDP) + 多端并发（隔离后端，观察中）`（转正条件见 `docs/guide/ci.md`） |
-| ⬜ 暂不必需 | `Visual / 11 页截图回归（Linux 基线，观察中）`（需先生成并提交 Linux 基线） |
+| ⬜ 暂不必需 | `E2E / 弱网(CDP) + 多端并发（隔离后端，观察中）`（转正条件见 `docs/guide/ci.md`） |
+| ⬜ 暂不必需 | `Visual / 10 页截图回归（Linux 基线，观察中）`（需先生成并提交 Linux 基线） |
 
 - [ ] 勾选 **Require conversation resolution before merging**。
 - [ ] 勾选 **Do not allow bypassing the above settings**（至少对管理员也生效；脚本用 `enforce_admins: true`）。

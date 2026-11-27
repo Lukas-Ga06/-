@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useSyncExternalStore } from 'react';
 
 /** 当前是否在线：navigator.onLine 初值 + online/offline 事件跟踪 */
 function readOnline(): boolean {
@@ -8,26 +8,28 @@ function readOnline(): boolean {
 }
 
 /**
+ * 订阅浏览器在线状态。
+ * 用 useSyncExternalStore 而不是「effect 里 setState 校准」：
+ * 挂载前已经发生的事件不会丢，也不需要为一同步一次的状态多跑一轮渲染。
+ */
+function subscribe(onStoreChange: () => void): () => void {
+  if (typeof window === 'undefined') return () => undefined;
+  window.addEventListener('online', onStoreChange);
+  window.addEventListener('offline', onStoreChange);
+  return () => {
+    window.removeEventListener('online', onStoreChange);
+    window.removeEventListener('offline', onStoreChange);
+  };
+}
+
+/** 服务端渲染没有 navigator：按在线处理 */
+const serverSnapshot = () => true;
+
+/**
  * 在线状态 hook：不引入新依赖，只监听浏览器原生事件。
- * 挂载时再读一次 navigator.onLine——组件挂载前发生的事件是收不到的
+ * 挂载时会读到最新状态——组件挂载前发生的事件同样不会漏
  *（例如从休眠恢复后直接以离线状态进入页面）。
  */
 export function useOnlineStatus(): boolean {
-  const [online, setOnline] = useState<boolean>(readOnline);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const goOnline = () => setOnline(true);
-    const goOffline = () => setOnline(false);
-    window.addEventListener('online', goOnline);
-    window.addEventListener('offline', goOffline);
-    // 事件可能已经错过：挂载时校准一次真实状态
-    setOnline(readOnline());
-    return () => {
-      window.removeEventListener('online', goOnline);
-      window.removeEventListener('offline', goOffline);
-    };
-  }, []);
-
-  return online;
+  return useSyncExternalStore(subscribe, readOnline, serverSnapshot);
 }

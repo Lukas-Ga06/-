@@ -110,10 +110,12 @@ export const loadAMap: AMapLoader = () => {
 
   const key = import.meta.env.VITE_AMAP_KEY?.trim();
   const securityJsCode = import.meta.env.VITE_AMAP_SECURITY_CODE?.trim() ?? '';
+  // 页面里已经有 SDK（宿主预加载 / 本页先前已加载）时直接复用，不再重复下载，也不要求 Key；
+  // 只有需要从 CDN 拉取时才必须有 Key。
+  if (window.AMap) return Promise.resolve(window.AMap);
   if (!key) {
     return Promise.reject(new Error(`缺少高德 Web 端(JS API) Key，${AMAP_CONFIG_HINT}`));
   }
-  if (window.AMap) return Promise.resolve(window.AMap);
   if (pendingLoad) return pendingLoad;
 
   // 必须在高德脚本执行前设置安全密钥。

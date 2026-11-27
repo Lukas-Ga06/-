@@ -1,6 +1,6 @@
 # 质量门禁（后端发布前必须通过）
 
-> 状态：当前事实 | 适用版本：0.1.0 / Spring Boot 3.5.16（Java 17） | 最后验证：2026-11-20 | 事实来源：`travel-agent-server/pom.xml`、`travel-agent-server/config/`（`checkstyle/checkstyle.xml`、`checkstyle/suppressions.xml`、`spotbugs-exclude.xml`）、`travel-agent-server/.mvn/jvm.config`、`travel-agent-server/src/main/resources/application.yml`
+> 状态：当前事实 | 适用版本：0.1.0 / Spring Boot 3.5.16（Java 17） | 最后验证：2026-11-25 | 事实来源：`travel-agent-server/pom.xml`、`travel-agent-server/config/`（`checkstyle/checkstyle.xml`、`checkstyle/suppressions.xml`、`spotbugs-exclude.xml`）、`travel-agent-server/.mvn/jvm.config`、`travel-agent-server/src/main/resources/application.yml`、`.github/workflows/ci.yml`
 
 一句话导读：`mvn -B verify` 是后端唯一的发布门禁——单元/集成测试 + JaCoCo 覆盖率门槛 + Checkstyle + SpotBugs，任一不过即 BUILD FAILURE；真实 MySQL 迁移与前端门禁见 [mysql-migration.md](mysql-migration.md)、[frontend-quality.md](frontend-quality.md)，CI 编排见 [ci.md](ci.md)。
 
@@ -8,7 +8,8 @@
 
 | 门禁 | 绑定阶段 | 本地命令 | 当前数字 / 阈值 |
 | --- | --- | --- | --- |
-| 单元/集成测试（H2） | test | `mvn -B test` | **623 tests，0 failures，0 errors，3 skipped**（MCP/MySQL 两个真实服务用例按环境变量跳过；2026-11-23 V24 安全用例加入后从 617 增加） |
+| 单元/集成测试（H2） | test | `mvn -B test` | **以 CI / `mvn -B verify` 输出为准**（本文不维护静态用例数） |
+| 发布验收（P0 可靠链路） | CI 独立命名步骤（`mvn verify` 之后） | `mvn -B -Dtest=ReleaseAcceptanceTest -DfailIfNoTests=false test` | `ReleaseAcceptanceTest`（`@Tag("release-acceptance")`）：证明双确认只提交一次、旧方案必失败、提交后崩溃 Outbox 可补投、断线停止无意义调用、LLM 不可用仍产出可审核方案；结果以 CI 步骤 `Release acceptance (P0 reliability)` 为准 |
 | JaCoCo INSTRUCTION | verify（check） | `mvn -B verify` | 实测 **79.73%**（38038/47707），阈值 **≥ 0.76** |
 | JaCoCo BRANCH | verify（check） | `mvn -B verify` | 实测 **60.81%**（3105/5106），阈值 **≥ 0.57** |
 | JaCoCo LINE | verify（check） | `mvn -B verify` | 实测 **79.15%**（7252/9162），阈值 **≥ 0.76** |
@@ -16,7 +17,10 @@
 | SpotBugs | verify（check） | `mvn -B spotbugs:check` | effort=**Max** / threshold=**High**，421 个类，**0 findings，0 errors** |
 | UTF-8（JVM + 日志） | 全程 | `mvn -B test`（见第 5 节证据） | 测试 JVM、控制台日志、surefire 输出统一 UTF-8 |
 
-- 唯一 1 条 skip 是 `migration.MySqlFlywayMigrationTest`（无 Docker/MySQL 时按设计跳过），真实迁移验证走 `scripts/mysql-it.ps1`。
+- 3 条 skip 是 2 个真实 MCP 用例 + 1 个真实 MySQL 迁移用例（`migration.MySqlFlywayMigrationTest`，无 Docker/MySQL 时按设计跳过），真实迁移验证走 `scripts/mysql-it.ps1`。
+- **P0 发布验收独立成命名步骤**：`ReleaseAcceptanceTest`（`@Tag("release-acceptance")`）已包含在 `mvn verify` 里，
+  CI 仍在 verify 之后单独跑一次，失败时直接指向「哪条可靠性承诺被打破」，而不是淹没在整轮用例里。
+  该套件**不替代**完整 verify，也不以通过条数当发布结论；结果以 CI 日志为准。
 - 时间参考（Windows 本机，JDK 17 / Maven 3.9.16）：`mvn -B test` 约 2 分钟，`mvn -B verify`（含 Checkstyle + SpotBugs）约 2 分 25 秒。
 - 报告产物：`target/site/jacoco/index.html` + `jacoco.csv`（覆盖率）、`target/checkstyle-result.xml`、`target/spotbugsXml.xml`（CI 上传这三份）。
 

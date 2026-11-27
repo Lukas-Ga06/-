@@ -26,9 +26,11 @@ public class PhotoController {
     @PostMapping("/api/trips/{tripId}/photos")
     public ApiResponse<PhotoDtos.Photo> upload(@PathVariable Long tripId,
                                                @RequestParam("file") MultipartFile file,
+                                               // V32：图片用途，缺省 PHOTO；只有 PHOTO / INVOICE 两个取值
+                                               @RequestParam(value = "kind", required = false) String kind,
                                                Authentication authentication) {
         User user = authService.requireUser(authentication.getName());
-        return ApiResponse.ok(PhotoDtos.Photo.from(photoService.upload(tripId, user.getId(), file)));
+        return ApiResponse.ok(PhotoDtos.Photo.from(photoService.upload(tripId, user.getId(), file, kind)));
     }
 
     @GetMapping("/api/trips/{tripId}/photos")

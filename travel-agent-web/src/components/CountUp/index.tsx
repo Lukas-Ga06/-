@@ -54,6 +54,25 @@ export default function CountUp({
   const startedRef = useRef(false);
   const rafRef = useRef<number | null>(null);
 
+  // 声明必须在两个 effect 之前：observer 回调会调用它，
+  // 后置声明会让回调闭包捕获不到本次渲染的 value/duration/easing。
+  function animate() {
+    const start = performance.now();
+    const from = 0;
+    const to = value;
+
+    function tick(now: number) {
+      const elapsed = now - start;
+      const t = Math.min(elapsed / duration, 1);
+      const eased = easing(t);
+      setDisplay(from + (to - from) * eased);
+      if (t < 1) {
+        rafRef.current = requestAnimationFrame(tick);
+      }
+    }
+    rafRef.current = requestAnimationFrame(tick);
+  }
+
   useEffect(() => {
     if (playOnVisible && ref.current) {
       const el = ref.current;
@@ -81,23 +100,6 @@ export default function CountUp({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
-
-  function animate() {
-    const start = performance.now();
-    const from = 0;
-    const to = value;
-
-    function tick(now: number) {
-      const elapsed = now - start;
-      const t = Math.min(elapsed / duration, 1);
-      const eased = easing(t);
-      setDisplay(from + (to - from) * eased);
-      if (t < 1) {
-        rafRef.current = requestAnimationFrame(tick);
-      }
-    }
-    rafRef.current = requestAnimationFrame(tick);
-  }
 
   useEffect(() => {
     return () => {

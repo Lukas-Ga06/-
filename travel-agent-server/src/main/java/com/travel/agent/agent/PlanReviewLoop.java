@@ -72,8 +72,17 @@ public class PlanReviewLoop {
                         "预算耗尽，提前结束审核重规划（保留当前审核判定，未再修复）");
                 break;
             }
+            // 第二阶段（花费预算）：重规划一轮 = 诊断 + 修复 + 复审，是花费放大器里最贵的一档。
+            // 重试次数触顶就停手，保留当前判定（passed=false → 确认门仍如实要求用户显式接受风险），
+            // 绝不因为「多试几次太贵」就假装审核通过。
+            if (ctx != null && !ctx.getBudget().spend().allowsRetry()) {
+                ctx.recordBudgetDegradation(AgentBudget.STAGE_REVIEW,
+                        "重试花费预算耗尽，提前结束审核重规划（保留当前审核判定，未再修复）");
+                break;
+            }
             attempts++;
             if (ctx != null) {
+                ctx.getBudget().spend().recordRetry();
                 ctx.setState(AgentState.REPLAN);
                 ctx.emit("replan", Map.of("attempt", attempts, "issues", summaries(verdict)));
             }

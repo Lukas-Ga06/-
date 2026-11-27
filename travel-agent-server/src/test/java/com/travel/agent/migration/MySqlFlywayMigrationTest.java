@@ -45,7 +45,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 真实 MySQL（8.4）上的 Flyway 全量迁移 + Hibernate {@code ddl-auto=validate} 集成验证。
  *
  * <p>这个测试回答一个 H2 单测回答不了的问题：<b>「db/migration + db/migration-mysql 的脚本，
- * 在真实 MySQL 上从空库一路跑到最新版本，并且与 21 个 JPA 实体完全对齐吗？」</b>
+ * 在真实 MySQL 上从空库一路跑到最新版本，并且与 25 个 JPA 实体完全对齐吗？」</b>
  * 测试 profile（H2 + {@code create-drop} + Flyway 关闭）永远覆盖不到方言相关的 DDL：
  * {@code information_schema} 探测、{@code PREPARE} 动态语句、生成列（V12）、
  * {@code ADD COLUMN ... DEFAULT} 回填（V17/V18/V19）等。
@@ -61,7 +61,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p><b>MySQL 版本链</b>：{@code mysql} profile 的 locations 是
  * {@code classpath:db/migration,classpath:db/migration-mysql}，看到的是
- * V1–V13（V8/V12/V13 为 MySQL 方言版）+ V15–V24，共 23 个迁移；
+ * V1–V13（V8/V12/V13 为 MySQL 方言版）+ V15–V29，共 28 个迁移；
  * <b>没有 V14</b>（{@code V14__llm_quota_unique_h2.sql} 是 H2 专属）。
  * 实际版本集合从 classpath 动态枚举；{@link #DOCUMENTED_MYSQL_VERSIONS} 记录链尾，
  * 新增迁移时两处一起改，避免清单与脚本各说各话。
@@ -82,24 +82,25 @@ import static org.assertj.core.api.Assertions.assertThat;
 @ActiveProfiles("mysql")
 class MySqlFlywayMigrationTest {
 
-    /** MySQL 迁移链的版本集合：V1–V13 + V15–V24（V14 是 H2 专属）。 */
+    /** MySQL 迁移链的版本集合：V1–V13 + V15–V29（V14 是 H2 专属）。 */
     private static final List<String> DOCUMENTED_MYSQL_VERSIONS = documentedMysqlVersions();
 
-    /** 21 个 JPA 实体映射的表（@Table(name=...) 逐字摘自 entity/，新增实体时同步维护）。 */
+    /** 24 个 JPA 实体映射的表（@Table(name=...) 逐字摘自 entity/，新增实体时同步维护）。 */
     private static final List<String> MAPPED_TABLES = List.of(
-            "agent_command_dedupe", "agent_run", "agent_task", "conversation_message", "conversation_meta",
-            "expense", "itinerary_item",
+            "agent_command_dedupe", "agent_run", "agent_run_event", "agent_run_spend", "agent_run_stage", "agent_task",
+            "conversation_message", "conversation_meta", "expense", "itinerary_item",
             "llm_quota_usage", "memo", "operation_history", "pending_plan", "plan_execution",
-            "rag_chunk", "rag_document", "rag_document_version", "schedule_item", "tool_call_trace",
-            "trip", "trip_event", "trip_photo", "users");
+            "plan_outbox", "rag_chunk", "rag_document", "rag_document_version", "schedule_item",
+            "tool_call_trace", "trip", "trip_event", "trip_photo", "users");
 
-    /** 21 个 JPA 实体的简单类名（新增实体时同步维护，防止「实体删了但迁移还在」静默通过）。 */
+    /** 24 个 JPA 实体的简单类名（新增实体时同步维护，防止「实体删了但迁移还在」静默通过）。 */
     private static final List<String> MAPPED_ENTITIES = List.of(
             "AgentCommandDedupe",
-            "AgentRun", "AgentTask", "ConversationMessage", "ConversationMeta", "Expense", "ItineraryItem",
+            "AgentRun", "AgentRunEvent", "AgentRunSpend", "AgentRunStage", "AgentTask",
+            "ConversationMessage", "ConversationMeta", "Expense", "ItineraryItem",
             "LlmQuotaUsage", "Memo", "OperationHistory", "PendingPlanRecord", "PlanExecution",
-            "RagChunk", "RagDocument", "RagDocumentVersion", "ScheduleItem", "ToolCallTrace",
-            "Trip", "TripEvent", "TripPhoto", "User");
+            "PlanOutbox", "RagChunk", "RagDocument", "RagDocumentVersion", "ScheduleItem",
+            "ToolCallTrace", "Trip", "TripEvent", "TripPhoto", "User");
 
     /** 迁移脚本必须建出的关键列（表 -> 列），按版本分组，失败信息带列名。 */
     private static final Map<String, List<String>> REQUIRED_COLUMNS = requiredColumns();
@@ -212,7 +213,7 @@ class MySqlFlywayMigrationTest {
     // ------------------------------------------------------------------
 
     @Test
-    @DisplayName("空库全量 Flyway 迁移（V1..V24 MySQL 链）+ Hibernate validate 21 个实体")
+    @DisplayName("空库全量 Flyway 迁移（V1..V29 MySQL 链）+ Hibernate validate 25 个实体")
     void freshDatabaseAppliesEveryMigrationAndMatchesEntities() throws Exception {
         String schema = jdbc.queryForObject("SELECT DATABASE()", String.class);
         assertThat(schema)
@@ -269,7 +270,7 @@ class MySqlFlywayMigrationTest {
                 .as("flyway_schema_history 中 success=0 的行数")
                 .isZero();
 
-        // 2) 关键表：21 个实体映射的表必须全部存在
+        // 2) 关键表：25 个实体映射的表必须全部存在
         Set<String> tables = jdbc.queryForList(
                         "SELECT table_name FROM information_schema.tables "
                                 + "WHERE table_schema = ? AND table_type = 'BASE TABLE'",
@@ -295,7 +296,7 @@ class MySqlFlywayMigrationTest {
             }
         });
 
-        // 5) Hibernate 元模型：21 个实体；上下文启动本身已由 ddl-auto=validate 证明结构一致
+        // 5) Hibernate 元模型：25 个实体；上下文启动本身已由 ddl-auto=validate 证明结构一致
         Set<String> entityNames = entityManagerFactory.getMetamodel().getEntities().stream()
                 .map(EntityType::getName)
                 .collect(Collectors.toCollection(TreeSet::new));
@@ -413,7 +414,7 @@ class MySqlFlywayMigrationTest {
 
     private static List<String> documentedMysqlVersions() {
         List<String> versions = new ArrayList<>();
-        for (int version = 1; version <= 24; version++) {
+        for (int version = 1; version <= 29; version++) {
             if (version != 14) { // V14 是 H2 专属（llm_quota_usage 唯一键）
                 versions.add(String.valueOf(version));
             }
@@ -454,6 +455,21 @@ class MySqlFlywayMigrationTest {
         addRequired(required, "conversation_message", "scope");
         // V24 注销后 token 吊销（JWT uid + token_version）
         addRequired(required, "users", "token_version");
+        // V25 确认租约（claim_token / claimed_at）
+        addRequired(required, "pending_plan", "claim_token", "claimed_at");
+        // V26 事务性 Outbox
+        addRequired(required, "plan_outbox",
+                "event_id", "plan_id", "user_id", "trip_id", "module", "status",
+                "attempts", "next_attempt_at", "last_error", "created_at");
+        // V27 运行状态机快照 / 心跳 / 幂等标识 + 迁移历史
+        addRequired(required, "agent_run", "stage", "heartbeat_at", "request_id");
+        addRequired(required, "agent_run_stage", "run_id", "seq_no", "stage", "entered_at");
+        // V28 SSE 事件持久化
+        addRequired(required, "agent_run_event", "run_id", "seq_no", "event_type", "data_json");
+        // V29 每轮花费快照
+        addRequired(required, "agent_run_spend",
+                "run_id", "user_id", "llm_calls", "tool_calls", "retries",
+                "prompt_tokens", "completion_tokens", "cost_usd", "exhausted", "created_at");
         // V23 会话轮次序号（并发成组）与会话元数据
         addRequired(required, "conversation_message", "turn_seq");
         addRequired(required, "conversation_meta", "user_id", "conversation_id", "title", "updated_at");
@@ -497,6 +513,18 @@ class MySqlFlywayMigrationTest {
         addRequired(required, "schedule_item", "uk_schedule_source_key");
         // V23 会话轮次唯一键（并发 compare-and-set 的兜底）与会话元数据唯一键
         addRequired(required, "conversation_message", "uk_conv_turn_role");
+        // V25 确认租约清扫索引
+        addRequired(required, "pending_plan", "idx_pending_plan_claim");
+        // V26 Outbox 到期扫描与行程清理索引
+        addRequired(required, "plan_outbox", "idx_plan_outbox_due", "idx_plan_outbox_trip");
+        // V27 崩溃恢复（心跳超时）与断线重连（request_id）索引
+        addRequired(required, "agent_run", "idx_agent_run_status_heartbeat", "idx_agent_run_user_request");
+        addRequired(required, "agent_run_stage", "idx_agent_run_stage_run");
+        // V28 断点续传扫描索引
+        addRequired(required, "agent_run_event", "idx_agent_run_event_run");
+        // V29 花费快照：runId 唯一 + 保留期/按用户查询索引
+        addRequired(required, "agent_run_spend",
+                "uk_agent_run_spend_run", "idx_agent_run_spend_created", "idx_agent_run_spend_user");
         addRequired(required, "conversation_meta", "uk_conv_meta_user_conv");
         addRequired(required, "memo", "idx_memo_trip");
         return required;

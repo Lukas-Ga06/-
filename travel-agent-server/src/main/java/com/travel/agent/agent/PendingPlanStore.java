@@ -13,6 +13,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.Optional;
+import java.util.UUID;
 
 /**
  * 待确认计划存储（落库实现）。
@@ -97,40 +99,82 @@ public class PendingPlanStore {
     }
 
     /**
-     * 抢占确认/取消的所有权：条件更新 PENDING → CONFIRMING。
+     * 抢占确认/取消的所有权：条件更新 PENDING → CONFIRMING，并发放本次租约令牌。
      *
-     * 返回 true 的调用方是这份方案唯一的处理者（并发下数据库行锁保证只有一个成功）；
-     * 返回 false 说明方案不存在、不属于该用户，或已被别的请求确认/取消。
+     * 返回非空令牌的调用方是这份方案唯一的处理者（并发下数据库行锁保证只有一个成功）；
+     * 返回空说明方案不存在、不属于该用户，或已被别的请求确认/取消。
      * 独立事务：必须让「抢到所有权」这一步立即提交，否则后续长事务提交前
      * 其它请求看到的仍是 PENDING，原子性就失效了。
      */
     @Transactional
-    public boolean claim(String planId, Long userId) {
+    public Optional<String> claim(String planId, Long userId) {
         if (planId == null || userId == null) {
-            return false;
+            return Optional.empty();
         }
-        boolean claimed = repository.claim(planId, userId) == 1;
+        String token = UUID.randomUUID().toString();
+        boolean claimed = repository.claim(planId, userId, token, LocalDateTime.now()) == 1;
         if (!claimed) {
             // planId 来自请求（用户可控），写入日志前剥掉 CR/LF，防止伪造日志行
             log.debug("待确认方案已被抢占或不存在: planId={} userId={}",
                     planId.replace("\r", "_").replace("\n", "_"), userId);
+            return Optional.empty();
         }
-        return claimed;
+        return Optional.of(token);
     }
 
     /**
-     * 释放所有权：提交失败时把 CONFIRMING 放回 PENDING，
+     * 释放所有权：提交失败/被拒绝时把 CONFIRMING 放回 PENDING，
      * 让用户可以用同一个 planId 重试（不用重新发起规划）。
+     *
+     * 只有令牌匹配才会回退：行若已被清扫或被别的请求重新 claim，
+     * 本次释放什么都不做（不能动别人的租约）。返回 true = 确实由本租约释放。
      */
     @Transactional
-    public void release(String planId) {
-        if (planId == null) {
-            return;
+    public boolean release(String planId, String token) {
+        if (planId == null || token == null) {
+            return false;
         }
-        if (repository.release(planId) == 0) {
-            log.debug("待确认方案无需释放（已不是 CONFIRMING）: planId={}",
+        boolean released = repository.release(planId, token) == 1;
+        if (!released) {
+            log.debug("待确认方案无需释放（已不是本租约持有）: planId={}",
                     planId.replace("\r", "_").replace("\n", "_"));
         }
+        return released;
+    }
+
+    /**
+     * 清扫过期确认租约：claimed_at 早于 threshold 的 CONFIRMING 回到 PENDING。
+     * 崩溃恢复路径，返回清扫条数；日志只写条数，不写方案内容。
+     */
+    @Transactional
+    public int sweepStale(LocalDateTime threshold) {
+        if (threshold == null) {
+            return 0;
+        }
+        int swept = repository.sweepStale(threshold);
+        if (swept > 0) {
+            log.info("清扫过期确认租约 {} 条：CONFIRMING 已回到 PENDING", swept);
+        }
+        return swept;
+    }
+
+    /**
+     * 提交栅栏：删除「仍由本租约持有」的方案行，返回是否删除成功。
+     *
+     * 调用方必须在提交事务内检查返回值：false 说明租约已失效（被清扫/被重抢），
+     * 必须抛异常回滚整个提交，防止重复落库。
+     */
+    @Transactional
+    public boolean deleteClaimed(String planId, String token) {
+        if (planId == null || token == null) {
+            return false;
+        }
+        boolean deleted = repository.deleteClaimed(planId, token) == 1;
+        if (!deleted) {
+            log.warn("确认提交栅栏未通过：方案已不归本租约持有 planId={}",
+                    planId.replace("\r", "_").replace("\n", "_"));
+        }
+        return deleted;
     }
 
     /** 查看待确认计划：过期即删除并返回 null */
