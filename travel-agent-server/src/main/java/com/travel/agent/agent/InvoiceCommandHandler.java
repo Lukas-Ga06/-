@@ -44,6 +44,9 @@ public class InvoiceCommandHandler {
     /** note 列宽 200：商户名超长时截断，避免落库失败 */
     private static final int NOTE_MAX_LENGTH = 200;
 
+    /** Diff 里的识别原文摘要上限：够核对「识别到了什么」，又不会把确认弹窗撑爆 */
+    private static final int RAW_TEXT_MAX_LENGTH = 60;
+
     private final OcrInvoiceService ocrInvoiceService;
     private final InvoiceMatchService invoiceMatchService;
     private final ExecutorAgent executorAgent;
@@ -85,7 +88,7 @@ public class InvoiceCommandHandler {
                 .operations(List.of(PlanOperation.builder()
                         .type(PlanOperation.ADD_EXPENSE)
                         .expenseDraft(draft)
-                        .detail(linkDetail(candidates))
+                        .detail(linkDetail(candidates, fields.rawText()))
                         .build()))
                 .reasoning("报销发票：" + (merchant == null ? "未识别出商户" : merchant)
                         + " ¥" + amountText(fields.amount()) + "（" + spentAt + " · " + category + "）")
@@ -138,8 +141,11 @@ public class InvoiceCommandHandler {
                 + "；识别有误可取消后手动记账。";
     }
 
-    /** Diff 的 detail：关联到谁必须逐条写出来，匹配不到就明说未关联 */
-    private static String linkDetail(InvoiceMatchService.InvoiceCandidates candidates) {
+    /**
+     * Diff 的 detail：关联到谁必须逐条写出来，匹配不到就明说未关联；
+     * 有识别原文时再附一段摘要，用户确认前能核对 OCR 读到了什么，而不是只看规则归一后的金额/商户。
+     */
+    private static String linkDetail(InvoiceMatchService.InvoiceCandidates candidates, String rawText) {
         List<String> links = new ArrayList<>(2);
         if (candidates.tripId() != null) {
             links.add("行程 " + candidates.tripLabel());
@@ -147,7 +153,13 @@ public class InvoiceCommandHandler {
         if (candidates.scheduleItemId() != null) {
             links.add("日程 " + candidates.scheduleLabel());
         }
-        return links.isEmpty() ? "关联：未关联（没有匹配的行程或日程）" : "关联：" + String.join("、", links);
+        String link = links.isEmpty() ? "关联：未关联（没有匹配的行程或日程）" : "关联：" + String.join("、", links);
+        String raw = rawText == null ? "" : rawText.replaceAll("\\s+", " ").trim();
+        if (raw.isEmpty()) {
+            return link;
+        }
+        String summary = truncate(raw, RAW_TEXT_MAX_LENGTH);
+        return link + "；识别原文：" + summary + (summary.length() < raw.length() ? "…" : "");
     }
 
     /** 回复文案里的关联从句（与 Diff 用的是同一批候选，措辞更口语） */

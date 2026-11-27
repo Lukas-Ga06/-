@@ -720,11 +720,19 @@ public final class MessageParser {
     private static final Pattern WEEKDAY_AFTER_WEEK =
             Pattern.compile("(下周|下个星期|本星期|这星期|本周|这周|这个星期)[一二三四五六日天]");
 
+    /** 「下下周」：带星期几是单日，不带是整周（基准：下下周的周一） */
+    private static final Pattern WEEK_AFTER_NEXT = Pattern.compile("下下周([一二三四五六日天])?");
+
+    /** 下下周的周一 = 今天所在周的下一周的下一周 */
+    private static LocalDate mondayAfterNext(LocalDate base) {
+        return base.with(TemporalAdjusters.next(DayOfWeek.MONDAY)).plusWeeks(1);
+    }
+
     /**
      * 解析消息里<b>明确说出</b>的日期范围；一条日期词都没有时返回 {@code null}（由调用方决定默认值）。
      *
-     * <p>支持：今天 / 今晚 / 明天 / 后天 / 大后天；下周（下周一至周日）；
-     * 本周 / 这周（今天起至本周日）；下周X、周X 等单日写法与 10月1日 / 2026-10-01
+     * <p>支持：今天 / 今晚 / 明天 / 后天 / 大后天；下周（下周一至周日）、下下周（下下周一至周日）；
+     * 本周 / 这周（今天起至本周日）；下周X、下下周X、周X 等单日写法与 10月1日 / 2026-10-01
      * （复用 {@link #extractDepartureDate}）。
      *
      * <p>返回 null 与「默认明天」的区别是语义上的：空闲查询可以默认明天，
@@ -746,6 +754,17 @@ public final class MessageParser {
         }
         if (text.contains("今天") || text.contains("今晚")) {
             return new DateRange(base, base);
+        }
+        // 「下下周」必须先于「下周」判断：「下下周一」里含有子串「下周一」，先命中会早一周
+        Matcher weekAfterNext = WEEK_AFTER_NEXT.matcher(text);
+        if (weekAfterNext.find()) {
+            LocalDate monday = mondayAfterNext(base);
+            DayOfWeek target = weekAfterNext.group(1) == null ? null : weekdayOf(weekAfterNext.group(1));
+            if (target == null) {
+                return new DateRange(monday, monday.plusDays(6));
+            }
+            LocalDate day = monday.plusDays(target.getValue() - 1L);
+            return new DateRange(day, day);
         }
         boolean explicitWeekday = WEEKDAY_AFTER_WEEK.matcher(text).find();
         if (text.contains("下周") && !explicitWeekday && !text.contains("下周末")) {

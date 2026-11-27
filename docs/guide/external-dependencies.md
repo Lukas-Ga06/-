@@ -1,6 +1,6 @@
 # 外部依赖降级矩阵（高德 / LLM / Embedding / 天气 / 发票 OCR / Redis / S3）
 
-> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.16 / AWS SDK 2.25.70 / WireMock 3.13.1） | 最后验证：2026-11-23 | 事实来源：`travel-agent-server/src/main/java/com/travel/agent/{service,llm,rag,security,config}/*.java`、`src/main/resources/application.yml`、`src/test/java/com/travel/agent/{service,resilience}/*`
+> 状态：当前事实 | 适用版本：0.1.0（Spring Boot 3.5.16 / AWS SDK 2.25.70 / WireMock 3.13.1） | 最后验证：2026-11-27 | 事实来源：`travel-agent-server/src/main/java/com/travel/agent/{service,llm,rag,security,config}/*.java`、`src/main/resources/application.yml`、`src/test/java/com/travel/agent/{service,resilience}/*`
 
 本文只写**代码与测试能证明的现状**：每个外部依赖的超时预算从哪来、重试到底有没有、
 失败后变成什么、用户看到什么、哪个指标会涨、哪个测试类守住它。
@@ -122,9 +122,9 @@ sum by (provider) (rate(external_degraded_total[5m])) > 0.2
 - 指标：`provider=ocr`；reason 复用统一词表（HTTP 429→`rate_limited`、5xx→`server_error`、超时→`timeout`、
   连不上→`connection_error`、其余（含百度 `error_code` 非 0）→`bad_response`）。
 - 恢复语义：无锁存；下次调用成功即恢复（access_token 过期会重新获取）。
-- 测试覆盖：`BaiduOcrClientTest`（纯单测：价税合计优先、`TotalAmount` 回落、中文/横线日期、`error_code` 非 0、空响应）；
-  `InvoiceOcrFlowTest`（脚本化 `OcrClient` 替身：未配置 / 识别失败 / 成功经确认落账 / 无候选不关联 / 工具只读）。
-  **真实百度识别没有验证**：缺 Key，识别率、配额与真实响应字段差异均未测（见 §5 第 8 条）。
+- 测试覆盖：`BaiduOcrClientTest`（纯单测：直接喂响应 JSON，覆盖价税合计优先、`TotalAmount` 回落、中文/横线日期、`error_code` 非 0、空响应）；
+  `InvoiceOcrFlowTest`（脚本化 `OcrClient` 替身：未配置 / 识别失败 / 没识别出金额 / 成功经确认落账 / 无候选不关联 / 工具只读）。
+  **百度 OCR 只做了响应解析单测**：真实 API 调用、token 换取与识别质量都没有验证（缺 Key，识别率、配额与真实响应字段差异均未测，见 §5 第 8 条）。
 
 ### 3.5 Redis 限流计数
 

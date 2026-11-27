@@ -170,11 +170,15 @@ public class FreeTimeService {
             int dayIndex = (int) (ChronoUnit.DAYS.between(trip.getStartDate(), day) + 1);
             List<BusyBlock> busy = busyByDate.get(day);
             for (ItineraryItem item : items) {
-                if (busy == null || item.getDayIndex() == null || item.getDayIndex() != dayIndex
-                        || item.getStartTime() == null) {
+                if (busy == null || item.getDayIndex() == null || item.getStartTime() == null) {
                     continue;
                 }
-                addItineraryBusy(busy, item);
+                if (item.getDayIndex() == dayIndex) {
+                    addItineraryBusy(busy, item);
+                } else if (item.getDayIndex() == dayIndex - 1) {
+                    // 前一天开始、跨到次日的条目（隔夜火车/跨夜活动）：次日从 08:00 起继续占用
+                    addOvernightTail(busy, item);
+                }
             }
         }
     }
@@ -199,12 +203,28 @@ public class FreeTimeService {
         addBusy(busy, start, end, item.getTitle());
     }
 
+    /**
+     * 跨天条目在次日的剩余占用：08:00 到结束时刻；结束在更晚日期时只补到窗口结束，
+     * 不展开后续日期（多日占用靠开始日到 22:00 + 次日窗口就足以表达「这段时间没空」）。
+     */
+    private static void addOvernightTail(List<BusyBlock> busy, ItineraryItem item) {
+        LocalDateTime startDateTime = item.getStartTime();
+        LocalDateTime endDateTime = item.getEndTime();
+        if (endDateTime == null || !endDateTime.toLocalDate().isAfter(startDateTime.toLocalDate())) {
+            return;
+        }
+        LocalTime end = endDateTime.toLocalDate().equals(startDateTime.toLocalDate().plusDays(1))
+                ? endDateTime.toLocalTime()
+                : WINDOW_END;
+        addBusy(busy, WINDOW_START, end, item.getTitle());
+    }
+
     private static LocalTime scheduleEnd(LocalTime start) {
         LocalTime end = start.plusHours(1);
         return end.isAfter(start) ? end : WINDOW_END;
     }
 
-    /** 裁剪到窗口并忽略完全落在窗口外的占用；22:00 之后与跨午夜的安排都不影响次日窗口。 */
+    /** 裁剪到窗口并忽略完全落在窗口外的占用；22:00 之后的部分不影响次日窗口（跨天条目由 addOvernightTail 单独补）。 */
     private static void addBusy(List<BusyBlock> busy, LocalTime start, LocalTime end, String title) {
         if (start == null || end == null || !end.isAfter(start)) {
             return;

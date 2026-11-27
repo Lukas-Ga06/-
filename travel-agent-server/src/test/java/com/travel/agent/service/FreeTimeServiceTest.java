@@ -111,6 +111,47 @@ class FreeTimeServiceTest {
     }
 
     @Test
+    @DisplayName("跨天行程条目：次日 08:00 到结束时刻仍被占用（隔夜火车/跨夜活动）")
+    void overnightItineraryBlocksNextMorning() {
+        Trip trip = trip(10L, DAY, DAY.plusDays(2));
+        ItineraryItem item = ItineraryItem.builder().tripId(10L).dayIndex(1).itemType("transport").title("夜班火车")
+                .startTime(LocalDateTime.of(DAY, LocalTime.of(21, 0)))
+                .endTime(LocalDateTime.of(DAY.plusDays(1), LocalTime.of(10, 0)))
+                .build();
+
+        FreeTimeService.FreeTimeReport report = report(DAY, DAY.plusDays(2), 60,
+                List.of(), List.of(trip), List.of(item));
+
+        assertThat(slots(report, 0)).containsExactly("08:00–21:00");
+        assertThat(slots(report, 1)).containsExactly("10:00–22:00");
+        assertThat(report.days().get(1).busy()).singleElement()
+                .satisfies(block -> {
+                    assertThat(block.start()).isEqualTo(LocalTime.of(8, 0));
+                    assertThat(block.end()).isEqualTo(LocalTime.of(10, 0));
+                    assertThat(block.title()).isEqualTo("夜班火车");
+                });
+        // 只补次日一天：结束在更晚日期时不再向后展开
+        assertThat(slots(report, 2)).containsExactly("08:00–22:00");
+    }
+
+    @Test
+    @DisplayName("跨多天的行程条目：次日补到窗口结束，再往后的日期不再占用")
+    void multiDayItineraryOnlyFillsNextDay() {
+        Trip trip = trip(10L, DAY, DAY.plusDays(2));
+        ItineraryItem item = ItineraryItem.builder().tripId(10L).dayIndex(1).itemType("transport").title("跨夜游轮")
+                .startTime(LocalDateTime.of(DAY, LocalTime.of(20, 0)))
+                .endTime(LocalDateTime.of(DAY.plusDays(2), LocalTime.of(9, 0)))
+                .build();
+
+        FreeTimeService.FreeTimeReport report = report(DAY, DAY.plusDays(2), 60,
+                List.of(), List.of(trip), List.of(item));
+
+        assertThat(slots(report, 0)).containsExactly("08:00–20:00");
+        assertThat(report.days().get(1).free()).isEmpty();
+        assertThat(slots(report, 2)).containsExactly("08:00–22:00");
+    }
+
+    @Test
     @DisplayName("行程只在自身日期范围内占用（endDate 为空只覆盖出发当天）")
     void tripOnlyBlocksDatesWithinItsRange() {
         Trip singleDay = trip(20L, DAY, null);

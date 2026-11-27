@@ -25,11 +25,13 @@ public record ScheduleSnapshot(
         String recurrence,
         LocalDate repeatUntil,
         Long tripId,
+        Long itineraryItemId,
         Integer travelDay,
         String source,
         String sourceKey,
         boolean done,
-        LocalDateTime reminderDismissedAt) {
+        LocalDateTime reminderDismissedAt,
+        LocalDateTime createdAt) {
 
     public static ScheduleSnapshot of(ScheduleItem item) {
         if (item == null) {
@@ -37,8 +39,8 @@ public record ScheduleSnapshot(
         }
         return new ScheduleSnapshot(item.getId(), item.getDate(), item.getTime(), item.getTitle(),
                 item.getNote(), item.getRecurrence(), item.getRepeatUntil(), item.getTripId(),
-                item.getTravelDay(), item.getSource(), item.getSourceKey(), item.isDone(),
-                item.getReminderDismissedAt());
+                item.getItineraryItemId(), item.getTravelDay(), item.getSource(), item.getSourceKey(),
+                item.isDone(), item.getReminderDismissedAt(), item.getCreatedAt());
     }
 
     /** 还原成可落库的实体：id 置空（撤销是重新插入一条，不复用已删除的主键） */
@@ -52,11 +54,14 @@ public record ScheduleSnapshot(
                 .recurrence(recurrence)
                 .repeatUntil(repeatUntil)
                 .tripId(tripId)
+                .itineraryItemId(itineraryItemId)
                 .travelDay(travelDay)
                 .source(source)
                 .sourceKey(sourceKey)
                 .done(done)
                 .reminderDismissedAt(reminderDismissedAt)
+                // @PrePersist 只在为空时补当前时间：快照带原值，撤销后创建时间不漂移
+                .createdAt(createdAt)
                 .build();
     }
 }
