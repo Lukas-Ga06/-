@@ -7,7 +7,7 @@
  *
  * 来源取值以代码为准，不照抄文档转述：
  * - `AgentRun.status`：`travel-agent-server/.../entity/AgentRun.java`（6 个，含
- *   `ABANDONED`；前端 `types/agent.ts` 的 `AgentRunStatus` 目前漏了它）
+ *   `ABANDONED`；前端 `types/agent.ts` 的 `AgentRunStatus` 已与之对齐）
  * - `ResourceState.status`：`src/lib/resource.ts`（实际 6 个）
  * - SSE 事件名：`src/api/agent.ts` 的 `EVENT_NAMES`（17 个）+ 后端会发但 GET 通道
  *   未注册的 `budget_degraded` + 仅续传端点的 `resume_timeout`
@@ -98,8 +98,8 @@ export const RUN_STATE_META: Record<RunStateOrUnknown, RunStateMeta> = {
   },
 };
 
-/** 后端 `AgentRun.status` 的真实取值；前端 `AgentRunStatus` 漏了 ABANDONED */
-type AgentRunStatusValue = AgentRunStatus | 'ABANDONED';
+/** 后端 `AgentRun.status` 的真实取值；前端 `AgentRunStatus` 已补齐，缺 key 会由 tsc 挡住 */
+type AgentRunStatusValue = AgentRunStatus;
 
 const AGENT_RUN_STATES: Record<AgentRunStatusValue, RunState> = {
   RUNNING: 'loading',
@@ -192,6 +192,20 @@ export function toRunState(source: RunStateSource, raw: unknown): RunStateMappin
     default:
       return assertNever(source);
   }
+}
+
+/**
+ * 读取「确认已登记」的映射结果：给 `ResourceState.status` 这类封闭联合用。
+ *
+ * `toRunState` 对未知取值返回 unknown 而不抛异常（那是给运行时数据兜底的）；
+ * 封闭联合里出现未知值属于调用方 bug，这里大声失败，避免把 unknown 当七态往下传。
+ */
+export function knownRunState(source: RunStateSource, raw: string): RunState {
+  const mapping = toRunState(source, raw);
+  if (mapping.state === 'unknown') {
+    throw new Error(`未登记的运行状态：${source}/${raw}`);
+  }
+  return mapping.state;
 }
 
 function mappingFrom(

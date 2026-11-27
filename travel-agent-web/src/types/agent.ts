@@ -110,8 +110,13 @@ export interface AgentResult {
  * 运行总状态。
  * PARTIAL_SUCCESS（部分完成）表示本轮正常收尾但有阶段失败/降级、过程警告或预算降级，
  * 结论可能不完整——界面上不能与 SUCCEEDED 共用同一个绿色标签（P0-07）。
+ *
+ * ABANDONED（结果未知）是心跳超时/进程重启后执行体已不存在、本轮没有收尾的状态。
+ * 后端刻意把它与 FAILED、CANCELLED 分开（`AgentRun.java:51`）：它不是失败报告，
+ * 也不是用户取消，前端不得归入这两档；显示口径见 `lib/runState.ts`（degraded）。
  */
-export type AgentRunStatus = 'RUNNING' | 'SUCCEEDED' | 'PARTIAL_SUCCESS' | 'FAILED' | 'CANCELLED';
+export type AgentRunStatus =
+  'RUNNING' | 'SUCCEEDED' | 'PARTIAL_SUCCESS' | 'FAILED' | 'CANCELLED' | 'ABANDONED';
 
 /** GET /api/agent/runs 列表项 */
 export interface RunSummary {

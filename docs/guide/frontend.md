@@ -809,6 +809,7 @@ const ITINERARY_API_PATTERN =
 | 加一个页面 | `pages/<Name>/index.tsx` + `App.tsx` 加 lazy 与 `<Protected>` 路由 + `AppShell` 的 `NavModule` / `GROUPS` |
 | 改聊天阶段文案 / SSE 事件处理 | `store/agentStore.ts` 的 `STAGE_TEXT` / `api/agent.ts` 的 `EVENT_NAMES` 与 handlers |
 | 统一运行状态 / 文案映射 | `src/lib/runState.ts` + [运行状态映射（RunState 七态）](run-state-mapping.md) |
+| 页面加载 / 空 / 失败 / 部分成功态 | `components/RunStatus`（图标 + 文案 + 下一步操作）；后端运行态徽标走 `src/lib/agentRunBadge.ts` 的 `agentRunBadge()`，不要另写 `switch` |
 | 改确认弹窗 | `components/PlanDiff/index.tsx` |
 | 改列表分页 | `api/client.ts` 的 `getPage` / `DEFAULT_PAGE_SIZE` + `components/PaginationBar` |
 | 换行程地图服务商 | `components/MapView/` 下的 `MapProvider`；当前高德实现见 `AMapProvider` 与 `amapLoader` |

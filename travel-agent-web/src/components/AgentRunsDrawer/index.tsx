@@ -1,7 +1,17 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Button, Drawer, Empty, Spin } from 'antd';
+import { Button, Drawer } from 'antd';
 import { ArrowLeftOutlined, ReloadOutlined } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import { getRunDetail, getRuns } from '../../api/agent';
+import RunStatus from '../RunStatus';
+import {
+  errorResource,
+  loadingResource,
+  successOrEmpty,
+  type ResourceState,
+} from '../../lib/resource';
+import { knownRunState } from '../../lib/runState';
+import { agentRunBadge } from '../../lib/agentRunBadge';
 import type { RunDetail, RunSummary, SpendView, TaskView, ToolCallView } from '../../types/agent';
 
 interface Props {
@@ -9,20 +19,7 @@ interface Props {
   onClose: () => void;
 }
 
-/** 运行状态徽标文案（成功绿 / 失败红 / 运行中蓝 / 取消灰） */
-function runStatusMeta(status: string): { text: string; tone: 'ok' | 'fail' | 'run' | 'muted' } {
-  switch (status) {
-    case 'SUCCEEDED':
-      return { text: '成功', tone: 'ok' };
-    case 'FAILED':
-      return { text: '失败', tone: 'fail' };
-    case 'RUNNING':
-      return { text: '运行中', tone: 'run' };
-    default:
-      return { text: '已取消', tone: 'muted' };
-  }
-}
-
+/** 任务状态徽标：TaskViewStatus 不是运行状态，走不到 toRunState 的后端运行态表 */
 function taskStatusMeta(status: string): { text: string; tone: 'ok' | 'fail' | 'run' } {
   switch (status) {
     case 'SUCCEEDED':
@@ -145,7 +142,7 @@ function SpendBlock({ spend }: { spend?: SpendView | null }) {
 }
 
 function RunRow({ run, onClick }: { run: RunSummary; onClick: () => void }) {
-  const meta = runStatusMeta(run.status);
+  const badge = agentRunBadge(run.status);
   return (
     <button
       type="button"
@@ -153,13 +150,15 @@ function RunRow({ run, onClick }: { run: RunSummary; onClick: () => void }) {
       onClick={onClick}
       data-testid={`agent-run-${run.runId}`}
     >
-      <span className={`run-badge ${meta.tone}`}>{meta.text}</span>
+      <span className={`run-badge ${badge.toneClass}`}>{badge.label}</span>
       <span className="run-body">
         <span className="run-title">{run.intent || run.message || '（无意图记录）'}</span>
         <span className="run-sub">
           {formatClock(run.startedAt)} · 耗时 {formatDuration(run.durationMs)}
           {run.tripId != null ? ` · 行程 #${run.tripId}` : ''}
         </span>
+        {/* ABANDONED / 未登记状态必须写清「为什么不是普通失败」，不能只换徽标颜色 */}
+        {badge.note && <span className="run-state-note">{badge.note}</span>}
         {run.error && <span className="run-error">{run.error}</span>}
       </span>
     </button>
@@ -227,26 +226,6 @@ function ToolRow({ call }: { call: ToolCallView }) {
   );
 }
 
-/** 错误态：显示错误信息与重试按钮（404「他人的 run」/ 网络错误都走这里） */
-function ErrorBox({
-  message,
-  onRetry,
-  busy,
-}: {
-  message: string;
-  onRetry: () => void;
-  busy?: boolean;
-}) {
-  return (
-    <div className="run-error-box">
-      <div className="run-error">⚠ {message}</div>
-      <Button size="small" icon={<ReloadOutlined />} loading={busy} onClick={onRetry}>
-        重试
-      </Button>
-    </div>
-  );
-}
-
 /**
  * 运行记录抽屉（V2.2 运行追踪）：列出最近 20 次运行，
  * 点击行展开该次运行的本轮花费（V29，老 run 无记录时整块不渲染）、
@@ -254,8 +233,8 @@ function ErrorBox({
  * （工具名 + 成败 + latencyMs + argsDigest 截断）。
  */
 export default function AgentRunsDrawer({ open, onClose }: Props) {
+  const navigate = useNavigate();
   const [runs, setRuns] = useState<RunSummary[] | null>(null);
-  const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
   const [detail, setDetail] = useState<RunDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -263,12 +242,10 @@ export default function AgentRunsDrawer({ open, onClose }: Props) {
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
 
   const loadList = useCallback(() => {
-    setListLoading(true);
     setListError(null);
     getRuns(20)
       .then((list) => setRuns(Array.isArray(list) ? list : []))
-      .catch((e: any) => setListError(e?.message || '运行记录加载失败'))
-      .finally(() => setListLoading(false));
+      .catch((e: any) => setListError(e?.message || '运行记录加载失败'));
   }, []);
 
   const loadDetail = useCallback((runId: string) => {
@@ -294,6 +271,37 @@ export default function AgentRunsDrawer({ open, onClose }: Props) {
     }
   }, [open, loadList]);
 
+  /**
+   * 列表状态按统一模型区分：加载中 / 成功 / 空 / 失败。
+   * 还没拿到过数据就算加载中（打开抽屉即取数），重拉时保留上一次结果。
+   */
+  const listResource: ResourceState<RunSummary[]> = listError
+    ? errorResource<RunSummary[]>(listError)
+    : runs === null
+      ? loadingResource<RunSummary[]>()
+      : successOrEmpty(runs);
+  const listState = knownRunState('resource', listResource.status);
+
+  const runBadge = detail ? agentRunBadge(detail.run.status) : null;
+  const rerunText = (detail?.run.message || detail?.run.intent || '').trim();
+  const rerunActions =
+    runBadge?.raw === 'ABANDONED' && rerunText
+      ? [
+          {
+            label: '重跑',
+            testId: 'run-rerun',
+            onClick: () => {
+              onClose();
+              navigate(
+                `/assistant?q=${encodeURIComponent(rerunText)}${
+                  detail?.run.tripId != null ? `&tripId=${detail.run.tripId}` : ''
+                }`,
+              );
+            },
+          },
+        ]
+      : undefined;
+
   return (
     <Drawer
       title="运行记录"
@@ -303,9 +311,27 @@ export default function AgentRunsDrawer({ open, onClose }: Props) {
       styles={{ body: { paddingTop: 12 } }}
     >
       <div className="runs-drawer" data-testid="agent-runs-drawer">
-        {listLoading && <Spin style={{ display: 'block', margin: '24px auto' }} />}
-        {!listLoading && listError && <ErrorBox message={listError} onRetry={loadList} />}
-        {!listLoading && !listError && detail && (
+        {listState === 'loading' && (
+          <RunStatus status="loading" text="正在加载运行记录…" size="sm" />
+        )}
+        {listState === 'failed' && (
+          <RunStatus
+            status="failed"
+            text="运行记录加载失败"
+            detail={listError ?? undefined}
+            size="sm"
+            testId="agent-runs-error"
+            actions={[
+              {
+                label: '重试',
+                icon: <ReloadOutlined aria-hidden="true" />,
+                onClick: loadList,
+                testId: 'agent-runs-retry',
+              },
+            ]}
+          />
+        )}
+        {listState === 'complete' && detail && (
           <>
             <Button
               size="small"
@@ -318,24 +344,49 @@ export default function AgentRunsDrawer({ open, onClose }: Props) {
             <RunRow run={detail.run} onClick={() => loadDetail(detail.run.runId)} />
           </>
         )}
-        {!listLoading && !listError && !detail && (
+        {listState === 'empty' && !detail && (
+          <RunStatus status="empty" text="还没有运行记录" size="sm" />
+        )}
+        {listState === 'complete' && !detail && (
           <>
-            {runs && runs.length === 0 && <Empty description="还没有运行记录" />}
             {runs &&
-              runs.length > 0 &&
               runs.map((r) => <RunRow key={r.runId} run={r} onClick={() => loadDetail(r.runId)} />)}
           </>
         )}
-        {detailLoading && <Spin style={{ display: 'block', margin: '24px auto' }} />}
+        {detailLoading && <RunStatus status="loading" text="正在加载运行详情…" size="sm" />}
         {detailError && (
-          <ErrorBox
-            message={detailError}
-            onRetry={() => selectedRunId && loadDetail(selectedRunId)}
-            busy={detailLoading}
+          <RunStatus
+            status="failed"
+            text="运行详情加载失败"
+            detail={detailError}
+            size="sm"
+            testId="agent-run-detail-error"
+            actions={[
+              {
+                label: '重试',
+                icon: <ReloadOutlined aria-hidden="true" />,
+                onClick: () => {
+                  if (selectedRunId) loadDetail(selectedRunId);
+                },
+                testId: 'agent-run-detail-retry',
+              },
+            ]}
           />
         )}
         {detail && !detailLoading && (
           <>
+            {/* ABANDONED：结果未知既不是失败也不是取消，必须写明原因并给出「重跑」 */}
+            {runBadge?.state === 'degraded' && runBadge.note && (
+              <div className="runs-state-note" data-testid="agent-run-abandoned-note">
+                <RunStatus
+                  status="degraded"
+                  text={runBadge.note}
+                  detail="本轮没有收尾，执行体已不存在；可重跑同一条请求。"
+                  size="sm"
+                  actions={rerunActions}
+                />
+              </div>
+            )}
             <SpendBlock spend={detail.spend} />
             <div className="runs-section-title">任务链</div>
             {(detail.tasks ?? []).map((t) => (

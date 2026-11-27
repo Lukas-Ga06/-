@@ -45,9 +45,11 @@ unknown 保留来源与原始值用于排查，**不抛异常、不静默归到 
 | `CANCELLED` | `cancelled` | 客户端断开或取消 |
 | `ABANDONED` | `degraded` | 心跳超时/进程重启，执行体已不存在、**结果未知**；后端刻意与 `FAILED` 区分。映射保留「结果可能不完整」语义，不显示为成功 |
 
-> **类型缺口（现状）**：前端 `src/types/agent.ts` 的 `AgentRunStatus` 只有前 5 个值，**漏了
-> `ABANDONED`**。映射层按后端事实补上；`types/agent.ts`、`Workbench` 与 `AgentRunsDrawer` 目前会把
-> `ABANDONED` 落进各自的 `default`（显示成「已取消」），属于错误文案，统一替换不在本映射层处理。
+> **类型已对齐**：前端 `src/types/agent.ts` 的 `AgentRunStatus` 已补齐 `ABANDONED`（P1-E 卡 #5）。
+> 徽标与详情不再各自写 `switch`：`Workbench` / `AgentRunsDrawer` 统一经
+> `src/lib/agentRunBadge.ts` 的 `agentRunBadge()` 读取本表的七态与文案，`ABANDONED` 显示
+> 「结果未知」+ 完整文案「结果未知（进程重启或心跳超时）」，下一步给「重跑」，
+> 绝不落进「已取消」或「失败」分支。
 
 ## 3. 前端资源态 → RunState
 
@@ -132,6 +134,13 @@ const mapped = toRunState('agent-run', run.status);
 
 ## 7. 现状边界
 
-`components/RunStatus` 仍持有自己的七态 `RunState` 与 `META`（label / tone 与本表一致，但没有 `hint`）。
-本文件先作为映射层落地；把组件、`Workbench`、`AgentRunsDrawer`、结果卡与时间线统一到本映射，
-属于后续渲染层改动，本表不重复代码。
+`components/RunStatus` 仍持有自己的七态 `RunState` 与 `META`（label / tone 与本表一致，但没有 `hint`），
+两处口径必须一起改。渲染层已统一到本映射的范围（P1-E）：
+
+- `Workbench`、`AgentRunsDrawer`：列表徽标、错误 / 空 / 加载态走 `RunStatus`；
+- 地图失败态（`MapView`、`FootprintMap`）：失败的资源 → `failed`，文案与重试复用 `RunStatus`；
+- 列表页三态：`Home`、`Travel`、`Schedule`（含 `resource.ts` → `toRunState('resource', ...)`）。
+
+尚未统一的面（后续卡片）：`Timeline` 阶段语义（卡 #6）、地图↔时间线联动（卡 #7）、
+`ChatPanel`/`ResultCard` 的细粒度过程行，以及其余低频页面（`Memos` / `Expenses` / `Reviews` /
+`Knowledge` / `TripReview`）里仍由页面自行拼的错误与空态文案。

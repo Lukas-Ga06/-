@@ -13,6 +13,8 @@ import type { AgentFocus } from '../../types/agent';
 import type { MapProvider } from './MapProvider';
 import { AMapProvider } from './AMapProvider';
 import { useThemeStore } from '../../store/themeStore';
+import RunStatus from '../RunStatus';
+import { knownRunState } from '../../lib/runState';
 
 interface Props {
   items: ItineraryItem[];
@@ -54,6 +56,8 @@ export default function MapView({
   const [mapLoadFailed, setMapLoadFailed] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
   const themeMode = useThemeStore((s) => s.mode);
+  /** 地图加载失败是「资源不可用」而不是「没有地点」：统一走 resource→error（failed）这一档 */
+  const mapFailedState = knownRunState('resource', 'error');
 
   // 初始化 / 视角切换。高德 SDK 只加载一次，Provider 负责挂起异步加载期间的渲染请求。
   // 主题不作为依赖：切主题只换底图样式，绝不重建地图（重建会丢相机与覆盖物）。
@@ -161,30 +165,34 @@ export default function MapView({
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
       {mapLoadFailed && (
         <div className="map-unavailable" role="alert" data-testid="map-unavailable">
-          <b>地图暂时不可用</b>
-          <span className="mu-hint">行程时间轴与 AI 助手仍可正常使用。</span>
-          <div className="mu-actions">
-            <button
-              type="button"
-              className="map-ctl-btn"
-              onClick={() => {
-                setMapLoadFailed(false);
-                setRetryKey((v) => v + 1);
-              }}
-            >
-              <ReloadOutlined aria-hidden="true" /> 重试地图
-            </button>
-            {onViewTimeline && (
-              <button type="button" className="map-ctl-btn" onClick={onViewTimeline}>
-                查看时间轴
-              </button>
-            )}
-            {onOpenDiagnostics && (
-              <button type="button" className="map-ctl-btn" onClick={onOpenDiagnostics}>
-                打开诊断
-              </button>
-            )}
-          </div>
+          <RunStatus
+            status={mapFailedState}
+            text="地图暂时不可用"
+            detail="行程时间轴与 AI 助手仍可正常使用。"
+            actions={[
+              {
+                label: '重试地图',
+                icon: <ReloadOutlined aria-hidden="true" />,
+                onClick: () => {
+                  setMapLoadFailed(false);
+                  setRetryKey((v) => v + 1);
+                },
+                testId: 'map-retry',
+              },
+              ...(onViewTimeline
+                ? [{ label: '查看时间轴', onClick: onViewTimeline, testId: 'map-view-timeline' }]
+                : []),
+              ...(onOpenDiagnostics
+                ? [
+                    {
+                      label: '打开诊断',
+                      onClick: onOpenDiagnostics,
+                      testId: 'map-open-diagnostics',
+                    },
+                  ]
+                : []),
+            ]}
+          />
         </div>
       )}
       {!mapLoadFailed && (

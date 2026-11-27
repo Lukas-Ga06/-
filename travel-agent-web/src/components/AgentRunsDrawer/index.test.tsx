@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import AgentRunsDrawer from './index';
 import type { RunDetail, RunSummary, SpendView } from '../../types/agent';
 
@@ -38,7 +39,12 @@ function makeDetail(spend?: SpendView | null): RunDetail {
 async function openDetail(detail: RunDetail): Promise<void> {
   api.getRuns.mockResolvedValue([RUN]);
   api.getRunDetail.mockResolvedValue(detail);
-  render(<AgentRunsDrawer open onClose={vi.fn()} />);
+  // 抽屉里的「重跑」要用 router 导航（ABANDONED 的下一步），渲染必须在 Router 内
+  render(
+    <MemoryRouter>
+      <AgentRunsDrawer open onClose={vi.fn()} />
+    </MemoryRouter>,
+  );
   fireEvent.click(await screen.findByTestId('agent-run-run-1'));
   await screen.findByText('任务链');
 }
@@ -152,5 +158,59 @@ describe('AgentRunsDrawer · 本轮花费（V29）', () => {
     // 0 = 后端未配置单价，是真实记录，不能美化掉
     await openDetail(makeDetail({ costUsd: 0 }));
     expect(spendValue('费用')).toBe('$0.0000');
+  });
+});
+
+describe('AgentRunsDrawer · ABANDONED（结果未知）', () => {
+  const ABANDONED_RUN: RunSummary = {
+    runId: 'run-abandoned',
+    status: 'ABANDONED',
+    message: '帮我规划杭州两日游',
+    intent: 'PLAN_TRIP',
+    startedAt: '2026-11-26T10:00:00',
+    endedAt: null,
+  };
+
+  function renderWithProbe() {
+    function LocationProbe() {
+      const location = useLocation();
+      return <div data-testid="probe-loc">{location.pathname + location.search}</div>;
+    }
+    return render(
+      <MemoryRouter initialEntries={['/assistant']}>
+        <LocationProbe />
+        <AgentRunsDrawer open onClose={vi.fn()} />
+      </MemoryRouter>,
+    );
+  }
+
+  it('显示「结果未知（进程重启或心跳超时）」而不是「已取消」，并给 degraded 档', async () => {
+    api.getRuns.mockResolvedValue([ABANDONED_RUN]);
+    api.getRunDetail.mockResolvedValue({ run: ABANDONED_RUN, tasks: [], toolCalls: [] });
+
+    renderWithProbe();
+    fireEvent.click(await screen.findByTestId('agent-run-run-abandoned'));
+
+    const note = await screen.findByTestId('agent-run-abandoned-note');
+    expect(note.textContent).toContain('结果未知（进程重启或心跳超时）');
+    // 后端把 ABANDONED 与 CANCELLED 分开，界面也不许混成一档
+    expect(screen.queryByText('已取消')).toBeNull();
+    expect(document.querySelector('.run-badge.muted')).toBeNull();
+    expect(document.querySelector('.run-badge.warn')).toBeTruthy();
+    expect(note.querySelector('[data-status="degraded"]')).toBeTruthy();
+    expect(screen.getByTestId('run-rerun')).toBeTruthy();
+  });
+
+  it('「重跑」把原请求带回 AI 助手（可重发），不是只给一句提示', async () => {
+    api.getRuns.mockResolvedValue([ABANDONED_RUN]);
+    api.getRunDetail.mockResolvedValue({ run: ABANDONED_RUN, tasks: [], toolCalls: [] });
+
+    renderWithProbe();
+    fireEvent.click(await screen.findByTestId('agent-run-run-abandoned'));
+    fireEvent.click(await screen.findByTestId('run-rerun'));
+
+    const loc = screen.getByTestId('probe-loc').textContent ?? '';
+    expect(loc).toContain('/assistant?q=');
+    expect(decodeURIComponent(loc)).toContain('帮我规划杭州两日游');
   });
 });

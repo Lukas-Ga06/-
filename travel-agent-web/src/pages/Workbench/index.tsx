@@ -1,33 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Button, Empty, Spin } from 'antd';
+import { Button } from 'antd';
 import { BugOutlined, ReloadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { useNavigate } from 'react-router-dom';
 import AppShell from '../../components/AppShell';
+import RunStatus from '../../components/RunStatus';
 import { getRunDetail, getRuns } from '../../api/agent';
+import {
+  errorResource,
+  loadingResource,
+  successOrEmpty,
+  type ResourceState,
+} from '../../lib/resource';
+import { knownRunState } from '../../lib/runState';
+import { agentRunBadge } from '../../lib/agentRunBadge';
 import type { RunDetail, RunSummary, TaskView, ToolCallView } from '../../types/agent';
 import './workbench.css';
 
-/** 运行状态徽标文案（成功绿 / 部分完成橙 / 失败红 / 运行中蓝 / 取消灰） */
-function runStatusMeta(status: string): {
-  text: string;
-  tone: 'ok' | 'warn' | 'fail' | 'run' | 'muted';
-} {
-  switch (status) {
-    case 'SUCCEEDED':
-      return { text: '成功', tone: 'ok' };
-    // P0-07：有阶段失败/降级、过程警告或预算降级时，绝不能与完全成功共用绿色标签
-    case 'PARTIAL_SUCCESS':
-      return { text: '部分完成', tone: 'warn' };
-    case 'FAILED':
-      return { text: '失败', tone: 'fail' };
-    case 'RUNNING':
-      return { text: '运行中', tone: 'run' };
-    default:
-      return { text: '已取消', tone: 'muted' };
-  }
-}
-
+/** 任务状态徽标：TaskViewStatus 不是运行状态，走不到 toRunState 的后端运行态表 */
 function taskStatusMeta(status: string): { text: string; tone: 'ok' | 'fail' | 'run' } {
   switch (status) {
     case 'SUCCEEDED':
@@ -61,25 +51,6 @@ function truncateDigest(digest?: string | null, max = 32): string | null {
   return digest.length > max ? `${digest.slice(0, max)}…` : digest;
 }
 
-function ErrorBox({
-  message,
-  onRetry,
-  busy,
-}: {
-  message: string;
-  onRetry: () => void;
-  busy?: boolean;
-}) {
-  return (
-    <div className="run-error-box">
-      <div className="run-error">⚠ {message}</div>
-      <Button size="small" icon={<ReloadOutlined />} loading={busy} onClick={onRetry}>
-        重试
-      </Button>
-    </div>
-  );
-}
-
 function RunRow({
   run,
   selected,
@@ -89,7 +60,7 @@ function RunRow({
   selected: boolean;
   onClick: () => void;
 }) {
-  const meta = runStatusMeta(run.status);
+  const badge = agentRunBadge(run.status);
   return (
     <button
       type="button"
@@ -97,13 +68,15 @@ function RunRow({
       onClick={onClick}
       data-testid={`agent-run-${run.runId}`}
     >
-      <span className={`run-badge ${meta.tone}`}>{meta.text}</span>
+      <span className={`run-badge ${badge.toneClass}`}>{badge.label}</span>
       <span className="run-body">
         <span className="run-title">{run.intent || run.message || '（无意图记录）'}</span>
         <span className="run-sub">
           {formatDateTime(run.startedAt)} · 耗时 {formatDuration(run.durationMs)}
           {run.tripId != null ? ` · 行程 #${run.tripId}` : ''}
         </span>
+        {/* ABANDONED / 未登记状态必须写清「为什么不是普通失败」，不能只换徽标颜色 */}
+        {badge.note && <span className="run-state-note">{badge.note}</span>}
         {run.error && <span className="run-error">{run.error}</span>}
       </span>
     </button>
@@ -258,6 +231,37 @@ export default function Workbench() {
     failedTools > 0 ? `${failedTools} 次工具失败` : null,
   ].filter(Boolean);
 
+  /**
+   * 列表状态按统一模型区分：加载中 / 成功 / 空 / 失败（P0-04）。
+   * 七态一律经 `toRunState('resource', ...)`，本页不再手写「有没有数据」的判断。
+   */
+  const listResource: ResourceState<RunSummary[]> = listError
+    ? errorResource<RunSummary[]>(listError)
+    : runs === null
+      ? loadingResource<RunSummary[]>()
+      : successOrEmpty(runs);
+  const listState = knownRunState('resource', listResource.status);
+
+  /** 详情里的运行状态：徽标与补充说明都来自同一个映射结果 */
+  const runBadge = detail ? agentRunBadge(detail.run.status) : null;
+  /** ABANDONED 的下一步是「重跑」：把原请求带回 AI 助手重发，而不是让用户自己复述 */
+  const rerunText = (detail?.run.message || detail?.run.intent || '').trim();
+  const rerunActions =
+    runBadge?.raw === 'ABANDONED' && rerunText
+      ? [
+          {
+            label: '重跑',
+            testId: 'run-rerun',
+            onClick: () =>
+              navigate(
+                `/assistant?q=${encodeURIComponent(rerunText)}${
+                  detail?.run.tripId != null ? `&tripId=${detail.run.tripId}` : ''
+                }`,
+              ),
+          },
+        ]
+      : undefined;
+
   return (
     <AppShell active="diagnostics">
       <div className="dash-wrap">
@@ -282,10 +286,33 @@ export default function Workbench() {
               <span className="run-sub">{runs ? `最近 ${runs.length} 次` : '加载中…'}</span>
             </div>
             <div className="runs-drawer workbench-list-scroll">
-              {listLoading && !runs && <Spin style={{ display: 'block', margin: '24px auto' }} />}
-              {listError && <ErrorBox message={listError} onRetry={loadList} busy={listLoading} />}
-              {!listLoading && !listError && runs && runs.length === 0 && (
-                <Empty description="还没有运行记录，去 AI 助手发起一次旅行规划吧" />
+              {listState === 'loading' && (
+                <RunStatus status="loading" text="正在加载运行记录…" size="sm" />
+              )}
+              {listState === 'failed' && (
+                <RunStatus
+                  status="failed"
+                  text="运行记录加载失败"
+                  detail={listError ?? undefined}
+                  size="sm"
+                  testId="workbench-runs-error"
+                  actions={[
+                    {
+                      label: '重试',
+                      icon: <ReloadOutlined aria-hidden="true" />,
+                      onClick: loadList,
+                      testId: 'workbench-runs-retry',
+                    },
+                  ]}
+                />
+              )}
+              {runs && runs.length === 0 && (
+                <RunStatus
+                  status="empty"
+                  text="还没有运行记录"
+                  detail="去 AI 助手发起一次旅行规划吧"
+                  size="sm"
+                />
               )}
               {runs &&
                 runs.map((run) => (
@@ -310,16 +337,28 @@ export default function Workbench() {
               )}
             </div>
 
-            {detailLoading && <Spin style={{ display: 'block', margin: '32px auto' }} />}
+            {detailLoading && <RunStatus status="loading" text="正在加载运行详情…" size="sm" />}
             {!detailLoading && detailError && (
-              <ErrorBox
-                message={detailError}
-                onRetry={() => selectedRunId && loadDetail(selectedRunId)}
-                busy={detailLoading}
+              <RunStatus
+                status="failed"
+                text="运行详情加载失败"
+                detail={detailError}
+                size="sm"
+                testId="workbench-detail-error"
+                actions={[
+                  {
+                    label: '重试',
+                    icon: <ReloadOutlined aria-hidden="true" />,
+                    onClick: () => {
+                      if (selectedRunId) loadDetail(selectedRunId);
+                    },
+                    testId: 'workbench-detail-retry',
+                  },
+                ]}
               />
             )}
             {!detailLoading && !detailError && !detail && (
-              <Empty description="选择左侧运行查看任务链与工具调用" />
+              <RunStatus status="empty" text="选择左侧运行查看任务链与工具调用" size="sm" />
             )}
 
             {detail && !detailLoading && (
@@ -339,6 +378,23 @@ export default function Workbench() {
                     意图：<b>{detail.run.intent || '—'}</b>
                   </span>
                 </div>
+
+                {/* ABANDONED：结果未知既不是失败也不是取消，必须写明原因并给出「重跑」 */}
+                {runBadge?.state === 'degraded' && runBadge.note && (
+                  <div
+                    className="wb-note wb-note-warn"
+                    role="status"
+                    data-testid="run-abandoned-note"
+                  >
+                    <RunStatus
+                      status="degraded"
+                      text={runBadge.note}
+                      detail="本轮没有收尾，执行体已不存在；可重跑同一条请求。"
+                      size="sm"
+                      actions={rerunActions}
+                    />
+                  </div>
+                )}
                 <div className="wb-note">
                   <span>确认状态：运行追踪契约不含该字段，待确认方案请到 AI 助手查看。</span>
                   <Button type="link" size="small" onClick={() => navigate('/assistant')}>

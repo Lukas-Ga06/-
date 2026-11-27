@@ -79,6 +79,7 @@ const DEFAULT_SPECS = [
   'isolation.spec.ts',
   'maplibre-vendor.spec.ts',
   'planner-form.spec.ts',
+  'run-state.spec.ts',
   'smoke.spec.ts',
 ];
 

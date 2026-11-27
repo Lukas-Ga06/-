@@ -7,6 +7,7 @@ import {
   CompassOutlined,
   DeleteOutlined,
   GlobalOutlined,
+  ReloadOutlined,
   RobotOutlined,
   StopOutlined,
   UndoOutlined,
@@ -24,13 +25,13 @@ import {
   successOrEmpty,
   type ResourceState,
 } from '../../lib/resource';
+import { knownRunState } from '../../lib/runState';
 import { useAuthStore } from '../../store/authStore';
 import { useTripStore } from '../../store/tripStore';
 import VoiceButton from '../../components/VoiceButton';
-import Skeleton from '../../components/Skeleton';
 import PaginationBar from '../../components/PaginationBar';
 import AppShell from '../../components/AppShell';
-import EmptyState from '../../components/EmptyState';
+import RunStatus from '../../components/RunStatus';
 import Schedule from '../Schedule';
 import Footprint from '../Footprint';
 
@@ -111,12 +112,13 @@ export default function Travel() {
   const tabParam = params.get('tab');
   const activeTab = tabParam === 'schedule' || tabParam === 'footprint' ? tabParam : 'trips';
 
-  // 列表状态按统一模型区分：加载中 / 成功 / 空 / 失败（P0-04）
+  // 列表状态按统一模型区分：加载中 / 成功 / 空 / 失败（P0-04）；七态经 toRunState('resource')
   const tripsResource: ResourceState<Trip[]> = tripsError
     ? errorResource<Trip[]>(tripsError, { previous: trips })
     : tripsLoading
       ? loadingResource<Trip[]>(trips)
       : successOrEmpty(trips);
+  const tripsRunState = knownRunState('resource', tripsResource.status);
 
   const keyword = query.trim().toLowerCase();
   const filtered = trips
@@ -301,44 +303,54 @@ export default function Travel() {
                   </div>
 
                   {tripsResource.status === 'error' ? (
-                    <div className="load-error" role="alert">
-                      <div className="le-title">行程列表加载失败</div>
-                      <div className="le-detail">{tripsResource.message}</div>
-                      <div className="le-actions">
-                        {canRetry(tripsResource) && (
-                          <Button
-                            size="small"
-                            type="primary"
-                            onClick={() => loadTrips().catch(() => {})}
-                          >
-                            重试
-                          </Button>
-                        )}
-                        <Button size="small" onClick={() => navigate('/planner')}>
-                          直接规划新行程
-                        </Button>
-                      </div>
+                    <div className="run-state-block run-state-block--danger" role="alert">
+                      <RunStatus
+                        status={tripsRunState}
+                        text="行程列表加载失败"
+                        detail={tripsResource.message}
+                        testId="trips-error"
+                        actions={[
+                          ...(canRetry(tripsResource)
+                            ? [
+                                {
+                                  label: '重试',
+                                  icon: <ReloadOutlined aria-hidden="true" />,
+                                  onClick: () => loadTrips().catch(() => {}),
+                                  testId: 'trips-retry',
+                                },
+                              ]
+                            : []),
+                          { label: '直接规划新行程', onClick: () => navigate('/planner') },
+                        ]}
+                      />
                       {tripsResource.previous && tripsResource.previous.length > 0 && (
-                        <div className="le-note">下面是上次加载到的结果，可能不是最新</div>
+                        <div className="run-state-block-note">
+                          下面是上次加载到的结果，可能不是最新
+                        </div>
                       )}
                     </div>
                   ) : null}
 
                   {tripsResource.status === 'loading' && trips.length === 0 && (
-                    <div className="inset-list fade-up" aria-hidden="true">
-                      {[0, 1, 2].map((i) => (
-                        <Skeleton.ListItem key={i} />
-                      ))}
+                    <div className="run-state-block fade-up" aria-busy="true">
+                      <RunStatus status={tripsRunState} text="正在加载行程…" size="sm" />
                     </div>
                   )}
 
                   {tripsResource.status === 'empty' ? (
                     <div className="empty-trips">
-                      <EmptyState
+                      <RunStatus
+                        status={tripsRunState}
+                        text="还没有行程"
+                        detail="点右上角「新建行程」，或用一句话描述你想去哪、几天、几个人。"
                         testId="trips-empty"
-                        icon={<CompassOutlined aria-hidden="true" />}
-                        title="还没有行程，输入一个旅行想法让 AI 帮你规划吧"
-                        hint="点右上角「新建行程」，或用一句话描述你想去哪、几天、几个人。"
+                        actions={[
+                          {
+                            label: '规划第一次旅行',
+                            onClick: () => navigate('/planner'),
+                            testId: 'trips-empty-plan',
+                          },
+                        ]}
                       />
                     </div>
                   ) : null}

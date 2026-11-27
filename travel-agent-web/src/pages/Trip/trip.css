@@ -27,7 +27,8 @@
   flex-wrap: wrap;
 }
 
-/* 地图不可用：明确「时间轴仍可用」并给出两个出口，不暴露 Key / 环境变量 */
+/* 地图不可用：明确「时间轴仍可用」并给出出口，不暴露 Key / 环境变量。
+   文案与重试按钮由 components/RunStatus 统一渲染，这里只负责压在地图上的位置与外层留白 */
 .map-unavailable {
   position: absolute;
   inset: 0;
@@ -41,30 +42,6 @@
   text-align: center;
   background: var(--surface);
   color: var(--text-2);
-}
-
-.map-unavailable b {
-  font-size: 15px;
-  color: var(--text);
-}
-
-.map-unavailable .mu-hint {
-  font-size: 12.5px;
-  color: var(--text-3);
-}
-
-.map-unavailable .mu-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 6px;
-}
-
-.map-unavailable .mu-actions .map-ctl-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
 }
 
 .map-ctl-group {

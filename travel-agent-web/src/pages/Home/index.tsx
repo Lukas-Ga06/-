@@ -28,7 +28,8 @@ import CityDrawer from '../../components/CityDrawer';
 import VoiceButton from '../../components/VoiceButton';
 import CountUp from '../../components/CountUp';
 import Skeleton from '../../components/Skeleton';
-import EmptyState from '../../components/EmptyState';
+import RunStatus from '../../components/RunStatus';
+import { knownRunState } from '../../lib/runState';
 import {
   footprintStats,
   tripDays,
@@ -41,6 +42,18 @@ import './home.css';
 
 // 首页足迹地图依赖 maplibre-gl（约 1MB），懒加载避免拖慢首屏
 const FootprintMap = lazy(() => import('../../components/FootprintMap'));
+
+/** 各模块中文名：失败时要指名道姓，不能只说「部分内容」 */
+const MODULE_LABELS: Record<string, string> = {
+  footprint: '足迹与行程',
+  expense: '本月支出',
+  memos: '备忘',
+  schedule: '日程',
+  reminders: '提醒',
+};
+
+/** 资源不可用的统一档位：地图/列表加载失败 = failed，不是「没有数据」 */
+const LOAD_FAILED_STATE = knownRunState('resource', 'error');
 
 /**
  * 首页（方案 §8.2）：只回答三个问题 ——
@@ -71,6 +84,10 @@ export default function Home() {
   const setRemindersOpen = useUIStore((s) => s.setRemindersOpen);
   const reminderCount = reminderBoard?.count ?? 0;
   const failedModule = (key: string) => failed.includes(key);
+  /** 失败模块的中文清单：局部失败要能看出「哪几块」没加载出来 */
+  const failedLabels = failed.map((key) => MODULE_LABELS[key] ?? key).join('、');
+  /** 今天要做什么依赖日程与备忘：任一失败时不能把「没加载出来」写成「今天没有安排」 */
+  const todayFailed = failedModule('schedule') || failedModule('memos');
 
   useEffect(() => {
     let alive = true;
@@ -273,18 +290,16 @@ export default function Home() {
           </div>
         </div>
 
-        {/* 局部失败：说明哪些模块没加载出来，并给一个重试入口；成功模块照常可用（P0-04） */}
+        {/* 局部失败：页面按「部分成功」（partial）表达——成功模块照常可用，失败模块指名道姓（P0-04） */}
         {!statsLoading && failed.length > 0 && (
-          <div className="load-error fade-up" role="alert">
-            <div className="le-title">部分内容加载失败</div>
-            <div className="le-detail">
-              标有「加载失败」的指标与被影响的卡片暂时不可信，其余模块仍可正常使用。
-            </div>
-            <div className="le-actions">
-              <Button size="small" type="primary" onClick={reload}>
-                重试
-              </Button>
-            </div>
+          <div className="run-state-block run-state-block--warn fade-up" role="alert">
+            <RunStatus
+              status="partial"
+              text="部分内容加载失败"
+              detail={`${failedLabels}暂时没加载出来；标有「加载失败」的指标与被影响的卡片暂时不可信，其余模块仍可正常使用。`}
+              actions={[{ label: '重试', onClick: reload, testId: 'home-retry' }]}
+              testId="home-partial-error"
+            />
           </div>
         )}
 
@@ -330,11 +345,13 @@ export default function Home() {
             </div>
           ) : failedModule('footprint') ? (
             <div className="nt-body">
-              <div className="nt-title">行程数据加载失败</div>
-              <div className="nt-meta">重试后再看你的下一次旅行。</div>
-              <div className="nt-actions">
-                <Button onClick={reload}>重试</Button>
-              </div>
+              <RunStatus
+                status={LOAD_FAILED_STATE}
+                text="行程数据加载失败"
+                detail="重试后再看你的下一次旅行。"
+                size="sm"
+                actions={[{ label: '重试', onClick: reload, testId: 'home-next-trip-retry' }]}
+              />
             </div>
           ) : (
             <div className="nt-body">
@@ -370,7 +387,16 @@ export default function Home() {
                 全部日程 →
               </button>
             </div>
-            {todaySchedule.length === 0 && openMemos.length === 0 ? (
+            {todayFailed && (
+              <RunStatus
+                status={LOAD_FAILED_STATE}
+                text="今天的安排没加载出来"
+                detail="重试后再看今天要做什么；已有内容不受影响。"
+                size="sm"
+                actions={[{ label: '重试', onClick: reload, testId: 'home-today-retry' }]}
+              />
+            )}
+            {!todayFailed && todaySchedule.length === 0 && openMemos.length === 0 ? (
               <div className="hss-note">今天没有安排。说一句「记一下明天办签证」就能加备忘。</div>
             ) : (
               <>
@@ -513,71 +539,84 @@ export default function Home() {
           </div>
           {failedModule('footprint') ? (
             <div className="footprint-compact-state" role="alert">
-              <span>足迹数据暂时没加载出来。</span>
-              <div className="fcs-actions">
-                <Button size="small" icon={<ReloadOutlined />} onClick={reload}>
-                  重试
-                </Button>
-                <Button size="small" type="link" onClick={() => navigate('/travel')}>
-                  查看行程
-                </Button>
-              </div>
+              <RunStatus
+                status={LOAD_FAILED_STATE}
+                text="足迹数据暂时没加载出来。"
+                detail="重试后再看足迹；行程列表不受影响。"
+                size="sm"
+                actions={[
+                  {
+                    label: '重试',
+                    icon: <ReloadOutlined aria-hidden="true" />,
+                    onClick: reload,
+                    testId: 'home-footprint-retry',
+                  },
+                  { label: '查看行程', onClick: () => navigate('/travel') },
+                ]}
+              />
             </div>
           ) : mapPoints === null ? (
             <div className="footprint-compact-state">
-              <Skeleton.Text width={180} height={14} />
-              <span className="fcs-hint">正在定位目的地…</span>
+              <RunStatus status="loading" text="正在定位目的地…" size="sm" />
             </div>
           ) : visitedMapPoints.length === 0 ? (
-            <EmptyState
-              testId="home-footprint-empty"
-              compact
-              title="还没有已打卡的足迹"
-              action={{
-                label: '规划一次旅行',
-                onClick: () => navigate('/planner'),
-                testId: 'home-footprint-empty-plan',
-              }}
-            />
+            <div className="footprint-compact-state">
+              <RunStatus
+                status="empty"
+                text="还没有已打卡的足迹"
+                detail="旅行结束后把地点标记为已到访，足迹会显示在地图上。"
+                size="sm"
+                testId="home-footprint-empty"
+                actions={[
+                  {
+                    label: '规划一次旅行',
+                    onClick: () => navigate('/planner'),
+                    testId: 'home-footprint-empty-plan',
+                  },
+                ]}
+              />
+            </div>
           ) : stats.located === 0 ? (
             <div className="footprint-compact-state">
-              <span>已打卡的地点还没定位到坐标。</span>
-              <div className="fcs-actions">
-                <Button
-                  size="small"
-                  type="primary"
-                  onClick={() =>
-                    navigate(`/trip/${visitedMapPoints[0]?.tripId ?? nextTrip?.tripId ?? ''}`)
-                  }
-                >
-                  补全地点
-                </Button>
-              </div>
+              <RunStatus
+                status="degraded"
+                text="已打卡的地点还没定位到坐标。"
+                detail="补全地点后才能在地图上显示足迹。"
+                size="sm"
+                actions={[
+                  {
+                    label: '补全地点',
+                    onClick: () =>
+                      navigate(`/trip/${visitedMapPoints[0]?.tripId ?? nextTrip?.tripId ?? ''}`),
+                  },
+                ]}
+              />
             </div>
           ) : mapUnavailable ? (
-            <div className="footprint-compact-state" role="alert" data-testid="home-map-error">
-              <span>地图暂时不可用，行程时间轴仍可正常使用。</span>
-              <div className="fcs-actions">
-                <Button
-                  size="small"
-                  icon={<ReloadOutlined />}
-                  onClick={() => {
-                    setMapUnavailable(false);
-                    setMapRetryKey((v) => v + 1);
-                  }}
-                >
-                  重试地图
-                </Button>
-                <Button
-                  size="small"
-                  type="link"
-                  onClick={() =>
-                    navigate(nextTrip ? `/trip/${nextTrip.tripId}` : '/travel?tab=schedule')
-                  }
-                >
-                  查看时间轴
-                </Button>
-              </div>
+            <div className="footprint-compact-state" role="alert">
+              <RunStatus
+                status={LOAD_FAILED_STATE}
+                text="地图暂时不可用"
+                detail="行程时间轴仍可正常使用。"
+                size="sm"
+                testId="home-map-error"
+                actions={[
+                  {
+                    label: '重试地图',
+                    icon: <ReloadOutlined aria-hidden="true" />,
+                    onClick: () => {
+                      setMapUnavailable(false);
+                      setMapRetryKey((v) => v + 1);
+                    },
+                    testId: 'home-map-retry',
+                  },
+                  {
+                    label: '查看时间轴',
+                    onClick: () =>
+                      navigate(nextTrip ? `/trip/${nextTrip.tripId}` : '/travel?tab=schedule'),
+                  },
+                ]}
+              />
             </div>
           ) : (
             <>

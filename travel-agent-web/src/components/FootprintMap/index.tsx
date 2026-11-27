@@ -29,6 +29,8 @@ import {
   tripDays,
   tripRangeLabel,
 } from './footprintData';
+import RunStatus from '../RunStatus';
+import { knownRunState } from '../../lib/runState';
 
 const CHINA_OVERVIEW: [number, number] = [110.5, 34.5];
 
@@ -122,6 +124,8 @@ export default function FootprintMap({
   const [engineError, setEngineError] = useState<string | null>(null);
   /** 递增触发重新加载地图引擎（首次失败后给用户「重试」按钮） */
   const [loadAttempt, setLoadAttempt] = useState(0);
+  /** 引擎加载失败是「资源不可用」而不是「没有足迹」：统一走 resource→error（failed）这一档 */
+  const mapFailedState = knownRunState('resource', 'error');
 
   // 高德底图用 GCJ-02，OSM 用 WGS-84；业务 points 始终是 WGS-84。
   const geoPoints = useMemo(
@@ -731,21 +735,24 @@ export default function FootprintMap({
             fontSize: 13,
           }}
         >
-          正在加载地图引擎…
+          <RunStatus status="loading" text="正在加载地图引擎…" size="sm" />
         </div>
       )}
       {engineError && (
-        <div className="fp-engine-error" role="alert">
-          <b>地图暂时不可用</b>
-          <span className="fp-engine-hint">足迹列表与行程时间轴仍可正常查看。</span>
-          <button
-            type="button"
-            className="fp-ctl"
-            onClick={() => setLoadAttempt((value) => value + 1)}
-            aria-label="重试加载地图"
-          >
-            <ReloadOutlined aria-hidden="true" /> 重试地图
-          </button>
+        <div className="fp-engine-error" role="alert" data-testid="footprint-map-error">
+          <RunStatus
+            status={mapFailedState}
+            text="地图暂时不可用"
+            detail="足迹列表与行程时间轴仍可正常查看。"
+            actions={[
+              {
+                label: '重试地图',
+                icon: <ReloadOutlined aria-hidden="true" />,
+                onClick: () => setLoadAttempt((value) => value + 1),
+                testId: 'footprint-map-retry',
+              },
+            ]}
+          />
         </div>
       )}
       {globe && (
