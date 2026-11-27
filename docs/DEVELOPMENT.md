@@ -117,7 +117,7 @@ HIGH 风险只表示"方案需要显式确认"（超预算），不是"抛异常
 传输层二选一：streamable HTTP（`url`）或本机子进程 stdio（`command`，Windows 下 npx 需
 `cmd /c` 前缀）。注册名固定 `mcp_{server}_{tool}` 且默认只读；工具描述会拼上从 inputSchema
 提取的参数提示供 LLM 生成参数。`IntentAgent` 只在 LLM 路径产出 `INVOKE_TOOL`，且必须命中
-已注册的 mcp_* 工具（否则拦回规则引擎）；规则路径永远不产出该意图，保证离线行为可预期。
+已注册的可调用工具（`mcp_*` 或内置白名单 `ocr_invoice`，否则拦回规则引擎）；规则路径永远不产出该意图，保证离线行为可预期。
 单个 server 接入失败只告警，**不允许**让 MCP 故障阻断应用启动。
 
 **多渠道入口**：外部渠道一律复用 `AgentEngine.handle(ctx)`，不要绕开引擎另写业务逻辑。

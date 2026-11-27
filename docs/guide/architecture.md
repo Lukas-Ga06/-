@@ -250,7 +250,7 @@ public IntentResult detect(AgentContext ctx, Trip trip) {
 | 可信度复核 | `IntentAgent.plausible` | LLM 已给出结果 | 判为不可信 → 回落规则 |
 | 规则 | `IntentAgent.ruleDetect` | 总是可用 | 兜底返回 `CHITCHAT` |
 
-`plausible`（`:69-84`）只拦一类越界：`INVOKE_TOOL` 但 `toolName` 不以 `mcp_` 开头或 `toolRegistry.get()` 为 null（防模型编造工具名）。规则路径优先级（`IntentAgent.java:227-348`）：**改写（1）> 记账（2）> 备忘（4）> 日程（5）> 强规划（6）> 疑问句（7）> 兜底闲聊**；办公/日报/健康分支已删除。其中「添加日程」判定格外严格：必须同时有 `scheduleNoun`（日程/会议/开会/排期…）**且**（`EXPLICIT_TIME` 明确时间点或排期动词），这样「今天开会好累」不会写成真实日程。`ctx.history` 只喂给 LLM 路径（`renderHistory`），规则路径不看历史，保证无模型时行为可预期。
+`plausible`（`:89-100`）只拦一类越界：`INVOKE_TOOL` 但 `toolName` 未注册或不在可调用白名单（`mcp_*` 或内置白名单 `ocr_invoice`），防模型编造工具名、也防误调规划期取证工具。规则路径优先级（`IntentAgent.java:227-348`）：**改写（1）> 记账（2）> 备忘（4）> 日程（5）> 强规划（6）> 疑问句（7）> 兜底闲聊**；办公/日报/健康分支已删除。其中「添加日程」判定格外严格：必须同时有 `scheduleNoun`（日程/会议/开会/排期…）**且**（`EXPLICIT_TIME` 明确时间点或排期动词），这样「今天开会好累」不会写成真实日程。`ctx.history` 只喂给 LLM 路径（`renderHistory`），规则路径不看历史，保证无模型时行为可预期。
 
 ### 3.2 PlannerAgent：规则路径 vs StructuredPlanner
 
@@ -463,8 +463,8 @@ public interface AgentTool {
 | 拉起 | `McpToolBridge`（`SmartLifecycle`）→ `StdioMcpTransport` | `command: ["npx","-y","@amap/amap-maps-mcp-server"]`；Windows 自动补 `cmd /c` |
 | 握手 / 列举 | `McpConnection.initialize` → `tools/list` | 实测 **12** 个 `maps_*` 工具；`tools/list` 不访问网络，**Key 无效也能列出来** |
 | 注册 | `mcp_amap_<工具名>`，只读 | 最长的 `mcp_amap_maps_direction_transit_integrated` 42 字符（上限 39 只作用于工具名段，整名不截断）；`ToolRegistry` 只读闸门 + `SafetyInterceptor` 审计 |
-| 进提示词 | `IntentAgent.renderToolCatalog()` | 已注册的 `mcp_*` 工具名与参数提示自动拼进 `INVOKE_TOOL` 段；一个也没有时提示模型禁用该意图——**不需要额外接线** |
-| 越界防护 | `IntentAgent.plausible` | 工具名必须以 `mcp_` 开头且能在 `ToolRegistry` 查到，否则判为不可信、回落规则路径 |
+| 进提示词 | `IntentAgent.renderToolCatalog()` | 已注册的 `mcp_*` 工具名与参数提示、内置白名单工具（`ocr_invoice`）自动拼进 `INVOKE_TOOL` 段；一个可调用工具也没有时提示模型禁用该意图——**不需要额外接线** |
+| 越界防护 | `IntentAgent.plausible` | 工具名必须已注册且属于可调用白名单（`mcp_*` 或内置白名单），否则判为不可信、回落规则路径 |
 | 执行 | `ToolInvoker` → `McpAgentTool` → `McpConnection.callTool` | `isError:true` 也包成 `BusinessException(502)`，用户看到的是原因而不是「系统异常」 |
 | 降级 | `McpToolBridge.connect` 的 `catch` | 单个 server 握手失败/超时只 `WARN` 跳过，不影响启动与其它工具 |
 | 语义层（可选） | `mcp/AmapMcpAdapter` | 把真名映射为 `city_geocode` / `route_transit` / `poi_text_search` 等 12 个语义名并产出 `promptSummary()`；**当前没有生产调用方**，未接线时返回空串、零副作用 |

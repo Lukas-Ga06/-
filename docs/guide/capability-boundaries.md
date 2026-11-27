@@ -69,7 +69,7 @@
 | 前端高德底图 | `VITE_AMAP_KEY` + `VITE_AMAP_SECURITY_CODE` | JS API 地图与真实折线 | 回退 OSM 底图 |
 | Redis 限流 | `RATE_LIMIT_STORE=redis` | 多实例共享配额 | fail-open 放行并记指标 |
 | S3 照片 | `PHOTOS_STORE=s3` + `S3_*` | 对象存储 | 写入失败返回 500，不静默丢文件 |
-| 发票 OCR | `OCR_PROVIDER=baidu` + `OCR_BAIDU_API_KEY` / `OCR_BAIDU_SECRET_KEY`（百度云增值税发票识别） | 把最新一张发票照片识别成金额/商户/日期/类目，生成待确认的记账方案 | 未配置 / 调用失败 / 没识别出金额时**明确报不可用并说明原因，不生成方案、不用模拟结果**；「报销这张发票」不会凭空记一笔 |
+| 发票 OCR | `OCR_PROVIDER=baidu` + `OCR_BAIDU_API_KEY` / `OCR_BAIDU_SECRET_KEY`（百度云增值税发票识别） | 把最新一张发票照片识别成金额/商户/日期/类目，生成待确认的记账方案；配置后可被模型经 `INVOKE_TOOL` 调用（只读，识别当前用户最新一张发票照片），未配置时该工具返回 `available=false` | 未配置 / 调用失败 / 没识别出金额时**明确报不可用并说明原因，不生成方案、不用模拟结果**；「报销这张发票」不会凭空记一笔 |
 
 ## 3. 天气：默认真实，失败明确说「排不了」
 

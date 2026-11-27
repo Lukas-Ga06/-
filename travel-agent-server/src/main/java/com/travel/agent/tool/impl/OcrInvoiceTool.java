@@ -25,7 +25,8 @@ import java.util.Map;
  *
  * <p>分工：用户说「报销这张发票」时由 {@code InvoiceCommandHandler} 直接调
  * {@link OcrInvoiceService} 生成待确认方案（单一权威，避免同一张发票走两条路径）；
- * 本工具是给模型研究链路（{@code INVOKE_TOOL} / 规划取证）用的只读入口。
+ * 本工具是模型经 {@code INVOKE_TOOL} 调用的只读入口。它<b>不在规划研究循环白名单里</b>
+ * （{@code PlannerAgent.RESEARCH_TOOLS}）：真实调用有费用，且识别对象与规划取证无关。
  */
 @Component
 @RequiredArgsConstructor
