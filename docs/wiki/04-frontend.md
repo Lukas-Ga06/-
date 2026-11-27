@@ -87,7 +87,7 @@
 
 ## 4.6 hooks 与 lib
 
-- hooks：[useAgentScope](../../travel-agent-web/src/hooks/useAgentScope.ts)（会话作用域）、[useOnlineStatus](../../travel-agent-web/src/hooks/useOnlineStatus.ts)、[useMediaQuery](../../travel-agent-web/src/hooks/useMediaQuery.ts)、[useIntersection](../../travel-agent-web/src/hooks/useIntersection.ts)。
+- hooks：[useAgentScope](../../travel-agent-web/src/hooks/useAgentScope.ts)（会话作用域）、[useOnlineStatus](../../travel-agent-web/src/hooks/useOnlineStatus.ts)、[useIntersection](../../travel-agent-web/src/hooks/useIntersection.ts)。
 - lib：[coords](../../travel-agent-web/src/lib/coords.ts)（坐标系转换）、[echarts/chartTheme](../../travel-agent-web/src/lib/echarts.ts)（图表主题）、[reminderNotify](../../travel-agent-web/src/lib/reminderNotify.ts)（浏览器通知）、[statusQueue](../../travel-agent-web/src/lib/statusQueue.ts)、[systemStatus](../../travel-agent-web/src/lib/systemStatus.ts)、[tripConflict](../../travel-agent-web/src/lib/tripConflict.ts) / [tripFocus](../../travel-agent-web/src/lib/tripFocus.ts)、[resource](../../travel-agent-web/src/lib/resource.ts)。
 
 ## 4.7 构建 / PWA / 主题
@@ -95,4 +95,4 @@
 - [vite.config.ts](../../travel-agent-web/vite.config.ts)：Vite 6 + `VitePWA`（manifest、navigate fallback、`/api` 排除、maplibre vendor 排除、行程相关 GET API runtime caching）→ 离线可查看行程；analyze 模式接 rollup-plugin-visualizer。
 - [main.tsx](../../travel-agent-web/src/main.tsx)：入口挂载 `Root`，读取 `themeStore` 并 `applyTheme(mode)` 同步 `html[data-theme]` 与 antd 算法。
 - 质量脚本：`typecheck`（tsc）、`test`（vitest + happy-dom + Testing Library）、`lint`（eslint 9）、`format:check`（prettier）、`build:check`（含 bundle 预算校验 `scripts/check-bundle-budget.mjs`）。
-- E2E：Playwright（[playwright.config.ts](../../travel-agent-web/playwright.config.ts)），移动端/网络/多实例/设备套件；`e2e:isolated` 用隔离后端（独立 H2，LLM/MCP/AMAP 全关，由 `scripts/start-e2e-backend.mjs` 启动，不读开发者 `.env.local`）；另有视觉回归配置 `playwright.visual.config.ts`（含 axe 可访问性）。
+- E2E：Playwright（[playwright.config.ts](../../travel-agent-web/playwright.config.ts)），默认桌面 Chromium 套件 + 弱网 / 多端并发 / device 汇总套件；`e2e:isolated` 用隔离后端（独立 H2，LLM/MCP/AMAP 全关，由 `scripts/start-e2e-backend.mjs` 启动，不读开发者 `.env.local`）；另有视觉回归配置 `playwright.visual.config.ts`（含 axe 可访问性）。

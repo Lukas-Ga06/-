@@ -32,10 +32,10 @@
 | Agent 安全边界 | 已完成主体 | 工具只读、确认门、双指纹、风险审核、有限重规划、行中只改 `PENDING` 已有实现 |
 | 后端自动化质量 | 已通过本地发布门禁（外部服务用例按设计跳过） | 串行 `mvn -B verify` 通过：测试、JaCoCo、Checkstyle、SpotBugs 全绿，3 个真实 MCP / MySQL 用例按设计跳过；用例数以 CI 输出为准 |
 | 前端自动化质量 | 已通过主要门禁 | typecheck、lint、format、coverage、build budget、API 漂移全部通过；用例数与覆盖率以 CI 输出为准，不在本文维护 |
-| 浏览器与移动端 | 本地隔离环境已收口，真实 Android 设备仍未验 | 视觉 11/11；隔离后端 E2E 桌面 **14/14**、device（WebKit iPhone 预设 + 弱网 + 多端）**22/22**；`E2E_API_TARGET` 已固化为 `npm run e2e:isolated`。设备模拟仍是 WebKit/iPhone 预设，不等于真实 Android 设备，device job 仍是观察模式 |
+| 浏览器与设备 | 本地隔离环境已收口 | 视觉 10/10；隔离后端 E2E 桌面 **14/14**、device（弱网 + 多端并发）**19/19**；`E2E_API_TARGET` 已固化为 `npm run e2e:isolated`。移动端专属布局与 WebKit/iPhone 模拟已于 2026-11-27 移除，只承诺桌面布局（≤1080px 图标栏）；device job 仍是观察模式 |
 | 真实 LLM / 高德 | 模型探测与失败语义已补齐，真实批量验收未做 | `deepseek-flash` 的 `/models` 探测真实通过；工具 schema、研究收尾、MCP 10021 退避、多意图提示已实现；尚未用真实模型重复跑 20 次规划 |
 | 生产运维与合规 | 部分完成 | 生产配置清单/模板、账号注销（API+UI）、备份恢复 runbook+脚本、隐私/第三方/删除/许可证文档、日志去票据、compose Redis/S3 透传已落地；真实 MySQL 备份恢复演练、法务确认、GitHub 安全设置仍未完成 |
-| UI 视觉一致性 | 已完成主体 | global.css 拆分为 6 个职责文件；Emoji→Ant 图标；首页空足迹、助手入口、行程详情、移动 Tab、攻略库文案已收口；视觉 11/11 |
+| UI 视觉一致性 | 已完成主体 | global.css 拆分为 6 个职责文件；Emoji→Ant 图标；首页空足迹、助手入口、行程详情、攻略库文案已收口；视觉 10/10 |
 
 > **2026-11-22 夜间执行快照**：P0-A/P0-B 代码与门禁改造、E2E 隔离、账号注销、P1-E/P1-G 已完成本地验证；
 > 逐项证据与未验证清单见 [P0/P1 执行快照](review/2026-11-22-p0-execution.md)。本文 §3 的“当前完成度”
@@ -51,7 +51,7 @@
 | --- | --- | --- | --- | --- |
 | **第一阶段：核心可靠性（P0）** | 持久化状态机、PendingPlan 生命周期与崩溃恢复、Confirm 并发/事务安全、Outbox、SSE 断线恢复 | **5/5 已落地**：`agent_run` 状态/心跳/阶段历史 + `ABANDONED` 恢复；`pending_plan` 租约 + 提交栅栏；`plan_outbox` 与投递器；`agent_run_event` + 帧 id/`Last-Event-ID`/续传端点；前端自动续传一次。后端完整 `mvn verify`、前端全部门禁与隔离 E2E 已在本次通过；真实 MySQL 以 CI 为准 | 本次只交付本阶段 | [现实核对 §2/§4/§5](review/2026-11-25-p0-checklist-reality-check.md)；实现与验证见 [P0 可靠链路评审](review/2026-11-25-p0-reliability.md) |
 | **第二阶段：Agent 能力增强** | 多维预算、MCP 治理、旅行数据真实性、审核风险规则、局部重规划、Undo 补偿 | **统一花费预算已落地（2026-11-25）**：`AgentSpend` 叠加在 deadline 上（LLM 调用次数 / 工具次数 / 重试 / token / 估算费用），token 取自供应商 `usage`、缺失不估算；触顶走既有降级语义（回复 + `budget_degraded` + DEGRADE 任务 + `travel.agent.spend` 指标），工具触顶是「跳过并降级」而不是把请求打成 FAILED。已有主体：`McpToolBridge` 只读桥接、`ReflectAgent`/`PlanReviewLoop`、行中锁定、`OperationHistoryService` 撤销。待补：MCP 逐 server 白名单/熔断/配额/审计；真实 Embedding 与 POI 质量验收；局部重规划与 Reflect 风险规则按缺口补 | **花费预算已交付；MCP 治理未开始** | [花费预算验收记录](review/2026-11-25-spend-budget.md)；[现实核对 §3/§8 第 6–7 项](review/2026-11-25-p0-checklist-reality-check.md) |
-| **第三阶段：工程化** | CI/质量门禁、可观测性、真实 MySQL、真机与合规 | 已落地：`mvn verify` + 命名发布验收、前端门禁、CodeQL/Trivy/gitleaks、告警路由与送达演练（2026-11-25）。待补：OpenTelemetry（当前零依赖）、真实 Android 真机、真实告警渠道/值班人、法务占位、GitHub 安全设置 | **未开始（仍待办）** | [现实核对 §8 第 8 项](review/2026-11-25-p0-checklist-reality-check.md)（OTel，M）；真机与外部输入项见本文 §5 |
+| **第三阶段：工程化** | CI/质量门禁、可观测性、真实 MySQL、合规 | 已落地：`mvn verify` + 命名发布验收、前端门禁、CodeQL/Trivy/gitleaks、告警路由与送达演练（2026-11-25）。待补：OpenTelemetry（当前零依赖）、真实告警渠道/值班人、法务占位、GitHub 安全设置 | **未开始（仍待办）** | [现实核对 §8 第 8 项](review/2026-11-25-p0-checklist-reality-check.md)（OTel，M）；外部输入项见本文 §5 |
 | **第四阶段：产品智能化** | 实时库存/价格、长期偏好记忆、个性化 RAG、回顾增强 | 真实旅行数据链路（天气/POI/路线/预算/足迹）已基本真实化；待补：真实 Embedding provider 的质量与成本、跨旅行长期偏好画像、OTA 实时房态/库存需服务商授权。均属 P2，不阻断 v1 | **未开始（仍待办）** | [现实核对 §8 末段](review/2026-11-25-p0-checklist-reality-check.md)：剩余主要是真实 Embedding 与流量成本，不属于 v1 阻断项；P2 边界见本文 §3 |
 
 **结论**：本次交付只完成**第一阶段 P0**；第二、三、四阶段仍为待办，且不应再按「完全没做」排期——
@@ -140,7 +140,7 @@
 - 干净 runner 上所有必须 job 绿色；安全扫描和 CodeQL 有结果。
 - 同一 commit 在干净环境可重复通过，不依赖本机字体、时区、残留数据库或并发 target。
 - 规划器 E2E 在启用/未启用真实 provider 的开发环境中结果一致；真实 provider 验收另用独立套件，不与规则引擎门禁混跑。
-- PR 模板明确“WebKit 模拟不等于真机”。
+- PR 模板写明移动端支持边界（只承诺桌面布局；见 2026-11-27 变更）。
 
 ### P0-D：数据、安全和运营闭环
 
@@ -180,9 +180,11 @@
 - 用户不需要看日志就能知道“发生了什么、哪些已经保存、哪些可以重试”。
 - 任意失败都有下一步操作：重试、查看时间线、返回修改或打开诊断。
 
-### P1-F：移动端和真实 Android 设备
+### P1-F：移动端和真实 Android 设备（2026-11-27 起退出范围）
 
 > 口径（2026-11-23）：v1 真机门禁为真实 Android + Chrome，另加一台国产 ROM 或微信内置浏览器；验收矩阵与记录模板见[上线执行清单 §5.1](operations/launch-checklist.md)。测试代码未改，设备模拟仍是 WebKit/iPhone 预设。
+>
+> **2026-11-27 变更**：移动端专属布局（底部标签栏、行程分段视图、规划固定底栏）与 WebKit/iPhone 模拟套件已从仓库移除，产品只承诺桌面布局（≥1080px 侧栏 / ≤1080px 图标栏）。P1-F 由「待真机验收」降级为**已退出范围**；仅当重新决定「手机浏览器也要可用」时再恢复本节目标。
 
 **要完成什么**
 
@@ -192,7 +194,7 @@
 
 **当前完成度**
 
-Playwright WebKit/iPhone 预设、弱网、离线和多端并发已通过本地测试；Windows 环境没有真实 Android 真机通道，模拟套件也仍是 iPhone 预设，不能替代真机结论。
+移动端布局与模拟套件已移除（2026-11-27），P1-F 不再是待办项；`e2e-device` 只剩弱网 + 多端并发，仍为观察模式。手机浏览器可以打开页面，但只保证不横向溢出，不承诺移动交互。
 
 **完成标准**
 
@@ -265,7 +267,6 @@ Playwright WebKit/iPhone 预设、弱网、离线和多端并发已通过本地�
 | Emoji 与 Ant 图标混用 | 导航、标题、地图控制器、Tab 全部改用 `@ant-design/icons`；Emoji 只保留在用户内容/聊天正文 | `src/components/AppShell.tsx`、`src/pages/*`、`src/components/MapView`、`FootprintMap` |
 | 图标按钮不可理解 | 所有纯图标按钮增加 `Tooltip`、`aria-label` 和稳定尺寸 | AppShell、地图、聊天、更多菜单 |
 | 旧新 CSS 并存 | 将 `global.css` 拆成 `tokens.css`、`shell.css`、`buttons.css`、`cards.css`、`status.css` 和页面 CSS，删除重复选择器 | `src/styles/global.css`、`src/styles/*` |
-| 移动底栏遮挡 | 底栏使用 `padding-bottom: env(safe-area-inset-bottom)`，正文和输入区额外留 12–16px | AppShell、ChatPanel、页面布局 CSS |
 
 ### 4.4 首页
 
@@ -273,7 +274,7 @@ Playwright WebKit/iPhone 预设、弱网、离线和多端并发已通过本地�
 
 1. 首屏：问候 + AI 输入框 + 4 个常用入口（规划旅行、调整天气、记一笔消费、查询攻略）。
 2. 下一次旅行：标题、日期、预算、一个主按钮“查看行程”。
-3. 今天要做什么 / 待处理：两列桌面布局，移动端纵向排列。
+3. 今天要做什么 / 待处理：两列桌面布局（窄屏自然堆叠）。
 4. 足迹：只有 `visitedPlaces.length > 0` 才渲染地图；没有足迹时显示 80–96px 紧凑空状态和一个主按钮。
 
 具体改法：
@@ -284,9 +285,9 @@ Playwright WebKit/iPhone 预设、弱网、离线和多端并发已通过本地�
 
 ### 4.5 我的行程与行程详情
 
-- 我的行程页保持现有搜索、筛选、分页；移动端把状态、预算、操作拆成上下两层，删除放进更多菜单。
+- 我的行程页保持现有搜索、筛选、分页；状态、预算、操作各有稳定的行内位置。
 - 行程详情页顶部只保留预算/记账和更多；把“下一项安排”作为首要视觉焦点。
-- 桌面保持时间轴 2/3、地图/助手 1/3；移动端默认“行程”，地图和 AI 作为 Tab，不在首屏抢高度。
+- 时间轴占 2/3、地图/助手占 1/3；地图与 AI 在右侧面板内切换。
 - 时间线状态用“未开始 / 进行中 / 已完成 / 已跳过”文字 + 图标，路线段显示来源标签。
 - 撤销菜单没有可撤销动作时隐藏或禁用，并说明“当前没有可撤销操作”。
 - 地图失败改成“地图暂时不可用，行程时间轴仍可正常使用”，提供“重试地图 / 查看时间轴 / 打开诊断”。
@@ -393,7 +394,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/mysql-it.ps1
 1. 先完成 P0-A：锁定生产模型、Key、时区、安全开关和 status 诊断。
 2. 同时完成 P0-B：工具 schema、研究循环收尾、QPS 重试、部分成功语义和多意图提示。
 3. 完成 P0-C/P0-D：远端安全设置、硬门禁、备份恢复、监控、隐私与许可证。
-4. 做 P1-E/P1-F：统一运行反馈并完成真实 Android 真机验收。
+4. 做 P1-E：统一运行反馈（P1-F 移动端已于 2026-11-27 退出范围）。
 5. 按第 4 节顺序做 UI 收口，先首页、行程详情、助手，再攻略库和诊断。
 6. 以灰度数据决定是否进入公网 v1；OTA 和高级个性化能力放到 P2。
 

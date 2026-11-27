@@ -582,7 +582,7 @@
   }
 }
 
-/* ---------- 行程页：桌面「时间轴主栏 + 地图/AI 侧栏」，移动端「行程/地图/AI」分段 ---------- */
+/* ---------- 行程页：桌面「时间轴主栏 + 地图/AI 侧栏」 ---------- */
 .trip-workbench {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);
@@ -590,8 +590,6 @@
   align-items: start;
 }
 
-.trip-map-card,
-.trip-chat-card,
 .trip-timeline-card {
   display: flex;
   flex-direction: column;
@@ -616,11 +614,6 @@
   flex: 1;
   flex-direction: column;
   min-height: 420px;
-}
-
-/* 移动端分段视图：行程 / 地图 / AI 互斥，默认行程（P1-04） */
-.trip-view-switch {
-  margin-bottom: var(--sp-3);
 }
 
 .trip-map-body {
@@ -728,26 +721,6 @@
   }
 }
 
-@media (max-width: 720px) {
-  /* 分段视图一次只显示一块：各自占满剩余视口，避免地图/聊天挤成一条缝 */
-  .trip-map-body {
-    min-height: 60vh;
-  }
-
-  .trip-chat-body,
-  .trip-side-body {
-    min-height: 60vh;
-  }
-
-  .trip-timeline-card .tl-scroll {
-    max-height: none;
-  }
-
-  .next-up {
-    margin: var(--sp-2) var(--sp-2) 0;
-  }
-}
-
 /* 「更多」菜单：没有可撤销动作时写明原因，而不是让用户点了才知道 */
 .menu-with-hint {
   display: inline-flex;
@@ -758,11 +731,4 @@
 .menu-with-hint .menu-hint {
   font-size: 11px;
   color: var(--text-3);
-}
-
-/* 移动端时间轴底部的安全区：分页/撤销条不压住 home 指示条 */
-@media (max-width: 720px) {
-  .trip-timeline-card {
-    padding-bottom: calc(12px + var(--safe-bottom));
-  }
 }

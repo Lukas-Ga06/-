@@ -31,7 +31,7 @@
 | [`scripts/alert-webhook-sink.mjs`](../../scripts/alert-webhook-sink.mjs) | 本地最小 webhook 接收端：演练期把每个 POST 落盘（摘要 JSONL + 原始 payload） |
 | [`scripts/docs-check.mjs`](../../scripts/docs-check.mjs) | 文档链接/命令校验（CI 与本地都跑） |
 | [`../../.env.production.example`](../../.env.production.example) | 生产环境变量模板（只有占位符，不含真实密钥） |
-| [`.github/pull_request_template.md`](../../.github/pull_request_template.md) | PR 模板（含 WebKit 模拟 ≠ iOS 真机的声明） |
+| [`.github/pull_request_template.md`](../../.github/pull_request_template.md) | PR 模板（含「只承诺桌面布局」的移动端支持边界声明） |
 
 ## 2. 使用顺序
 

@@ -56,7 +56,7 @@ cd travel-agent-web && npm run typecheck && npm test && npm run build
 cd travel-agent-web && npm run build && npm run e2e:isolated
 ```
 
-其他常用：`npm run lint`、`npm run format:check`、`npm run build:check`（bundle 预算）、`npm run api:check`（OpenAPI 契约）、`npm run test:e2e:mobile` / `npm run test:e2e:network` / `npm run test:e2e:multi` / `npm run test:e2e:device`（e2e 套件）、`npm run test:visual`（视觉回归 + axe）。
+其他常用：`npm run lint`、`npm run format:check`、`npm run build:check`（bundle 预算）、`npm run api:check`（OpenAPI 契约）、`npm run test:e2e:network` / `npm run test:e2e:multi` / `npm run test:e2e:device`（e2e 套件）、`npm run test:visual`（视觉回归 + axe）。
 
 CI（[.github/workflows/ci.yml](../../.github/workflows/ci.yml)）：push/PR 执行 `mvn -B verify` + 前端全部门禁 + 隔离后端 Playwright e2e。
 

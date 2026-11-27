@@ -35,19 +35,20 @@ test.describe('弱网与离线（Chromium + CDP）', () => {
     // 阈值 20s 是刻意放宽的稳定线：实测 Slow-3G 下 ~8s，留 2.5 倍余量吃 CI 抖动
     expect(firstScreenMs, `Slow-3G 首屏耗时 ${firstScreenMs}ms 超过 20000ms`).toBeLessThan(20_000);
 
-    // 首屏之外，样式也真的到了（不是「白底黑字先出来」）：底栏/卡片有实际盒模型
+    // 首屏之外，样式也真的到了（不是「白底黑字先出来」）：侧栏/卡片有实际盒模型
     const painted = await page.evaluate(() => {
       const card = document.querySelector('.dash-card');
-      const bar = document.querySelector('.app-tabbar');
+      const sidebar = document.querySelector('aside.app-sidebar');
       const s = card ? getComputedStyle(card) : null;
       return {
         hasCard: !!card,
         cardBg: s?.backgroundColor ?? null,
-        tabbarVisible: !!bar && getComputedStyle(bar).display !== 'none',
+        sidebarVisible: !!sidebar && getComputedStyle(sidebar).display !== 'none',
         bodyText: document.body.innerText.length,
       };
     });
     expect(painted.hasCard).toBe(true);
+    expect(painted.sidebarVisible).toBe(true);
     expect(painted.bodyText).toBeGreaterThan(50);
 
     // 网络条件确实生效了：Slow-3G 下首屏 HTML 的 TTFB 明显被 400ms 延迟拖慢
@@ -104,7 +105,7 @@ test.describe('弱网与离线（Chromium + CDP）', () => {
 
     // ---- 离线期间的站内跳转：换成**已经加载过**的路由，不应白屏 ----
     // 注意：这里刻意不跳到从未加载过的懒加载页（那会踩到下方「已知边界」用例记录的问题）。
-    // 本项目是桌面 Chromium（底栏 .app-tabbar 在 >720px 时 display:none），所以点左侧栏导航。
+    // 本项目是桌面 Chromium，导航只有左侧栏，所以点侧栏入口。
     await page.locator('aside.app-sidebar nav.sb-modules button', { hasText: '我的行程' }).click();
     await expect(page.getByTestId('offline-banner')).toBeVisible();
     expect((await page.locator('body').innerText()).trim().length).toBeGreaterThan(30);

@@ -15,7 +15,7 @@ import { fetchConversationMessages, postAgentTurn } from './support-device';
  * 测的是前端状态隔离；两台设备各自独立 Cookie 容器，才接近「手机 + 电脑同时登录」。
  *
  * 注意：本用例直接打 API 而不点 UI——要严格断言服务端按 conversationId 的隔离语义，
- * UI 渲染时序会把这类断言变成 flaky。UI 侧的多端并发见 mobile-safari 项目的底栏/抽屉用例。
+ * UI 渲染时序会把这类断言变成 flaky。
  */
 
 test('同账号两台设备并发对话：各自成功、互不阻塞、记忆不串号', async ({ playwright }) => {

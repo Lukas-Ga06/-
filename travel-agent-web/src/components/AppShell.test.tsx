@@ -63,11 +63,11 @@ describe('AppShell · 信息架构（阶段 B）', () => {
   it('当前页导航带 aria-current=page', () => {
     const { container } = renderShell('travel');
 
-    // 侧栏与底栏各有一处「我的行程」/「行程」入口，都应在当前页标记
+    // 导航只有侧栏一处：当前页标记唯一，不重复
     const current = Array.from(container.querySelectorAll('[aria-current="page"]')).map((el) =>
       el.textContent?.replace(/\s/g, ''),
     );
-    expect(current).toEqual(['我的行程', '行程']);
+    expect(current).toEqual(['我的行程']);
 
     const home = Array.from(container.querySelectorAll('.sb-link')).find((el) =>
       el.textContent?.includes('首页'),
@@ -75,25 +75,15 @@ describe('AppShell · 信息架构（阶段 B）', () => {
     expect(home.getAttribute('aria-current')).toBeNull();
   });
 
-  it('移动底栏只有四项导航，主题切换不再占一个一级入口', () => {
-    renderShell();
+  it('导航只由侧栏承载，不再渲染底部标签栏', () => {
+    const { container } = renderShell();
 
-    const tabbar = document.querySelector('.app-tabbar') as HTMLElement;
-    const items = Array.from(tabbar.querySelectorAll('.tb-item'));
-    expect(items.map((el) => el.textContent?.replace(/\s/g, ''))).toEqual([
-      '首页',
-      '行程',
-      '助手',
-      '我的',
-    ]);
-    expect(tabbar.querySelector('[data-testid="theme-toggle-tabbar"]')).toBeNull();
-  });
-
-  it('底部导航是按钮，可键盘聚焦（P0-05）', () => {
-    renderShell();
-
-    const tabbar = document.querySelector('.app-tabbar') as HTMLElement;
-    itemsShouldBeButtons(tabbar);
+    expect(container.querySelector('.app-tabbar')).toBeNull();
+    const nav = container.querySelector('nav[aria-label="主导航"]');
+    expect(nav?.className).toBe('sb-modules');
+    const links = Array.from(container.querySelectorAll('.sb-link'));
+    expect(links.length).toBeGreaterThan(0);
+    links.forEach((el) => expect(el.tagName).toBe('BUTTON'));
   });
 
   it('登出按钮有可访问名称，点击清本地登录态并调用 signOut', () => {
@@ -120,9 +110,3 @@ describe('AppShell · 信息架构（阶段 B）', () => {
     expect(container.textContent).not.toContain('Agent 运行观察');
   });
 });
-
-function itemsShouldBeButtons(tabbar: HTMLElement) {
-  const items = Array.from(tabbar.querySelectorAll('.tb-item'));
-  expect(items.length).toBe(4);
-  items.forEach((el) => expect(el.tagName).toBe('BUTTON'));
-}

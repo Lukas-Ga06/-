@@ -679,22 +679,6 @@
   flex: 1;
 }
 
-/* 我的行程：桌面保留删除图标；移动端收进「更多」，给状态/预算留出整行 */
-.tr-more-mobile {
-  display: none;
-}
-
-@media (max-width: 720px) {
-  .trip-row .tr-delete-desktop {
-    display: none;
-  }
-
-  .trip-row .tr-more-mobile {
-    display: inline-flex;
-    align-items: center;
-  }
-}
-
 /* 移动端卡片头：标题与右侧说明不抢同一行，说明换到下一行 */
 @media (max-width: 720px) {
   .dash-card .dc-head {

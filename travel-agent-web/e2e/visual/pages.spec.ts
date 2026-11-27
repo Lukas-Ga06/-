@@ -53,13 +53,6 @@ test('行程详情（桌面双栏）', async ({ page }) => {
   await expect(page).toHaveScreenshot('04-trip.png', { fullPage: true });
 });
 
-test('行程详情（390px 移动分段视图）', async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/trip/1');
-  await settle(page);
-  await expect(page).toHaveScreenshot('05-trip-mobile.png', { fullPage: true });
-});
-
 test('规划器（三步表单）', async ({ page }) => {
   await page.goto('/planner');
   await settle(page);

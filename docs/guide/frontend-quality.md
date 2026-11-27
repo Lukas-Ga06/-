@@ -117,8 +117,8 @@ npx vitest run src/store/agentStore   # 或 `npx vitest` 交互式 watch
 + 页面级 CSS，见 [前端结构](frontend.md) §2.1）。「只是搬家」不能靠肉眼确认。仓库因此有一份**独立的截图基线**套件：
 
 - 配置：`playwright.visual.config.ts`（与 `playwright.config.ts` 解耦；后者用 `testIgnore` 排除 `e2e/visual`）；
-- 用例：`e2e/visual/pages.spec.ts` —— 登录、首页、旅行列表、行程详情（1440×900 + 390×844）、规划器、
-  AI 助手、旅行回顾、攻略库、设置·诊断、个人资料，共 11 张；
+- 用例：`e2e/visual/pages.spec.ts` —— 登录、首页、旅行列表、行程详情（1440×900）、规划器、
+  AI 助手、旅行回顾、攻略库、设置·诊断、个人资料，共 10 张；
 - 桩数据：`e2e/visual/fixtures.ts`，接管 `/api/**`，**不需要后端 / 数据库 / 真实模型**；
 - 确定性：`page.clock.setFixedTime()` 冻结时间、外网请求全部 abort（地图按失败降级）、
   `animations: 'disabled'`、`maxDiffPixelRatio: 0`；

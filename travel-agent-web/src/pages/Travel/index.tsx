@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { App, Button, Dropdown, Empty, Input, Popconfirm, Tabs, Tooltip } from 'antd';
+import { App, Button, Empty, Input, Popconfirm, Tabs, Tooltip } from 'antd';
 import {
   CalendarOutlined,
   CarryOutOutlined,
@@ -7,7 +7,6 @@ import {
   CompassOutlined,
   DeleteOutlined,
   GlobalOutlined,
-  MoreOutlined,
   RobotOutlined,
   StopOutlined,
   UndoOutlined,
@@ -96,7 +95,7 @@ function matchesFilter(t: Trip, filter: StatusFilter): boolean {
  * 待确认/即将出发/进行中/已结束/已取消靠筛选区分，而不是全塞进同一列表。
  */
 export default function Travel() {
-  const { message, modal } = App.useApp();
+  const { message } = App.useApp();
   const navigate = useNavigate();
   const trips = useTripStore((s) => s.trips);
   const tripsLoading = useTripStore((s) => s.tripsLoading);
@@ -171,18 +170,6 @@ export default function Travel() {
     } catch (e: any) {
       message.error(e.message);
     }
-  };
-
-  /** 移动端「更多」里的删除：二次确认带行程名，避免误触 */
-  const confirmRemove = (trip: Trip) => {
-    modal.confirm({
-      title: '确定删除该行程？',
-      content: `「${trip.name}」删除后无法恢复。`,
-      okText: '删除',
-      okButtonProps: { danger: true },
-      cancelText: '取消',
-      onOk: () => remove(trip.id),
-    });
   };
 
   const changeStatus = async (id: number, status: string) => {
@@ -441,52 +428,25 @@ export default function Travel() {
                                   {action.label}
                                 </Button>
                               )}
-                              {/* 桌面：删除保持低频图标按钮；移动端收进「更多」，不与状态/预算抢一行 */}
-                              <span className="tr-delete-desktop">
-                                <Tooltip title="删除行程">
-                                  <Popconfirm
-                                    title="确定删除该行程？"
-                                    description={`「${t.name}」删除后无法恢复`}
-                                    okText="删除"
-                                    okButtonProps={{ danger: true }}
-                                    cancelText="取消"
-                                    onConfirm={() => remove(t.id)}
-                                  >
-                                    <Button
-                                      type="text"
-                                      danger
-                                      size="small"
-                                      icon={<DeleteOutlined />}
-                                      aria-label={`删除行程 ${t.name}`}
-                                    />
-                                  </Popconfirm>
-                                </Tooltip>
-                              </span>
-                              <span className="tr-more-mobile">
-                                <Tooltip title="更多操作">
-                                  <Dropdown
-                                    trigger={['click']}
-                                    menu={{
-                                      items: [
-                                        {
-                                          key: 'delete',
-                                          danger: true,
-                                          icon: <DeleteOutlined />,
-                                          label: '删除行程',
-                                          onClick: () => confirmRemove(t),
-                                        },
-                                      ],
-                                    }}
-                                  >
-                                    <Button
-                                      type="text"
-                                      size="small"
-                                      icon={<MoreOutlined />}
-                                      aria-label={`更多操作：${t.name}`}
-                                    />
-                                  </Dropdown>
-                                </Tooltip>
-                              </span>
+                              {/* 删除是低频动作：图标按钮 + Popconfirm，不与状态/预算抢视觉权重 */}
+                              <Tooltip title="删除行程">
+                                <Popconfirm
+                                  title="确定删除该行程？"
+                                  description={`「${t.name}」删除后无法恢复`}
+                                  okText="删除"
+                                  okButtonProps={{ danger: true }}
+                                  cancelText="取消"
+                                  onConfirm={() => remove(t.id)}
+                                >
+                                  <Button
+                                    type="text"
+                                    danger
+                                    size="small"
+                                    icon={<DeleteOutlined />}
+                                    aria-label={`删除行程 ${t.name}`}
+                                  />
+                                </Popconfirm>
+                              </Tooltip>
                             </div>
                           </div>
                         );

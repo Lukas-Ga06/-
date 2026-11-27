@@ -5,7 +5,6 @@ import { useTripStore } from '../../store/tripStore';
 import { useAgentStore } from '../../store/agentStore';
 import { useUIStore } from '../../store/uiStore';
 import { useStatusQueueStore } from '../../store/statusQueueStore';
-import { useIsMobile } from '../../hooks/useMediaQuery';
 import { useAgentScope } from '../../hooks/useAgentScope';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import { undoTrip } from '../../api/agent';
@@ -21,7 +20,7 @@ import TripWorkspace from './components/TripWorkspace';
 import TripDrawers from './components/TripDrawers';
 import TripModals from './components/TripModals';
 import TripUndoLayer from './components/TripUndoLayer';
-import type { MobileView, SideView, UndoState } from './components/types';
+import type { SideView, UndoState } from './components/types';
 import './trip.css';
 import './trip-flow.css';
 
@@ -48,7 +47,7 @@ function isNetworkFailure(error: unknown): boolean {
  * 行程主界面：工作台式布局 —— 地图 + AI 助手 + 时间轴 + 预算。
  *
  * 页面本身负责数据加载、状态变更与撤销链、待同步队列的协作；
- * 页头、工作区（移动分段 / 桌面主栏+侧栏）与浮层在 components/ 下，只做展示。
+ * 页头、工作区（时间轴主栏 + 地图/AI 侧栏）与浮层在 components/ 下，只做展示。
  */
 export default function TripPage() {
   const { id } = useParams();
@@ -101,9 +100,6 @@ export default function TripPage() {
   const [undo, setUndo] = useState<UndoState | null>(null);
   /** 撤销窗口的序号：同一毫秒内连续两次操作也要各自重新计时 */
   const undoSeq = useRef(0);
-  /** 移动端分段视图；桌面端只用 sideView 切换右侧面板 */
-  const isMobile = useIsMobile();
-  const [mobileView, setMobileView] = useState<MobileView>('itinerary');
   const [sideView, setSideView] = useState<SideView>('map');
 
   useEffect(() => {
@@ -379,7 +375,6 @@ export default function TripPage() {
         />
 
         <TripWorkspace
-          isMobile={isMobile}
           tripId={tripId}
           currentTrip={currentTrip}
           items={items}
@@ -389,8 +384,6 @@ export default function TripPage() {
           statusBusy={statusBusy}
           pendingSyncIds={pendingSyncIds}
           onItemStatusChange={onItemStatusChange}
-          mobileView={mobileView}
-          onMobileViewChange={setMobileView}
           sideView={sideView}
           onSideViewChange={setSideView}
           onOpenDiagnostics={() => navigate('/settings/diagnostics')}

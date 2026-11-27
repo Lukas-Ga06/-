@@ -81,7 +81,7 @@ travel-agent-web/
 | 层 | 文件 | 内容 |
 | --- | --- | --- |
 | 基础 | `tokens.css` | `:root` 令牌、暗色覆盖、antd 令牌对齐 |
-| 外壳 | `shell.css` | 侧栏 / 底部标签栏 / 页面框架 |
+| 外壳 | `shell.css` | 侧栏（含 ≤1080px 图标栏）/ 页面框架 |
 | 原子 | `buttons.css`、`cards.css`、`status.css` | 按钮、卡片、状态徽标 |
 | 共享布局 | `shared.css` | 跨页页头、390px 防溢出契约、antd 覆盖 |
 | 跨页组件 | `components.css` | ChatPanel / PlanDiff / AgentActivityPanel / FootprintMap / Skeleton / Toast / Citation / SwipeRow / ReminderBell / memo |
@@ -174,7 +174,7 @@ API：`getTripsMap`、`getExpenseOverview`、`getMemos`/`toggleMemo`、`listSche
 攻略正文、不可修改项、特别要求，可空）→ ③ 确认需求（只读结构化摘要 + 冲突 + 待核实字段）。
 两种模式：`guides`（粘贴参考攻略正文整合）与 `scratch`（从零规划）；攻略模式在第 2→3 步之间要求至少一篇正文。
 API：不直接调 REST，全部经 `useAgentStore.send({ transport: 'post' })`。
-布局：桌面右侧吸顶需求摘要，移动端（`useIsMobile`）底部固定「上一步 / 步骤 x/3 / 继续·生成计划」；
+布局：右侧吸顶需求摘要 + 卡片页脚（上一步 / 继续·生成计划）；
 `?prompt=` 进入时仍先跑 `parsePrompt` 回填，第 3 步会列出低置信字段与「方案会替用户做的假设」。
 
 **草稿**：`planDraft.ts`（纯逻辑，可单测）负责 localStorage 读写与校验，
@@ -191,7 +191,7 @@ key `travel:planner-draft:v1` 带版本号；空白表单不产生草稿；进�
 
 ### 4.4 Trip（`/trip/:id`）
 
-行程详情主战场 —— 桌面：时间轴主栏 + 地图/AI 侧栏；移动：`行程 / 地图 / AI` 分段视图（默认行程）。
+行程详情主战场 —— 时间轴主栏 + 地图/AI 侧栏（右侧面板用 `sideView` 切换，地图保持 keep-alive）。
 顶部按阶段收敛一级动作（行中=记账，行前=预算分析），其余进「更多」菜单。
 
 **行中执行流程（§7.3）**：
@@ -513,7 +513,7 @@ export function clearAccessTicketCache(): void;                                 
 
 | 组件 | 路径 | props | 职责 |
 | --- | --- | --- | --- |
-| `AppShell` | `AppShell.tsx` | `active: NavModule`, `children` | 应用外壳：分组侧栏（备忘角标、提醒铃铛、用户区、主题切换）、内容区、窄屏底部标签栏；已在壳内（`InsideShell` context）时**只渲染 children** |
+| `AppShell` | `AppShell.tsx` | `active: NavModule`, `children` | 应用外壳：分组侧栏（备忘角标、提醒铃铛、用户区、主题切换）、内容区；≤1080px 由 CSS 收成图标栏；已在壳内（`InsideShell` context）时**只渲染 children** |
 | `OfflineBanner` | `OfflineBanner/index.tsx` | 无 | 断网时置顶显示「离线：显示缓存数据」+「N 项待同步」，恢复在线自动消失（`useOnlineStatus` + 原生 `online`/`offline` 事件）；**同时是待同步队列的全局出口**：`usePendingSync()` 自动重放，显示「正在同步 / N 项同步失败（重试）/ N 项待同步（立即同步）/ N 项离线记录已同步」；可手动关闭，恢复在线后重置关闭状态（见 11.3、5.4） |
 | `ChatPanel` | `ChatPanel/index.tsx` | `tripId?`, `placeholder?` | 聊天面板：消息列表 + 语音输入 + 发送；自动滚到底；带 `tripId`/`currentDay`/`selectedElement` 上下文 |
 | `MapView` | `MapView/index.tsx` | `items`, `focus`, `focusDay`, `routeLegs?`, `active?=true` | 地图容器与引擎切换（见第 8 节），含底图失败降级提示与 3D 巡航按钮；`active=false` 不卸载地图，重新可见时 `resize()`（侧栏 keep-alive） |
@@ -687,7 +687,7 @@ return undefined;
 - `e2e/maplibre-vendor.spec.ts` **3 例**：地图引擎 vendor 文件可发布、浏览器可 import、worker 与样式相对路径可解析。
 
 另有**独立的视觉回归套件**（不在此列，因为不需要后端与登录）：`npm run test:visual`，
-`playwright.visual.config.ts` + `e2e/visual/`，11 张关键页面截图基线，说明见 [frontend-quality.md §6](frontend-quality.md#6-视觉回归截图基线)。
+`playwright.visual.config.ts` + `e2e/visual/`，10 张关键页面截图基线，说明见 [frontend-quality.md §6](frontend-quality.md#6-视觉回归截图基线)。
 
 ---
 
@@ -704,7 +704,7 @@ return undefined;
 | **懒加载** | 新页面一律 `React.lazy` + `Suspense`；页面内重型组件（echarts/地图）再 `lazy` 一层，别回到单包 3MB |
 | **样式令牌** | `styles/tokens.css` 的 `:root` 是唯一来源。主用名 `--bg/--surface/--border/--text/--text-2/--text-3/--accent/--ok/--warn/--danger/--r-*/--sp-*`，旧名（`--ink/--line/--blue/--lg-*`）是别名 |
 | **色板与暗色** | `main.tsx` 的 `PALETTE` 与 `tokens.css` 是同一套值（主色 `#1f6feb`、圆角 8、边框 `#e4e6eb`），**改色板两处一起改**；`[data-theme='dark']` 只覆盖令牌层，`index.html` 首帧前预设属性避免闪白；canvas 图表（echarts）读不到 CSS 变量，**必须按主题给两套色值**。完整机制（含 `localStorage` 键、三处入口）见 **11.1** |
-| **响应式** | ≥1080px 侧栏 232px；720–1080px 收成 76px 图标栏；<720px 换底部标签栏 `.app-tabbar`。**新增窄屏规则写在 `shared.css` 的 390px 段**，否则会被旧的 `@media (max-width: 900px)` 抢先覆盖；390px 实测场景与溢出修复清单见 **11.2** |
+| **响应式** | ≥1080px 侧栏 232px；≤1080px 收成 76px 图标栏。**没有移动端布局分支**（行程页/规划页/外壳都不再按视口切结构），手机浏览器只落在这套桌面布局上。**新增窄屏防溢出规则写在 `shared.css` 的 390px 段**，否则会被旧的 `@media (max-width: 900px)` 抢先覆盖；溢出修复清单见 **11.2** |
 | **外壳复用** | 子页面（`Schedule`/`Footprint`）自带 `AppShell`，被嵌套复用时靠 `InsideShell` context 退化为纯内容，不必删壳 |
 | **纯逻辑抽离** | 复杂计算抽成同目录 `.ts`（`planForm.ts`、`footprintData.ts`、`reminderNotify.ts`、`markerElement.ts`），组件只做渲染 —— 这些也是单测的主要目标 |
 
@@ -728,7 +728,7 @@ return undefined;
 | 无存值 | 跟随系统 `prefers-color-scheme`（没有 `matchMedia` 时按浅色） | `themeStore.systemPrefersDark` |
 | 存了但非法/损坏 | **回落 light**（绝不把非法值写进 `data-theme`） | `themeStore.readStoredTheme` |
 | 首帧不闪白 | `index.html` 的 `<head>` 内联脚本在样式表加载**之前**写 `document.documentElement.dataset.theme`；三条规则与 `themeStore` 逐条一致 | `index.html` |
-| 入口 | 侧栏/底栏的主题按钮（`AppShell`）+「我的 → 外观」（`pages/Profile`） | `AppShell.tsx`、`pages/Profile/index.tsx:96-110` |
+| 入口 | 侧栏的主题按钮（`AppShell`）+「我的 → 外观」（`pages/Profile`） | `AppShell.tsx`、`pages/Profile/index.tsx:96-110` |
 
 对外 API（`themeStore.ts`）：`mode` / `setMode` / `toggle`、`THEME_STORAGE_KEY`、`isThemeMode`、`readStoredTheme`、
 `resolveInitialMode`、`applyTheme(mode)`。`main.tsx` 在 `useEffect` 里把 `mode` 同步到 `<html data-theme>`。
@@ -738,9 +738,11 @@ return undefined;
 
 ### 11.2 窄屏（390px）防横向滚动
 
+> 移动端专属布局（底部标签栏、行程分段视图、规划固定底栏）已于 2026-11 移除；本节规则**保留**，作为手机浏览器打开页面、或桌面窗口拖窄时的防溢出兜底。
+
 - **安全区**：`index.html` 的 `<meta name="viewport" ... viewport-fit=cover>` 让 iOS 安全区生效；
-  顶部栏用 `env(safe-area-inset-top)` 吃掉刘海，底栏/抽屉底部用 `env(safe-area-inset-bottom)` 避开 home 指示条。
-- **实测口径**：390×844 视口下 **7 个场景** `document.documentElement.scrollWidth == clientWidth == 390`
+  顶部栏用 `env(safe-area-inset-top)` 吃掉刘海，抽屉底部用 `env(safe-area-inset-bottom)` 避开 home 指示条。
+- **实测口径**（移动布局移除前的验收证据）：390×844 视口下 **7 个场景** `document.documentElement.scrollWidth == clientWidth == 390`
   （规划页、行程页、账单抽屉、预算抽屉、备忘页、账单总览、暗色行程页）。
 - **修掉的溢出点**（都在 `styles/shared.css` 的 390px `@media` 块里）：
 

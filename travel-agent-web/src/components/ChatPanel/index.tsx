@@ -18,7 +18,6 @@ import { useNavigate } from 'react-router-dom';
 import { useAgentStore } from '../../store/agentStore';
 import { useAuthStore } from '../../store/authStore';
 import { useUIStore } from '../../store/uiStore';
-import { useIsMobile } from '../../hooks/useMediaQuery';
 import { retryExecution } from '../../api/agent';
 import VoiceButton from '../VoiceButton';
 import AgentActivityPanel from '../AgentActivityPanel';
@@ -72,10 +71,7 @@ export default function ChatPanel({ tripId, placeholder }: Props) {
   const selectedElement = useUIStore((s) => s.selectedElement);
   const setSelectedElement = useUIStore((s) => s.setSelectedElement);
   const { message } = App.useApp();
-  const isMobile = useIsMobile();
-  const effectivePlaceholder = isMobile
-    ? '告诉我想完成什么…'
-    : (placeholder ?? '输入旅行需求，或对行程提出调整…');
+  const effectivePlaceholder = placeholder ?? '输入旅行需求，或对行程提出调整…';
   const [text, setText] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
 

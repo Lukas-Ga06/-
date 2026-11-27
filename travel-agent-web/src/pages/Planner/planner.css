@@ -654,11 +654,7 @@
   border-top: 1px dashed var(--border);
 }
 
-/* ---------- 移动端：底部固定操作条 ---------- */
-.plan3-mobile-bar {
-  display: none;
-}
-
+/* ---------- 窄屏：单列布局 ---------- */
 @media (max-width: 720px) {
   .plan3-layout {
     grid-template-columns: minmax(0, 1fr);
@@ -666,8 +662,6 @@
 
   .plan3-card {
     border-radius: var(--r-md);
-    /* 固定操作条会盖住卡片末尾：让出与操作条等高的空间 */
-    margin-bottom: calc(78px + env(safe-area-inset-bottom));
   }
 
   .plan3-scroll {
@@ -690,32 +684,6 @@
   .plan3-sum-row {
     grid-template-columns: 84px minmax(0, 1fr);
     gap: 10px;
-  }
-
-  .plan3-mobile-bar {
-    position: fixed;
-    right: 0;
-    bottom: 0;
-    left: 0;
-    z-index: 30;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
-    background: var(--surface);
-    border-top: 1px solid var(--border);
-    box-shadow: 0 -4px 12px rgba(16, 24, 40, 0.06);
-  }
-
-  .plan3-mobile-step {
-    flex: 1;
-    text-align: center;
-    font-size: 12px;
-    color: var(--text-3);
-  }
-
-  .plan3-mobile-bar .ant-btn {
-    min-width: 92px;
   }
 }
 

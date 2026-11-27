@@ -1,14 +1,12 @@
 import { Segmented } from 'antd';
-import { EnvironmentOutlined, RobotOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import MapView from '../../../components/MapView';
 import Timeline from '../../../components/Timeline';
 import ChatPanel from '../../../components/ChatPanel';
 import type { AgentFocus } from '../../../types/agent';
 import type { ItineraryItem, ItineraryStatus, RouteLeg, Trip } from '../../../types/trip';
-import type { MobileView, SideView } from './types';
+import type { SideView } from './types';
 
 interface Props {
-  isMobile: boolean;
   tripId: number;
   currentTrip: Trip | null;
   items: ItineraryItem[];
@@ -22,20 +20,15 @@ interface Props {
   /** 离线记录、尚未被服务端确认的条目 id */
   pendingSyncIds: Set<number>;
   onItemStatusChange: (itemId: number, next: ItineraryStatus) => void;
-  mobileView: MobileView;
-  onMobileViewChange: (view: MobileView) => void;
   sideView: SideView;
   onSideViewChange: (view: SideView) => void;
   onOpenDiagnostics: () => void;
 }
 
 /**
- * 行程工作区（§8.5）：移动端是「行程 / 地图 / AI」互斥分段，默认行程；
- * 桌面端时间轴做主栏，地图与 AI 共享右侧可切换面板。
- * 两种布局共用同一份 Timeline / MapView 入参，避免两处口径漂移。
+ * 行程工作区（§8.5）：时间轴做主栏，地图与 AI 共享右侧可切换面板。
  */
 export default function TripWorkspace({
-  isMobile,
   tripId,
   currentTrip,
   items,
@@ -45,99 +38,11 @@ export default function TripWorkspace({
   statusBusy,
   pendingSyncIds,
   onItemStatusChange,
-  mobileView,
-  onMobileViewChange,
   sideView,
   onSideViewChange,
   onOpenDiagnostics,
 }: Props) {
-  if (isMobile) {
-    return (
-      <>
-        {/* 移动端：分段视图，默认行程；下一项与主动作在时间轴顶部（P1-04） */}
-        <Segmented
-          block
-          data-testid="trip-view-switch"
-          className="trip-view-switch"
-          value={mobileView}
-          onChange={(v) => onMobileViewChange(v as MobileView)}
-          options={[
-            {
-              value: 'itinerary',
-              label: (
-                <span>
-                  <UnorderedListOutlined aria-hidden="true" /> 行程
-                </span>
-              ),
-            },
-            {
-              value: 'map',
-              label: (
-                <span>
-                  <EnvironmentOutlined aria-hidden="true" /> 地图
-                </span>
-              ),
-            },
-            {
-              value: 'ai',
-              label: (
-                <span>
-                  <RobotOutlined aria-hidden="true" /> AI
-                </span>
-              ),
-            },
-          ]}
-        />
-        {mobileView === 'itinerary' && (
-          <section className="dash-card trip-timeline-card">
-            <Timeline
-              trip={currentTrip}
-              items={items}
-              focus={focus}
-              routeLegs={routeLegs}
-              onItemStatusChange={onItemStatusChange}
-              statusBusyId={statusBusy}
-              pendingSyncIds={pendingSyncIds}
-            />
-          </section>
-        )}
-        {mobileView === 'map' && (
-          <section className="dash-card trip-map-card">
-            <div className="dc-head">
-              <b>地图</b>
-              <span className="mini-tag">
-                <EnvironmentOutlined /> Day {selectedDay}
-              </span>
-            </div>
-            <div className="trip-map-body">
-              <MapView
-                items={items}
-                focus={focus}
-                focusDay={selectedDay}
-                routeLegs={routeLegs}
-                onViewTimeline={() => onMobileViewChange('itinerary')}
-                onOpenDiagnostics={onOpenDiagnostics}
-              />
-            </div>
-          </section>
-        )}
-        {mobileView === 'ai' && (
-          <aside className="dash-card trip-chat-card">
-            <div className="dc-head">
-              <b>AI 助手</b>
-              <span className="mini-tag">随时调整行程</span>
-            </div>
-            <div className="trip-chat-body">
-              <ChatPanel tripId={tripId} placeholder="例如：明天下雨，把户外景点换掉" />
-            </div>
-          </aside>
-        )}
-      </>
-    );
-  }
-
   return (
-    /* 桌面：时间轴做主栏，地图与 AI 共享右侧可切换面板（§8.5） */
     <div className="trip-workbench">
       <section className="dash-card trip-timeline-card trip-main-col">
         <Timeline

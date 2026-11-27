@@ -14,8 +14,8 @@
 | `security` | push/PR | 依赖漏洞（dependency-review【硬门禁】/ npm audit / Trivy） | 见第 5 节 |
 | `secret-scan` | push/PR | gitleaks 全历史密钥扫描（固定 8.30.1 + SHA-256，命中即失败） | 见第 5 节 |
 | `e2e` | push/PR | Playwright **14 条**（Chromium 桌面）：登录/建行程/路书/PWA 资源、地图引擎运行时加载、**5 个页面的 axe 无障碍扫描（critical/serious 必须为 0）**、**1 条隔离自证**；后端是独立 H2 内存库 + LLM/MCP/AMAP 全关 | `cd travel-agent-web && npm run e2e:isolated` |
-| `e2e-device` | push/PR | **观察中（`continue-on-error: true`，不阻塞合并）**：移动端 WebKit/iPhone 预设 3 条 + CDP 弱网/离线 3 条 + 多端并发 2 条（连同 13 条主冒烟，共 21 条），同样跑隔离后端 | `cd travel-agent-web && npm run e2e:device:isolated` |
-| `visual` | push/PR | 11 张截图逐像素比较（`maxDiffPixelRatio: 0`）；**仅有 Linux 基线时比较**，当前 `continue-on-error: true` 观察 | `cd travel-agent-web && npm run test:visual`（需 Linux 基线，见第 3 节 visual） |
+| `e2e-device` | push/PR | **观察中（`continue-on-error: true`，不阻塞合并）**：CDP 弱网/离线 3 条 + 多端并发 2 条，连同桌面主冒烟一起跑隔离后端 | `cd travel-agent-web && npm run e2e:device:isolated` |
+| `visual` | push/PR | 10 张截图逐像素比较（`maxDiffPixelRatio: 0`）；**仅有 Linux 基线时比较**，当前 `continue-on-error: true` 观察 | `cd travel-agent-web && npm run test:visual`（需 Linux 基线，见第 3 节 visual） |
 | `CodeQL` | push/PR/每周 | Java + TypeScript SAST | 本地无法等价，靠 PR 结果（第 6 节） |
 
 ### 1.1 e2e 后端为什么必须隔离
@@ -43,7 +43,6 @@
 
 | 套件 | 现状 | 原因 / 接入条件 |
 | --- | --- | --- |
-| 移动端 WebKit | 已进 CI，**观察模式** | 隔离后端已解决外部污染；剩余风险是共享 runner 上 WebKit 与耗时阈值的抖动。转正条件：连续 2 周无「只有 CI 红、本地绿」，且 PR 模板写明「WebKit 模拟 ≠ iOS 真机」 |
 | 弱网 / 离线 | 已进 CI，**观察模式** | 依赖 `Network.emulateNetworkConditions`（仅 Chromium）；断言是耗时阈值（用例按 ≤20s，实测 8.3s，约 2.4 倍余量），共享 runner 上需观察波动 |
 | 多端并发 | 已进 CI，**观察模式** | 两个独立 `browserContext` 同账号并发；依赖后端关限流（隔离后端已关） |
 | 视觉回归 | 已接 CI，**观察模式** | 2026-11-24 起仓库有两套基线：`-chromium-win32.png`（本机人工回归）与 `-chromium-linux.png`（`.github/workflows/visual-baseline.yml` 在固定 Playwright 容器生成，本次 run 45381999718）；`visual` job 检测到 Linux 基线后已由「跳过」转为逐像素比较，稳定后再摘 `continue-on-error` |
@@ -62,8 +61,8 @@ CI 只证明「不联网、无真实 Key 时也能正确失败并自报」。**�
 | **天气真实预报可用** | ❌ 人工 | e2e 用 `WEATHER_SIMULATION=true` 隔离外呼，`WeatherServiceTest` 也只覆盖 WireMock 解析——都**不证明能连上真实 Open-Meteo** | 部署后看 `/api/system/status` 的 `weatherProvider=open-meteo` 与 `weatherHint` |
 | **LLM 真实可用** | ❌ 人工 | CI 不持有 `LLM_API_KEY`，只验回落规则规划器 | 配 Key 后跑 [真实模型验收](v2.2-iteration.md) 流程并留存证据 |
 | **高德 POI / 路线真实可用** | ❌ 人工 | 需要真实 `AMAP_KEY` 且有 QPS 配额 | `.e2e/amap-real-key-probe.ps1`，结果写进 `docs/review/` |
-| 移动端真机（Android） | ❌ 人工 | CI 只有 WebKit/iPhone 预设，模拟 ≠ 真机 | 按 [发布检查单](../operations/launch-checklist.md) §5.1 跑真机矩阵 |
-| 视觉回归基线 | ✅ 自动比较（Linux 基线） | Linux 基线已入库（11 张，Playwright `v1.64.1-jammy` 生成），CI 用同一镜像逐像素比较；重新生成仍需人工触发 | 有意改视觉时跑 `.github/workflows/visual-baseline.yml` 并人工 review 图片 diff |
+| 移动端布局与交互 | ❌ 不在支持范围 | 仓库只承诺桌面布局（≥1080px 侧栏 / ≤1080px 图标栏），没有移动端布局分支，也没有 WebKit/iPhone 模拟或真机用例 | 若要在手机上交付，需要先恢复移动端布局并新增独立批次；见 [发布检查单](../operations/launch-checklist.md) §5.1 |
+| 视觉回归基线 | ✅ 自动比较（Linux 基线） | Linux 基线已入库（10 张，Playwright `v1.64.1-jammy` 生成），CI 用同一镜像逐像素比较；重新生成仍需人工触发 | 有意改视觉时跑 `.github/workflows/visual-baseline.yml` 并人工 review 图片 diff |
 | 生产部署配置（密钥、`DEMO_ACCOUNT=false`、`WEATHER_SIMULATION=false`） | ❌ 人工 | CI 用的是隔离配置 | 按 [生产配置](../operations/production-config.md) 逐项核对 `/api/system/status` |
 
 判定规则：**CI 失败 = 不能合并**；**上表 ❌ 项未人工验收 = 不能算「能力可用」**，只能算「代码路径存在」。
@@ -89,7 +88,7 @@ cd .. && node scripts/docs-check.mjs
 cd travel-agent-web
 npm run build
 npm run e2e:isolated            # Chromium 桌面门禁
-npm run e2e:device:isolated     # WebKit 移动端 + 弱网 + 多端并发（观察）
+npm run e2e:device:isolated     # 弱网 + 多端并发（观察）
 
 # 真实 MySQL 迁移（需本地实例，见 mysql-migration.md）
 cd ..
