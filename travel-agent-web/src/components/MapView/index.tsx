@@ -13,6 +13,8 @@ import type { AgentFocus } from '../../types/agent';
 import type { MapProvider } from './MapProvider';
 import { AMapProvider } from './AMapProvider';
 import { useThemeStore } from '../../store/themeStore';
+import { useUIStore } from '../../store/uiStore';
+import { scrollToItem } from '../../lib/tripFocus';
 import RunStatus from '../RunStatus';
 import { knownRunState } from '../../lib/runState';
 
@@ -37,8 +39,24 @@ interface Props {
 type Engine = '3d' | '2d';
 
 /**
+ * 地图 → 时间线：地图标记点击与时间线卡片点击写的是**同一个** `uiStore.selectedElement`
+ * （唯一选中源，不在地图里另存一份选中态）。这里额外把 Day 切到它所在的那一天，
+ * 再滚到 `#ti-<id>`；时间线没有这一行时 `scrollToItem` 静默跳过 —— 宁可不滚，也不造一行假数据。
+ *
+ * 写成模块级函数而不是组件内闭包：它只读写 store，不依赖 props，
+ * 于是 Provider 的回调永远不是过期的闭包。
+ */
+function selectFromMap(item: ItineraryItem): void {
+  if (item.id == null) return;
+  const ui = useUIStore.getState();
+  ui.setSelectedElement({ type: item.itemType, id: item.id, title: item.title });
+  ui.setSelectedDay(item.dayIndex);
+  scrollToItem(item.id, 150);
+}
+
+/**
  * 地图组件：统一使用高德 JS API，支持 3D/2D、辉光路线与沿行程巡航；
- * Agent Focus 事件驱动自动飞行定位。
+ * Agent Focus 事件驱动自动飞行定位，选中态与时间线共用 `uiStore.selectedElement`。
  */
 export default function MapView({
   items,
@@ -56,8 +74,13 @@ export default function MapView({
   const [mapLoadFailed, setMapLoadFailed] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
   const themeMode = useThemeStore((s) => s.mode);
+  /** 唯一选中源（时间线写、地图也写、两侧都读同一份）；地图只把它投影到标记上 */
+  const selectedId = useUIStore((s) => s.selectedElement?.id ?? null);
   /** 地图加载失败是「资源不可用」而不是「没有地点」：统一走 resource→error（failed）这一档 */
   const mapFailedState = knownRunState('resource', 'error');
+  /** 地图上实际出现过的路线来源（与时间轴同一口径：只有 amap 是实测，其余一律估算） */
+  const measured = (routeLegs ?? []).some((leg) => leg.source === 'amap');
+  const estimated = (routeLegs ?? []).some((leg) => leg.source !== 'amap');
 
   // 初始化 / 视角切换。高德 SDK 只加载一次，Provider 负责挂起异步加载期间的渲染请求。
   // 主题不作为依赖：切主题只换底图样式，绝不重建地图（重建会丢相机与覆盖物）。
@@ -72,6 +95,7 @@ export default function MapView({
     provider.init(containerRef.current, (status) => {
       setMapLoadFailed(status === 'failed');
     });
+    provider.onMarkerSelect = selectFromMap;
     providerRef.current = provider;
     return () => {
       provider.destroy();
@@ -95,6 +119,12 @@ export default function MapView({
   useEffect(() => {
     providerRef.current?.render(items, focusDay, routeLegs);
   }, [items, focusDay, engine, routeLegs]);
+
+  // 选中投影：只高亮对应标记并平移，不重绘地图、不改缩放。
+  // engine/retryKey 变化会重建 Provider，新实例需要再投影一次（它的标记是新建的）。
+  useEffect(() => {
+    providerRef.current?.select(selectedId);
+  }, [selectedId, engine, retryKey]);
 
   // 焦点、行程数据或视角变化都会打断正在跑的巡航。
   // 巡航状态在渲染期收敛（React 官方「prop 变化时调整 state」写法，避免多一轮提交）；
@@ -253,6 +283,27 @@ export default function MapView({
                 </button>
               </Tooltip>
             </>
+          )}
+        </div>
+      )}
+      {/*
+        来源图例：地图上实测/估算只靠线型表达时，用户（和自动化）都没法确认哪条是实测。
+        只列出真正画出来的来源，不预告不存在的来源；文案与时间轴的口径逐字一致。
+      */}
+      {!mapLoadFailed && (measured || estimated) && (
+        <div className="map-legend" data-testid="map-legend" aria-label="路线来源图例">
+          <span className="ml-title">路线来源</span>
+          {measured && (
+            <span className="ml-item" data-source="amap">
+              <span className="ml-line solid" aria-hidden="true" />
+              <span className="mini-tag leg-amap">实测 · amap</span>
+            </span>
+          )}
+          {estimated && (
+            <span className="ml-item" data-source="estimated">
+              <span className="ml-line dashed" aria-hidden="true" />
+              <span className="mini-tag leg-estimated">估算 · estimated</span>
+            </span>
           )}
         </div>
       )}

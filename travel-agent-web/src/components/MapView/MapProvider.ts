@@ -18,7 +18,18 @@ export interface MapProvider {
   /** 渲染行程点位与路线；focusDay 为 null 时展示全部天 */
   render(items: ItineraryItem[], focusDay: number | null, routeLegs?: RouteLeg[]): void;
   flyTo(lat: number, lng: number, zoom?: number): void;
+  /**
+   * 选中投影：高亮该条行程项的标记并平移过去，`null` 清除高亮。
+   * 约定：**不重绘地图、不改缩放**——选中一条安排不该重置用户的缩放与视角。
+   */
+  select(itemId: number | null): void;
   destroy(): void;
+
+  /**
+   * 可选扩展：点击标记后回调。
+   * 标记是命令式 DOM，点击事件的绑定在实现内部；调用方只关心「用户点了哪一条」。
+   */
+  onMarkerSelect?: (item: ItineraryItem) => void;
 
   /** 可选扩展：3D 沿行程自动巡航（相机依次飞越当天各点） */
   startTour?(items: ItineraryItem[]): void;

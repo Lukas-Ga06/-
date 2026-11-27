@@ -10,7 +10,7 @@ import {
   type AMapOverlay,
   type AMapViewMode,
 } from './amapLoader';
-import { buildMarkerElement } from './markerElement';
+import { applyMarkerSelection, buildMarkerElement } from './markerElement';
 
 export const DAY_COLORS = ['#007aff', '#34c759', '#ff9500', '#af52de', '#ff2d55'];
 
@@ -25,6 +25,8 @@ export const AMAP_STYLES: Record<ThemeMode, string> = {
 
 const DEFAULT_CENTER: [number, number] = toAmapLngLat(31.2304, 121.4737);
 const BASE_MAP_TIMEOUT_MS = 12_000;
+/** 旧版 SDK 没有 `getZoom()` 时「平移不改缩放」的兜底级别（与初始 fitView 上限一致） */
+const SELECTION_FALLBACK_ZOOM = 14.6;
 
 type BaseMapStatus = 'ok' | 'failed';
 type FocusTarget = { lat: number; lng: number; zoom: number };
@@ -122,6 +124,10 @@ export class AMapProvider implements MapProvider {
   /** 已经真正应用到地图实例上的主题；null = 地图还没创建 */
   private appliedTheme: ThemeMode | null = null;
   private overlays: AMapOverlay[] = [];
+  /** 已画出的标记 DOM（itemId → 元素）：选中只改这些元素的类，不重绘地图 */
+  private markerElements = new Map<number, HTMLElement>();
+  /** 当前选中项。唯一的选中源在 uiStore；这里只是最近一次投影的记忆，重绘后按它恢复高亮 */
+  private selectedId: number | null = null;
   private pendingItems: ItineraryItem[] = [];
   private pendingDay: number | null = null;
   private pendingLegs: RouteLeg[] = [];
@@ -134,6 +140,8 @@ export class AMapProvider implements MapProvider {
   private status?: BaseMapStatus;
   private statusCb?: (status: BaseMapStatus) => void;
   private destroyed = false;
+  /** 点击标记的回调由调用方注入（见 MapProvider.onMarkerSelect） */
+  onMarkerSelect?: (item: ItineraryItem) => void;
 
   constructor(
     private readonly viewMode: AMapViewMode = '3D',
@@ -295,6 +303,7 @@ export class AMapProvider implements MapProvider {
 
     if (this.overlays.length > 0) map.remove(this.overlays);
     this.overlays = [];
+    this.markerElements.clear();
 
     const addOverlay = (overlay: AMapOverlay) => {
       this.overlays.push(overlay);
@@ -385,11 +394,28 @@ export class AMapProvider implements MapProvider {
       });
     }
 
+    // 每个点「进入它的那一段」的来源（同一点有多段时取序号最小的那段）：
+    // 标记自己把来源写出来，地图不必只靠线型暗示实测/估算。
+    const incomingSource = new Map<number, string>();
+    for (const { leg } of [...legEntries].sort((a, b) => a.leg.sequence - b.leg.sequence)) {
+      if (leg.toItemId == null || incomingSource.has(leg.toItemId)) continue;
+      incomingSource.set(leg.toItemId, leg.source);
+    }
+
     withGeo.forEach((item) => {
+      const color = DAY_COLORS[(item.dayIndex - 1) % DAY_COLORS.length];
+      const element = buildMarkerElement(item, color, {
+        source: item.id == null ? null : (incomingSource.get(item.id) ?? null),
+        selected: item.id != null && this.selectedId === item.id,
+      });
+      if (item.id != null) {
+        this.bindMarker(element, item);
+        this.markerElements.set(item.id, element);
+      }
       addOverlay(
         new AMap.Marker({
           position: toAmapLngLat(item.latitude as number, item.longitude as number),
-          content: buildMarkerElement(item, DAY_COLORS[(item.dayIndex - 1) % DAY_COLORS.length]),
+          content: element,
           anchor: 'center',
           title: item.title,
           zIndex: focusDay === item.dayIndex ? 50 : 40,
@@ -419,6 +445,49 @@ export class AMapProvider implements MapProvider {
     }
     if (this.viewMode === '3D') this.map.setPitch(65);
     this.map.setZoomAndCenter(zoom, toAmapLngLat(lat, lng), false, 1400);
+  }
+
+  /**
+   * 选中投影：只改已画出的标记的类与属性，再平移一次相机。
+   *
+   * 刻意不走 render：render 会 `map.remove(overlays)` 再整批重建覆盖物，
+   * 每次时间线点击都重画一遍标记等于把选择变成一次全量绘制。这里只碰一个 DOM 元素。
+   * 相机只平移（`setCenter`），不碰 `setZoomAndCenter` 的 zoom —— 用户调过的缩放是他们的上下文。
+   */
+  select(itemId: number | null): void {
+    this.selectedId = itemId;
+    this.markerElements.forEach((element, id) => {
+      applyMarkerSelection(element, itemId != null && id === itemId);
+    });
+    if (itemId == null) return;
+    const item = this.pendingItems.find((i) => i.id === itemId);
+    if (!item || item.latitude == null || item.longitude == null) return;
+    const map = this.map;
+    if (!map) return;
+    const center = toAmapLngLat(item.latitude, item.longitude);
+    if (typeof map.setCenter === 'function') {
+      map.setCenter(center);
+      return;
+    }
+    // 旧版 SDK 没有 setCenter：取当前缩放回填，语义仍是「只平移不改缩放」。
+    map.setZoomAndCenter(map.getZoom?.() ?? SELECTION_FALLBACK_ZOOM, center);
+  }
+
+  /**
+   * 标记的可交互性：点击/键盘选中由这里统一挂，buildMarkerElement 保持纯展示。
+   * 只有带 id 的条目才可选中——没有 id 就没有时间线锚点，选中它无处可落。
+   */
+  private bindMarker(element: HTMLElement, item: ItineraryItem): void {
+    element.setAttribute('role', 'button');
+    element.tabIndex = 0;
+    element.setAttribute('aria-label', `在地图上选中：${item.title ?? ''}`);
+    const activate = () => this.onMarkerSelect?.(item);
+    element.addEventListener('click', activate);
+    element.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      activate();
+    });
   }
 
   startTour(items: ItineraryItem[]): void {
@@ -483,6 +552,9 @@ export class AMapProvider implements MapProvider {
     this.clearStatusTimer();
     if (this.overlays.length > 0) this.map?.remove(this.overlays);
     this.overlays = [];
+    this.markerElements.clear();
+    this.selectedId = null;
+    this.onMarkerSelect = undefined;
     this.map?.destroy();
     this.map = null;
     this.AMap = null;

@@ -58,6 +58,8 @@ function createMapMock(): MockMap {
     setPitch: vi.fn(),
     setRotation: vi.fn(),
     getRotation: vi.fn(() => 0),
+    getZoom: vi.fn(() => 9.5),
+    setCenter: vi.fn(),
     setMapStyle: vi.fn(),
     destroy: vi.fn(),
   };
@@ -101,22 +103,23 @@ async function flushLoader() {
   await Promise.resolve();
 }
 
+/** 两个 describe 共用同一个被测实例与计时器/环境清理 */
+let provider: AMapProvider | null = null;
+
+beforeEach(() => {
+  vi.useFakeTimers();
+});
+
+afterEach(() => {
+  provider?.destroy();
+  provider = null;
+  vi.clearAllTimers();
+  vi.useRealTimers();
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
+});
+
 describe('AMapProvider', () => {
-  let provider: AMapProvider | null = null;
-
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-
-  afterEach(() => {
-    provider?.destroy();
-    provider = null;
-    vi.clearAllTimers();
-    vi.useRealTimers();
-    vi.unstubAllEnvs();
-    vi.restoreAllMocks();
-  });
-
   it('使用高德 3D 渲染分日路线和 DOM 标记', async () => {
     const map = createMapMock();
     const { AMap, Marker, Polyline, ControlBar } = createAMapMock(map);
@@ -579,5 +582,162 @@ describe('AMapProvider', () => {
     await flushLoader();
 
     expect(() => provider?.resize()).not.toThrow();
+  });
+});
+
+describe('AMapProvider · 时间线 ↔ 地图选中联动', () => {
+  /** 标记的 content 是应用自己构建的 DOM（伪造/真实 SDK 都一样），断言直接读它 */
+  function markerElements(calls: unknown[][]): HTMLElement[] {
+    return calls.map(([options]) => (options as { content: HTMLElement }).content);
+  }
+
+  it('select 只改标记的选中类并平移：不重绘、不碰缩放', async () => {
+    const map = createMapMock();
+    const { AMap, Marker } = createAMapMock(map);
+    provider = new AMapProvider('3D', () => Promise.resolve(AMap));
+    provider.init(document.createElement('div'));
+    await flushLoader();
+    provider.render(
+      [item(), item({ id: 2, title: '豫园', latitude: 31.24, longitude: 121.48 })],
+      1,
+    );
+    expect(Marker).toHaveBeenCalledTimes(2);
+
+    provider.select(2);
+
+    const [first, second] = markerElements(Marker.mock.calls as unknown[][]);
+    expect(second.dataset.selected).toBe('true');
+    expect(second.classList.contains('m3d-selected')).toBe(true);
+    expect(first.dataset.selected).toBe('false');
+    expect(first.classList.contains('m3d-selected')).toBe(false);
+
+    // 相机只平移：真的定位到这条安排，但缩放一律不碰（用户调过的缩放是他们的上下文）
+    expect(map.setCenter).toHaveBeenCalledTimes(1);
+    expect(map.setCenter).toHaveBeenCalledWith(toAmapLngLat(31.24, 121.48));
+    expect(map.setZoomAndCenter).not.toHaveBeenCalled();
+
+    // 不重绘：没有重建覆盖物，也没有把标记全部移除再来一遍
+    expect(Marker).toHaveBeenCalledTimes(2);
+    expect(map.remove).not.toHaveBeenCalled();
+  });
+
+  it('select(null) 清掉高亮但不移动相机', async () => {
+    const map = createMapMock();
+    const { AMap, Marker } = createAMapMock(map);
+    provider = new AMapProvider('3D', () => Promise.resolve(AMap));
+    provider.init(document.createElement('div'));
+    await flushLoader();
+    provider.render([item()], 1);
+    provider.select(1);
+    expect(map.setCenter).toHaveBeenCalledTimes(1);
+
+    provider.select(null);
+
+    expect(markerElements(Marker.mock.calls as unknown[][])[0].dataset.selected).toBe('false');
+    expect(map.setCenter).toHaveBeenCalledTimes(1);
+  });
+
+  it('旧版 SDK 没有 setCenter 时取当前缩放回填，仍是「只平移不改缩放」', async () => {
+    const map = createMapMock();
+    delete (map as { setCenter?: unknown }).setCenter;
+    const { AMap } = createAMapMock(map);
+    provider = new AMapProvider('3D', () => Promise.resolve(AMap));
+    provider.init(document.createElement('div'));
+    await flushLoader();
+    provider.render([item()], 1);
+
+    provider.select(1);
+
+    expect(map.getZoom).toHaveBeenCalled();
+    expect(map.setZoomAndCenter).toHaveBeenCalledWith(9.5, toAmapLngLat(31.23, 121.47));
+  });
+
+  it('重绘后按最近一次选中恢复高亮（数据变化不丢选中态）', async () => {
+    const map = createMapMock();
+    const { AMap, Marker } = createAMapMock(map);
+    provider = new AMapProvider('3D', () => Promise.resolve(AMap));
+    provider.init(document.createElement('div'));
+    await flushLoader();
+    provider.render(
+      [item(), item({ id: 2, title: '豫园', latitude: 31.24, longitude: 121.48 })],
+      1,
+    );
+    provider.select(2);
+
+    // 标题变化触发整批重建：新的标记必须继承当前选中
+    provider.render(
+      [item(), item({ id: 2, title: '豫园（改名）', latitude: 31.24, longitude: 121.48 })],
+      1,
+    );
+
+    const elements = markerElements(Marker.mock.calls as unknown[][]);
+    expect(elements).toHaveLength(4);
+    expect(elements[3].dataset.selected).toBe('true');
+    expect(elements[2].dataset.selected).toBe('false');
+  });
+
+  it('点击标记回调 onMarkerSelect（键盘 Enter/Space 等价），没有 id 的条目不可选中', async () => {
+    const map = createMapMock();
+    const { AMap, Marker } = createAMapMock(map);
+    provider = new AMapProvider('3D', () => Promise.resolve(AMap));
+    const picked: ItineraryItem[] = [];
+    provider.onMarkerSelect = (clicked) => picked.push(clicked);
+    provider.init(document.createElement('div'));
+    await flushLoader();
+    provider.render([item(), { ...item({ title: '临时点' }), id: null }], 1);
+
+    const [first, noId] = markerElements(Marker.mock.calls as unknown[][]);
+    first.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    first.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    first.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+    expect(picked).toHaveLength(3);
+    expect(picked[0].id).toBe(1);
+
+    // 无 id = 没有时间线锚点：不挂 role、不挂键盘，点了也不回调
+    expect(noId.getAttribute('role')).toBeNull();
+    expect(noId.dataset.itemId).toBeUndefined();
+    noId.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(picked).toHaveLength(3);
+  });
+
+  it('SDK 就绪前收到的选中请求不会丢：建图后按选中态渲染标记', async () => {
+    const map = createMapMock();
+    const { AMap, Marker } = createAMapMock(map);
+    let resolveLoader!: (value: AMapNamespace) => void;
+    provider = new AMapProvider(
+      '3D',
+      () =>
+        new Promise((resolve) => {
+          resolveLoader = resolve;
+        }),
+    );
+    provider.init(document.createElement('div'));
+    provider.render([item()], 1);
+    provider.select(1);
+
+    resolveLoader(AMap);
+    await flushLoader();
+
+    expect(markerElements(Marker.mock.calls as unknown[][])[0].dataset.selected).toBe('true');
+  });
+
+  it('标记自带路线来源标签：amap 实测 / estimated 估算，进入该点的段才算', async () => {
+    const map = createMapMock();
+    const { AMap, Marker } = createAMapMock(map);
+    provider = new AMapProvider('3D', () => Promise.resolve(AMap));
+    provider.init(document.createElement('div'));
+    await flushLoader();
+    // 只有「外滩 → 豫园」这一段，来源 amap：标签落在豫园上，外滩没有进入段
+    provider.render(
+      [item(), item({ id: 2, title: '豫园', latitude: 31.24, longitude: 121.48 })],
+      1,
+      [leg({ source: 'amap' })],
+    );
+
+    const [first, second] = markerElements(Marker.mock.calls as unknown[][]);
+    expect(first.querySelector('.m3d-src')).toBeNull();
+    const tag = second.querySelector('.m3d-src') as HTMLElement;
+    expect(tag.dataset.source).toBe('amap');
+    expect(tag.textContent).toBe('实测');
   });
 });
