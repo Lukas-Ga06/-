@@ -636,8 +636,9 @@ P1 新增字段（口径见 `TripDtos.TripMapPoint`）：
 ```
 错误：`400` 校验失败；`401`；`429` 限流
 
-**批量清空日程（`CLEAR_SCHEDULE`）走确认门**：消息里出现「清空/全部删除… + 日程/提醒」且带日期范围时
-（如「下周一清空所有日程」），本轮不删任何数据，而是返回 `status=NEED_CONFIRMATION` 的方案——
+**批量清空日程（`CLEAR_SCHEDULE`）走确认门**：消息里出现「清空类动词 + 日程」，或「清空类动词 + 所有/全部 + 提醒」
+且带日期范围时（如「下周一清空所有日程」「删掉明天的所有提醒」；只说「提醒」不算日程对象，
+「提醒我明天清空购物车」仍是备忘），本轮不删任何数据，而是返回 `status=NEED_CONFIRMATION` 的方案——
 `diff.changes` 是范围内全部日程的 `REMOVE` 项（`itemType=schedule`），`confirmation.contentHash` 与
 `plan_revision` 一并给出。确认提交（§5.5）在单事务内删除日程并写一条 `domain=SCHEDULE` 的操作历史，
 可用 §5.7 的不带 `tripId` 撤销还原。语义边界：
@@ -652,7 +653,8 @@ P1 新增字段（口径见 `TripDtos.TripMapPoint`）：
 
 - 取该用户**最新一张** INVOICE 照片做 OCR（默认关闭，见 [能力边界](capability-boundaries.md) §2）。
   `diff.changes` 里是一条 `type=ADD` / `itemType=expense` 的记账项：`title` 形如「记账：餐饮 ¥128.5 · 商户名」，
-  `detail` 形如「关联：行程 上海差旅（上海）、日程 09:00 客户汇报」或「关联：未关联（没有匹配的行程或日程）」，
+  `detail` 形如「关联：行程 上海差旅（上海）、日程 09:00 客户汇报；识别原文：＜最多 60 字摘要＞」或
+  「关联：未关联（没有匹配的行程或日程）」，
   `cost` 为 `null`、`budgetBefore/After` 都是 `0`（账单不进行程预算）；`message` 与 `confirmation.summary` 复述识别结果。
 - 确认提交（§5.5）后单事务落一条 `expense`：金额 / 日期（发票开票日期，识别不出回落当天）/ 类目 / 备注（商户）
   来自识别，`payment_method` 默认 `现金`；`trip_id` / `schedule_item_id` 来自规则匹配
@@ -660,6 +662,9 @@ P1 新增字段（口径见 `TripDtos.TripMapPoint`）：
   确认门只做 `contentHash` 单指纹校验；确认结果 `tripId` 为 `null`（记账不产生行程同步）。
 - 未配置 / 识别失败 / 没识别出金额：`status=COMPLETED` + 明确原因（形如「OCR 发票识别未配置（…）」「发票识别失败（…）」），
   **`confirmation` 为空、不生成方案、不写账单**——绝不返回模拟识别结果。
+
+票据只读会话（§1.3）对 `RECORD_INVOICE` / `CLEAR_SCHEDULE` 的行为与规划类一致：只产生待确认方案、不能确认
+（`/api/agent/confirm` 不接受票据），确认需在网页端登录操作。
 
 ### 5.3 GET /api/agent/stream — SSE 流式对话（EventSource）
 鉴权：登录（**EventSource 用 `?ticket=` 票据**，不能用 `Authorization` 头）｜ 源码：`AgentController#stream:69`

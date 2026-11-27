@@ -373,7 +373,7 @@ erDiagram
 
 | `trip_id` | `BIGINT` | 是 | 所属行程（无外键）；**V30 起可空**，为空 = 未关联行程的通用账目 |
 
-| `schedule_item_id` | `BIGINT` | 是 | V30 新增：报销/账期关联（`schedule_item.id`）；V32 起由发票报销在确认提交时写入（同日期未完成日程），手工记账为空；索引 `idx_expense_schedule` |
+| `schedule_item_id` | `BIGINT` | 是 | V30 新增：报销/账期关联（`schedule_item.id`）；V32 起由发票报销在确认提交时写入（同日期未完成日程），手工记账为空；**清空日程/撤销重插不自动回填，可能指向已不存在的日程；当前无读取方**；索引 `idx_expense_schedule` |
 
 | `user_id` | `BIGINT` | 否 | 归属用户 |
 
@@ -392,6 +392,8 @@ erDiagram
 
 
 `category` 常量：`CAT_FOOD = 餐饮`、`CAT_TRANSPORT = 交通`、`CAT_HOTEL = 住宿`、`CAT_TICKET = 门票`、`CAT_SHOPPING = 购物`、`CAT_OTHER = 其他`。`payment_method` 列可空，读取侧把 `null` 当 `现金` 聚合，历史脏数据不会丢账。
+
+`schedule_item_id` 是逻辑外键：日程被批量清空后再撤销是重新插入一条（新 id），账单不会回填新 id，历史账单可能指向已不存在的日程；当前没有读取方，只作历史关联保留。V30 脚本注释里的「暂无写入方」是批次 3（发票报销）之前的说法——脚本已发布，按 R5 不改；实际写入方见上表（V32 起发票报销确认提交时写入）。
 
 
 
