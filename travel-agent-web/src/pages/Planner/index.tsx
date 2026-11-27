@@ -99,7 +99,7 @@ export default function Planner() {
       clearCommitted();
       navigate(`/trip/${id}`);
     }
-  }, [committedTripId]);
+  }, [committedTripId, clearCommitted, navigate]);
 
   // §8.3「离开时若生成中要提示」：草稿本身有自动保存兜底，
   // 但流式生成中的回复只存在内存里，刷新就没了，所以只在生成中拦截一次。

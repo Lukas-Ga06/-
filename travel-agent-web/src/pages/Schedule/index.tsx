@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { App, Button, DatePicker, Input, Select, Spin, TimePicker } from 'antd';
 import { CalendarOutlined, CheckOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
@@ -26,20 +26,26 @@ export default function Schedule() {
   const [recurrence, setRecurrence] = useState('NONE');
   const [repeatUntil, setRepeatUntil] = useState<Dayjs | null>(null);
 
-  const load = async () => {
+  /** 只做请求与结果落盘：挂载路径调用它，因此 effect 体内不会有同步 setState */
+  const fetchSchedule = useCallback(
+    () =>
+      listSchedule()
+        .then((next) => setItems(next))
+        .catch((e: any) => message.error(e.message))
+        .finally(() => setLoading(false)),
+    [message],
+  );
+
+  /** 用户主动刷新/写入后重拉：先切骨架屏（事件处理器里同步 setState 是安全的） */
+  const load = useCallback(() => {
     setLoading(true);
-    try {
-      setItems(await listSchedule());
-    } catch (e: any) {
-      message.error(e.message);
-    } finally {
-      setLoading(false);
-    }
-  };
+    return fetchSchedule();
+  }, [fetchSchedule]);
 
   useEffect(() => {
-    load();
-  }, []);
+    // loading 初值已是 true：挂载即拉数据不需要再同步 setState
+    void fetchSchedule();
+  }, [fetchSchedule]);
 
   const today = dayjs().format('YYYY-MM-DD');
   /** 重复日程按"下一次发生日期"参与今天/待办的划分 */

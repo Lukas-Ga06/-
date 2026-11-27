@@ -146,12 +146,15 @@ export default function Travel() {
   useEffect(() => {
     // 失败由 tripsError 渲染（带重试），这里不再弹一次性 toast 掩盖问题
     loadTrips().catch(() => {});
-  }, []);
+  }, [loadTrips]);
 
-  // 筛选/搜索变化后回到第一页，避免停在越界页码上
-  useEffect(() => {
+  // 筛选/搜索变化后回到第一页，避免停在越界页码上。
+  // 在渲染期收敛（React 官方「prop/派生值变化时调整 state」写法），省一轮提交与闪帧。
+  const [pageSeed, setPageSeed] = useState({ filter, keyword });
+  if (pageSeed.filter !== filter || pageSeed.keyword !== keyword) {
+    setPageSeed({ filter, keyword });
     setPage(0);
-  }, [filter, keyword]);
+  }
 
   const start = (value?: string) => {
     const prompt = (value ?? text).trim();

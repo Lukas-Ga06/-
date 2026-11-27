@@ -21,12 +21,12 @@ export default function PageTransition({ children, variant = 'fade', duration = 
   const [direction, setDirection] = useState<Direction>('none');
   const [currentPath, setCurrentPath] = useState(location.pathname);
 
-  useEffect(() => {
-    if (location.pathname !== currentPath) {
-      setDirection('forward');
-      setCurrentPath(location.pathname);
-    }
-  }, [location.pathname, currentPath]);
+  // 路由变化：在渲染期收敛到最新路径并标记方向（值变化时调整 state）。
+  // currentPath 是子树 key，路径一变就重新挂载触发 CSS 动画，无需 effect 中转。
+  if (location.pathname !== currentPath) {
+    setDirection('forward');
+    setCurrentPath(location.pathname);
+  }
 
   useEffect(() => {
     if (direction !== 'none') {

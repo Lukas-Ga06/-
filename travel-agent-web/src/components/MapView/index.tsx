@@ -92,14 +92,32 @@ export default function MapView({
     providerRef.current?.render(items, focusDay, routeLegs);
   }, [items, focusDay, engine, routeLegs]);
 
+  // 焦点、行程数据或视角变化都会打断正在跑的巡航。
+  // 巡航状态在渲染期收敛（React 官方「prop 变化时调整 state」写法，避免多一轮提交）；
+  // effect 里只停 Provider 的计时器——那是外部系统副作用，不写 React state。
+  const [tourSeed, setTourSeed] = useState({
+    focus,
+    focusDay,
+    items,
+    engine,
+  });
+  if (
+    tourSeed.focus !== focus ||
+    tourSeed.focusDay !== focusDay ||
+    tourSeed.items !== items ||
+    tourSeed.engine !== engine
+  ) {
+    setTourSeed({ focus, focusDay, items, engine });
+    setTouring(false);
+  }
+  useEffect(() => {
+    providerRef.current?.stopTour?.();
+  }, [focus, focusDay, items, engine]);
+
   // Agent Focus：切换 Day 后飞行定位
   useEffect(() => {
     const provider = providerRef.current;
     if (!focus || !provider) return;
-    if (touring) {
-      provider.stopTour?.();
-      setTouring(false);
-    }
     let target: { lat: number; lng: number } | null =
       focus.latitude != null && focus.longitude != null
         ? { lat: focus.latitude, lng: focus.longitude }
@@ -112,14 +130,6 @@ export default function MapView({
     }
     if (target) provider.flyTo(target.lat, target.lng, 16);
   }, [focus, items, engine]);
-
-  // 切换 Day 时停止巡航
-  useEffect(() => {
-    if (touring) {
-      providerRef.current?.stopTour?.();
-      setTouring(false);
-    }
-  }, [focusDay]);
 
   useEffect(
     () => () => {

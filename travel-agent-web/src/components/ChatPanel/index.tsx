@@ -75,16 +75,18 @@ export default function ChatPanel({ tripId, placeholder }: Props) {
   const [text, setText] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
 
-  // 执行结果面板：用户点关闭后隐藏，收到新的 execution（新一次确认提交）再出现
+  // 执行结果面板：用户点关闭后隐藏，收到新的 execution（新一次确认提交）再出现。
+  // 用「值变化时在渲染期收敛」重置，避免 effect 内同步 setState 多跑一轮渲染。
   const [executionHidden, setExecutionHidden] = useState(false);
+  const [executionSeed, setExecutionSeed] = useState(lastExecution?.executionId);
+  if (executionSeed !== lastExecution?.executionId) {
+    setExecutionSeed(lastExecution?.executionId);
+    setExecutionHidden(false);
+  }
   const [retrying, setRetrying] = useState(false);
   const [runsOpen, setRunsOpen] = useState(false);
   /** 最近会话抽屉（§8.6）：继续历史对话或开新对话 */
   const [conversationsOpen, setConversationsOpen] = useState(false);
-
-  useEffect(() => {
-    setExecutionHidden(false);
-  }, [lastExecution?.executionId]);
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });

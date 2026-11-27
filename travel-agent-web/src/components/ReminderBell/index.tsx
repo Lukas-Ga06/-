@@ -49,7 +49,9 @@ export default function ReminderBell() {
   );
   const permissionRef = useRef(permission);
   const notifiedRef = useRef<Set<string>>(loadNotified());
-  permissionRef.current = permission;
+  useEffect(() => {
+    permissionRef.current = permission;
+  }, [permission]);
 
   const load = () =>
     getReminders()

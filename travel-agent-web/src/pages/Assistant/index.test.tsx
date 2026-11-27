@@ -41,12 +41,13 @@ vi.mock('../../store/agentStore', () => {
   return { useAgentStore: Object.assign(useAgentStore, { getState: () => state }) };
 });
 
-/** 记录当前 URL：用来断言 q 已被消费掉 */
-const locationSpy = { search: '' };
+/** 当前 URL：由探针节点承载，避免在组件渲染期写模块级变量（react-hooks/immutability） */
+const readSearch = () =>
+  document.querySelector<HTMLElement>('[data-location-probe]')?.dataset.search ?? '';
+
 function LocationProbe() {
-  // 写对象属性而不是重新赋值外层变量（eslint react-hooks 不允许后者）
-  locationSpy.search = useLocation().search;
-  return null;
+  const { search } = useLocation();
+  return <div data-location-probe data-search={search} />;
 }
 
 function renderPage(entry: string) {
@@ -59,7 +60,6 @@ function renderPage(entry: string) {
 }
 
 beforeEach(() => {
-  locationSpy.search = '';
   Object.values(agentState).forEach((fn) => fn.mockClear());
   api.getPendingPlan.mockReset();
 });
@@ -82,7 +82,7 @@ describe('Assistant · q 参数自动发送（P0-01）', () => {
     );
 
     // 发送前先消费参数：刷新/前进后退都不会再触发一次写入类命令
-    await waitFor(() => expect(locationSpy.search).not.toContain('q='));
+    await waitFor(() => expect(readSearch()).not.toContain('q='));
     expect(agentState.send).toHaveBeenCalledTimes(1);
   });
 

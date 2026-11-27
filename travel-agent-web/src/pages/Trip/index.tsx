@@ -114,7 +114,7 @@ export default function TripPage() {
           loadRouteLegs(tripId);
         });
     }
-  }, [tripId]);
+  }, [tripId, clearCurrent, loadTrip, loadItinerary, loadRouteLegs, setSelectedDay, message]);
 
   /**
    * 回到页面时对版本（阶段 D）：别的标签页/设备改过同一行程就提示并刷新。
@@ -149,7 +149,7 @@ export default function TripPage() {
   // Agent Focus：同步选中的 Day
   useEffect(() => {
     if (lastFocus?.day) setSelectedDay(lastFocus.day);
-  }, [lastFocus]);
+  }, [lastFocus, setSelectedDay]);
 
   // 打开预算抽屉时拉取统一口径的预算执行（计划 / 预算 / 实际 / 偏差）
   useEffect(() => {
