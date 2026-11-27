@@ -37,4 +37,20 @@ public class AgentPlan {
     private AgentDtos.AgentFocus focus;
     @Builder.Default
     private Map<String, Object> extras = new HashMap<>();
+
+    public List<PlanOperation> getOperations() {
+        return operations == null ? new ArrayList<>() : new ArrayList<>(operations);
+    }
+
+    public void setOperations(List<PlanOperation> operations) {
+        this.operations = operations == null ? new ArrayList<>() : new ArrayList<>(operations);
+    }
+
+    public Map<String, Object> getExtras() {
+        return extras == null ? new HashMap<>() : new HashMap<>(extras);
+    }
+
+    public void setExtras(Map<String, Object> extras) {
+        this.extras = extras == null ? new HashMap<>() : new HashMap<>(extras);
+    }
 }

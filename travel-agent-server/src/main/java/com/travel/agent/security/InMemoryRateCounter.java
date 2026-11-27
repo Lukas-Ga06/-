@@ -30,6 +30,7 @@ public class InMemoryRateCounter implements RateCounter {
      * @param nowMillis 当前时间（由调用方传入，便于测试用固定时间验证窗口语义）
      * @return true 表示放行，false 表示已超出限额
      */
+    @Override
     public boolean tryAcquire(String key, int limit, long windowMillis, long nowMillis) {
         if (limit <= 0) {
             return true;
@@ -47,6 +48,7 @@ public class InMemoryRateCounter implements RateCounter {
     }
 
     /** 距离当前窗口结束还有多久（用于 Retry-After） */
+    @Override
     public long retryAfterSeconds(String key, long windowMillis, long nowMillis) {
         Window window = buckets.get(key);
         if (window == null) {

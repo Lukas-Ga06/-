@@ -15,7 +15,7 @@
  * 退出码：0 = 无断链且无失效脚本；1 = 存在断链或失效脚本引用。
  */
 
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
