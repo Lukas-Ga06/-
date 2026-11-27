@@ -95,7 +95,8 @@ GET /api/photos/12/raw?ticket=...                    # 只能用 media-read 票�
 **仅凭票据认证（没有 Cookie / `Authorization`）的请求 = 只读会话**：记账 / 备忘 / 日程三类直接写入意图被拒绝，
 `message` 为 `当前连接为只读票据会话，记账/备忘/日程请在网页端操作。`（`status` 仍是 `COMPLETED`，不按错误处理；
 拦截集合见 `AgentEngine.TICKET_READONLY_BLOCKED_INTENTS`）；规划与改行程仍可用（只产出待确认方案，提交需
-`POST /api/agent/confirm`，而 POST 不接受票据）。带 Cookie 的浏览器请求行为不变。
+`POST /api/agent/confirm`，而 POST 不接受票据）。批量清空日程（`CLEAR_SCHEDULE`）同属「只产出待确认方案」的一类，
+同样不受票据只读拦截，确认提交仍需登录。带 Cookie 的浏览器请求行为不变。
 
 **升级注意**：旧版票据没有 `purpose` 段，服务端一律按 `agent-stream` 处理——上线后最多 5 分钟内，旧的图片链接会 `401`，刷新页面重新签票即恢复。
 
@@ -590,10 +591,10 @@ P1 新增字段（口径见 `TripDtos.TripMapPoint`）：
 | `planId` | `String` | 待确认方案 ID（`NEED_CONFIRMATION` 时非空） |
 | `tripId` | `Long` | 关联行程 ID |
 | `message` | `String` | 可直接展示的回复文本 |
-| `intent` | `String` | `PLAN_TRIP` / `MODIFY_ITINERARY` / `QUERY_BUDGET` / `RECORD_EXPENSE` / `ADD_MEMO` / `CHITCHAT` / `REJECTED` / `ERROR` 等 |
+| `intent` | `String` | `PLAN_TRIP` / `MODIFY_ITINERARY` / `QUERY_BUDGET` / `RECORD_EXPENSE` / `ADD_MEMO` / `ADD_SCHEDULE` / `CLEAR_SCHEDULE` / `CHITCHAT` / `REJECTED` / `ERROR` 等 |
 | `status` | `String` | `COMPLETED` / `NEED_CONFIRMATION` / `FAILED` |
-| `focus` | `Object` | `{type:itinerary\|map\|budget, tripId, day, itemId, latitude, longitude}` |
-| `diff` | `Object` | `{changes:[{type:ADD\|REMOVE\|MODIFY,itemId,itemType,title,detail,cost,dayIndex,startTime}], budgetBefore, budgetAfter}` |
+| `focus` | `Object` | `{type:itinerary\|map\|budget\|schedule, tripId, day, itemId, latitude, longitude}`；批量清空日程时 `type=schedule`、`tripId` 为空 |
+| `diff` | `Object` | `{changes:[{type:ADD\|REMOVE\|MODIFY,itemId,itemType,title,detail,cost,dayIndex,startTime}], budgetBefore, budgetAfter}`；日程操作用 `type=REMOVE` + `itemType=schedule`（`itemId` 是 `schedule_item.id`） |
 | `budget` | `Object` | `{total, previousTotal, difference, breakdown:{分类:金额}}` |
 | `confirmation` | `Object` | `{planId, summary, riskLevel:LOW\|MEDIUM\|HIGH, contentHash, requiresAcknowledgement}`；`contentHash` 是方案内容的 SHA-256（V2.2 FR-08），确认时回传即可绑定「用户看到的内容」；`requiresAcknowledgement`（FR-06）为 `true` 时确认请求必须带 `acknowledgeIssues=true` |
 | `warnings` | `String[]` | 反思/风险提示（旧契约；有 `review` 时它的 `issues` 是同一批问题的结构化版本） |
@@ -632,6 +633,18 @@ P1 新增字段（口径见 `TripDtos.TripMapPoint`）：
 {"code":0,"message":"success","data":{"message":"开始规划前，还需要确认：\n· 去哪里？\n· 玩几天？\n· 几个人一起（儿童也算人数）？\n预算和出发日期也可以顺手说；不说的话我按 ¥5000、明天出发估算。","intent":"PLAN_TRIP","status":"COMPLETED","missingSlots":["destination","days","partySize"]}}
 ```
 错误：`400` 校验失败；`401`；`429` 限流
+
+**批量清空日程（`CLEAR_SCHEDULE`）走确认门**：消息里出现「清空/全部删除… + 日程/提醒」且带日期范围时
+（如「下周一清空所有日程」），本轮不删任何数据，而是返回 `status=NEED_CONFIRMATION` 的方案——
+`diff.changes` 是范围内全部日程的 `REMOVE` 项（`itemType=schedule`），`confirmation.contentHash` 与
+`plan_revision` 一并给出。确认提交（§5.5）在单事务内删除日程并写一条 `domain=SCHEDULE` 的操作历史，
+可用 §5.7 的不带 `tripId` 撤销还原。语义边界：
+- **范围必填**：没给日期（「清空所有日程」）只追问「要清空哪段时间的日程？」，不生成方案；
+  单次最多 31 天，超出按前 31 天截断，`confirmation.summary` 写实际范围。
+- **范围为空**：返回 `status=COMPLETED` +「这段时间没有日程，无需清空。」，不生成方案。
+- **范围含已完成日程**：一并清空（`done` 也属于这段时间的日程），历史里保留原状态。
+- **范围指纹**：`plan_revision` 覆盖「该用户该范围全部日程」；生成方案后另一个标签页新增/删除/改了范围内日程，
+  确认会返回 200 + `status=FAILED`，消息「日程在你确认前已经发生变化…这份方案已失效，请重新发起。」，一条都不删。
 
 ### 5.3 GET /api/agent/stream — SSE 流式对话（EventSource）
 鉴权：登录（**EventSource 用 `?ticket=` 票据**，不能用 `Authorization` 头）｜ 源码：`AgentController#stream:69`
@@ -725,7 +738,7 @@ data:{"planId":"plan-8f3c","tripId":null,"message":"…","intent":"PLAN_TRIP","s
 // 响应（方案已过期时为 200 + status=FAILED）
 {"code":0,"message":"success","data":{"planId":"plan-8f3c","tripId":1,"message":"已提交，行程已更新。\n✅ 已同步：日程时间块、预算快照、足迹地图。","intent":null,"status":"COMPLETED","focus":null,"diff":null,"budget":null,"confirmation":null,"warnings":null,"execution":{"executionId":"e-77b1","planId":"plan-8f3c","tripId":1,"status":"SUCCEEDED","modules":[{"module":"calendar","status":"SUCCEEDED","detail":"3 天行程已同步为日程时间块（本次新建 3 条）","idempotencyKey":"plan:plan-8f3c:module:calendar","retryCount":null,"error":null}]}}}
 ```
-错误：`400` `planId 不能为空`；`401`。确认前行程被改动（`planRevision` 不一致）或方案内容被改（`contentHash` 不一致）时返回 200、`status=FAILED` 并提示方案失效；方案不存在/过期同理，不抛 404。
+错误：`400` `planId 不能为空`；`401`。确认前行程被改动（`planRevision` 不一致）或方案内容被改（`contentHash` 不一致）时返回 200、`status=FAILED` 并提示方案失效；方案不存在/过期同理，不抛 404。批量清空日程的方案没有行程，`planRevision` 覆盖的是「该用户该范围内全部日程」，范围内的新增/删除/改时间同样让方案失效（消息里说明是日程变化）。
 
 **审核门的显式接受（V2.2 FR-06）**：方案 `review.blocked=true`（有限重规划后仍有 HIGH 级问题）时，
 不带 `acknowledgeIssues=true` 的确认会被拒绝——返回 200、`status=FAILED`、`data.review` 带未解决问题，
@@ -760,14 +773,22 @@ data:{"planId":"plan-8f3c","tripId":null,"message":"…","intent":"PLAN_TRIP","s
 鉴权：登录 ｜ 源码：`AgentController#undo:131`
 | 参数 | 必填 | 说明 |
 | --- | --- | --- |
-| `tripId` | 是 | 行程 ID |
+| `tripId` | 否 | 行程 ID；**不传或传 `null` = 撤销最近一次「批量清空日程」**（日程不挂在行程上，按当前用户 + `SCHEDULE` 域取最近一条 ACTIVE 历史） |
 ```json
-// 请求
+// 请求（行程撤销）
 {"tripId":1}
 // 响应
 {"code":0,"message":"success","data":{"planId":null,"tripId":1,"message":"已撤销上一步操作（还原 8 项安排）","intent":null,"status":"COMPLETED","focus":null,"diff":null,"budget":null,"confirmation":null,"warnings":null}}
+
+// 请求（撤销日程清空）
+{}
+// 响应（tripId 为 null）
+{"code":0,"message":"success","data":{"planId":null,"tripId":null,"message":"已撤销上一步日程清空（还原 3 项日程）","intent":null,"status":"COMPLETED","focus":null,"diff":null,"budget":null,"confirmation":null,"warnings":null}}
 ```
-错误：`400` `没有可撤销的操作` / `撤销失败: …`；`401`；`404`。撤销「新建行程」会删除整个行程。
+错误：`400` `没有可撤销的操作` / `撤销失败: …`；`401`；`404`。
+撤销「新建行程」会删除整个行程。行程撤销与日程撤销是两条互不覆盖的链：
+带 `tripId` 只查该行程的 `ITINERARY` 域历史，不带 `tripId` 只查当前用户的 `SCHEDULE` 域历史
+（没有可撤销记录时 `404` `没有可撤销的日程清空`）。
 
 ### 5.8 GET /api/agent/plans/{planId} — 取回待确认方案
 鉴权：登录 ｜ 源码：`AgentController#pending:139` ｜ 参数：路径 `planId`

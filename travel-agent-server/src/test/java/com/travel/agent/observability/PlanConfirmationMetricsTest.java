@@ -4,11 +4,11 @@ import com.travel.agent.agent.AgentPlan;
 import com.travel.agent.agent.AgentStageTimer;
 import com.travel.agent.agent.PendingPlanStore;
 import com.travel.agent.agent.PlanConfirmationService;
+import com.travel.agent.agent.PlanRevisionService;
 import com.travel.agent.dto.AgentDtos;
 import com.travel.agent.llm.LlmProperties;
 import com.travel.agent.service.AgentTraceService;
 import com.travel.agent.service.ConfirmCommitTx;
-import com.travel.agent.service.ItineraryService;
 import com.travel.agent.service.OperationHistoryService;
 import com.travel.agent.service.PlanExecutionService;
 import com.travel.agent.service.TripService;
@@ -46,7 +46,7 @@ class PlanConfirmationMetricsTest {
     private final PendingPlanStore pendingPlans = mock(PendingPlanStore.class);
     private final ConfirmCommitTx confirmCommitTx = mock(ConfirmCommitTx.class);
     private final TripService tripService = mock(TripService.class);
-    private final ItineraryService itineraryService = mock(ItineraryService.class);
+    private final PlanRevisionService planRevisionService = mock(PlanRevisionService.class);
     private final OperationHistoryService operationHistoryService = mock(OperationHistoryService.class);
     private final AgentStageTimer stageTimer = new AgentStageTimer(registry);
     private final AgentTraceService traceService = mock(AgentTraceService.class);
@@ -57,7 +57,7 @@ class PlanConfirmationMetricsTest {
     @BeforeEach
     @SuppressWarnings("unchecked")
     void setUp() {
-        service = new PlanConfirmationService(pendingPlans, confirmCommitTx, tripService, itineraryService,
+        service = new PlanConfirmationService(pendingPlans, confirmCommitTx, tripService, planRevisionService,
                 operationHistoryService, stageTimer, traceService, executionService, metrics);
         // 追踪服务直通：确认指标测试不关心 run/task 落库
         when(traceService.task(any(), any(), any(), any(), any(), any()))

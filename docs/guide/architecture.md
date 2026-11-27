@@ -751,6 +751,10 @@ SSE 事件不再只是「连接上的一次性输出」：每个事件先落库�
    调用方按令牌 `release`（令牌已不匹配时是空操作）并返回业务失败「处理租约已失效…请刷新后重新确认」；
 6. 成功路径由栅栏在同一事务里删除方案行，不再二次 `remove`。
 
+批量清空日程的方案没有行程（`trip_id=null`）：`ConfirmCommitTx` 跳过 `plan_outbox` 入队，
+`PlanConfirmationService` 也跳过确认后的三模块同步（否则会把一次无对象的「同步失败」误报给用户）；
+版本校验改由 `PlanRevisionService` 按「日程范围」重算指纹（见 §9.3）。
+
 崩溃窗口由 `PendingPlanRecoveryJob` 兜底：启动时立即清扫一次，之后按
 `travel.pending-plan.sweep-interval-ms`（默认 30s）把 `claimed_at` 早于
 `travel.pending-plan.lease-minutes`（默认 5 分钟）的 `CONFIRMING` 改回 `PENDING` 并清空令牌。
@@ -781,12 +785,14 @@ SSE 事件不再只是「连接上的一次性输出」：每个事件先落库�
 
 `ItineraryService.planRevision(trip, items)`（`:243-259`）产出 32 字符 hex（SHA-256 前 16 字节），输入是 `b=<budget>|s=<startDate>|e=<endDate>|<id>:<dayIndex>:<title>:<startTime>:<endTime>:<cost>:<itemType>:<status>|...`，条目按 `id` 排序（null 排最后）。生成时机在 `AgentEngine.planAndPresent`（`:453-454`）：算一次存进 `PendingPlanStore.PendingPlan.planRevision`；确认时再算一次比对。指纹覆盖「日期 + 预算 + 全部条目的计划字段与执行状态」——另一个标签页改了安排、预算或日期，或旅行中推进了状态，这份 Diff 就失效（需重新生成）；实际时间不参与指纹。
 
+日程不在 `itinerary_item` 里，所以批量清空日程的方案由 `agent/PlanRevisionService` 另算指纹：行程基指纹（有行程时）与「该用户该范围内全部日程（含 `done`）按 id 排序的字段摘要」一起进 SHA-256；范围存在 `plan.extras.scheduleScopeFrom/To`（ISO 日期）。生成（`ScheduleCommandHandler`）与确认（`PlanConfirmationService`）两侧调同一方法；确认期间范围内日程新增/删除/改时间 → 指纹不一致 → 拒绝并删除该方案行，文案说明是日程变化。`pending_plan.plan_revision` 是 `VARCHAR(64)`，故「行程基指纹 + 日程摘要」合并成一次哈希（`|schedule=` 只出现在哈希材料里），不直接拼两段 32 字符 hex。
+
 | 操作 | 方法 | 结果 |
 | --- | --- | --- |
 | 取消方案 | `PlanConfirmationService.cancel:231-248`（`AgentEngine.cancel` 委托） | `peek` 到就 `remove`，返回「已取消该方案，行程未做任何修改。」 |
-| 撤销上一步 | `PlanConfirmationService.undo:263-271`（`AgentEngine.undo` 委托）→ `OperationHistoryService.undoLatest` | 取最新 `STATUS_ACTIVE` 历史；`OP_TRIP_CREATE` 走删除整个行程，其余用 `before` 快照 `replaceAll` 还原 |
+| 撤销上一步 | `PlanConfirmationService.undo`（`AgentEngine.undo` 委托）：带 `tripId` → `OperationHistoryService.undoLatest`；不带 → `undoLatestSchedule` | 行程链取该行程最新 `STATUS_ACTIVE` 历史（`OP_TRIP_CREATE` 走删除整个行程，其余用 `before` 快照 `replaceAll` 还原）；日程链取该用户最新一条 `domain=SCHEDULE` 的 ACTIVE 历史，按 `ScheduleSnapshot` 重新插入并置 `UNDONE` |
 
-历史三类来源：`OP_AGENT_COMMIT`（Agent 确认提交）、`OP_MANUAL_EDIT`（界面手工改动，经 `withHistory` 包裹）、`OP_TRIP_CREATE`（Agent 新建行程）。P1 行程项状态推进也走 `OP_MANUAL_EDIT`：`withHistory` 在变更**之前**做 `snapshot(items)`，因此 `before` 快照包含 `status/startedAt/completedAt/visitedAt`，撤销「完成/跳过」能还原成未开始（修复了此前 before 与 after 共用受管实体、快照被就地改写的问题）。
+历史四个来源：`OP_AGENT_COMMIT`（Agent 确认提交）、`OP_MANUAL_EDIT`（界面手工改动，经 `withHistory` 包裹）、`OP_TRIP_CREATE`（Agent 新建行程）、`OP_SCHEDULE_CLEAR`（批量清空日程，V31 起的 `SCHEDULE` 域，`trip_id` 为空）。P1 行程项状态推进也走 `OP_MANUAL_EDIT`：`withHistory` 在变更**之前**做 `snapshot(items)`，因此 `before` 快照包含 `status/startedAt/completedAt/visitedAt`，撤销「完成/跳过」能还原成未开始（修复了此前 before 与 after 共用受管实体、快照被就地改写的问题）。
 
 ---
 
