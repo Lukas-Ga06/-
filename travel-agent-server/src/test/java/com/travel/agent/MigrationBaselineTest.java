@@ -78,7 +78,8 @@ class MigrationBaselineTest {
             "idx_expense_user_spent_at", "idx_expense_trip_spent_at", "idx_memo_user_done",
             "idx_trip_user_start_date", "idx_schedule_item_user_sched_date",
             "idx_conversation_message_user_conv_created", "idx_operation_history_trip_created",
-            "idx_pending_plan_user", "idx_rag_document_user");
+            "idx_pending_plan_user", "idx_rag_document_user",
+            "schedule_item_id", "idx_expense_schedule");
 
     /** V13 两个方言版补的缺口列（同一份清单，防止两边漂移）。 */
     private static final List<String> GAP_COLUMNS = List.of(
@@ -125,6 +126,9 @@ class MigrationBaselineTest {
         core.add(28);
         // V29：第二阶段每轮花费落库（agent_run_spend），双方言中性 SQL
         core.add(29);
+        // V30：记账与行程解绑（expense.trip_id 可空 + expense.schedule_item_id + 索引），
+        // MODIFY COLUMN / ADD COLUMN / CREATE INDEX 在 H2(MODE=MySQL) 与 MySQL 8.0 都成立
+        core.add(30);
         Set<Integer> mysqlExpected = new LinkedHashSet<>(core);
         mysqlExpected.addAll(List.of(8, 12, 13));
         Set<Integer> h2Expected = new LinkedHashSet<>(core);

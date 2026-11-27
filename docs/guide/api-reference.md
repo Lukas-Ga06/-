@@ -934,19 +934,21 @@ data:{"planId":"plan-8f3c","tripId":null,"message":"…","intent":"PLAN_TRIP","s
 ```
 错误：`400` 金额非法 / 日期格式错误；`401`；`404`
 
+> V30 起账单可以不挂行程：本接口固定挂在路径行程上，没有当前行程的通用记账走 Agent 对话（`expense.trip_id` 为空，见 [能力边界 §1.1](capability-boundaries.md#11-记账口径v30-起账单可以没有行程)），REST 契约不变。
+
 ### 6.3 GET /api/expenses/overview — 跨行程记账总览
 鉴权：登录 ｜ 源码：`ExpenseController#overview:55` ｜ 参数：无
 ```json
 {"code":0,"message":"success","data":{"totalSpent":3560.00,"monthSpent":1240.00,"count":18,"byPaymentMethod":{"微信支付":2200.00,"现金":1360.00},"byCategory":{"餐饮":800.00,"住宿":2400.00,"其他":360.00},"byTrip":[{"tripId":1,"tripName":"杭州三日","total":2400.00}],"recent":[{"id":31,"tripId":1,"tripName":"杭州三日","category":"餐饮","amount":45.00,"note":"午餐","paymentMethod":"微信支付","spentAt":"2026-11-08","createdAt":"2026-11-08 12:30"}]}}
 ```
-错误：`401`。`recent` 最多 8 条；已删除行程的支出归入 `tripId=0` / `已删除的行程`。第九批起分类 / 支付方式 / 行程维度改为数据库 `GROUP BY` 聚合、`recent` 单独查询，**响应 JSON 结构不变**。
+错误：`401`。`recent` 最多 8 条；已删除行程的支出归入 `tripId=0` / `已删除的行程`，未关联行程的支出归入 `tripId=-1` / `未关联行程`（V30 起，两组不合并）。第九批起分类 / 支付方式 / 行程维度改为数据库 `GROUP BY` 聚合、`recent` 单独查询，**响应 JSON 结构不变**。
 
 ### 6.4 DELETE /api/expenses/{id} — 删除支出
 鉴权：登录 ｜ 源码：`ExpenseController#delete:61` ｜ 参数：路径 `id`
 ```json
 {"code":0,"message":"success","data":null}
 ```
-错误：`401`；`404` `支出记录不存在`
+错误：`401`；`404` `支出记录不存在`（未关联行程的账单按 `user_id` 校验归属，不要求行程存在）
 
 ---
 

@@ -64,8 +64,13 @@ public class ExpenseController {
     public ApiResponse<Void> delete(@PathVariable Long id, Authentication authentication) {
         User user = authService.requireUser(authentication.getName());
         Expense expense = expenseService.findById(id);
-        Trip trip = tripService.getOwned(expense.getTripId(), user.getId());
-        expenseService.delete(trip.getId(), id);
+        if (expense.getTripId() == null) {
+            // 未关联行程的通用账目没有行程可校验，按 user_id 校验归属
+            expenseService.deleteOwned(id, user.getId());
+        } else {
+            Trip trip = tripService.getOwned(expense.getTripId(), user.getId());
+            expenseService.delete(trip.getId(), id);
+        }
         return ApiResponse.ok(null);
     }
 }
