@@ -43,6 +43,9 @@ class BaiduOcrClientTest {
                   "SellerName": "上海某某餐饮有限公司",
                   "InvoiceDate": "2026年11月20日",
                   "CommodityName": [{"word": "*餐饮服务*餐费"}],
+                  "Province": "上海",
+                  "City": "上海",
+                  "InvoiceType": "电子普通发票",
                   "InvoiceNum": "12345678"
                 }}
                 """);
@@ -52,12 +55,49 @@ class BaiduOcrClientTest {
         assertThat(fields.amount()).isEqualByComparingTo(new BigDecimal("128.50"));
         assertThat(fields.merchant()).isEqualTo("上海某某餐饮有限公司");
         assertThat(fields.invoiceDate()).isEqualTo(LocalDate.of(2026, 11, 20));
-        // 类目由 OcrInvoiceService 按商户 + 原文归类（共用记账词表），解析器不猜
+        // 类目由 OcrInvoiceService 按商户 + 摘要归类（共用记账词表），解析器不猜
         assertThat(fields.category()).isNull();
         assertThat(fields.rawText())
                 .contains("餐饮服务")
                 .contains("上海某某餐饮有限公司")
-                .contains("InvoiceNum=12345678");
+                .contains("City=上海")
+                .contains("InvoiceType=电子普通发票")
+                // 摘要只取白名单字段：发票号码这类未登记字段不进摘要
+                .doesNotContain("InvoiceNum");
+    }
+
+    @Test
+    @DisplayName("识别摘要不含密码区/校验码/纳税人识别号（敏感票据信息不得外泄）")
+    void rawTextDropsSensitiveTicketFields() {
+        JsonNode response = json("""
+                {"words_result": {
+                  "AmountInFiguers": "120.00",
+                  "SellerName": "上海某某餐饮有限公司",
+                  "CommodityName": [{"word": "*餐饮服务*餐费"}],
+                  "Province": "上海",
+                  "City": "上海",
+                  "Password": "*7//SECRET-PWD-9ab",
+                  "CheckCode": "0921 SECRET-CHECK-3f",
+                  "PurchaserRegisterNum": "310101199001011234",
+                  "SellerRegisterNum": "91310000MA1FL0000X",
+                  "InvoiceNum": "12345678"
+                }}
+                """);
+
+        String rawText = BaiduOcrClient.parseResponse(response).rawText();
+
+        assertThat(rawText)
+                .contains("餐饮服务")
+                .contains("上海某某餐饮有限公司")
+                .contains("City=上海")
+                .doesNotContain("Password")
+                .doesNotContain("SECRET-PWD")
+                .doesNotContain("CheckCode")
+                .doesNotContain("SECRET-CHECK")
+                .doesNotContain("PurchaserRegisterNum")
+                .doesNotContain("310101199001011234")
+                .doesNotContain("SellerRegisterNum")
+                .doesNotContain("91310000MA1FL0000X");
     }
 
     @Test

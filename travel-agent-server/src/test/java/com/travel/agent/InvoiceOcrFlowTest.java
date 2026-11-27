@@ -250,7 +250,7 @@ class InvoiceOcrFlowTest extends IntegrationTestSupport {
         assertThat(change.getItemType()).isEqualTo("expense");
         assertThat(change.getTitle()).contains("记账：餐饮").contains("128.5");
         assertThat(change.getDetail()).contains("关联：").contains("行程").contains("日程")
-                .contains("识别原文").contains("AmountInFiguers=128.50");
+                .contains("识别摘要").contains("AmountInFiguers=128.50");
         assertThat(change.getStartTime()).isEqualTo(today.toString());
         // 账单不进行程预算：cost 不设，预算保持 0 → 0
         assertThat(change.getCost()).isNull();
@@ -273,6 +273,39 @@ class InvoiceOcrFlowTest extends IntegrationTestSupport {
         assertThat(expense.getCategory()).isEqualTo("餐饮");
         assertThat(expense.getNote()).isEqualTo("上海某某餐饮有限公司");
         assertThat(expense.getPaymentMethod()).isEqualTo("现金");
+    }
+
+    @Test
+    @DisplayName("识别摘要剔除密码区/校验码：Diff 与确认摘要都不出现敏感片段")
+    void sensitiveTicketFieldsNeverReachDiff() throws Exception {
+        LocalDate today = LocalDate.now();
+        ScriptedOcrClient.available = true;
+        // 即使替身（或换回来的客户端实现）把密码区塞进 rawText，第二道过滤也必须拦住
+        ScriptedOcrClient.fields = new InvoiceFields(new BigDecimal("128.50"), "上海某某餐饮有限公司",
+                today, null,
+                "上海某某餐饮有限公司 *餐饮服务*餐费 Password=SECRET123 CheckCode=SECRET456 校验码：SECRET789");
+        Account account = registerNew();
+        Trip trip = newTrip(account, "上海", today, today);
+        uploadInvoice(account, trip);
+
+        AgentDtos.AgentResult plan = run(account, MESSAGE);
+
+        assertThat(plan.getStatus()).isEqualTo(AgentDtos.STATUS_NEED_CONFIRMATION);
+        String detail = plan.getDiff().getChanges().get(0).getDetail();
+        assertThat(detail)
+                .contains("识别摘要").contains("餐饮服务").contains("上海某某餐饮有限公司")
+                .doesNotContain("SECRET123").doesNotContain("SECRET456").doesNotContain("SECRET789")
+                .doesNotContain("Password").doesNotContain("CheckCode");
+        // 确认摘要复用同一段 detail，同样不能带敏感片段
+        String confirmation = plan.getConfirmation().getSummary();
+        assertThat(confirmation)
+                .contains("识别摘要")
+                .doesNotContain("SECRET123").doesNotContain("SECRET456").doesNotContain("SECRET789")
+                .doesNotContain("Password").doesNotContain("CheckCode");
+        // 敏感信息只在识别侧过滤，金额/商户/关联照旧
+        assertThat(detail).contains("关联：").contains("行程");
+        assertThat(plan.getConfirmation().getContentHash()).isNotBlank();
+        assertThat(expensesOf(account)).isEmpty();
     }
 
     @Test

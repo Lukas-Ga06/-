@@ -653,7 +653,7 @@ P1 新增字段（口径见 `TripDtos.TripMapPoint`）：
 
 - 取该用户**最新一张** INVOICE 照片做 OCR（默认关闭，见 [能力边界](capability-boundaries.md) §2）。
   `diff.changes` 里是一条 `type=ADD` / `itemType=expense` 的记账项：`title` 形如「记账：餐饮 ¥128.5 · 商户名」，
-  `detail` 形如「关联：行程 上海差旅（上海）、日程 09:00 客户汇报；识别原文：＜最多 60 字摘要＞」或
+  `detail` 形如「关联：行程 上海差旅（上海）、日程 09:00 客户汇报；识别摘要：＜最多 60 字，已剔除密码区/校验码等敏感字段＞」或
   「关联：未关联（没有匹配的行程或日程）」，
   `cost` 为 `null`、`budgetBefore/After` 都是 `0`（账单不进行程预算）；`message` 与 `confirmation.summary` 复述识别结果。
 - 确认提交（§5.5）后单事务落一条 `expense`：金额 / 日期（发票开票日期，识别不出回落当天）/ 类目 / 备注（商户）

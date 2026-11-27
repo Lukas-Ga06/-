@@ -120,7 +120,7 @@ public class OcrInvoiceService {
             // 识别到了内容但没有可用金额：不能让用户在确认门里确认一笔 0 元的账
             return InvoiceLookup.failed("没有识别出金额");
         }
-        // 类目由平台按「商户 + 识别原文」归类，与对话记账共用同一张词表（util.ExpenseCategories）
+        // 类目由平台按「商户 + 识别摘要」归类，与对话记账共用同一张词表（util.ExpenseCategories）
         String category = ExpenseCategories.of(fields.merchant() + " " + fields.rawText());
         return InvoiceLookup.ok(photo.getId(),
                 new InvoiceFields(fields.amount(), fields.merchant(), fields.invoiceDate(), category, fields.rawText()));
