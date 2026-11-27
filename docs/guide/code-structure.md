@@ -68,10 +68,10 @@ agent（状态机 + 任务图 + Intent/Planner/Executor/Reflect + 确认编排�
 
 | 包 | 文件数 | 职责 | 关键类 |
 | --- | --- | --- | --- |
-| `agent` | 30 | Agent 引擎：状态机、四个 Agent、任务图调度、上下文、计划、会话记忆、待确认方案 | `AgentEngine`、`Coordinator`、`PlanReviewLoop`、`PlannerAgent`、`StructuredPlanner`、`PlanConfirmationService` |
+| `agent` | 30 | Agent 引擎：状态机、四个 Agent、任务图调度、上下文、计划、会话记忆、待确认方案 | `AgentEngine`、`Coordinator`、`PlanReviewLoop`、`PlannerAgent`、`StructuredPlanner`、`PlanConfirmationService`、`ScheduleCommandHandler`、`InvoiceCommandHandler` |
 | `controller` | 12 | REST API + SSE 流式接口 | `AgentController`、`TripController`、`TravelKnowledgeController`、`SystemController` |
-| `service` | 47 | 行程 / 预算 / 操作历史 / 目录 / 天气 / 路线 / 回顾 / 事件 / 提醒 / 路书 / 存储 / 确认提交 / Outbox / 运行恢复 | `TripService`、`ItineraryService`、`TripReviewService`、`ConfirmCommitTx`、`PlanOutboxDispatcher`、`AgentRunRecoveryJob` |
-| `tool` | 15 | `AgentTool` 契约、只读注册表、风险分级、调用入口、9 个内置只读工具 | `ToolRegistry`、`ToolInvoker`、`SafetyInterceptor`、`QueryTravelKnowledgeTool` |
+| `service` | 47 | 行程 / 预算 / 记账 / 操作历史 / 目录 / 天气 / 路线 / 回顾 / 事件 / 提醒 / 路书 / 存储 / 确认提交 / Outbox / 运行恢复；发票识别在子包 `service/ocr` | `TripService`、`ItineraryService`、`TripReviewService`、`ExpenseService`、`ConfirmCommitTx`、`PlanOutboxDispatcher`、`AgentRunRecoveryJob`；`service/ocr`：`OcrInvoiceService`、`BaiduOcrClient`、`OcrProperties` |
+| `tool` | 15 | `AgentTool` 契约、只读注册表、风险分级、调用入口、内置只读工具（含 `ocr_invoice`） | `ToolRegistry`、`ToolInvoker`、`SafetyInterceptor`、`QueryTravelKnowledgeTool` |
 | `rag` | 15 | Embedding（本地哈希 / OpenAI 兼容）、向量库、检索、引用、知识库引导与版本化 | `RagService`、`RagCitation`、`InMemoryVectorStore`、`RagBootstrap` |
 | `repository` | 24 | Spring Data JPA 仓储 | — |
 | `entity` | 24 | JPA 实体（表结构以 Flyway 迁移为准） | `Trip`、`ItineraryItem`、`TripEvent`、`AgentTask`、`AgentRunEvent`、`PlanOutbox` |

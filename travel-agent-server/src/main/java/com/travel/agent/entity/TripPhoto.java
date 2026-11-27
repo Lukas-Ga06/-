@@ -18,6 +18,11 @@ import java.time.LocalDateTime;
 @Builder
 public class TripPhoto {
 
+    /** 普通照片（默认）：只用于相册展示 */
+    public static final String KIND_PHOTO = "PHOTO";
+    /** 发票：报销流程取该用户最新一张识别，不新建存储与发票表（V32） */
+    public static final String KIND_INVOICE = "INVOICE";
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -40,6 +45,10 @@ public class TripPhoto {
 
     @Column(name = "size_bytes")
     private Long sizeBytes;
+
+    /** 图片用途：{@link #KIND_PHOTO}（默认）/ {@link #KIND_INVOICE}（V32），由 PhotoService 校验取值 */
+    @Column(length = 20)
+    private String kind;
 
     @Column(name = "created_at")
     private LocalDateTime createdAt;

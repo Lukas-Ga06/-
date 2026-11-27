@@ -103,4 +103,27 @@ class IntentRoutingTest extends IntegrationTestSupport {
 
         assertThat(result.getIntent()).isEqualTo(IntentResult.PLAN_TRIP);
     }
+
+    @Test
+    @DisplayName("回归：「报销这张发票」识别为 RECORD_INVOICE（没有发票照片时如实说没找到）")
+    void invoiceReimbursementIsRecognized() throws Exception {
+        Account account = registerNew();
+
+        AgentDtos.AgentResult result = run(account, "报销这张发票");
+
+        assertThat(result.getIntent()).isEqualTo(IntentResult.RECORD_INVOICE);
+        assertThat(result.getStatus()).isEqualTo(AgentDtos.STATUS_COMPLETED);
+        assertThat(result.getMessage()).contains("没有找到已上传的发票照片");
+        assertThat(result.getConfirmation()).isNull();
+    }
+
+    @Test
+    @DisplayName("回归：「记一下明天办签证」仍是 ADD_MEMO，不会被发票/记账意图抢走")
+    void memoIsNotStolenByInvoiceIntent() throws Exception {
+        Account account = registerNew();
+
+        AgentDtos.AgentResult result = run(account, "记一下明天办签证");
+
+        assertThat(result.getIntent()).isEqualTo(IntentResult.ADD_MEMO);
+    }
 }

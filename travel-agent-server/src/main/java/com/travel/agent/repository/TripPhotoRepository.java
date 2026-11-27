@@ -6,9 +6,13 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
+import java.util.Optional;
 
 public interface TripPhotoRepository extends JpaRepository<TripPhoto, Long> {
     List<TripPhoto> findByTripIdOrderByCreatedAtDesc(Long tripId);
+
+    /** 该用户最新一张指定用途的照片（发票报销取最新一张 INVOICE） */
+    Optional<TripPhoto> findFirstByUserIdAndKindOrderByIdDesc(Long userId, String kind);
 
     void deleteByTripId(Long tripId);
 

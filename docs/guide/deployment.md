@@ -302,7 +302,7 @@ docker compose down -v                # ⚠️ 连卷一起删：MySQL 数据与
 - **来源二**：`docs/DEVELOPMENT.md` 开头「环境变量」表（是否必需 / 未配置时的行为）。
 - **来源三（权威，已修复补齐）**：`application.yml` / `application-mysql.yml` 的 `${VAR:default}` 占位，
   以及 Java 的 `@Value("${...}")`；全仓库主代码**没有** `System.getenv`。
-- 合并去重后共 **81 个**用户可见变量（应用侧 67 + 3 个前端构建期 + 4 个仅 Docker 面 + 7 个 S3 映射，明细见 §5.8）；三源差异见 §5.9。
+- 合并去重后共 **90 个**用户可见变量（应用侧 76 + 3 个前端构建期 + 4 个仅 Docker 面 + 7 个 S3 映射，明细见 §5.8）；三源差异见 §5.9。
 - `docker-compose.yml` 当前有 **64 个 `${VAR}` 输入**（含 3 个 VITE 构建期与 7 个 S3 映射）；`SPRING_DATA_REDIS_HOST/PORT` 由 compose 固定为内置服务，不计入用户变量。
 
 > **默认值优先级**：环境变量 > `travel-agent-server/.env.local`（`spring.config.import` 加载，`[.properties]` 解析）
@@ -405,6 +405,22 @@ docker compose down -v                # ⚠️ 连卷一起删：MySQL 数据与
 | `WEATHER_SIMULATION` | `false` | 可选 | **仅测试/离线演示**：`true` 时返回确定性模拟天气 | 默认走 Open-Meteo 真实预报（免费无 Key，窗口今天起 16 天）；拿不到即不可用——依赖天气的修改返回 `status=FAILED`（业务码 503）并说明原因，普通规划如实标注「未做天气校验」 |
 | `WEATHER_FAILURE_CACHE_SECONDS` | `60` | 可选 | 天气失败负缓存秒数，避免离线时一次规划反复等连接超时 | `0` = 不缓存失败；负缓存只影响重试频率，不影响正确性 |
 
+### 5.4.1 发票 OCR（可选增强，默认关闭）
+
+发票报销（「报销这张发票」）默认**关闭**：不配置时明确报「OCR 发票识别未配置」，不识别、不生成方案，
+**不会返回模拟识别结果**。开启后只用于增值税发票照片（复用照片通道上传，`kind=INVOICE`）。
+
+| 变量 | 默认值 | 是否必需 | 作用 | 未配置/失败时的行为 |
+| --- | --- | --- | --- | --- |
+| `OCR_PROVIDER` | `none` | 可选 | OCR 提供方：`none`（关闭）/ `baidu`（百度云增值税发票识别） | 关闭：识别请求一律返回「未配置」，不生成记账方案 |
+| `OCR_BAIDU_API_KEY` | 空 | 开启 OCR 时必需 | 百度云应用 API Key（`travel.ocr.baidu.api-key`） | 与 Secret 缺任一都按「未配置」处理 |
+| `OCR_BAIDU_SECRET_KEY` | 空 | 开启 OCR 时必需 | 百度云应用 Secret Key（`travel.ocr.baidu.secret-key`）；只经环境变量注入，不入库、不进日志 | 同上 |
+
+> 超时（默认 3s / 5s）与单图识别上限（默认 8MB）**没有环境变量占位**，在 `service/ocr/OcrProperties` 里给默认值，
+> 需要时用配置文件或 `SPRING_APPLICATION_JSON` 覆盖。`docker-compose.yml` 当前未透传这三个变量，
+> 容器部署要在 `environment:` 里补，或用 `SPRING_APPLICATION_JSON` 给 `travel.ocr.*`。
+> 旧的 `TESSERACT_CMD` / `TESSDATA_PREFIX` 属于已退役的本地 OCR，**不是**这条链路的配置。
+
 ### 5.5 渠道入口
 
 | 变量 | 默认值 | 是否必需 | 作用 | 未配置时的降级行为 |
@@ -481,6 +497,7 @@ docker compose down -v                # ⚠️ 连卷一起删：MySQL 数据与
 | 认证与安全 | 8 | `JWT_SECRET` `JWT_EXPIRE_HOURS` `COOKIE_SECURE` `CORS_ALLOWED_ORIGINS` `DEMO_ACCOUNT` `APP_TIMEZONE` `MYSQL_ROOT_PASSWORD` `TICKET_TTL_SECONDS` |
 | LLM 与 Embedding | 14 | `LLM_ENABLED` `LLM_API_KEY` `LLM_BASE_URL` `LLM_MODEL` `LLM_MODEL_PROBE_ENABLED` `LLM_TEMPERATURE` `LLM_CONNECT_TIMEOUT_MS` `LLM_READ_TIMEOUT_MS` `LLM_DAILY_QUOTA` `EMBEDDING_ENABLED` `EMBEDDING_BASE_URL` `EMBEDDING_API_KEY` `EMBEDDING_MODEL` `RAG_MIN_SCORE` |
 | 地图与天气 | 9 | `AMAP_KEY` `AMAP_MAPS_API_KEY` `VITE_AMAP_KEY` `VITE_AMAP_SECURITY_CODE` `VITE_FOOTPRINT_BASEMAP` `WEATHER_SIMULATION` `WEATHER_FAILURE_CACHE_SECONDS` `WEATHER_FORECAST_BASE_URL` `WEATHER_GEOCODE_BASE_URL` |
+| 发票 OCR | 3 | `OCR_PROVIDER` `OCR_BAIDU_API_KEY` `OCR_BAIDU_SECRET_KEY` |
 | 渠道入口 | 7 | `TELEGRAM_BOT_TOKEN` `TELEGRAM_POLL_TIMEOUT` `CHANNEL_WEBHOOK_ENABLED` `CHANNEL_WEBHOOK_SECRET` `WECHAT_OA_TOKEN` `WECHAT_OA_APPID` `WECHAT_OA_SECRET` |
 | 存储与限流 | 13 | `PHOTO_MAX_PER_TRIP` `PHOTO_MAX_BYTES_PER_USER` `RATE_LIMIT_ENABLED` `RATE_LIMIT_AUTH` `RATE_LIMIT_AGENT` `RATE_LIMIT_UPLOAD` `RATE_LIMIT_DEFAULT` `RATE_LIMIT_EXPORT` `RATE_LIMIT_SESSION` `RATE_LIMIT_WINDOW_SECONDS` `RATE_LIMIT_STORE` `RATE_LIMIT_TRUSTED_PROXIES` `PHOTOS_STORE` |
 | S3 映射（compose 转 `TRAVEL_PHOTOS_S3_*`） | 7 | `S3_ENDPOINT` `S3_REGION` `S3_BUCKET` `S3_ACCESS_KEY` `S3_SECRET_KEY` `S3_PATH_STYLE` `S3_CHECKSUM_VALIDATION` |
@@ -488,25 +505,27 @@ docker compose down -v                # ⚠️ 连卷一起删：MySQL 数据与
 | 会话记忆 | 2 | `CONVERSATION_HISTORY_LIMIT` `CONVERSATION_RETENTION_DAYS` |
 | Agent 预算（时间 + 花费） | 8 | `AGENT_BUDGET_ENABLED` `AGENT_BUDGET_TOTAL_MS` `AGENT_SPEND_ENABLED` `AGENT_SPEND_MAX_LLM_CALLS` `AGENT_SPEND_MAX_TOOL_CALLS` `AGENT_SPEND_MAX_RETRIES` `AGENT_SPEND_MAX_TOKENS` `AGENT_SPEND_MAX_COST_USD` |
 | 可靠执行链路（P0） | 8 | `PENDING_PLAN_LEASE_MINUTES` `PENDING_PLAN_SWEEP_INTERVAL_MS` `OUTBOX_DISPATCH_INTERVAL_MS` `OUTBOX_BATCH_SIZE` `OUTBOX_DISPATCHING_LEASE_MINUTES` `OUTBOX_MAX_ATTEMPTS` `OUTBOX_BASE_BACKOFF_SECONDS` `OUTBOX_MAX_BACKOFF_SECONDS` |
-| **合计** | **87** | 应用侧 73（两份 yml 去重）+ 3 个前端构建期变量 + 4 个仅 Docker 面变量（`MYSQL_ROOT_PASSWORD`、`SPRING_PROFILES_ACTIVE`、`JAVA_OPTS`、`TZ`）+ 7 个 S3 映射输入 |
+| **合计** | **90** | 应用侧 76（两份 yml 去重）+ 3 个前端构建期变量 + 4 个仅 Docker 面变量（`MYSQL_ROOT_PASSWORD`、`SPRING_PROFILES_ACTIVE`、`JAVA_OPTS`、`TZ`）+ 7 个 S3 映射输入 |
 
-> 口径提示：`TESSERACT_CMD`、`TESSDATA_PREFIX`、`INVOICE_DIR`、`INVOICE_STORE` 已随发票/OCR 退役删除，不再是有效配置项；`INVOICE_DIR` 也已从 `docker-compose.yml` / Dockerfile 移除。
+> 口径提示：`TESSERACT_CMD`、`TESSDATA_PREFIX`、`INVOICE_DIR`、`INVOICE_STORE` 已随旧发票/OCR 退役删除，不再是有效配置项；
+> 2026-11-27 的发票 OCR 是**新**的可选增强（`OCR_PROVIDER` / `OCR_BAIDU_*`，默认 `none`），与这批已退役变量无关。
+> `INVOICE_DIR` 也已从 `docker-compose.yml` / Dockerfile 移除。
 > `SPRING_DATA_REDIS_HOST` / `SPRING_DATA_REDIS_PORT` 由 compose 固定为内置 `redis` 服务，属内部连接项，不计入用户变量；外部 Redis 才需要 override。
 
 来源分布（按定义位置；一个变量可能出现于多份配置文件）：
 
 | 来源 | 数量 | 说明 |
 | --- | --- | --- |
-| `application.yml` 的 `${VAR:default}` 占位 | 68 | 第二阶段新增 6 个花费预算占位（`AGENT_SPEND_*`）后重新核对（P0 可靠链路新增 8 个；`AMAP_KEY` 只在 `travel.amap.key`，`AMAP_MAPS_API_KEY` 只在 `travel.mcp.servers[].env`） |
+| `application.yml` 的 `${VAR:default}` 占位 | 71 | 第二阶段新增 6 个花费预算占位（`AGENT_SPEND_*`）后重新核对（P0 可靠链路新增 8 个；2026-11-27 发票 OCR 新增 3 个；`AMAP_KEY` 只在 `travel.amap.key`，`AMAP_MAPS_API_KEY` 只在 `travel.mcp.servers[].env`） |
 | `application-mysql.yml` 的占位 | 5 | `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_DATABASE` / `MYSQL_USERNAME` / `MYSQL_PASSWORD` |
-| 两份 yml 合计（去重） | **73** | P0 删除发票/OCR 配置、新增可靠链路与花费预算占位后重新核对 |
+| 两份 yml 合计（去重） | **76** | P0 删除旧发票/OCR 配置、新增可靠链路与花费预算占位，2026-11-27 又新增发票 OCR 的 3 个占位后重新核对 |
 | Java 代码内独立 env 占位 | **0** | 主代码不再有独立 env 占位（`@Value` 只读配置项默认值） |
 | 仅由 `docker-compose.yml` / Dockerfile 提供 | 4 | `MYSQL_ROOT_PASSWORD`、`TZ`、`SPRING_PROFILES_ACTIVE`、`JAVA_OPTS`（后端 `ENTRYPOINT` 消费） |
 | S3 映射输入 | 7 | `S3_*` → `TRAVEL_PHOTOS_S3_*`（`docker-compose.yml` 的 `environment` 右侧，含 `S3_PATH_STYLE` / `S3_CHECKSUM_VALIDATION`） |
 | 前端构建期变量 | 3 | `VITE_AMAP_KEY`、`VITE_AMAP_SECURITY_CODE`、`VITE_FOOTPRINT_BASEMAP` |
 | `System.getenv` 直接读取 | **0** | 全仓库主代码没有 `System.getenv`（测试代码只用 `System.getProperty`） |
 
-对账：73（yml 去重）+ 3（前端构建期）+ 4（仅 Docker 面）+ 7（S3 映射）= **87**。复核命令：
+对账：76（yml 去重）+ 3（前端构建期）+ 4（仅 Docker 面）+ 7（S3 映射）= **90**。复核命令：
 
 ```bash
 grep -rhoE '\$\{[A-Z0-9_]+' travel-agent-server/src/main/resources/application*.yml | sed 's/^..//' | sort -u | wc -l
@@ -789,7 +808,8 @@ server {
 | `rateLimitEnabled` | boolean | 限流是否开启 |
 | `llmQuotaUsed` / `llmQuotaLimit` | int（仅配额开启且已登录时出现） | 当前用户今日已用/上限 |
 
-> P0 起**不再返回 `ocrConfigured` / `ocrHint`**；发票/OCR 能力已退役。
+> P0 起**不再返回 `ocrConfigured` / `ocrHint`**：旧的本地 Tesseract 发票/OCR 已退役；
+> 2026-11-27 的发票 OCR 是可选的百度云增强项（§5.4.1，默认关闭），自检响应不对它作「可用」承诺。
 
 > **MCP 的接入状态不在这个接口里**：`amapConfigured` 只反映 REST 用的 `AMAP_KEY`，与 MCP 子进程的 `AMAP_MAPS_API_KEY` 无关。
 > MCP 是否真的接上、注册了几个工具，看启动日志（[高德 MCP 接入](mcp-amap.md) §4.3）。
@@ -1035,11 +1055,11 @@ docker compose start backend
 
 本文以仓库当前 HEAD 的源码为准做了逐项核对：
 
-- **环境变量总数：81**——应用侧 67（= 两份 yml 去重；含 `LLM_MODEL_PROBE_ENABLED` 与 P0 可靠链路的 8 个）
+- **环境变量总数：90**——应用侧 76（= 两份 yml 去重；含 `LLM_MODEL_PROBE_ENABLED`、P0 可靠链路的 8 个与 2026-11-27 发票 OCR 的 3 个）
   \+ 3 个前端构建期变量（`VITE_AMAP_KEY`、`VITE_AMAP_SECURITY_CODE`、`VITE_FOOTPRINT_BASEMAP`）
   \+ 仅 Docker 面 4（`MYSQL_ROOT_PASSWORD`、`SPRING_PROFILES_ACTIVE`、`JAVA_OPTS`、`TZ`）
   \+ S3 映射 7（`S3_*` → `TRAVEL_PHOTOS_S3_*`）。分组明细见 §5.8；
-- **来源分布**：`application.yml` 62 个不同占位、`application-mysql.yml` 5 个、
+- **来源分布**：`application.yml` 71 个不同占位、`application-mysql.yml` 5 个、
   `docker-compose.yml`/Dockerfile 4 个、S3 映射 7 个、`System.getenv` 直接读取 **0** 个；**Java 代码内不再有独立 env 占位**
   （P0 删除的 `TESSERACT_CMD` / `TESSDATA_PREFIX` 是最后一处）；
 - **compose 变更的验证边界**：本次 `docker-compose.yml` 重写**未在本机执行 `docker compose config`**（本机无 Docker），

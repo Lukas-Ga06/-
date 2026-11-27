@@ -36,7 +36,7 @@ public class Expense {
     @Column(name = "trip_id")
     private Long tripId;
 
-    /** 预留：报销/账期条目（schedule_item.id），暂无写入方 */
+    /** 关联的日程条目（报销/账期）：批次 3 发票报销在确认提交时写入（同日期未完成日程），手工记账为空 */
     @Column(name = "schedule_item_id")
     private Long scheduleItemId;
 

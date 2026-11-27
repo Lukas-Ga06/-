@@ -126,6 +126,8 @@ public class AgentEngine {
     private final TravelQueryHandler travelQueryHandler;
     /** 批量清空日程（CLEAR_SCHEDULE）：只生成待确认方案，确认后才在 ExecutorAgent 里落库 */
     private final ScheduleCommandHandler scheduleCommandHandler;
+    /** 发票报销（RECORD_INVOICE）：识别最新发票照片并生成「记账 + 关联」的待确认方案 */
+    private final InvoiceCommandHandler invoiceCommandHandler;
     private final PlanConfirmationService planConfirmation;
 
     /** P0-01 写入幂等闸门：记账 / 备忘 / 日程按 (userId, requestId) 最多执行一次 */
@@ -294,6 +296,8 @@ public class AgentEngine {
                 case IntentResult.QUERY_KNOWLEDGE -> travelQueryHandler.answerKnowledge(ctx, intent, trip);
                 case IntentResult.QUERY_BUDGET -> travelQueryHandler.answerBudget(ctx, intent, trip);
                 case IntentResult.RECORD_EXPENSE -> travelQueryHandler.recordExpense(ctx, intent, trip);
+                // 发票报销只产出待确认方案（不直接落账）：未配置/识别失败时 handler 明确报不可用
+                case IntentResult.RECORD_INVOICE -> invoiceCommandHandler.recordInvoice(ctx, intent);
                 case IntentResult.ADD_MEMO -> assistantHandler.addMemo(ctx, intent);
                 case IntentResult.QUERY_MEMO -> assistantHandler.queryMemo(ctx, intent);
                 case IntentResult.ADD_SCHEDULE -> assistantHandler.addSchedule(ctx, intent);

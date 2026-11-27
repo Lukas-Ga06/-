@@ -41,7 +41,7 @@ public class IntentAgent {
 
     private static final List<String> INTENTS = List.of(
             IntentResult.PLAN_TRIP, IntentResult.MODIFY_ITINERARY, IntentResult.QUERY_BUDGET,
-            IntentResult.QUERY_KNOWLEDGE, IntentResult.RECORD_EXPENSE,
+            IntentResult.QUERY_KNOWLEDGE, IntentResult.RECORD_EXPENSE, IntentResult.RECORD_INVOICE,
             IntentResult.ADD_MEMO, IntentResult.QUERY_MEMO,
             IntentResult.ADD_SCHEDULE, IntentResult.QUERY_SCHEDULE, IntentResult.QUERY_FREE_TIME,
             IntentResult.CLEAR_SCHEDULE, IntentResult.INVOKE_TOOL, IntentResult.CHITCHAT);
@@ -96,6 +96,8 @@ public class IntentAgent {
                     PLAN_TRIP（规划新行程；用户说「重新规划/重排整个行程」也归这里）、
                     MODIFY_ITINERARY（只改某一项或某一天，如换掉某个景点、调整时间）、QUERY_BUDGET（查询预算花费）、
                     QUERY_KNOWLEDGE（旅游知识问答，如攻略/推荐/介绍）、RECORD_EXPENSE（记账：记录一笔实际花费，如「记一笔午餐45元」）、
+                    RECORD_INVOICE（报销发票：把用户最新上传的那张发票照片识别成账单并生成待确认方案，
+                    如「报销这张发票」「把这张发票入账」）、
                     ADD_MEMO（添加个人备忘/待办，如「记一下明天办签证」）、QUERY_MEMO（查看备忘/待办列表）、
                     ADD_SCHEDULE（添加出行日程/提醒，如「明天下午3点去办签证」）、QUERY_SCHEDULE（查看日程安排）、
                     QUERY_FREE_TIME（查询空闲时段，如「明天下午有空吗」「下周哪些时间空闲」）、
@@ -305,7 +307,20 @@ public class IntentAgent {
                     .intent(IntentResult.MODIFY_ITINERARY).target(target).constraints(constraints).build();
         }
 
-        // 2. 记账：消息中能解析出有效金额且带有记账/花费表述
+        // 2. 发票报销：必须同时有「发票」这个对象和报销/入账类动作。
+        //    放在记账之前：「报销这张发票」里没有金额，落到 RECORD_EXPENSE 只会解析失败；
+        //    放在修改之后：带「取消/删掉」的句子仍按修改处理（先撤销再谈记账）。
+        //    只提「记一下明天办签证」没有发票对象 → 仍是 ADD_MEMO；
+        //    「记一笔午餐45元」没有发票对象 → 仍是 RECORD_EXPENSE。
+        boolean invoiceNoun = MessageParser.mentions(message, "发票");
+        boolean invoiceAction = MessageParser.mentions(message,
+                "报销", "报一下", "记账", "记一笔", "记一下", "识别", "入账");
+        if (invoiceNoun && invoiceAction) {
+            return IntentResult.builder()
+                    .intent(IntentResult.RECORD_INVOICE).target(IntentResult.TARGET_NONE).constraints(constraints).build();
+        }
+
+        // 3. 记账：消息中能解析出有效金额且带有记账/花费表述
         if (MessageParser.parseExpenseRequest(message) != null
                 && MessageParser.mentions(message, "记", "花", "支出", "消费")) {
             return IntentResult.builder()

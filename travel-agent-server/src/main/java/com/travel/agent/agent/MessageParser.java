@@ -411,18 +411,8 @@ public final class MessageParser {
         if (amount == null || amount.signum() <= 0) {
             return null;
         }
-        String category = "其他";
-        if (mentions(text, "门票", "景区票", "门票钱")) {
-            category = "门票";
-        } else if (mentions(text, "酒店", "住宿", "房费", "民宿")) {
-            category = "住宿";
-        } else if (mentions(text, "打车", "出租", "地铁", "公交", "高铁", "火车", "机票", "加油", "停车", "船票")) {
-            category = "交通";
-        } else if (mentions(text, "早", "午", "晚", "餐", "饭", "面", "小吃", "咖啡", "奶茶", "烧烤", "火锅", "小吃")) {
-            category = "餐饮";
-        } else if (mentions(text, "买", "购物", "纪念", "特产", "手信")) {
-            category = "购物";
-        }
+        // 分类词表与发票报销共用一处（util.ExpenseCategories），避免两条入口各维护一份
+        String category = com.travel.agent.util.ExpenseCategories.of(text);
         int dayOffset = mentions(text, "昨天", "昨日") ? -1 : 0;
         String payment = "现金";
         if (mentions(text, "微信")) {

@@ -1,12 +1,15 @@
 package com.travel.agent.agent;
 
 import com.travel.agent.dto.AgentDtos;
+import com.travel.agent.dto.ExpenseDraft;
 import com.travel.agent.dto.ItineraryDtos;
 import com.travel.agent.dto.ScheduleSnapshot;
+import com.travel.agent.entity.Expense;
 import com.travel.agent.entity.ItineraryItem;
 import com.travel.agent.entity.Trip;
 import com.travel.agent.exception.BusinessException;
 import com.travel.agent.service.BudgetService;
+import com.travel.agent.service.ExpenseService;
 import com.travel.agent.service.ItineraryService;
 import com.travel.agent.service.OperationHistoryService;
 import com.travel.agent.service.ScheduleOpsApplier;
@@ -44,6 +47,8 @@ public class ExecutorAgent {
     private final TripEventService tripEventService;
     /** 批量清空日程的删除落地：只被 {@link #commit} 调用，事务由 commit 提供 */
     private final ScheduleOpsApplier scheduleOpsApplier;
+    /** 记账落库：发票报销的 ADD_EXPENSE 确认后走这里（与手工记账同一个 Service 口径） */
+    private final ExpenseService expenseService;
 
     /** 生成 Diff 预览与确认请求 */
     public AgentDtos.AgentResult preview(AgentContext ctx, AgentPlan plan, Trip trip) {
@@ -53,6 +58,7 @@ public class ExecutorAgent {
         int removedCount = 0;
         int addedCount = 0;
         int scheduleRemoved = 0;
+        int expenseAdded = 0;
 
         for (PlanOperation op : plan.getOperations()) {
             switch (op.getType()) {
@@ -101,6 +107,24 @@ public class ExecutorAgent {
                             .build());
                     scheduleRemoved++;
                 }
+                case PlanOperation.ADD_EXPENSE -> {
+                    ExpenseDraft draft = op.getExpenseDraft();
+                    if (draft == null) {
+                        log.warn("ADD_EXPENSE 操作缺少账单草稿，已跳过: planId={}", plan.getPlanId());
+                        break;
+                    }
+                    changes.add(AgentDtos.DiffChange.builder()
+                            .type("ADD")
+                            .itemType("expense")
+                            .title("记账：" + categoryOf(draft) + " ¥" + amountText(draft.amount())
+                                    + (draft.note() == null || draft.note().isBlank() ? "" : " · " + draft.note()))
+                            // 关联对象由方案生成方写进 op.detail（它拿得到行程/日程的展示名）
+                            .detail(op.getDetail())
+                            // 账单不是行程预算：cost 不设，budgetBefore/After 保持原值
+                            .startTime(draft.spentAt() == null ? null : draft.spentAt().toString())
+                            .build());
+                    expenseAdded++;
+                }
                 default -> log.warn("未知操作类型: {}", op.getType());
             }
         }
@@ -117,7 +141,7 @@ public class ExecutorAgent {
                 : (plan.getTripDraft() != null ? plan.getTripDraft().getBudget() : null);
         RiskLevel risk = safetyInterceptor.evaluatePlanChange(plan.getOperations().isEmpty(), before, after, referenceBudget);
 
-        String summary = summarize(plan, removedCount, addedCount, scheduleRemoved, before, after);
+        String summary = summarize(plan, removedCount, addedCount, scheduleRemoved, expenseAdded, before, after);
 
         return AgentDtos.AgentResult.builder()
                 .planId(plan.getPlanId())
@@ -135,11 +159,15 @@ public class ExecutorAgent {
     }
 
     /**
-     * Diff 摘要：只有日程操作时说明「删几项、哪个范围」；与行程操作并存时两段都写；
+     * Diff 摘要：账单方案只说明「记一笔什么」，不带预算数字（账单不进行程预算）；
+     * 只有日程操作时说明「删几项、哪个范围」；与行程操作并存时两段都写；
      * 纯行程方案保持既有文案（测试与前端都按它读）。
      */
     private static String summarize(AgentPlan plan, int removedCount, int addedCount,
-                                    int scheduleRemoved, BigDecimal before, BigDecimal after) {
+                                    int scheduleRemoved, int expenseAdded, BigDecimal before, BigDecimal after) {
+        if (expenseAdded > 0) {
+            return expenseSummary(plan);
+        }
         String budgetText = "预算 ¥" + before.stripTrailingZeros().toPlainString()
                 + " → ¥" + after.stripTrailingZeros().toPlainString();
         if (scheduleRemoved > 0) {
@@ -152,6 +180,37 @@ public class ExecutorAgent {
                     + scheduleRemoved + " 项日程" + rangePart + "，" + budgetText;
         }
         return "本次将删除 " + removedCount + " 项、新增 " + addedCount + " 项，" + budgetText;
+    }
+
+    /**
+     * 账单方案的确认摘要：「记一笔什么 + 关联到哪」。
+     *
+     * <p>刻意不写预算 before→after：账单不进行程预算（口径见能力边界 §1.1），
+     * 写一个 0 → 0 会让用户以为这笔钱被计进了行程预算。
+     */
+    private static String expenseSummary(AgentPlan plan) {
+        PlanOperation first = plan.getOperations().stream()
+                .filter(op -> PlanOperation.ADD_EXPENSE.equals(op.getType()))
+                .findFirst().orElse(null);
+        ExpenseDraft draft = first == null ? null : first.getExpenseDraft();
+        if (draft == null) {
+            return "本次将记录账单。";
+        }
+        String date = draft.spentAt() == null ? "" : "（" + draft.spentAt() + "）";
+        String link = first.getDetail() == null || first.getDetail().isBlank()
+                ? "未关联行程与日程" : first.getDetail();
+        return "本次将记一笔账单：" + categoryOf(draft) + " ¥" + amountText(draft.amount())
+                + date + "；" + link + "。";
+    }
+
+    /** 账单分类：草稿为空时按「其他」，与 ExpenseService.add 的兜底口径一致 */
+    private static String categoryOf(ExpenseDraft draft) {
+        return draft.category() == null || draft.category().isBlank() ? Expense.CAT_OTHER : draft.category();
+    }
+
+    /** 金额展示：去掉尾随 0（120.00 → 120）；为空时写「?」，绝不显示假数字 */
+    private static String amountText(BigDecimal amount) {
+        return amount == null ? "?" : amount.stripTrailingZeros().toPlainString();
     }
 
     /** 日程 Deleted Diff 的 detail：「<date> <time> 清空」，time 为空按 00:00 */
@@ -210,6 +269,14 @@ public class ExecutorAgent {
         List<PlanOperation> scheduleOps = plan.getOperations().stream()
                 .filter(op -> PlanOperation.REMOVE_SCHEDULE.equals(op.getType()))
                 .toList();
+        // 发票报销方案：没有行程、全部操作都是 ADD_EXPENSE —— 只落账单，不碰行程/预算/历史
+        List<PlanOperation> expenseOps = plan.getOperations().stream()
+                .filter(op -> PlanOperation.ADD_EXPENSE.equals(op.getType()))
+                .toList();
+        if (plan.getTripId() == null && !expenseOps.isEmpty()
+                && expenseOps.size() == plan.getOperations().size()) {
+            return commitExpenses(plan, userId, expenseOps);
+        }
         // 有 tripId = 重新规划已有行程（REMOVE+ADD 落到原行程）；没有 tripId 才是新建。
         // tripId 与 tripDraft 都为空时只允许是「日程清空」方案，否则是无处可落的脏方案。
         if (plan.getTripId() == null && plan.getTripDraft() != null) {
@@ -291,6 +358,60 @@ public class ExecutorAgent {
                         .day(plan.getFocus() == null ? null : plan.getFocus().getDay())
                         .itemId(focusItemId).build())
                 .budget(budgetService.summarize(after, budgetService.totalOf(before)))
+                .citations(citationsOf(plan))
+                .build();
+    }
+
+    /**
+     * 账单提交分支（发票报销）：没有行程，逐条把方案里的账单草稿落成 {@code expense}。
+     *
+     * <p><b>不写 {@code OperationHistory}</b> 是有意取舍：撤销链的语义是「把行程项整体替换回 before 快照」，
+     * 对账目没有意义（会留下账目却把行程改回去，甚至把不相关行程项回滚）；
+     * 账单的撤销由记账页删除（{@code DELETE /api/expenses/{id}}）承担。
+     * 因此这里也不产生 {@code trip_event}：记账不是行程变更。
+     */
+    private AgentDtos.AgentResult commitExpenses(AgentPlan plan, Long userId, List<PlanOperation> expenseOps) {
+        BigDecimal total = BigDecimal.ZERO;
+        Long focusTripId = null;
+        String link = null;
+        ExpenseDraft first = null;
+        int saved = 0;
+        for (PlanOperation op : expenseOps) {
+            ExpenseDraft draft = op.getExpenseDraft();
+            if (draft == null) {
+                log.warn("账单草稿为空，已跳过: planId={}", plan.getPlanId());
+                continue;
+            }
+            expenseService.add(draft.tripId(), draft.scheduleItemId(), userId, draft.category(),
+                    draft.amount(), draft.note(), draft.spentAt(), draft.paymentMethod());
+            total = total.add(draft.amount() == null ? BigDecimal.ZERO : draft.amount());
+            if (first == null) {
+                first = draft;
+                link = op.getDetail();
+                focusTripId = draft.tripId();
+            }
+            saved++;
+        }
+        if (saved == 0) {
+            throw new BusinessException(400, "方案里没有可提交的账单");
+        }
+        String message;
+        if (saved == 1) {
+            String date = first.spentAt() == null ? "" : "（" + first.spentAt() + "）";
+            message = "✅ 已记一笔" + categoryOf(first) + " ¥" + amountText(first.amount()) + date + "，"
+                    + (link == null || link.isBlank() ? "未关联行程与日程" : link)
+                    + "。可在记账页删除这笔账单。";
+        } else {
+            message = "✅ 已记录 " + saved + " 笔账单，合计 ¥" + amountText(total) + "。可在记账页删除。";
+        }
+        return AgentDtos.AgentResult.builder()
+                .planId(plan.getPlanId())
+                .tripId(null)
+                .intent(plan.getIntent())
+                .status(AgentDtos.STATUS_COMPLETED)
+                .message(message)
+                .focus(AgentDtos.AgentFocus.builder().type("budget").tripId(focusTripId).build())
+                .warnings(new ArrayList<>())
                 .citations(citationsOf(plan))
                 .build();
     }

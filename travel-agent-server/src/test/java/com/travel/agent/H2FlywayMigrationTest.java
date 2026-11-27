@@ -14,8 +14,8 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 默认 profile（H2）的迁移链真实执行：V1..V31 在全新库上跑完，
- * 且 V22 / V23 的唯一约束、V30 的记账解绑结构、V31 的日程域历史结构真的建出来。
+ * 默认 profile（H2）的迁移链真实执行：V1..V32 在全新库上跑完，
+ * 且 V22 / V23 的唯一约束、V30 的记账解绑结构、V31 的日程域历史结构、V32 的照片用途列真的建出来。
  *
  * <p>为什么需要：其它测试用 {@code ddl-auto=create-drop} 且关闭 Flyway，覆盖不到迁移脚本；
  * 而默认 profile 是「不装数据库也能跑」的主路径，迁移脚本里的一句方言错误
@@ -31,7 +31,7 @@ class H2FlywayMigrationTest {
     private static final String V31_INDEX = "idx_history_user_domain";
 
     @Test
-    @DisplayName("全新 H2 库跑完默认 profile 的全部迁移，并创建 V22 / V23 唯一约束与 V30 / V31 结构")
+    @DisplayName("全新 H2 库跑完默认 profile 的全部迁移，并创建 V22 / V23 唯一约束与 V30 / V31 / V32 结构")
     void migrationsApplyOnFreshH2Database() throws Exception {
         // 与 application.yml 的默认 datasource 保持同一模式（MODE=MySQL），内存库避免落盘
         String url = "jdbc:h2:mem:flyway-" + UUID.randomUUID() + ";MODE=MySQL;DB_CLOSE_DELAY=-1";
@@ -78,6 +78,11 @@ class H2FlywayMigrationTest {
             assertThat(indexNames(connection, "OPERATION_HISTORY"))
                     .as("V31 必须创建 %s，否则按用户取最近一条日程历史退化为全表扫描", V31_INDEX)
                     .contains(V31_INDEX);
+
+            // V32：照片用途（发票报销复用照片通道）——kind 列必须建出来，存量行由 DEFAULT 'PHOTO' 回填
+            assertThat(nullableOf(connection, "TRIP_PHOTO", "KIND"))
+                    .as("V32 必须新增可空的 trip_photo.kind（存量行由 DEFAULT 'PHOTO' 回填）")
+                    .isEqualTo(DatabaseMetaData.columnNullable);
         }
     }
 

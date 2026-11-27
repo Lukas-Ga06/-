@@ -132,6 +132,9 @@ class MigrationBaselineTest {
         // V31：操作历史支持日程域（operation_history.trip_id 可空 + domain 列 + 索引），
         // 同样是 MODIFY COLUMN / ADD COLUMN / CREATE INDEX，双方言中性 SQL
         core.add(31);
+        // V32：照片通道支持发票用途（trip_photo.kind VARCHAR(20) DEFAULT 'PHOTO'），
+        // 单列 ADD COLUMN，双方言中性 SQL
+        core.add(32);
         Set<Integer> mysqlExpected = new LinkedHashSet<>(core);
         mysqlExpected.addAll(List.of(8, 12, 13));
         Set<Integer> h2Expected = new LinkedHashSet<>(core);
