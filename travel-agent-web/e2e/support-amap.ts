@@ -24,7 +24,7 @@ export const FAKE_AMAP_SDK = `
     this.zoom = typeof this.options.zoom === 'number' ? this.options.zoom : 11;
     this.center = this.options.center || [0, 0];
     this.handlers = {};
-    
+
     state.maps.push(this);
     state.zoom = this.zoom;
     state.center = this.center;
