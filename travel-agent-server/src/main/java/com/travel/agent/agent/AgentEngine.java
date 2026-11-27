@@ -296,6 +296,7 @@ public class AgentEngine {
                 case IntentResult.QUERY_MEMO -> assistantHandler.queryMemo(ctx, intent);
                 case IntentResult.ADD_SCHEDULE -> assistantHandler.addSchedule(ctx, intent);
                 case IntentResult.QUERY_SCHEDULE -> assistantHandler.querySchedule(ctx, intent);
+                case IntentResult.QUERY_FREE_TIME -> assistantHandler.queryFreeTime(ctx, intent);
                 case IntentResult.INVOKE_TOOL -> answerInvokeTool(ctx, intent, intentReceipt.handle());
                 case IntentResult.PLAN_TRIP, IntentResult.MODIFY_ITINERARY ->
                         planAndPresent(ctx, intent, trip, intentReceipt.handle());

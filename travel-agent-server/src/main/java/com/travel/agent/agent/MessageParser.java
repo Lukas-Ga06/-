@@ -496,6 +496,43 @@ public final class MessageParser {
         return new ScheduleRequest(date, time, text, recurrence);
     }
 
+    /** 会议时长：默认 1 小时，支持「半小时/30分钟」与「X小时/一小时/两小时」 */
+    public static final int DEFAULT_MEETING_MINUTES = 60;
+    public static final int MIN_MEETING_MINUTES = 30;
+    public static final int MAX_MEETING_MINUTES = 480;
+
+    private static final Pattern HOUR_DURATION = Pattern.compile("(\\d{1,2})\\s{0,2}(?:个)?\\s*小时");
+    private static final Pattern CN_HOUR_DURATION = Pattern.compile("([一两二三四五六七八九十])\\s{0,2}(?:个)?\\s*小时");
+    private static final Pattern MINUTE_DURATION = Pattern.compile("(\\d{1,3})\\s{0,2}分钟");
+
+    /** 从消息里解析会议时长（分钟）；解析不出按 1 小时，结果收敛到 30..480 */
+    public static int parseMeetingMinutes(String text) {
+        if (text == null || text.isBlank()) {
+            return DEFAULT_MEETING_MINUTES;
+        }
+        int minutes = DEFAULT_MEETING_MINUTES;
+        if (mentions(text, "一个半小时")) {
+            minutes = 90;
+        } else if (mentions(text, "半小时", "半个小时")) {
+            minutes = MIN_MEETING_MINUTES;
+        } else {
+            Matcher hour = HOUR_DURATION.matcher(text);
+            Matcher cnHour = CN_HOUR_DURATION.matcher(text);
+            Matcher minute = MINUTE_DURATION.matcher(text);
+            if (hour.find()) {
+                minutes = Integer.parseInt(hour.group(1)) * 60;
+            } else if (cnHour.find()) {
+                Integer hours = CN_NUM.get(cnHour.group(1).charAt(0));
+                if (hours != null) {
+                    minutes = hours * 60;
+                }
+            } else if (minute.find()) {
+                minutes = Integer.parseInt(minute.group(1));
+            }
+        }
+        return Math.min(Math.max(minutes, MIN_MEETING_MINUTES), MAX_MEETING_MINUTES);
+    }
+
     /** 提取备忘内容：去掉「记一下/备忘/提醒我」等前缀词，返回剩余正文 */
     public static String parseMemoContent(String text) {
         if (text == null || text.isBlank()) {
@@ -673,6 +710,55 @@ public final class MessageParser {
     private static LocalDate rollForward(LocalDate base, int month, int day) {
         LocalDate date = LocalDate.of(base.getYear(), month, day);
         return date.isBefore(base) ? date.plusYears(1) : date;
+    }
+
+    /** 空闲查询的日期范围（含首尾） */
+    public record DateRange(LocalDate from, LocalDate to) {
+    }
+
+    /** 「下周」后面直接跟星期几（下周X）时按单日解析，不按整周解析 */
+    private static final Pattern WEEKDAY_AFTER_WEEK =
+            Pattern.compile("(下周|下个星期|本星期|这星期|本周|这周|这个星期)[一二三四五六日天]");
+
+    /**
+     * 解析空闲查询的日期范围，默认明天一天。支持：
+     * 今天 / 明天 / 后天 / 大后天；下周（下周一至周日）；本周 / 这周（今天起至本周日）；
+     * 下周X、周X 等单日写法与 10月1日 / 2026-10-01（复用 {@link #extractDepartureDate}）。
+     * 范围最多 7 天，超出由 {@code FreeTimeService#clampRangeEnd} 截断。
+     */
+    public static DateRange parseFreeTimeRange(String text, LocalDate today) {
+        LocalDate base = today == null ? LocalDate.now() : today;
+        if (text != null && !text.isBlank()) {
+            if (text.contains("大后天")) {
+                return new DateRange(base.plusDays(3), base.plusDays(3));
+            }
+            if (text.contains("明天")) {
+                return new DateRange(base.plusDays(1), base.plusDays(1));
+            }
+            if (text.contains("后天")) {
+                return new DateRange(base.plusDays(2), base.plusDays(2));
+            }
+            if (text.contains("今天") || text.contains("今晚")) {
+                return new DateRange(base, base);
+            }
+            boolean explicitWeekday = WEEKDAY_AFTER_WEEK.matcher(text).find();
+            if (text.contains("下周") && !explicitWeekday && !text.contains("下周末")) {
+                LocalDate nextMonday = base.with(TemporalAdjusters.next(DayOfWeek.MONDAY));
+                return new DateRange(nextMonday, nextMonday.plusDays(6));
+            }
+            if ((text.contains("本周") || text.contains("这周") || text.contains("这个星期"))
+                    && !explicitWeekday && !text.contains("本周末") && !text.contains("这周末")) {
+                LocalDate monday = base.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+                LocalDate sunday = monday.plusDays(6);
+                return new DateRange(base, sunday.isBefore(base) ? base : sunday);
+            }
+            DepartureDate explicit = extractDepartureDate(text, base);
+            if (explicit.explicit() && explicit.date() != null) {
+                return new DateRange(explicit.date(), explicit.date());
+            }
+        }
+        LocalDate tomorrow = base.plusDays(1);
+        return new DateRange(tomorrow, tomorrow);
     }
 
     /** 日期到行程天的映射结果：outsideTrip=true 表示用户提到的日期并不在行程区间内 */

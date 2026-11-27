@@ -65,6 +65,36 @@ class IntentRoutingTest extends IntegrationTestSupport {
     }
 
     @Test
+    @DisplayName("「明天下午有空吗」识别为空闲查询，不写日程")
+    void freeTimeQuestionIsNotScheduled() throws Exception {
+        Account account = registerNew();
+
+        AgentDtos.AgentResult result = run(account, "明天下午有空吗");
+
+        assertThat(result.getIntent()).isEqualTo(IntentResult.QUERY_FREE_TIME);
+        assertThat(result.getStatus()).isEqualTo(AgentDtos.STATUS_COMPLETED);
+        assertThat(result.getMessage()).contains("08:00–22:00 的空闲：08:00–22:00");
+        assertThat(result.getMessage()).contains("建议 08:00–09:00（1 小时）开会。");
+        assertThat(result.getMessage()).contains("回复「安排明天10点开会」即可创建日程。");
+        assertThat(scheduleRepository.findByUserIdOrderByDateAscTimeAscIdAsc(account.id())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("「下周哪些时间空闲」识别为空闲查询")
+    void nextWeekFreeTimeQuestionIsRecognized() throws Exception {
+        Account account = registerNew();
+
+        AgentDtos.AgentResult result = run(account, "下周哪些时间空闲");
+
+        assertThat(result.getIntent()).isEqualTo(IntentResult.QUERY_FREE_TIME);
+        assertThat(result.getStatus()).isEqualTo(AgentDtos.STATUS_COMPLETED);
+        assertThat(result.getMessage()).contains("每天 08:00–22:00 的空闲");
+        assertThat(result.getMessage()).contains("• ");
+        assertThat(result.getMessage()).contains("回复「安排");
+        assertThat(scheduleRepository.findByUserIdOrderByDateAscTimeAscIdAsc(account.id())).isEmpty();
+    }
+
+    @Test
     @DisplayName("旅行规划意图不受影响")
     void planIntentStillWorks() throws Exception {
         Account account = registerNew();
