@@ -98,7 +98,7 @@ public class AccountExportService {
             {"id", "title", "city", "category", "content", "source", "updatedAt"};
 
     private static final String PHOTOS_SQL =
-            "SELECT id, trip_id, original_name, content_type, size_bytes, created_at "
+            "SELECT id, trip_id, original_name, content_type, size_bytes, kind, created_at "
                     + "FROM trip_photo WHERE user_id = ? ORDER BY id";
 
     private static final String CONVERSATIONS_SQL =
@@ -233,6 +233,9 @@ public class AccountExportService {
                             .contentType(rs.getString("content_type"))
                             .sizeBytes(nullableLong(rs.getObject("size_bytes")))
                             .createdAt(text(rs.getObject("created_at")))
+                            // V32：用途随导出一起给；存量行为 null 时按 PHOTO 回落，与列表接口口径一致
+                            .kind(rs.getString("kind") == null
+                                    ? com.travel.agent.entity.TripPhoto.KIND_PHOTO : rs.getString("kind"))
                             .url("/api/photos/" + id + "/raw")
                             .build();
                 },

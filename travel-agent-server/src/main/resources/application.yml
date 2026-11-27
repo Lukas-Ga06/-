@@ -172,6 +172,13 @@ travel:
     # Open-Meteo 地址可配置：测试用 WireMock 指向本地，业务代码不再硬编码外网域名
     geocode-base-url: ${WEATHER_GEOCODE_BASE_URL:https://geocoding-api.open-meteo.com/v1/search}
     forecast-base-url: ${WEATHER_FORECAST_BASE_URL:https://api.open-meteo.com/v1/forecast}
+  ocr:
+    # 发票 OCR：默认 none（关闭）。配 baidu + 密钥后才真正识别；未配置时明确报不可用，不返回模拟结果。
+    # 只暴露 provider 与两个 Key；超时、单图大小上限等调优项走 service/ocr/OcrProperties 的代码默认值。
+    provider: ${OCR_PROVIDER:none}
+    baidu:
+      api-key: ${OCR_BAIDU_API_KEY:}
+      secret-key: ${OCR_BAIDU_SECRET_KEY:}
   mcp:
     # MCP（Model Context Protocol）工具生态：启动时把外部 MCP server 的工具注册进 ToolRegistry（只读）。
     # 默认关闭；接入后模型可经 INVOKE_TOOL 调用 mcp_<server>_<tool>。单个 server 失败只告警、不影响启动。

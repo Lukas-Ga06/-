@@ -20,6 +20,14 @@ public class IntentResult {
     public static final String QUERY_BUDGET = "QUERY_BUDGET";
     public static final String QUERY_KNOWLEDGE = "QUERY_KNOWLEDGE";
     public static final String RECORD_EXPENSE = "RECORD_EXPENSE";
+    /**
+     * 发票报销：取该用户最新一张 {@code kind=INVOICE} 的照片 → OCR 识别金额/商户/日期/类目 →
+     * 规则匹配同日日程与覆盖该日期的行程 → 生成「记账 + 关联」的待确认方案。
+     *
+     * <p>识别只读；未配置 OCR 或识别失败时明确报不可用，<b>不生成方案、不用模拟结果</b>；
+     * 真正落账在用户确认后由 {@code ExecutorAgent.commit} 单事务完成。
+     */
+    public static final String RECORD_INVOICE = "RECORD_INVOICE";
     public static final String ADD_MEMO = "ADD_MEMO";
     public static final String QUERY_MEMO = "QUERY_MEMO";
     public static final String ADD_SCHEDULE = "ADD_SCHEDULE";

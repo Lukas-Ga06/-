@@ -19,6 +19,8 @@ public class PhotoDtos {
         private String contentType;
         private Long sizeBytes;
         private String createdAt;
+        /** V32：图片用途 PHOTO / INVOICE（发票报销取该用户最新一张） */
+        private String kind;
         /** 原图地址；前端需带上 token（EventSource/<img> 无法自定义请求头） */
         private String url;
 
@@ -30,6 +32,8 @@ public class PhotoDtos {
                     .contentType(photo.getContentType())
                     .sizeBytes(photo.getSizeBytes())
                     .createdAt(photo.getCreatedAt() == null ? null : photo.getCreatedAt().toString())
+                    // 存量行可能是 null（V32 之前上传）：对外如实回落 PHOTO，不让前端拿 null 分支
+                    .kind(photo.getKind() == null ? TripPhoto.KIND_PHOTO : photo.getKind())
                     .url("/api/photos/" + photo.getId() + "/raw")
                     .build();
         }

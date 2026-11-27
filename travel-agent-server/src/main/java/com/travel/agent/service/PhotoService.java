@@ -13,6 +13,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -57,6 +58,18 @@ public class PhotoService {
 
     @Transactional
     public TripPhoto upload(Long tripId, Long userId, MultipartFile file) {
+        return upload(tripId, userId, file, TripPhoto.KIND_PHOTO);
+    }
+
+    /**
+     * 上传照片并标记用途（V32）：{@code kind=INVOICE} 的图片会被发票报销流程取用。
+     *
+     * <p>用途与文件本身同等校验：非法值直接 400，不落库、不落盘——
+     * 用途是报销流程的判据，脏值会让「取最新一张发票」取到不相干的图。
+     */
+    @Transactional
+    public TripPhoto upload(Long tripId, Long userId, MultipartFile file, String kind) {
+        String resolvedKind = normalizeKind(kind);
         Trip trip = tripService.getOwned(tripId, userId);
         if (file == null || file.isEmpty()) {
             throw new BusinessException(400, "请选择要上传的照片");
@@ -100,6 +113,7 @@ public class PhotoService {
                 .originalName(file.getOriginalFilename())
                 .contentType(detectedType)
                 .sizeBytes(file.getSize())
+                .kind(resolvedKind)
                 .build());
         try {
             storage.store(file, storedName);
@@ -113,6 +127,14 @@ public class PhotoService {
     public List<TripPhoto> list(Long tripId, Long userId) {
         tripService.getOwned(tripId, userId);
         return repository.findByTripIdOrderByCreatedAtDesc(tripId);
+    }
+
+    /**
+     * 该用户最新一张发票照片（V32）。没有上传过返回空——调用方必须如实说「没有发票照片」，
+     * 不能退化成「取任意一张照片去识别」。
+     */
+    public Optional<TripPhoto> latestInvoice(Long userId) {
+        return repository.findFirstByUserIdAndKindOrderByIdDesc(userId, TripPhoto.KIND_INVOICE);
     }
 
     /** 读取原图（先校验归属，再校验文件是否还在） */
@@ -135,6 +157,23 @@ public class PhotoService {
             throw new BusinessException(404, "照片文件不存在（可能已被清理）");
         }
         return new StoredPhoto(photo, storage.read(photo.getStoredName()));
+    }
+
+    /**
+     * 用途归一化：null/空白视为 PHOTO（老客户端不带 kind）；只接受 PHOTO / INVOICE。
+     *
+     * <p>大小写不敏感地归一成大写常量，避免 "invoice" 这类写法在库里留下第二套取值，
+     * 让「按 kind 取最新一张」的查询时灵时不灵。
+     */
+    private static String normalizeKind(String kind) {
+        if (kind == null || kind.isBlank()) {
+            return TripPhoto.KIND_PHOTO;
+        }
+        String upper = kind.trim().toUpperCase(java.util.Locale.ROOT);
+        if (!TripPhoto.KIND_PHOTO.equals(upper) && !TripPhoto.KIND_INVOICE.equals(upper)) {
+            throw new BusinessException(400, "不支持的图片用途");
+        }
+        return upper;
     }
 
     private static String detectType(MultipartFile file) {
