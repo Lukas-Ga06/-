@@ -14,6 +14,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -44,8 +45,17 @@ public class InvoiceCommandHandler {
     /** note 列宽 200：商户名超长时截断，避免落库失败 */
     private static final int NOTE_MAX_LENGTH = 200;
 
-    /** Diff 里的识别原文摘要上限：够核对「识别到了什么」，又不会把确认弹窗撑爆 */
-    private static final int RAW_TEXT_MAX_LENGTH = 60;
+    /** Diff 里的识别摘要上限：够核对「识别到了什么」，又不会把确认弹窗撑爆 */
+    private static final int SUMMARY_MAX_LENGTH = 60;
+
+    /**
+     * 摘要里必须剔除的敏感片段特征（发票密码区 / 校验码），大小写不敏感。
+     *
+     * <p>第一道闸在 {@code BaiduOcrClient} 的白名单里；这里是防御性第二道：
+     * 客户端换了实现或扩了白名单，也不让敏感票据信息进 Diff / SSE / 会话记录。
+     */
+    private static final List<String> SENSITIVE_MARKERS =
+            List.of("password", "密码", "checkcode", "校验码");
 
     private final OcrInvoiceService ocrInvoiceService;
     private final InvoiceMatchService invoiceMatchService;
@@ -70,7 +80,7 @@ public class InvoiceCommandHandler {
         LocalDate spentAt = fields.invoiceDate() == null ? LocalDate.now() : fields.invoiceDate();
         String merchant = blankToNull(fields.merchant());
         String category = fields.category() == null ? com.travel.agent.entity.Expense.CAT_OTHER : fields.category();
-        // 关联判定用「商户 + 识别原文」：票面上的城市/店名通常出现在这两处
+        // 关联判定用「商户 + 识别摘要」：票面上的城市/店名通常出现在这两处
         String haystack = (merchant == null ? "" : merchant) + " " + (fields.rawText() == null ? "" : fields.rawText());
         InvoiceMatchService.InvoiceCandidates candidates =
                 invoiceMatchService.match(ctx.getUserId(), spentAt, haystack);
@@ -143,7 +153,10 @@ public class InvoiceCommandHandler {
 
     /**
      * Diff 的 detail：关联到谁必须逐条写出来，匹配不到就明说未关联；
-     * 有识别原文时再附一段摘要，用户确认前能核对 OCR 读到了什么，而不是只看规则归一后的金额/商户。
+     * 有识别摘要时再附一段，用户确认前能核对 OCR 读到了什么，而不是只看规则归一后的金额/商户。
+     *
+     * <p>摘要先过敏感片段过滤（{@link #SENSITIVE_MARKERS}）再截断：密码区 / 校验码不能出现在
+     * Diff 与确认摘要里，它们会随 SSE 与会话记录落到客户端与库。
      */
     private static String linkDetail(InvoiceMatchService.InvoiceCandidates candidates, String rawText) {
         List<String> links = new ArrayList<>(2);
@@ -154,12 +167,37 @@ public class InvoiceCommandHandler {
             links.add("日程 " + candidates.scheduleLabel());
         }
         String link = links.isEmpty() ? "关联：未关联（没有匹配的行程或日程）" : "关联：" + String.join("、", links);
-        String raw = rawText == null ? "" : rawText.replaceAll("\\s+", " ").trim();
-        if (raw.isEmpty()) {
+        String summary = summaryOf(rawText);
+        if (summary.isEmpty()) {
             return link;
         }
-        String summary = truncate(raw, RAW_TEXT_MAX_LENGTH);
-        return link + "；识别原文：" + summary + (summary.length() < raw.length() ? "…" : "");
+        String clipped = truncate(summary, SUMMARY_MAX_LENGTH);
+        return link + "；识别摘要：" + clipped + (clipped.length() < summary.length() ? "…" : "");
+    }
+
+    /** 识别原文 → 摘要：按空白/标点切段，丢掉含密码区/校验码特征的片段，其余用单空格重新拼回 */
+    private static String summaryOf(String rawText) {
+        if (rawText == null) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (String segment : rawText.split("[\\s,，;；、|]+")) {
+            if (segment.isEmpty() || isSensitive(segment)) {
+                continue;
+            }
+            sb.append(sb.length() == 0 ? "" : " ").append(segment);
+        }
+        return sb.toString().trim();
+    }
+
+    private static boolean isSensitive(String segment) {
+        String lower = segment.toLowerCase(Locale.ROOT);
+        for (String marker : SENSITIVE_MARKERS) {
+            if (lower.contains(marker)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** 回复文案里的关联从句（与 Diff 用的是同一批候选，措辞更口语） */

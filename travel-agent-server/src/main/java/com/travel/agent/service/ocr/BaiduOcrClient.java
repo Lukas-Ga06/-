@@ -13,6 +13,7 @@ import org.springframework.web.client.RestClient;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Base64;
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -37,9 +38,17 @@ public class BaiduOcrClient implements OcrClient {
     /** access_token 提前过期的秒数：避免「刚拿到就过期」的边界，换一次 token 比失败一次便宜 */
     private static final long TOKEN_EXPIRY_SKEW_SECONDS = 60;
 
-    /** 对端错误信息与识别原文的长度上限：它们会进用户可见文案与 Diff，不能无界 */
+    /** 对端错误信息与识别摘要的长度上限：它们会进用户可见文案与 Diff，不能无界 */
     private static final int MAX_MESSAGE_LENGTH = 120;
     private static final int MAX_RAW_TEXT_LENGTH = 1000;
+
+    /**
+     * 允许进入识别摘要的票面字段：省份/城市供同城匹配，发票类型只是票面种类。
+     *
+     * <p>白名单之外一律不进摘要——{@code Password}（密码区）、{@code CheckCode}（校验码）、
+     * {@code PurchaserRegisterNum} / {@code SellerRegisterNum}（购销方纳税人识别号）等属于票据敏感信息。
+     */
+    private static final List<String> RAW_TEXT_FIELDS = List.of("Province", "City", "InvoiceType");
 
     private final OcrProperties properties;
     private final RestClient restClient;
@@ -188,9 +197,12 @@ public class BaiduOcrClient implements OcrClient {
     }
 
     /**
-     * 识别原文摘要：商品名 + 商户 + 原始 key=value。
-     * 两个下游用途：发票报销用它和商户一起做同城匹配；{@code InvoiceCommandHandler} 截断后写进 Diff，
-     * 让用户在确认前核对「识别到了什么」，而不只看被规则归一后的三个字段。
+     * 识别摘要：商品名 + 商户 + 省份/城市/发票类型（{@link #RAW_TEXT_FIELDS}）。
+     * 两个下游用途：发票报销用它和商户一起做同城匹配；{@code InvoiceCommandHandler} 再过滤、截断后写进
+     * Diff 与确认摘要，让用户在确认前核对「识别到了什么」，而不只看被规则归一后的三个字段。
+     *
+     * <p><b>不得遍历 {@code words} 全部字段</b>：票面密码区与校验码必须留在识别侧，
+     * 一旦进入 rawText 就会随 Diff / SSE / 会话记录外泄（R7）。
      */
     private static String rawTextOf(JsonNode words, String merchant) {
         StringBuilder sb = new StringBuilder();
@@ -201,12 +213,12 @@ public class BaiduOcrClient implements OcrClient {
         if (merchant != null) {
             sb.append(merchant).append(' ');
         }
-        words.fields().forEachRemaining(entry -> {
-            String value = flatText(entry.getValue());
+        for (String field : RAW_TEXT_FIELDS) {
+            String value = sanitize(textOf(words, field), MAX_MESSAGE_LENGTH);
             if (!value.isEmpty()) {
-                sb.append(entry.getKey()).append('=').append(value).append(' ');
+                sb.append(field).append('=').append(value).append(' ');
             }
-        });
+        }
         return sanitize(sb.toString(), MAX_RAW_TEXT_LENGTH);
     }
 
@@ -229,20 +241,6 @@ public class BaiduOcrClient implements OcrClient {
         return sanitize(node.asText(""), MAX_MESSAGE_LENGTH);
     }
 
-    /** 任意节点压平成一行文本（数组取 word / 首元素），用于原文摘要 */
-    private static String flatText(JsonNode node) {
-        if (node == null || node.isMissingNode() || node.isNull()) {
-            return "";
-        }
-        if (node.isArray()) {
-            return commodityText(node);
-        }
-        if (node.isObject()) {
-            return sanitize(node.path("word").asText(""), MAX_MESSAGE_LENGTH);
-        }
-        return sanitize(node.asText(""), MAX_MESSAGE_LENGTH);
-    }
-
     private static String textOf(JsonNode node, String field) {
         if (node == null || !node.isObject()) {
             return null;
@@ -259,7 +257,7 @@ public class BaiduOcrClient implements OcrClient {
         return text == null || text.isBlank() ? null : text;
     }
 
-    /** 对端文本 / 识别原文进用户可见文案前：去掉控制字符（尤其 CR/LF，防伪造日志行与多行文案）并截断 */
+    /** 对端文本 / 识别摘要进用户可见文案前：去掉控制字符（尤其 CR/LF，防伪造日志行与多行文案）并截断 */
     private static String sanitize(String text, int maxLength) {
         if (text == null) {
             return "";
