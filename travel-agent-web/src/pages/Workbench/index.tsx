@@ -181,7 +181,7 @@ function ToolRow({ call }: { call: ToolCallView }) {
 export default function Workbench() {
   const navigate = useNavigate();
   const [runs, setRuns] = useState<RunSummary[] | null>(null);
-  const [listLoading, setListLoading] = useState(false);
+  const [listLoading, setListLoading] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [detail, setDetail] = useState<RunDetail | null>(null);
@@ -207,9 +207,8 @@ export default function Workbench() {
       .finally(() => setDetailLoading(false));
   }, []);
 
-  const loadList = useCallback(() => {
-    setListLoading(true);
-    setListError(null);
+  /** 只做请求与结果落盘：挂载路径调用它，effect 体内因此没有同步 setState */
+  const fetchList = useCallback(() => {
     getRuns(20)
       .then((list) => {
         const safe = Array.isArray(list) ? list : [];
@@ -229,9 +228,17 @@ export default function Workbench() {
       .finally(() => setListLoading(false));
   }, [loadDetail]);
 
+  /** 用户点刷新：先切回加载态（事件处理器里同步 setState 是安全的） */
+  const loadList = useCallback(() => {
+    setListLoading(true);
+    setListError(null);
+    void fetchList();
+  }, [fetchList]);
+
   useEffect(() => {
-    loadList();
-  }, [loadList]);
+    // listLoading 初值已是 true：挂载即拉数据不需要再同步 setState
+    void fetchList();
+  }, [fetchList]);
 
   const refresh = () => loadList();
 

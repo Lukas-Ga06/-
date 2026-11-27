@@ -81,7 +81,6 @@ export default function Home() {
         failures.push(key);
         return fallback;
       });
-    setStatsLoading(true);
     Promise.all([
       safe('footprint', getTripsMap(), []),
       safe('expense', getExpenseOverview(), null),
@@ -102,6 +101,12 @@ export default function Home() {
       alive = false;
     };
   }, [reloadKey]);
+
+  /** 重试入口：先切回加载态再自增信号（事件处理器里同步 setState 是安全的） */
+  const reload = () => {
+    setStatsLoading(true);
+    setReloadKey((v) => v + 1);
+  };
 
   const today = dayjs().format('YYYY-MM-DD');
   const openMemos = memos.filter((m) => !m.done);
@@ -276,7 +281,7 @@ export default function Home() {
               标有「加载失败」的指标与被影响的卡片暂时不可信，其余模块仍可正常使用。
             </div>
             <div className="le-actions">
-              <Button size="small" type="primary" onClick={() => setReloadKey((v) => v + 1)}>
+              <Button size="small" type="primary" onClick={reload}>
                 重试
               </Button>
             </div>
@@ -328,7 +333,7 @@ export default function Home() {
               <div className="nt-title">行程数据加载失败</div>
               <div className="nt-meta">重试后再看你的下一次旅行。</div>
               <div className="nt-actions">
-                <Button onClick={() => setReloadKey((v) => v + 1)}>重试</Button>
+                <Button onClick={reload}>重试</Button>
               </div>
             </div>
           ) : (
@@ -510,11 +515,7 @@ export default function Home() {
             <div className="footprint-compact-state" role="alert">
               <span>足迹数据暂时没加载出来。</span>
               <div className="fcs-actions">
-                <Button
-                  size="small"
-                  icon={<ReloadOutlined />}
-                  onClick={() => setReloadKey((v) => v + 1)}
-                >
+                <Button size="small" icon={<ReloadOutlined />} onClick={reload}>
                   重试
                 </Button>
                 <Button size="small" type="link" onClick={() => navigate('/travel')}>

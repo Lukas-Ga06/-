@@ -58,8 +58,9 @@ export default function Memos() {
   const load = () => fetchPage(offset, { silent: true });
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 挂载即拉第一页备忘：既有「挂载即取数」写法，收敛到数据层 hook 属另开卡的重构
     fetchPage(0);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在挂载时拉第一页：fetchPage 依赖 offset/message，进依赖数组会随翻页重复请求
   }, []);
 
   const open = items.filter((m) => !m.done);

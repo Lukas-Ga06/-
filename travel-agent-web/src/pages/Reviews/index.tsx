@@ -38,18 +38,25 @@ export default function Reviews() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const load = () => {
-    setLoading(true);
-    setError(null);
+  /** 只做请求与结果落盘：挂载路径调用它，因此 effect 体内不会发生同步 setState */
+  const fetchTrips = () =>
     listTrips()
-      .then((rows) => setTrips(Array.isArray(rows) ? rows : []))
+      .then((rows) => {
+        setTrips(Array.isArray(rows) ? rows : []);
+        setError(null);
+      })
       .catch((e: any) => setError(e?.message || '行程列表加载失败'))
       .finally(() => setLoading(false));
+
+  /** 用户点「刷新」时重拉：先切骨架屏 */
+  const load = () => {
+    setLoading(true);
+    void fetchTrips();
   };
 
   useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // loading 初值已是 true、error 初值已是 null：挂载即拉数据不需要再同步 setState
+    void fetchTrips();
   }, []);
 
   const ordered = (trips ?? [])

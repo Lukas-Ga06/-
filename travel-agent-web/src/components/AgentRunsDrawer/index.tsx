@@ -285,6 +285,7 @@ export default function AgentRunsDrawer({ open, onClose }: Props) {
   // 打开抽屉时拉列表；关闭时清掉已展开的详情
   useEffect(() => {
     if (open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 打开抽屉即拉一次运行列表：既有「打开即取数」写法，收敛到数据层 hook 属另开卡的重构
       loadList();
     } else {
       setDetail(null);

@@ -88,6 +88,7 @@ export default function ConversationDrawer({ open, onClose }: Props) {
 
   // 每次打开都重新拉：期间可能在别的标签页聊过，缓存会让列表说谎
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 打开抽屉即重拉会话列表：既有「打开即取数」写法，收敛到数据层 hook 属另开卡的重构
     if (open) load();
   }, [open, load]);
 
