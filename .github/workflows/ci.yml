@@ -136,8 +136,10 @@ jobs:
       - name: Type check
         run: npm run typecheck
 
-      - name: Lint
-        run: npm run lint
+      # ratchet：`lint` 只看 error（本地与历史口径不变），CI 用 `lint:ci` 把 warning 也当失败。
+      # 2026-11-27 起存量 47 条已清零，因此阈值是 --max-warnings 0；以后只许保持 0，不得上调。
+      - name: Lint (warning = failure, ratchet)
+        run: npm run lint:ci
 
       - name: Format check
         run: npm run format:check

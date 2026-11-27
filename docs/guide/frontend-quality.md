@@ -2,7 +2,7 @@
 
 本文件讲清楚前端质量的「怎么跑、阈值多少、什么能豁免」。
 
-> 状态：当前事实 | 适用版本：0.1.0（Vite 6 / ESLint 9 / Vitest 4.1） | 最后验证：2026-11-20（覆盖率阈值按 ratchet 上调） | 事实来源：`travel-agent-web/vitest.config.ts`、`travel-agent-web/eslint.config.js`、`travel-agent-web/.prettierrc.json`、`travel-agent-web/scripts/check-core-coverage.mjs`、`travel-agent-web/package.json` scripts
+> 状态：当前事实 | 适用版本：0.1.0（Vite 6 / ESLint 9 / Vitest 4.1） | 最后验证：2026-11-27（ESLint 存量 47 warning 清零 + CI 加 `--max-warnings 0`） | 事实来源：`travel-agent-web/vitest.config.ts`、`travel-agent-web/eslint.config.js`、`travel-agent-web/.prettierrc.json`、`travel-agent-web/scripts/check-core-coverage.mjs`、`travel-agent-web/package.json` scripts
 
 ## 1. 本地命令（与 CI 相同）
 
@@ -10,7 +10,8 @@
 
 ```bash
 npm run typecheck        # tsc --noEmit
-npm run lint             # eslint src（0 error 才过；warning 不阻断）
+npm run lint             # eslint src（0 error 才过；本地口径，warning 不阻断）
+npm run lint:ci          # eslint src --max-warnings 0（CI 门禁：warning 也算失败，阈值只降不升）
 npm run format:check     # prettier --check（CI 门禁）
 npm run format:write     # 本地一键格式化
 npm test                 # vitest run（单元测试）
@@ -75,12 +76,35 @@ npx vitest run src/store/agentStore   # 或 `npx vitest` 交互式 watch
 - 配置：flat config（`eslint.config.js`），`@eslint/js` recommended + `typescript-eslint` recommended + `react-hooks` flat recommended + `react-refresh`；忽略 `dist`、`coverage`、`node_modules`、`src/api/generated`。
 - `eslint.config.js` 只保留「能挡真实缺陷」的规则：`react-hooks`（依赖数组/顺序）、`react-refresh`（仅组件文件导出组件）、`no-undef`/`no-unused-vars`（tsc 之外的兜底）。
 - 格式类规则（引号/缩进/分号）全部交给 Prettier，ESLint 不重复管。
-- 关闭的规则与原因写在 `eslint.config.js` 注释里（`no-explicit-any`、`no-non-null-assertion` 等历史噪声）。**当前门禁是 0 error / 48 warning**（2026-11-21 复核实测）：
-  - `react-hooks/set-state-in-effect` 21 处：页面「挂载即拉数据」的既有统一写法，改成 React Query / `useSyncExternalStore` 属跨页面重构；
-  - `react-hooks/exhaustive-deps` 12 处、`react-hooks/refs` 8 处、`react-hooks/immutability` 2 处、`react-refresh/only-export-components` 4 处、未使用 disable 3 处。
-  - 这些是**存量**噪声（均来自既有页面/组件的历史写法）；本轮新增文件 `lib/statusQueue.ts`、`lib/tripFocus.ts`、`store/statusQueueStore.ts`、
-    `pages/Planner/planDraft.ts`、`components/UndoBar` 单独 eslint 为 **0 warning**，新代码仍应保持无告警。
-  - 这些都是 **warning 不阻断**，新代码仍应写成无告警的形式。
+- 关闭的规则与原因写在 `eslint.config.js` 注释里（`no-explicit-any`、`no-non-null-assertion` 等历史噪声）。
+- **当前门禁是 0 error / 0 warning**（2026-11-27 实测，`npm run lint` 无输出）。存量 47 条已在本轮清零，逐规则构成与处置见下表：
+
+| 规则 | 清零前 | 现在 | 处置 |
+| --- | --- | --- | --- |
+| `react-hooks/set-state-in-effect` | 21 | 0 | 15 处结构性修复（`useSyncExternalStore`、渲染期收敛 state、拆「只请求」与「先切加载态」两个入口），6 处带原因行内豁免（见 §3.1） |
+| `react-hooks/exhaustive-deps` | 11 | 0 | 9 处补齐依赖（都是 zustand action / `navigate` / antd `message` 这类稳定引用）；`FootprintMap` 4 处按重建键显式豁免，`useCallback` 缺项改为补 `useCallback` 依赖 |
+| `react-hooks/refs` | 6 | 0 | 渲染期写 ref 全部移入 effect（`FootprintMap` 5 处、`ReminderBell` 1 处），行为等价：这些 ref 只在异步回调里读 |
+| `react-hooks/immutability` | 2 | 0 | `CountUp` 把 `animate` 声明移到使用之前；`Assistant/index.test.tsx` 用探针节点替代「渲染期写模块级变量」 |
+| `react-refresh/only-export-components` | 4 | 0 | 拆出非组件导出：`Timeline/timelineText.ts`、`Toast/toastStore.ts`、`src/Root.tsx`（`main.tsx` 只留入口渲染） |
+| 未使用的 `eslint-disable` | 3 | 0 | 删 2 处真失效（`Footprint`、`Reviews` 的取数 effect 已不需要依赖豁免）；`FootprintMap` 1 处是注释放错行（原因行夹在 `disable-next-line` 与代码之间），改正后生效 |
+
+- CI 用 `npm run lint:ci`（= `eslint src --max-warnings 0`）作为**硬门禁**；`npm run lint` 保持原语义（只看 error），本地日常仍然可用。阈值只降不升——现在是 0，**没有任何上调空间**。
+- 新增文件必须 0 warning；新增 `eslint-disable` 一律带 ` -- ` 原因（见 §3.1），并在本文件登记。
+
+### 3.1 现存豁免（唯一清单，共 6 处）
+
+全部是 `react-hooks/set-state-in-effect`，同一类问题：**「取数入口在请求前同步切加载态」**。彻底消除需要把页面取数收敛到统一数据层（React Query / `useSyncExternalStore` store），属跨页面重构，不在质量卡范围内。新增豁免必须在此表登记，否则不允许合入。
+
+| 文件:行 | 场景 | 为什么不能就地消掉 |
+| --- | --- | --- |
+| `src/components/AgentRunsDrawer/index.tsx:288` | 打开抽屉即拉运行列表 | 打开动作本身就是取数触发点，`else` 分支还要清理详情态 |
+| `src/components/CityDrawer/index.tsx:95` | 切换城市先清空旧照片 | `photos` 还要被上传/删除就地改写，不能退化成派生值 |
+| `src/components/ConversationDrawer/index.tsx:91` | 每次打开重拉会话列表 | 打开即取数（跨标签页可能已变），缓存会让列表说谎 |
+| `src/components/ExpensePanel/index.tsx:118` | `tripId` 变化重拉预算明细 | 依赖变化即取数，含同步切骨架屏 |
+| `src/pages/Memos/index.tsx:61` | 挂载拉第一页备忘 | 与翻页共用 `fetchPage`，挂载路径与用户翻页共用同步进位 |
+| `src/pages/TripReview/index.tsx:95` | `tripId` 变化重拉回顾 | 依赖变化即取数，含同步切骨架屏 |
+
+> 本轮已结构性修掉 15 处同类问题（`Footprint`/`Reviews`/`Schedule`/`Workbench`/`Home` 拆「只请求」与「先切加载态」两个入口；`MapView`/`Travel`/`ChatPanel`/`PlanDiff`/`OfflineBanner`/`PageTransition` 改为渲染期收敛 state；`useAccessTicket` 把「未登录」改成返回值而不是写 state）。**新代码不许再新增这一类**：挂载/依赖变化取数时，加载态初值直接给 `true`，请求前不 setState。
 
 ### 豁免流程
 
@@ -103,8 +127,9 @@ npx vitest run src/store/agentStore   # 或 `npx vitest` 交互式 watch
 
 | 现象 | 处理 |
 | --- | --- |
-| `npm run lint` 报 react-hooks 依赖缺失 | 修依赖数组或用 `useCallback`/`useRef` 收敛；不要 disable |
-| `npm run lint` 有 error | 必须修；warning 允许存在（见第 3 节清单），但不得新增未说明的 disable |
+| `npm run lint` 报 react-hooks 依赖缺失 | 修依赖数组或用 `useCallback`/`useRef` 收敛；不要 disable。store action / `navigate` / antd `message` 是稳定引用，直接补进依赖数组 |
+| `npm run lint:ci` 因 warning 失败 | 本地 `npm run lint` 不阻断、CI 阻断是刻意设计；按 §3 表格消掉，确需豁免走 §3.1 登记 |
+| `npm run lint` 有 error | 必须修；warning 也必须为 0（见 §3），豁免只能来自 §3.1 |
 | coverage 低于阈值 | 补测试；确认不是删除了测试导致的退步 |
 | `check-core-coverage.mjs` 报「找不到 coverage-summary.json」 | 先跑 `npm run test:coverage`（顺序不能反） |
 | format:check 失败 | `npm run format:write` 后重跑 typecheck + test；格式化应只有空白/换行 diff |
