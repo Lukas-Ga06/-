@@ -189,7 +189,8 @@ public class BaiduOcrClient implements OcrClient {
 
     /**
      * 识别原文摘要：商品名 + 商户 + 原始 key=value。
-     * 存在的意义是让用户在确认前能核对「识别到了什么」，而不是只看被规则归一后的三个字段。
+     * 两个下游用途：发票报销用它和商户一起做同城匹配；{@code InvoiceCommandHandler} 截断后写进 Diff，
+     * 让用户在确认前核对「识别到了什么」，而不只看被规则归一后的三个字段。
      */
     private static String rawTextOf(JsonNode words, String merchant) {
         StringBuilder sb = new StringBuilder();

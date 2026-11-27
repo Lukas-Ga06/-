@@ -162,10 +162,7 @@ public class ChatDtos {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class UndoRequest {
-        /**
-         * 行程 ID；{@code null} = 撤销最近一次「批量清空日程」（日程不挂在行程上）。
-         * 曾经是 @NotNull：日程域的撤销没有行程可传，必须允许为空。
-         */
+        /** 行程 ID；{@code null} = 撤销最近一次「批量清空日程」。 */
         private Long tripId;
     }
 

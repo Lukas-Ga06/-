@@ -199,6 +199,36 @@ class InvoiceOcrFlowTest extends IntegrationTestSupport {
     }
 
     @Test
+    @DisplayName("识别到内容但 amount 为 null 或 ≤0：不生成方案，提示「没有识别出金额」")
+    void missingAmountDoesNotProducePlan() throws Exception {
+        LocalDate today = LocalDate.now();
+        ScriptedOcrClient.available = true;
+        Account account = registerNew();
+        Trip trip = newTrip(account, "上海", today, today);
+        uploadInvoice(account, trip);
+
+        ScriptedOcrClient.fields = new InvoiceFields(null, "上海某某餐饮有限公司",
+                today, null, "上海某某餐饮有限公司 餐饮服务 合计金额无法识别");
+        AgentDtos.AgentResult nullAmount = run(account, MESSAGE);
+
+        assertThat(nullAmount.getIntent()).isEqualTo(IntentResult.RECORD_INVOICE);
+        assertThat(nullAmount.getStatus()).isEqualTo(AgentDtos.STATUS_COMPLETED);
+        assertThat(nullAmount.getMessage()).contains("没有识别出金额");
+        assertThat(nullAmount.getConfirmation()).isNull();
+        assertThat(nullAmount.getDiff()).isNull();
+
+        ScriptedOcrClient.fields = new InvoiceFields(BigDecimal.ZERO, "上海某某餐饮有限公司",
+                today, null, "上海某某餐饮有限公司 餐饮服务 AmountInFiguers=0.00");
+        AgentDtos.AgentResult zeroAmount = run(account, MESSAGE);
+
+        assertThat(zeroAmount.getStatus()).isEqualTo(AgentDtos.STATUS_COMPLETED);
+        assertThat(zeroAmount.getMessage()).contains("没有识别出金额");
+        assertThat(zeroAmount.getConfirmation()).isNull();
+        assertThat(zeroAmount.getDiff()).isNull();
+        assertThat(expensesOf(account)).isEmpty();
+    }
+
+    @Test
     @DisplayName("识别成功且有候选：Diff 里能看到金额与关联，确认后落账并带上行程/日程")
     void successWithCandidatesGoesThroughConfirmGate() throws Exception {
         LocalDate today = LocalDate.now();
@@ -219,7 +249,8 @@ class InvoiceOcrFlowTest extends IntegrationTestSupport {
         assertThat(change.getType()).isEqualTo("ADD");
         assertThat(change.getItemType()).isEqualTo("expense");
         assertThat(change.getTitle()).contains("记账：餐饮").contains("128.5");
-        assertThat(change.getDetail()).contains("关联：").contains("行程").contains("日程");
+        assertThat(change.getDetail()).contains("关联：").contains("行程").contains("日程")
+                .contains("识别原文").contains("AmountInFiguers=128.50");
         assertThat(change.getStartTime()).isEqualTo(today.toString());
         // 账单不进行程预算：cost 不设，预算保持 0 → 0
         assertThat(change.getCost()).isNull();

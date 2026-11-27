@@ -261,15 +261,57 @@ public class IntentAgent {
     }
 
     private IntentResult ruleDetect(AgentContext ctx, Trip trip, String message) {
+        IntentResult detected = detectByRules(ctx, trip, message);
+        // 清空日程的追问续接：只把「本来会落到 CHITCHAT 的纯日期回答」升级成清空，
+        // 这一轮若明确说了别的事（排日程、记账…）仍按原意图处理（其余意图保持优先）。
+        IntentResult continuation = clearScheduleFollowUp(ctx, message);
+        return continuation != null && IntentResult.CHITCHAT.equals(detected.getIntent())
+                ? continuation
+                : detected;
+    }
+
+    /**
+     * 上一轮助手问「要清空哪段时间的日程」，这一轮用户只回「下周一」时规则引擎本会落到 CHITCHAT；
+     * 这里据历史把纯日期回答接回清空日程。
+     */
+    private IntentResult clearScheduleFollowUp(AgentContext ctx, String message) {
+        if (!lastAssistantMentions(ctx.getHistory(), ScheduleCommandHandler.CLEAR_SCHEDULE_RANGE_ASK)
+                || MessageParser.parseExplicitRange(message, java.time.LocalDate.now()) == null) {
+            return null;
+        }
+        return IntentResult.builder()
+                .intent(IntentResult.CLEAR_SCHEDULE).target(IntentResult.TARGET_NONE)
+                .constraints(new HashMap<>()).build();
+    }
+
+    /** 历史里最后一条 assistant 消息是否包含指定追问原文 */
+    private static boolean lastAssistantMentions(List<com.travel.agent.entity.ConversationMessage> history,
+                                                 String text) {
+        if (history == null) {
+            return false;
+        }
+        for (int i = history.size() - 1; i >= 0; i--) {
+            com.travel.agent.entity.ConversationMessage item = history.get(i);
+            if (item != null && "assistant".equals(item.getRole())) {
+                return item.getContent() != null && item.getContent().contains(text);
+            }
+        }
+        return false;
+    }
+
+    private IntentResult detectByRules(AgentContext ctx, Trip trip, String message) {
         // 0. 批量清空日程必须排在「修改类关键词」（删掉/取消/移除…）之前，
         //    否则「删掉明天所有日程」会被 MODIFY_ITINERARY 抢走，落到行程修改而不是日程。
-        //    只认「清空类动词 + 日程/提醒」的组合：没有清空动词的「明天下午3点开评审会」仍是 ADD_SCHEDULE。
+        //    对象只认「日程」；「提醒」单独出现不算（「提醒我明天清空购物车」是备忘），
+        //    带「所有/全部」时才是要清空的日程对象（「删掉明天的所有提醒」）。
         boolean clearScheduleVerb = MessageParser.mentions(message,
                 "清空", "全删", "删光", "清掉", "清除", "删除所有", "删掉所有", "都删掉",
                 "取消所有", "全部删除", "全部删掉")
                 || (MessageParser.mentions(message, "删除", "删掉", "取消", "移除")
                         && MessageParser.mentions(message, "所有", "全部"));
-        if (clearScheduleVerb && MessageParser.mentions(message, "日程", "提醒")) {
+        boolean scheduleObject = MessageParser.mentions(message, "日程")
+                || (MessageParser.mentions(message, "提醒") && MessageParser.mentions(message, "所有", "全部"));
+        if (clearScheduleVerb && scheduleObject) {
             return IntentResult.builder()
                     .intent(IntentResult.CLEAR_SCHEDULE).target(IntentResult.TARGET_NONE)
                     .constraints(new HashMap<>()).build();
@@ -362,8 +404,10 @@ public class IntentAgent {
         // 6. 空闲时段查询（只读）：放在排日程判定之后（「明天下午3点开评审会」仍是 ADD_SCHEDULE），
         //    放在强规划与疑问句之前（「明天有空吗」不该落到知识问答）。
         //    带规划动词/行程尺度的消息不算空闲查询，交给后面的规划分支。
+        //    裸「哪些时间」不算触发词：「去西湖哪些时间去人少」问的是人流规律，不是空闲；
+        //    只有「空闲/有空」这类明确表述才路由到空闲查询。
         boolean freeTimeQuestion = MessageParser.mentions(message,
-                "有空", "空闲", "空档", "什么时候有时间", "哪些时间", "时间空不空")
+                "有空", "空闲", "空档", "什么时候有时间", "时间空不空")
                 && !MessageParser.mentions(message, "规划", "想去", "行程", "几天", "天数");
         if (freeTimeQuestion) {
             return IntentResult.builder()

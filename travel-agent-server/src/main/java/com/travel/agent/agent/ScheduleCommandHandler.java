@@ -33,6 +33,15 @@ public class ScheduleCommandHandler {
     /** 单次清空的最大天数：范围更大时截断并如实写进 Diff（防御性上限，避免一次生成上千条操作） */
     static final int MAX_RANGE_DAYS = 31;
 
+    /**
+     * 单次清空的最大操作数：pending_plan.plan_json / preview_json 是 TEXT，
+     * 每条操作内嵌整条日程快照，上百条时可能写不下；超过就要求用户分段时间清空。
+     */
+    static final int MAX_OPERATIONS = 150;
+
+    /** 缺范围时的追问原文；IntentAgent 据此识别下一轮的纯日期回答（续接清空日程） */
+    public static final String CLEAR_SCHEDULE_RANGE_ASK = "要清空哪段时间的日程";
+
     private final ScheduleService scheduleService;
     private final ExecutorAgent executorAgent;
     private final PlanRevisionService planRevisionService;
@@ -46,17 +55,29 @@ public class ScheduleCommandHandler {
             return complete(ctx, AgentDtos.AgentResult.builder()
                     .intent(intent.getIntent())
                     .status(AgentDtos.STATUS_COMPLETED)
-                    .message("要清空哪段时间的日程？比如「清空下周一的日程」。")
+                    .message(CLEAR_SCHEDULE_RANGE_ASK + "？比如「清空下周一的日程」。")
                     .warnings(new ArrayList<>())
                     .build());
         }
         MessageParser.DateRange range = clamp(explicit);
+        String rangeText = MessageParser.formatRange(range);
         List<ScheduleItem> schedules = scheduleService.findInRange(ctx.getUserId(), range.from(), range.to());
         if (schedules.isEmpty()) {
             return complete(ctx, AgentDtos.AgentResult.builder()
                     .intent(intent.getIntent())
                     .status(AgentDtos.STATUS_COMPLETED)
                     .message("这段时间没有日程，无需清空。")
+                    .warnings(new ArrayList<>())
+                    .build());
+        }
+        if (schedules.size() > MAX_OPERATIONS) {
+            log.info("批量清空日程超过单次上限，未生成方案: user={} range={} count={}",
+                    ctx.getUsername(), rangeText, schedules.size());
+            return complete(ctx, AgentDtos.AgentResult.builder()
+                    .intent(intent.getIntent())
+                    .status(AgentDtos.STATUS_COMPLETED)
+                    .message("这段时间日程太多（" + schedules.size() + " 项），请分段时间清空（单次上限 "
+                            + MAX_OPERATIONS + " 项）。")
                     .warnings(new ArrayList<>())
                     .build());
         }
@@ -72,7 +93,6 @@ public class ScheduleCommandHandler {
                             + item.getTitle())
                     .build());
         }
-        String rangeText = MessageParser.formatRange(range);
         String planId = UUID.randomUUID().toString();
         AgentPlan plan = AgentPlan.builder()
                 .planId(planId)
