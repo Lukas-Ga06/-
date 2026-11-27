@@ -1556,6 +1556,7 @@ export interface components {
             createdAt?: string;
             /** Format: int64 */
             id?: number;
+            kind?: string;
             originalName?: string;
             /** Format: int64 */
             sizeBytes?: number;
@@ -3552,7 +3553,9 @@ export interface operations {
     };
     upload: {
         parameters: {
-            query?: never;
+            query?: {
+                kind?: string;
+            };
             header?: never;
             path: {
                 tripId: number;

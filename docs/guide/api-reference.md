@@ -95,8 +95,9 @@ GET /api/photos/12/raw?ticket=...                    # 只能用 media-read 票�
 **仅凭票据认证（没有 Cookie / `Authorization`）的请求 = 只读会话**：记账 / 备忘 / 日程三类直接写入意图被拒绝，
 `message` 为 `当前连接为只读票据会话，记账/备忘/日程请在网页端操作。`（`status` 仍是 `COMPLETED`，不按错误处理；
 拦截集合见 `AgentEngine.TICKET_READONLY_BLOCKED_INTENTS`）；规划与改行程仍可用（只产出待确认方案，提交需
-`POST /api/agent/confirm`，而 POST 不接受票据）。批量清空日程（`CLEAR_SCHEDULE`）同属「只产出待确认方案」的一类，
-同样不受票据只读拦截，确认提交仍需登录。带 Cookie 的浏览器请求行为不变。
+`POST /api/agent/confirm`，而 POST 不接受票据）。批量清空日程（`CLEAR_SCHEDULE`）与发票报销（`RECORD_INVOICE`）
+同属「只产出待确认方案」的一类，同样不受票据只读拦截（报销的 OCR 识别只读、不落库），确认提交仍需登录。
+带 Cookie 的浏览器请求行为不变。
 
 **升级注意**：旧版票据没有 `purpose` 段，服务端一律按 `agent-stream` 处理——上线后最多 5 分钟内，旧的图片链接会 `401`，刷新页面重新签票即恢复。
 
@@ -141,7 +142,8 @@ GET /api/photos/12/raw?ticket=...                    # 只能用 media-read 票�
 | `503` | 依赖服务不可用 / 线程池满（如 SSE 续传无法调度） | `服务器繁忙，请稍后重试`；天气依赖型修改的 `status=FAILED` 会说明原因 |
 | `500` | 未捕获异常（不返回内部细节） | `服务端异常，请稍后重试` |
 
-> 退役模块的 `422`（发票内容不可提取 / OCR 不可用）与发票重复记账 `409` 不再存在。
+> 退役模块的 `422`（旧发票模块「发票内容不可提取 / OCR 不可用」）与发票重复记账 `409` 不再存在。
+> V32 的发票报销不新增错误码：识别不可用/失败是 `POST /api/agent/chat` 的 `status=COMPLETED` + 明确文案（见 §5.2）。
 
 ### 1.6 列表分页契约（第九批新增）
 
@@ -272,7 +274,7 @@ GET /api/photos/12/raw?ticket=...                    # 只能用 media-read 票�
   "schedules":[{"id":9,"title":"高铁出发","date":"2026-12-01","time":"07:30","note":null,"done":false,"recurrence":null,"repeatUntil":null,"reminderDismissedAt":null,"createdAt":"2026-11-22T09:20:00","tripId":7,"itineraryItemId":null,"source":"MANUAL","travelDay":null}],
   "conversations":[{"conversationId":"conv-1","title":"杭州三天","createdAt":"2026-11-22T09:30:00","updatedAt":"2026-11-22T09:35:00","messages":[{"role":"user","content":"帮我规划杭州三天","intent":null,"scope":null,"turnSeq":1,"createdAt":"2026-11-22T09:30:00"}]}],
   "knowledgeDocuments":[{"id":4,"title":"我的杭州笔记","city":"杭州","category":"GUIDE","content":"……","source":"UPLOAD","updatedAt":"2026-11-22T09:40:00"}],
-  "photos":[{"id":2,"tripId":7,"originalName":"断桥.jpg","contentType":"image/jpeg","sizeBytes":204800,"createdAt":"2026-11-23T10:00:00","url":"/api/photos/2/raw"}]
+  "photos":[{"id":2,"tripId":7,"originalName":"断桥.jpg","contentType":"image/jpeg","sizeBytes":204800,"createdAt":"2026-11-23T10:00:00","kind":"PHOTO","url":"/api/photos/2/raw"}]
 }}
 ```
 
@@ -591,10 +593,10 @@ P1 新增字段（口径见 `TripDtos.TripMapPoint`）：
 | `planId` | `String` | 待确认方案 ID（`NEED_CONFIRMATION` 时非空） |
 | `tripId` | `Long` | 关联行程 ID |
 | `message` | `String` | 可直接展示的回复文本 |
-| `intent` | `String` | `PLAN_TRIP` / `MODIFY_ITINERARY` / `QUERY_BUDGET` / `RECORD_EXPENSE` / `ADD_MEMO` / `ADD_SCHEDULE` / `CLEAR_SCHEDULE` / `CHITCHAT` / `REJECTED` / `ERROR` 等 |
+| `intent` | `String` | `PLAN_TRIP` / `MODIFY_ITINERARY` / `QUERY_BUDGET` / `RECORD_EXPENSE` / `RECORD_INVOICE` / `ADD_MEMO` / `ADD_SCHEDULE` / `CLEAR_SCHEDULE` / `CHITCHAT` / `REJECTED` / `ERROR` 等 |
 | `status` | `String` | `COMPLETED` / `NEED_CONFIRMATION` / `FAILED` |
-| `focus` | `Object` | `{type:itinerary\|map\|budget\|schedule, tripId, day, itemId, latitude, longitude}`；批量清空日程时 `type=schedule`、`tripId` 为空 |
-| `diff` | `Object` | `{changes:[{type:ADD\|REMOVE\|MODIFY,itemId,itemType,title,detail,cost,dayIndex,startTime}], budgetBefore, budgetAfter}`；日程操作用 `type=REMOVE` + `itemType=schedule`（`itemId` 是 `schedule_item.id`） |
+| `focus` | `Object` | `{type:itinerary\|map\|budget\|schedule, tripId, day, itemId, latitude, longitude}`；批量清空日程时 `type=schedule`、`tripId` 为空；发票报销确认后 `type=budget`（`tripId` 是被关联的行程，未关联为 `null`） |
+| `diff` | `Object` | `{changes:[{type:ADD\|REMOVE\|MODIFY,itemId,itemType,title,detail,cost,dayIndex,startTime}], budgetBefore, budgetAfter}`；日程操作用 `type=REMOVE` + `itemType=schedule`（`itemId` 是 `schedule_item.id`）；发票报销用 `type=ADD` + `itemType=expense`（`cost` 恒为 `null`、`startTime` 是账单日期） |
 | `budget` | `Object` | `{total, previousTotal, difference, breakdown:{分类:金额}}` |
 | `confirmation` | `Object` | `{planId, summary, riskLevel:LOW\|MEDIUM\|HIGH, contentHash, requiresAcknowledgement}`；`contentHash` 是方案内容的 SHA-256（V2.2 FR-08），确认时回传即可绑定「用户看到的内容」；`requiresAcknowledgement`（FR-06）为 `true` 时确认请求必须带 `acknowledgeIssues=true` |
 | `warnings` | `String[]` | 反思/风险提示（旧契约；有 `review` 时它的 `issues` 是同一批问题的结构化版本） |
@@ -645,6 +647,19 @@ P1 新增字段（口径见 `TripDtos.TripMapPoint`）：
 - **范围含已完成日程**：一并清空（`done` 也属于这段时间的日程），历史里保留原状态。
 - **范围指纹**：`plan_revision` 覆盖「该用户该范围全部日程」；生成方案后另一个标签页新增/删除/改了范围内日程，
   确认会返回 200 + `status=FAILED`，消息「日程在你确认前已经发生变化…这份方案已失效，请重新发起。」，一条都不删。
+
+**发票报销（`RECORD_INVOICE`）走确认门（V32）**：先把发票当照片上传（§7.1 的 `kind=INVOICE`），再说「报销这张发票」。
+
+- 取该用户**最新一张** INVOICE 照片做 OCR（默认关闭，见 [能力边界](capability-boundaries.md) §2）。
+  `diff.changes` 里是一条 `type=ADD` / `itemType=expense` 的记账项：`title` 形如「记账：餐饮 ¥128.5 · 商户名」，
+  `detail` 形如「关联：行程 上海差旅（上海）、日程 09:00 客户汇报」或「关联：未关联（没有匹配的行程或日程）」，
+  `cost` 为 `null`、`budgetBefore/After` 都是 `0`（账单不进行程预算）；`message` 与 `confirmation.summary` 复述识别结果。
+- 确认提交（§5.5）后单事务落一条 `expense`：金额 / 日期（发票开票日期，识别不出回落当天）/ 类目 / 备注（商户）
+  来自识别，`payment_method` 默认 `现金`；`trip_id` / `schedule_item_id` 来自规则匹配
+  （同日期未完成日程 + 同城且覆盖该日期的行程）。方案没有行程范围，`plan_revision` 为 `null`，
+  确认门只做 `contentHash` 单指纹校验；确认结果 `tripId` 为 `null`（记账不产生行程同步）。
+- 未配置 / 识别失败 / 没识别出金额：`status=COMPLETED` + 明确原因（形如「OCR 发票识别未配置（…）」「发票识别失败（…）」），
+  **`confirmation` 为空、不生成方案、不写账单**——绝不返回模拟识别结果。
 
 ### 5.3 GET /api/agent/stream — SSE 流式对话（EventSource）
 鉴权：登录（**EventSource 用 `?ticket=` 票据**，不能用 `Authorization` 头）｜ 源码：`AgentController#stream:69`
@@ -976,30 +991,31 @@ data:{"planId":"plan-8f3c","tripId":null,"message":"…","intent":"PLAN_TRIP","s
 ## 7. 照片（4 个）
 
 ### 7.1 POST /api/trips/{tripId}/photos — 上传照片
-鉴权：登录 ｜ 源码：`PhotoController#upload:28` ｜ Content-Type：`multipart/form-data`
+鉴权：登录 ｜ 源码：`PhotoController#upload:27` ｜ Content-Type：`multipart/form-data`
 | 参数 | 必填 | 说明 |
 | --- | --- | --- |
 | `file` | 是 | 图片文件，单张 ≤10MB；扩展名或 MIME 需在 jpg/jpeg/png/webp/gif/bmp/heic/heif 白名单内，最终以文件头识别为准（svg 拒绝） |
+| `kind` | 否 | **V32** 图片用途：`PHOTO`（缺省）/ `INVOICE`（发票，供「报销这张发票」取最新一张识别）；大小写不敏感，其它值 `400` |
 ```json
 // 响应
-{"code":0,"message":"success","data":{"id":21,"tripId":1,"originalName":"xihu.jpg","contentType":"image/jpeg","sizeBytes":204800,"createdAt":"2026-11-08T14:20:00","url":"/api/photos/21/raw"}}
+{"code":0,"message":"success","data":{"id":21,"tripId":1,"originalName":"xihu.jpg","contentType":"image/jpeg","sizeBytes":204800,"createdAt":"2026-11-08T14:20:00","kind":"PHOTO","url":"/api/photos/21/raw"}}
 ```
-错误：`400` `请选择要上传的照片` / `单张照片不能超过 10MB` / 张数或容量超限 / 格式不支持 / `文件内容不是可识别的图片，请重新选择`；`401`；`404`；`429`
+错误：`400` `请选择要上传的照片` / `单张照片不能超过 10MB` / 张数或容量超限 / 格式不支持 / `文件内容不是可识别的图片，请重新选择` / `不支持的图片用途`；`401`；`404`；`429`
 
 ### 7.2 GET /api/trips/{tripId}/photos — 照片列表
-鉴权：登录 ｜ 源码：`PhotoController#list:36` ｜ 参数：路径 `tripId`、`limit`、`offset`
+鉴权：登录 ｜ 源码：`PhotoController#list:37` ｜ 参数：路径 `tripId`、`limit`、`offset`
 ```json
-{"code":0,"message":"success","data":[{"id":21,"tripId":1,"originalName":"xihu.jpg","contentType":"image/jpeg","sizeBytes":204800,"createdAt":"2026-11-08T14:20:00","url":"/api/photos/21/raw"}]}
+{"code":0,"message":"success","data":[{"id":21,"tripId":1,"originalName":"xihu.jpg","contentType":"image/jpeg","sizeBytes":204800,"createdAt":"2026-11-08T14:20:00","kind":"PHOTO","url":"/api/photos/21/raw"}]}
 ```
-错误：`401`；`404`
+错误：`401`；`404`。`kind` 对 V32 之前上传的存量行回落为 `PHOTO`（不会返回 `null`）。
 
 ### 7.3 GET /api/photos/{id}/raw — 读取原图
-鉴权：登录（`<img>` 用 `?ticket=` 票据，**用途必须是 `media-read`**，见 §1.3）｜ 源码：`PhotoController#raw:52` ｜ 参数：路径 `id`
+鉴权：登录（`<img>` 用 `?ticket=` 票据，**用途必须是 `media-read`**，见 §1.3）｜ 源码：`PhotoController#raw:54` ｜ 参数：路径 `id`
 响应：图片字节流，`Content-Type` 由文件头推导；带 `X-Content-Type-Options: nosniff`、`Content-Security-Policy: default-src 'none'; sandbox`、`Cache-Control: private, no-store`、`Referrer-Policy: no-referrer`。
 错误：`401`；`404` `照片不存在` / `照片文件不存在（可能已被清理）`
 
 ### 7.4 DELETE /api/photos/{id} — 删除照片
-鉴权：登录 ｜ 源码：`PhotoController#delete:70` ｜ 参数：路径 `id`
+鉴权：登录 ｜ 源码：`PhotoController#delete:76` ｜ 参数：路径 `id`
 ```json
 {"code":0,"message":"success","data":null}
 ```
@@ -1194,7 +1210,9 @@ RAG 文档接口在 P0 从原 `LearningController` 拆出，迁入 `TravelKnowle
 {"code":0,"message":"success","data":{"llmConfigured":true,"llmVerified":false,"llmModel":"deepseek-flash","llmHint":"已接入大模型：意图识别、方案生成与文案润色走模型","amapConfigured":false,"geoProvider":"osm","geoHint":"未配置 AMAP_KEY：城市定位退回 OSM Nominatim，国内网络可能较慢或失败","timezone":"Asia/Shanghai","routeProvider":"estimated","routeConfigured":false,"amapVerified":false,"routeLastError":null,"routeHint":"路线为本地距离估算（未配置 AMAP_KEY / 高德 MCP）：距离与耗时为近似值","weatherProvider":"open-meteo","weatherLastError":null,"weatherHint":"真实天气：Open-Meteo（免费）","priceProvider":"reference-estimate","priceHint":"价格均为本地参考估算，未接入实时房态/库存","pendingPlanStore":"database","rateLimitEnabled":true,"llmQuotaUsed":3,"llmQuotaLimit":50}}
 ```
 错误：`401`。`llmQuotaUsed` / `llmQuotaLimit` 仅在 `travel.llm.quota-daily-limit > 0` 且已登录时出现。
-**P0 起不再返回 `ocrConfigured` / `ocrHint`**（发票/OCR 能力已退役）。
+**P0 起不再返回 `ocrConfigured` / `ocrHint`**：旧的本地 Tesseract 发票/OCR 能力已退役；
+V32 的发票 OCR 是可选的百度云增强项（`OCR_PROVIDER` / `OCR_BAIDU_*`，默认关闭），
+不进入本文自检响应——**「配了 Key」不等于「识别可用」**，本接口不对此作承诺，识别失败在对话里如实说（§5.2）。
 
 **「配置了」与「真的能用」必须分开报**（V2.2 验收 P2/P5）：
 
@@ -1299,10 +1317,10 @@ RAG 文档接口在 P0 从原 `LearningController` 拆出，迁入 `TravelKnowle
 | 43 | POST | `/api/trips/{tripId}/expenses` | 登录 | 记一笔 | `ExpenseController#add:41` |
 | 44 | GET | `/api/expenses/overview` | 登录 | 记账总览 | `ExpenseController#overview:55` |
 | 45 | DELETE | `/api/expenses/{id}` | 登录 | 删除支出 | `ExpenseController#delete:61` |
-| 46 | POST | `/api/trips/{tripId}/photos` | 登录 | 上传照片 | `PhotoController#upload:28` |
-| 47 | GET | `/api/trips/{tripId}/photos` | 登录 | 照片列表 | `PhotoController#list:36` |
-| 48 | GET | `/api/photos/{id}/raw` | 登录/票据 | 读取原图 | `PhotoController#raw:52` |
-| 49 | DELETE | `/api/photos/{id}` | 登录 | 删除照片 | `PhotoController#delete:70` |
+| 46 | POST | `/api/trips/{tripId}/photos` | 登录 | 上传照片 | `PhotoController#upload:27` |
+| 47 | GET | `/api/trips/{tripId}/photos` | 登录 | 照片列表 | `PhotoController#list:37` |
+| 48 | GET | `/api/photos/{id}/raw` | 登录/票据 | 读取原图 | `PhotoController#raw:54` |
+| 49 | DELETE | `/api/photos/{id}` | 登录 | 删除照片 | `PhotoController#delete:76` |
 | 50 | GET | `/api/reminders` | 登录 | 提醒板 | `ReminderController#board:22` |
 | 51 | POST | `/api/reminders/schedule/{id}/dismiss` | 登录 | 忽略日程提醒 | `ReminderController#dismissSchedule:28` |
 | 52 | POST | `/api/reminders/trip/{id}/dismiss` | 登录 | 忽略出发提醒 | `ReminderController#dismissTrip:35` |

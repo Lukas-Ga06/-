@@ -34,7 +34,7 @@ Controller + dto/  ──springdoc──▶  GET /v3/api-docs  ──OpenApiSnap
 | `travel-agent-web/src/types/api-contract.ts` | 手写（类型级断言，无运行时代码） | 是 | `npm run typecheck` |
 | `/swagger-ui/index.html` | springdoc 自动提供 | 否（运行时） | 人工阅读，仅本地/受控环境使用 |
 
-当前快照规模（以实际生成为准，不必手改）：`paths` 52 条、`components.schemas` 98 个、约 110 KB；生成的前端类型约 86 KB。
+当前快照规模（以实际生成为准，不必手改）：`paths` 56 条、`components.schemas` 114 个、约 125 KB；生成的前端类型约 94 KB。
 
 ## 3. 生成 / 更新
 

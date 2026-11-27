@@ -373,7 +373,7 @@ erDiagram
 
 | `trip_id` | `BIGINT` | 是 | 所属行程（无外键）；**V30 起可空**，为空 = 未关联行程的通用账目 |
 
-| `schedule_item_id` | `BIGINT` | 是 | V30 新增：报销/账期关联（`schedule_item.id`），批次 3 预留，暂无写入方；索引 `idx_expense_schedule` |
+| `schedule_item_id` | `BIGINT` | 是 | V30 新增：报销/账期关联（`schedule_item.id`）；V32 起由发票报销在确认提交时写入（同日期未完成日程），手工记账为空；索引 `idx_expense_schedule` |
 
 | `user_id` | `BIGINT` | 否 | 归属用户 |
 
@@ -420,7 +420,7 @@ erDiagram
 | `content_type` | `VARCHAR(80)` | 是 | MIME 类型 |
 
 | `size_bytes` | `BIGINT` | 是 | 字节数，配额统计用它求和 |
-
+| `kind` | `VARCHAR(20)` | 是 | **V32**：图片用途 `PHOTO`（默认）/ `INVOICE`；存量行由迁移默认 `PHOTO`，新行由服务显式写入，非法值在 `PhotoService` 侧 400 |
 | `created_at` | `TIMESTAMP` | 是 | 上传时间 |
 
 
@@ -434,6 +434,13 @@ erDiagram
 select coalesce(sum(p.sizeBytes), 0) from TripPhoto p where p.userId = :userId
 
 ```
+
+
+
+`kind` 只有两个取值，没有库级枚举约束（与 `expense.category` / `operation_history.domain` 同一口径）：
+发票报销取「该用户 `kind='INVOICE'` 的最新一张」识别（`TripPhotoRepository#findFirstByUserIdAndKindOrderByIdDesc`），
+不新建发票表、不复制存储与配额逻辑。读取侧把 `null` 当 `PHOTO`（V32 之前的上传行），
+所以 `PhotoDtos.Photo.kind` 永远不会把「未知用途」抛给前端。
 
 
 
@@ -1358,13 +1365,13 @@ b=<budget>|s=<startDate>|e=<endDate>
 
 
 
-### 6.1 迁移链：V1 基线 → V2–V11（便携）→ V12/V13/V14（按方言分目录）→ V15–V31（便携）
+### 6.1 迁移链：V1 基线 → V2–V11（便携）→ V12/V13/V14（按方言分目录）→ V15–V32（便携）
 
 
 
 **schema 的唯一权威是 Flyway**，两个 profile 的 `ddl-auto` 都是 `validate`（见 6.2）：Hibernate 只校验、不改结构。
 
-共 **31 个版本 / 32 个脚本**（V13 两份、V8/V12 在 MySQL 目录、V14 在 H2 目录）：
+共 **32 个版本 / 33 个脚本**（V13 两份、V8/V12 在 MySQL 目录、V14 在 H2 目录）：
 
 
 
@@ -1433,6 +1440,7 @@ b=<budget>|s=<startDate>|e=<endDate>
 | 30 | `V30__expense_general_ledger.sql` | `db/migration` | `expense.trip_id` 放开为可空；新增 `expense.schedule_item_id` + 索引 `idx_expense_schedule` | 记账与行程解绑（没有当前行程也能记账）；`schedule_item_id` 为批次 3 发票报销预留。双方言共用：`MODIFY COLUMN / ADD COLUMN / CREATE INDEX` 在 H2(MODE=MySQL) 与 MySQL 8.0 都成立，由 `H2FlywayMigrationTest` 实测 |
 
 | 31 | `V31__operation_history_schedule_domain.sql` | `db/migration` | `operation_history.trip_id` 放开为可空；新增 `domain VARCHAR(20) DEFAULT 'ITINERARY'` + 索引 `idx_history_user_domain (user_id, domain, status)` | 批量清空日程可撤销：日程不挂在行程上，按用户 + `SCHEDULE` 域取最近一条历史还原。双方言共用（`MODIFY COLUMN / ADD COLUMN / CREATE INDEX` 与 V30 同写法），由 `H2FlywayMigrationTest` 实测；MySQL 8.0.46 已在本机临时库实测（建表 → 执行 V31 → 校验可空/默认值/索引 → DROP） |
+| 32 | `V32__trip_photo_kind.sql` | `db/migration` | `trip_photo.kind VARCHAR(20) DEFAULT 'PHOTO'`（图片用途：`PHOTO` / `INVOICE`） | 发票报销复用照片通道：不新建存储、不新建发票表；存量行由默认值回填 `PHOTO`。单列 `ADD COLUMN`，双方言中性 SQL，由 `H2FlywayMigrationTest` 实测；MySQL 8.0.46 已在本机临时库实测（建 trip_photo → 插入旧行 → 执行 V32 → 校验列/默认值回填 → DROP） |
 
 
 
@@ -1444,9 +1452,9 @@ b=<budget>|s=<startDate>|e=<endDate>
 
 | --- | --- | --- |
 
-| 默认（H2） | `classpath:db/migration,classpath:db/migration-h2` | V1–V11 + V13（H2 版）+ V14 + V15–V31；**没有 V12**，且缺口 V8 是预期 |
+| 默认（H2） | `classpath:db/migration,classpath:db/migration-h2` | V1–V11 + V13（H2 版）+ V14 + V15–V32；**没有 V12**，且缺口 V8 是预期 |
 
-| `mysql` | `classpath:db/migration,classpath:db/migration-mysql` | V1–V13 全链（V8 / V12 / V13 是 MySQL 版）+ V15–V31；没有 V14（H2 专属） |
+| `mysql` | `classpath:db/migration,classpath:db/migration-mysql` | V1–V13 全链（V8 / V12 / V13 是 MySQL 版）+ V15–V32；没有 V14（H2 专属） |
 
 
 
@@ -1570,9 +1578,9 @@ spring:
 
 | --- | --- | --- |
 
-| 全新库（空库） | `V1` 建全 15 张基础表 + 14 个索引 → `V2`–`V11` 增量 → 当前 profile 的 `V13` 补齐缺口（`mysql` 另有 `V8`/`V12`）→ `V14`–`V31` → Hibernate `validate` 校验 | **什么都不用**：不再需要手工执行 `sql/init.sql`（该文件已标注弃用，见第 8 节） |
+| 全新库（空库） | `V1` 建全 15 张基础表 + 14 个索引 → `V2`–`V11` 增量 → 当前 profile 的 `V13` 补齐缺口（`mysql` 另有 `V8`/`V12`）→ `V14`–`V32` → Hibernate `validate` 校验 | **什么都不用**：不再需要手工执行 `sql/init.sql`（该文件已标注弃用，见第 8 节） |
 
-| 存量库（有表、无历史或历史停在旧版本） | `baseline-on-migrate` 在 V1 打基线标记，**V1 不重跑**，只执行未应用的增量（含 V31）；`V13` 在存量库上逐条命中「已存在」→ 空转 | 升级前**先跑一次 repair**（V4 checksum 变过，见 6.1.1） |
+| 存量库（有表、无历史或历史停在旧版本） | `baseline-on-migrate` 在 V1 打基线标记，**V1 不重跑**，只执行未应用的增量（含 V32）；`V13` 在存量库上逐条命中「已存在」→ 空转 | 升级前**先跑一次 repair**（V4 checksum 变过，见 6.1.1） |
 
 
 
@@ -1774,7 +1782,7 @@ Remove-Item -Recurse -Force travel-agent-server/data -ErrorAction SilentlyContin
 
 # 3) 重启后端：全新库由 Flyway 建 schema —— V1（基线）→ V2–V11 → 当前 profile 的 V13
 
-#    （mysql profile 另含 V8 / V12）→ V14–V31，随后 Hibernate ddl-auto=validate 校验；
+#    （mysql profile 另含 V8 / V12）→ V14–V32，随后 Hibernate ddl-auto=validate 校验；
 
 #    DataInitializer 重建 demo 账号。不需要手工执行 sql/init.sql。
 
@@ -2063,7 +2071,7 @@ P0 之后下表涉及的 6 张旧模块表（`daily_report` / `mail_item` / `mee
 
 | `@UniqueConstraint` | **11** 条 | `users.username`（未命名）、`uk_llm_quota_user_date`、`uk_rag_document_key`、`uk_rag_version`、`uk_schedule_source_key`、`uk_conv_turn_role`、`uk_conv_meta_user_conv`、`uk_agent_run_event`、`uk_agent_run_stage`、`uk_plan_outbox_event`、`uk_plan_outbox_plan_module` |
 
-| Flyway 版本 / 脚本文件 | **31 个版本 / 32 个文件**（V1–V31；V13 双方言两份，V8/V12 仅 MySQL，V14 仅 H2） | `db/migration` 27 个 + `db/migration-mysql` 3 个 + `db/migration-h2` 2 个 |
+| Flyway 版本 / 脚本文件 | **32 个版本 / 33 个文件**（V1–V32；V13 双方言两份，V8/V12 仅 MySQL，V14 仅 H2） | `db/migration` 28 个 + `db/migration-mysql` 3 个 + `db/migration-h2` 2 个 |
 
 | V1 基线内容 | **15 张表 + 14 个索引** | `V1__baseline.sql` 的 `CREATE TABLE` / `CREATE INDEX` 计数 |
 
@@ -2074,6 +2082,8 @@ P0 之后下表涉及的 6 张旧模块表（`daily_report` / `mail_item` / `mee
 | V30 增量内容 | **1 列放开可空 + 1 列 + 1 个索引** | `V30__expense_general_ledger.sql`（`trip_id` 可空、`schedule_item_id`、`idx_expense_schedule`） |
 
 | V31 增量内容 | **1 列放开可空 + 1 列 + 1 个索引** | `V31__operation_history_schedule_domain.sql`（`trip_id` 可空、`domain`、`idx_history_user_domain`） |
+
+| V32 增量内容 | **1 列（默认值回填）** | `V32__trip_photo_kind.sql`（`trip_photo.kind VARCHAR(20) DEFAULT 'PHOTO'`） |
 
 | 后端测试 | **以 `mvn test` / CI 输出为准** | 不在本文维护静态用例数 |
 

@@ -399,7 +399,7 @@ curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/actuator/prometh
 
 ## 9. 已知限制与后续
 
-1. **`external.degraded` 已实跑（2026-11-24）**：`external_degraded_total{provider,reason}` 由高德 / LLM / Embedding / 天气 / Redis / S3 各自失败路径写入；`TravelExternalProviderDegraded` 与 `TravelExternalDegradedHigh` 已在持续高德降级下真实 firing 并恢复，见[演练快照](../review/2026-11-24-amap-degradation-alert-drill.md)。注意单 provider 那条的首个 firing 延迟实测 ≈16 分钟（`rate[15m]` + `for: 15m`），它是「已持续降级」的告警，不是早期预警。
+1. **`external.degraded` 已实跑（2026-11-24）**：`external_degraded_total{provider,reason}` 由高德 / LLM / Embedding / 天气 / Redis / S3 各自失败路径写入（2026-11-27 起发票 OCR 写 `provider=ocr`，默认关闭、缺真实 Key 未实跑）；`TravelExternalProviderDegraded` 与 `TravelExternalDegradedHigh` 已在持续高德降级下真实 firing 并恢复，见[演练快照](../review/2026-11-24-amap-degradation-alert-drill.md)。注意单 provider 那条的首个 firing 延迟实测 ≈16 分钟（`rate[15m]` + `for: 15m`），它是「已持续降级」的告警，不是早期预警。
 2. **SLO 阈值是初值**：规划可用率 99.5%、SSE 中断 1%、RAG 命中 30%、成本 2 USD/h 需用第一周真实数据回填。
 3. **成本单价默认 0**：不配置就永远没有成本数据；这是刻意选择（不虚报）。
 4. **`sse.disconnects` 存在重复计数**：同一次断连可能记 `complete`（控制器）+ `cancelled`（引擎）。SLO 已按 reason 分开，不要求总和。

@@ -1789,6 +1789,9 @@
             "format" : "int64",
             "type" : "integer"
           },
+          "kind" : {
+            "type" : "string"
+          },
           "originalName" : {
             "type" : "string"
           },
@@ -4962,6 +4965,13 @@
           "schema" : {
             "format" : "int64",
             "type" : "integer"
+          }
+        }, {
+          "in" : "query",
+          "name" : "kind",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
           }
         } ],
         "requestBody" : {
