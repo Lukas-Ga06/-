@@ -254,18 +254,18 @@ function buildRows(activity: ActivityEvent[], execution?: ExecutionSummary | nul
  * 降级提示：折叠态也必须能看出「这次走了降级路径、为什么」。
  * 只把**降级阶段**的行提上来；冲突/重派有自己的阶段，不混进这句结论。
  */
-function degradeNotice(rows: TimelineRow[]): { tone: string; text: string } | null {
+function degradeNotice(rows: TimelineRow[]): string | null {
   const degrade = rows.filter((r) => r.stage === 'degrade');
   if (degrade.length === 0) return null;
   const first = degrade[0];
   const extra = degrade.length > 1 ? `（共 ${degrade.length} 项）` : '';
   if (first.event === 'budget_degraded') {
-    return { tone: 'warn', text: `本次结果走了降级路径：${first.text}${extra}` };
+    return `本次结果走了降级路径：${first.text}${extra}`;
   }
   if (first.event === 'warning') {
-    return { tone: 'warn', text: `本轮有过程警告：${first.text}${extra}` };
+    return `本轮有过程警告：${first.text}${extra}`;
   }
-  return { tone: 'warn', text: `本轮有环节未按完整路径完成：${first.text}${extra}` };
+  return `本轮有环节未按完整路径完成：${first.text}${extra}`;
 }
 
 /** 相对时间：刚刚 / N 秒前 / N 分钟前，超过 1 小时回退为时钟时间 */
@@ -342,13 +342,9 @@ export default function AgentActivityPanel({ activity, execution }: Props) {
         </Button>
       </div>
       {notice && (
-        <div
-          className={`aa-degrade ${notice.tone}`}
-          data-testid="agent-activity-degrade"
-          role="status"
-        >
+        <div className="aa-degrade" data-testid="agent-activity-degrade" role="status">
           <WarningOutlined aria-hidden="true" />
-          <span className="aa-degrade-text">{notice.text}</span>
+          <span className="aa-degrade-text">{notice}</span>
         </div>
       )}
       {open && (
