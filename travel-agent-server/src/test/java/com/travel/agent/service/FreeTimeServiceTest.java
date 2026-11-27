@@ -38,6 +38,11 @@ class FreeTimeServiceTest {
                 .startDate(start).endDate(end).build();
     }
 
+    private static Trip cancelledTrip(long id, LocalDate start, LocalDate end) {
+        return Trip.builder().id(id).userId(1L).name("上海").destination("上海")
+                .startDate(start).endDate(end).status(Trip.STATUS_CANCELLED).build();
+    }
+
     private static ItineraryItem itinerary(long tripId, LocalDate date, int dayIndex,
                                            LocalTime start, LocalTime end, String title) {
         return ItineraryItem.builder().tripId(tripId).dayIndex(dayIndex).itemType("attraction").title(title)
@@ -115,6 +120,18 @@ class FreeTimeServiceTest {
                 List.of(), List.of(singleDay), List.of(item));
 
         assertThat(slots(nextDay, 0)).containsExactly("08:00–22:00");
+    }
+
+    @Test
+    @DisplayName("已取消的行程不占用空闲时段")
+    void cancelledTripDoesNotBlock() {
+        Trip cancelled = cancelledTrip(30L, DAY, DAY);
+        ItineraryItem item = itinerary(30L, DAY, 1, LocalTime.of(8, 0), LocalTime.of(22, 0), "已取消的行程");
+
+        FreeTimeService.FreeTimeReport report = report(DAY, DAY, 60, List.of(), List.of(cancelled), List.of(item));
+
+        assertThat(slots(report, 0)).containsExactly("08:00–22:00");
+        assertThat(report.days().get(0).busy()).isEmpty();
     }
 
     @Test

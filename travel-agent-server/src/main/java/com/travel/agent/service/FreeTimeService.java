@@ -154,7 +154,9 @@ public class FreeTimeService {
     private static void addTripItems(Trip trip, LocalDate from, LocalDate to,
                                      Map<Long, List<ItineraryItem>> itineraryByTrip,
                                      Map<LocalDate, List<BusyBlock>> busyByDate) {
-        if (trip == null || trip.getId() == null || trip.getStartDate() == null || itineraryByTrip == null) {
+        // 取消的行程不再阻塞空闲时段：用户已放弃它，但 itinerary_item 可能还留在库里
+        if (trip == null || Trip.STATUS_CANCELLED.equals(trip.getStatus())
+                || trip.getId() == null || trip.getStartDate() == null || itineraryByTrip == null) {
             return;
         }
         List<ItineraryItem> items = itineraryByTrip.get(trip.getId());
