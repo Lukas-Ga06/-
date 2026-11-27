@@ -196,10 +196,11 @@ travel:
   `renderToolCatalog()` 的输出——已注册的 `mcp_*` 工具名 + 描述。描述由桥接层拼成
   `(MCP:amap) <远端描述>（参数: address*(待解析地址), city；*为必填）`：参数名取自真实 `inputSchema`，
   必填加 `*`，参数说明截到 30 字并把英文逗号/括号换成全角（否则会打断提示词里的参数分隔）。
-  **注册进 `ToolRegistry` 就等于进了提示词，不需要额外接线。** 一个 `mcp_*` 工具都没有时，
-  提示词退化为「本次未接入任何 MCP 外部工具，不要使用 INVOKE_TOOL」。
-- **越界拦截**：`IntentAgent.plausible` 要求 `INVOKE_TOOL` 的工具名以 `mcp_` 开头且 `toolRegistry.get()` 非空，
-  模型编造工具名会被判为不可信并回落规则路径。
+  **注册进 `ToolRegistry` 的 `mcp_*` 工具就等于进了提示词，不需要额外接线**（内置白名单里的
+  `ocr_invoice` 也列在同一份目录里）。一个可调用工具都没有时，提示词退化为
+  「本次未接入任何 MCP 外部工具或内置只读工具，不要使用 INVOKE_TOOL」。
+- **越界拦截**：`IntentAgent.plausible` 要求 `INVOKE_TOOL` 的工具名已注册、且属于可调用白名单
+  （`mcp_*` 或内置白名单 `ocr_invoice`），模型编造工具名会被判为不可信并回落规则路径。
 - **执行路径**：`ToolInvoker.invoke` → `SafetyInterceptor` → `McpAgentTool.execute` → `McpConnection.callTool`
   （远端 `result.isError=true` 或传输异常一律包成 `BusinessException(502, "外部工具 … 暂时不可用：…")`，
   `AgentEngine` 会把原因原样告诉用户）。

@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
@@ -38,6 +39,15 @@ public class IntentAgent {
     /** P0-B 多意图：最多保留 3 条「其余未执行请求」，每条最多 40 字 */
     static final int MAX_ALSO_REQUESTED = 3;
     static final int MAX_ALSO_REQUESTED_LENGTH = 40;
+
+    /**
+     * 内置可调用工具白名单（{@code INVOKE_TOOL} 的另一半候选源）。
+     *
+     * <p>只收「用户命令型、只读、零参数」的内置工具：{@code mcp_*} 是外部数据查询，
+     * 内置工具默认不暴露给模型，只有登记在这里的才进工具目录、才允许模型选中。
+     * 规划期取证步骤走 {@code PlannerAgent.RESEARCH_TOOLS}，是另一份白名单，两者不共用。
+     */
+    private static final Set<String> BUILTIN_INVOKABLE_TOOLS = Set.of("ocr_invoice");
 
     private static final List<String> INTENTS = List.of(
             IntentResult.PLAN_TRIP, IntentResult.MODIFY_ITINERARY, IntentResult.QUERY_BUDGET,
@@ -73,18 +83,26 @@ public class IntentAgent {
     }
 
     /**
-     * 模型越界分类的兜底：只认注册过的 mcp_* 工具；模型编造工具名时交回规则引擎。
+     * 模型越界分类的兜底：只认「已注册」且属于可调用白名单（{@code mcp_*} 或
+     * {@link #BUILTIN_INVOKABLE_TOOLS}）的工具；模型编造工具名时交回规则引擎。
      */
     private boolean plausible(IntentResult result, String message) {
-        // INVOKE_TOOL 只认注册过的 mcp_* 工具：模型编造工具名时交回规则引擎
-        if (IntentResult.INVOKE_TOOL.equals(result.getIntent())
-                && (result.getToolName() == null || result.getToolName().isBlank()
-                    || !result.getToolName().startsWith("mcp_")
-                    || toolRegistry.get(result.getToolName()) == null)) {
-            log.info("模型给出了不可用的 MCP 工具「{}」，交回规则引擎", result.getToolName());
-            return false;
+        if (IntentResult.INVOKE_TOOL.equals(result.getIntent())) {
+            String toolName = result.getToolName();
+            AgentTool tool = toolName == null || toolName.isBlank() ? null : toolRegistry.get(toolName);
+            // 注册了但不在白名单的内置工具也不许直接调（如规划期取证工具）
+            if (tool == null || !invokable(tool)) {
+                log.info("模型给出了不可调用的工具「{}」，交回规则引擎", toolName);
+                return false;
+            }
         }
         return true;
+    }
+
+    /** {@code INVOKE_TOOL} 的可调用口径：{MCP 外部工具} ∪ {内置白名单}，两份名单都不含写工具 */
+    private static boolean invokable(AgentTool tool) {
+        String name = tool.getName();
+        return name != null && (name.startsWith("mcp_") || BUILTIN_INVOKABLE_TOOLS.contains(name));
     }
 
     private IntentResult llmDetect(AgentContext ctx, Trip trip, String message, AgentBudget budget) {
@@ -219,17 +237,22 @@ public class IntentAgent {
         return result;
     }
 
-    /** 注册的 MCP 外部工具目录；未接入任何 MCP 工具时提示模型禁用 INVOKE_TOOL */
+    /**
+     * 可调用工具目录（{@code mcp_*} 外部工具 + 内置白名单）；一个都没有时提示模型禁用 {@code INVOKE_TOOL}。
+     */
     private String renderToolCatalog() {
-        List<AgentTool> mcpTools = toolRegistry.all().values().stream()
-                .filter(t -> t.getName().startsWith("mcp_"))
+        List<AgentTool> tools = toolRegistry.all().values().stream()
+                .filter(IntentAgent::invokable)
                 .toList();
-        if (mcpTools.isEmpty()) {
-            return "外部工具：本次未接入任何 MCP 外部工具，不要使用 INVOKE_TOOL。";
+        if (tools.isEmpty()) {
+            return "外部工具：本次未接入任何 MCP 外部工具或内置只读工具，不要使用 INVOKE_TOOL。";
         }
         StringBuilder sb = new StringBuilder(
-                "INVOKE_TOOL（通过外部 MCP 工具查询外部数据，如地图/百科/搜索；仅当用户明确要查外部数据且下面的工具适用时使用）。可用外部工具：\n");
-        for (AgentTool tool : mcpTools) {
+                "INVOKE_TOOL（调用只读工具查询外部数据或内置能力，如地图/百科/搜索/发票识别；"
+                        + "只读、不会写入任何数据；用户要报销/入账发票时仍归 RECORD_INVOICE，这里只用于"
+                        + "「先看看发票上识别出什么」这类只读查询；仅当用户明确要查外部数据或要识别发票、"
+                        + "且下面的工具适用时使用）。可用工具：\n");
+        for (AgentTool tool : tools) {
             sb.append("- ").append(tool.getName()).append("：").append(tool.getDescription()).append('\n');
         }
         return sb.toString();

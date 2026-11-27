@@ -123,8 +123,26 @@ sum by (provider) (rate(external_degraded_total[5m])) > 0.2
   连不上→`connection_error`、其余（含百度 `error_code` 非 0）→`bad_response`）。
 - 恢复语义：无锁存；下次调用成功即恢复（access_token 过期会重新获取）。
 - 测试覆盖：`BaiduOcrClientTest`（纯单测：直接喂响应 JSON，覆盖价税合计优先、`TotalAmount` 回落、中文/横线日期、`error_code` 非 0、空响应）；
-  `InvoiceOcrFlowTest`（脚本化 `OcrClient` 替身：未配置 / 识别失败 / 没识别出金额 / 成功经确认落账 / 无候选不关联 / 工具只读）。
-  **百度 OCR 只做了响应解析单测**：真实 API 调用、token 换取与识别质量都没有验证（缺 Key，识别率、配额与真实响应字段差异均未测，见 §5 第 8 条）。
+  `InvoiceOcrFlowTest`（脚本化 `OcrClient` 替身：未配置 / 识别失败 / 没识别出金额 / 成功经确认落账 / 无候选不关联 / 工具只读）；
+  `OcrInvoiceLiveTest`（**默认 skipped**，只在 `OCR_REAL=true` 时打真实百度接口，见下条）。
+- 真实验收怎么跑（人工、不进 CI；没开 `OCR_REAL` 时整类跳过，不发请求）：
+
+  ```bash
+  cd travel-agent-server
+  OCR_REAL=true OCR_PROVIDER=baidu OCR_BAIDU_API_KEY=… OCR_BAIDU_SECRET_KEY=… \
+    mvn -B -Dtest=OcrInvoiceLiveTest -DfailIfNoTests=false test
+  ```
+
+  Key 只从环境变量读：该测试不读 `.env.local`、不硬编码、不回显 Key / token（R7）；缺 Key 时用例自己 skip，
+  即使误开 `OCR_REAL` 也不会拿空 Key 发请求。两个用例的验收口径不同：
+  - `realApiRejectsNonInvoiceImageExplicitly`：用仓库内合成版式图 `data/ocr-acceptance/invoice.png`
+    断言**抛 `OcrException` 且消息含「服务错误码」**。它证明鉴权、请求组装与错误映射打通；
+    合成图不是真实发票，`vat_invoice` 按票面模板匹配会返回 282103（模板不匹配），**识别失败就是预期结果**，
+    不能据此认为「OCR 已验收」。
+  - `recognizesRealInvoiceWhenSampleProvided`：只有给了 `OCR_SAMPLE_INVOICE=<真实发票照片路径>` 才执行，
+    断言金额非空、商户非空、开票日期非空，并打印脱敏后的金额 / 商户 / 日期 / 类目；
+    可加 `OCR_EXPECT_AMOUNT=128.50` 断言金额。
+  - 真实字段识别必须用**真实增值税发票照片**；识别率、配额与百度侧字段差异只有这一步能验证。
 
 ### 3.5 Redis 限流计数
 
@@ -177,7 +195,10 @@ mvn -B -Dtest=AmapResilienceTest test
 5. 测试覆盖的是 HTTP 层故障（WireMock 注入的状态码/延迟/坏包体）与端口不可达，**不覆盖**真实 TLS 握手失败、DNS 劫持、代理层截断等网络故障；这些只能靠线上指标与 Runbook 兜底。
 6. 本文的指标只包含 `external.degraded`；业务结果类指标（`travel.plan.outcome`、`travel.llm.tokens` 等）见 `docs/guide/observability.md`，两边不重名。
 7. 天气的「不可用」是产品语义而不是降级：离线部署 + 未开 `WEATHER_SIMULATION` 时，所有依赖天气的修改都会 503。这是刻意的（宁可不排，也不拿模拟数据改行程），部署前应确认出站 HTTPS 可达 Open-Meteo。
-8. 发票 OCR 的**真实识别质量没有验收**（缺百度云 Key，2026-11-27）：只验证了响应解析与「未配置/失败不生成方案」两条路径。
+8. 发票 OCR 的**真实字段识别质量仍没有验收**（缺百度云真实票面，2026-11-27）：现在有可重复的
+   `OcrInvoiceLiveTest`（`OCR_REAL=true` + 环境变量 Key）能验证鉴权 / 请求 / 错误映射，
+   但金额 / 商户 / 日期这些字段只有在提供真实发票照片（`OCR_SAMPLE_INVOICE`）时才验得到；
+   在真实票面跑过之前，不要对外声称「识别率已验证」。
    开启前需用真实票面自测：金额取价税合计还是合计金额、商户/日期字段是否与本实现一致、百度侧限额与计费。
    另外 token 请求按百度文档用 query 参数传 client_id / client_secret——本实现从不把异常原文（含 URL）写进日志或用户文案（R7），
    但真实链路上的抓包/代理日志仍可能记录该 URL，属于部署侧责任。

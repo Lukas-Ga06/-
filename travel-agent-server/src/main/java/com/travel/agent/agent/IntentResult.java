@@ -39,7 +39,7 @@ public class IntentResult {
      * 用户确认后才由 ExecutorAgent 单事务删除并写 SCHEDULE 域历史（可撤销）。
      */
     public static final String CLEAR_SCHEDULE = "CLEAR_SCHEDULE";
-    /** 调用外部 MCP 工具（travel.mcp.servers 注册的 mcp_* 只读工具）；仅 LLM 路径可产出 */
+    /** 调用只读工具（{@code mcp_*} 外部工具或内置白名单，如 {@code ocr_invoice}）；仅 LLM 路径可产出 */
     public static final String INVOKE_TOOL = "INVOKE_TOOL";
     public static final String CHITCHAT = "CHITCHAT";
 
@@ -66,7 +66,7 @@ public class IntentResult {
     @Builder.Default
     private List<String> alsoRequested = List.of();
 
-    /** INVOKE_TOOL：要调用的 MCP 工具名（mcp_*）与参数 */
+    /** INVOKE_TOOL：要调用的只读工具名（{@code mcp_*} 或内置白名单）与参数 */
     private String toolName;
     private Map<String, Object> toolArgs;
 

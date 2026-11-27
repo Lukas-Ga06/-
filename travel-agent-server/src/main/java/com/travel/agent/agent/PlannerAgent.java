@@ -575,7 +575,10 @@ public class PlannerAgent {
 
     // ==================== V2.2 研究循环（FR-03 自主工具调用） ====================
 
-    /** 研究循环允许的只读工具白名单：规划期只允许只读工具，写操作一律经确认门 */
+    /**
+     * 研究循环允许的只读工具白名单：规划期只允许只读工具，写操作一律经确认门。
+     * 不含 {@code ocr_invoice}：它是用户命令工具（真实调用有费用），识别对象是用户最新发票照片，与规划取证无关。
+     */
     private static final Set<String> RESEARCH_TOOLS = Set.of(
             "query_weather", "search_attraction", "search_restaurant", "search_hotel", "calculate_route",
             "query_travel_knowledge");
