@@ -40,6 +40,24 @@ const PENDING_PLAN = {
   },
 };
 
+/**
+ * SSE 桩：`run` → `start` → `complete`（带方案确认）。
+ * 走的是聊天面板真实的 EventSource 传输，而不是「打开 URL 凭 planId 恢复」那条路径——
+ * 后者在刷新恢复上有已知竞态（见卡 #5 回报），不适合当门禁用例。
+ */
+const PENDING_STREAM = [
+  'event: run',
+  `data: ${JSON.stringify({ runId: 'e2e-run-runstate' })}`,
+  '',
+  'event: start',
+  'data: {}',
+  '',
+  'event: complete',
+  `data: ${JSON.stringify(PENDING_PLAN)}`,
+  '',
+  '',
+].join('\n');
+
 const FAILED_EXECUTION = {
   executionId: EXECUTION_ID,
   planId: PLAN_ID,
@@ -64,7 +82,12 @@ const RECOVERED_EXECUTION = {
 
 test('部分同步失败 → 模块失败态可重试 → 重试后翻转成完成', async ({ page }) => {
   // 只桩住这一条链路；其余请求（/auth/me 等）仍走隔离后端
-  await page.route(`**/api/agent/plans/${PLAN_ID}`, (route) => route.fulfill(ok(PENDING_PLAN)));
+  await page.route('**/api/access-ticket**', (route) =>
+    route.fulfill(ok({ ticket: 'e2e-ticket', expiresInSeconds: 300 })),
+  );
+  await page.route('**/api/agent/stream*', (route) =>
+    route.fulfill({ status: 200, contentType: 'text/event-stream', body: PENDING_STREAM }),
+  );
   await page.route('**/api/agent/confirm', (route) =>
     route.fulfill(
       ok({
@@ -80,10 +103,16 @@ test('部分同步失败 → 模块失败态可重试 → 重试后翻转成完�
     route.fulfill(ok(RECOVERED_EXECUTION)),
   );
 
-  // 凭 URL 上的 planId 找回待确认方案（与刷新恢复是同一条真实路径），再走确认提交
-  await page.goto(`/assistant?planId=${PLAN_ID}`);
+  // 真实入口：在聊天面板发一句话 → SSE 返回待确认方案 → 确认弹窗 → 确认提交
+  await page.goto('/assistant');
+  await expect(page.getByTestId('chat-empty')).toBeVisible({ timeout: 15_000 });
+
+  const input = page.getByRole('textbox').first();
+  await input.fill('帮我规划一次杭州两日游');
+  await page.getByRole('button', { name: '发送' }).click();
+
   const dialog = page.getByRole('dialog');
-  await expect(dialog).toBeVisible({ timeout: 15_000 });
+  await expect(dialog).toBeVisible({ timeout: 20_000 });
   await expect(page.getByTestId('plan-diff-dialog')).toBeVisible();
 
   await page.getByTestId('plan-diff-confirm').click();

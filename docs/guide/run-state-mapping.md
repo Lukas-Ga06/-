@@ -115,6 +115,10 @@ const mapped = toRunState('agent-run', run.status);
 **未知取值不会抛异常**，只会落到 unknown。`raw` 对非字符串输入按 `String()` 归一
 （`null` / `undefined` 分别是字面量 `'null'` / `'undefined'`）。
 
+来源本身是**封闭联合**时（例如 `ResourceState.status`），用 `knownRunState(source, raw)`：
+它复用同一张映射表，但把 unknown 当调用方 bug 直接抛错，避免把兜底态往七态参数里传。
+运行时数据（后端返回的状态字符串）仍用 `toRunState` 拿 unknown 兜底。
+
 ## 6. 代码与表的对照方式
 
 - **资源态**：`runState.ts` 的 `RESOURCE_STATES` 用 `Record<ResourceState<unknown>['status'], RunState>`；
