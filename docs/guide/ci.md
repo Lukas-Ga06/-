@@ -175,9 +175,9 @@ gitleaks 放行范围只有四类，全部是**精确值或本地文件**：测�
 [安全设置清单 §2.6](../operations/github-security-settings.md)），以及本地 `.env.local` 与验收证据目录
 （`.gitignore` 已排除，存在时也不该阻断）。**不要**把整个 `src/` 或 `docs/` 加进 paths 放行。
 
-### 5.1 前端依赖 override（`workbox-build` → `glob`）
+### 5.1 依赖分诊与版本覆盖（2026-11-27）
 
-现状（2026-11-27）：
+#### 前端（npm）
 
 | 包 | 处理 | 原因 |
 | --- | --- | --- |
@@ -191,6 +191,40 @@ gitleaks 放行范围只有四类，全部是**精确值或本地文件**：测�
 
 解除条件：`workbox-build` 或 `vite-plugin-pwa` 发布依赖 `glob >=14.0.2` 的版本后，删掉 `overrides`
 并重跑「build:check 产物对比 + 全量前端用例 + npm audit」三项；不要把 override 当永久补丁留着。
+
+#### 后端（Maven）
+
+Trivy 的 `ignore-unfixed` 只保证「有修复版本的告警会红」，**不等于**「依赖树里没有已知漏洞」：
+本例中 4 个包在 Boot 3.5.16 BOM 下的版本都带公告，而 CI 当时是绿的（公告晚于上一次扫描 / BOM 未跟进）。
+所以依赖侧还要一次「按解析后的真实版本查公告」的分诊，命令见 §5.2。
+
+| 包（Boot 3.5.16 BOM 默认） | 处理 | 依据 |
+| --- | --- | --- |
+| `org.apache.tomcat.embed:tomcat-embed-core` `10.1.55` | `pom.xml` 显式覆盖 `tomcat.version=10.1.62` | 10.1 线上已发布的修复版本；OSV 对 10.1.62 返回 CLEAN |
+| `io.netty:*` `4.1.135.Final`（lettuce / AWS SDK 带入） | `netty.version=4.1.141.Final` | 同上，4.1 线最新；OSV CLEAN |
+| `org.apache.logging.log4j:log4j-api` `2.24.3` | `log4j2.version=2.26.1` | 同上 |
+| `org.apache.commons:commons-lang3` `3.17.0`（springdoc → swagger-core 带入） | `commons-lang3.version=3.22.0` | 同上 |
+| `org.springframework:spring-webmvc` `6.2.19` | **不覆盖**，保留 `.trivyignore.yaml` 的两条 CRITICAL 豁免 | 6.2 线最新仍受影响（修复在 Spring 7 / Boot 4），且本项目无 `@Controller`/XsltView/视图渲染，攻击前提不成立；到期 2026-12-31 |
+
+分诊结果：181 个运行时依赖，按 OSV 查 **24 条公告 / 8 个包（8 CRITICAL、6 HIGH、10 MODERATE）**
+→ 覆盖后 **2 条 / 1 个包**（即上面已豁免的两条 Spring 公告）。
+
+### 5.2 依赖分诊的可复现命令
+
+不引入新工具链：用 Maven 解析真实版本 + OSV 公共 API 按版本查公告（OSV 同时覆盖 GHSA/CVE，
+比单看 Trivy 的 `ignore-unfixed` 结果更完整）。
+
+```bash
+cd travel-agent-server
+mvn -B -q dependency:list -DoutputFile=../.evidence/deps.txt -DincludeScope=runtime
+# 抽出 groupId:artifactId:version（去重）后逐条 POST https://api.osv.dev/v1/querybatch
+# （ecosystem=Maven），对命中的 advisory id 再 GET https://api.osv.dev/v1/vulns/{id} 取 severity
+```
+
+判读纪律：**先确认「候选修复版本」本身是 CLEAN**（对候选版本再查一次 OSV），再改 pom；
+改完必须重跑 `mvn -B verify` 与一次 Trivy（本地命令与 CI 同参：`--severity CRITICAL,HIGH --ignore-unfixed`），
+并核对 `dependency:list` 里的实际解析版本（属性覆盖不生效时 Maven 会静默沿用 BOM 版本）。
+结论与证据见 [依赖分诊快照](../review/2026-11-27-dependency-triage.md)。
 
 ## 6. 临时豁免流程
 

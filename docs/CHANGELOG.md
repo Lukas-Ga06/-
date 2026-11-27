@@ -14,6 +14,15 @@
   （R8「只收紧不放宽」）。以后再出现 moderate，要么修、要么走 [CI §6](guide/ci.md) 的临时豁免流程。
 - 依据与解除条件见 [CI §5.1](guide/ci.md)：`workbox-build`/`vite-plugin-pwa` 一旦依赖 `glob >=14.0.2`，
   就删掉 override 并重跑三项证据。
+- **后端依赖按真实版本分诊并覆盖**：用 `mvn dependency:list`（181 个运行时依赖）+ OSV 查出
+  **24 条公告 / 8 个包（8 CRITICAL、6 HIGH、10 MODERATE）**——这些在 Trivy 的 `ignore-unfixed` 视角下
+  不一定可见。按「同一维护线的已修版本」显式覆盖 4 个包：`tomcat.version=10.1.62`、
+  `netty.version=4.1.141.Final`、`log4j2.version=2.26.1`、`commons-lang3.version=3.22.0`
+  （写法与既有 `jackson-bom.version` 一致，候选版本均先经 OSV 确认为 CLEAN）。
+  覆盖后只剩 **2 条**：Spring 6.2.19 的两条 CRITICAL，仍走既有 `.trivyignore.yaml` 豁免
+  （6.2 线无修复版本，修复需 Spring 7 / Boot 4），到期 2026-12-31。
+- 证据：`mvn -B verify` **735/735**；本地 Trivy（CI 同参）只剩上述 2 条；分诊方法与复现见
+  [CI §5.2](guide/ci.md) 与[依赖分诊快照](review/2026-11-27-dependency-triage.md)。
 
 ## 花费可见性与 MCP 配额指标（2026-11-26）
 
