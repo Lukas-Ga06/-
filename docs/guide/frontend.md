@@ -203,6 +203,10 @@ key `travel:planner-draft:v1` 带版本号；空白表单不产生草稿；进�
   并显示逐项结果（成功/失败+原因+重试）。服务端明确拒绝（带状态码）不入队，直接提示原因。
 - **侧栏 keep-alive**：地图与 AI 面板一次挂载、只切可见性（`data-active`），切走再切回不会重新初始化地图、不丢缩放；
   切回可见时调用 `MapProvider.resize?.()` 校正画布（隐藏期间窗口可能变过尺寸）。
+- **时间线 ↔ 地图双向联动（P1-E 4/4）**：两侧共用 `uiStore.selectedElement` 这一个选中源，**地图不另存选中态**。
+  点时间线卡片 → `selectedElement` 变化 → 地图只把选中投影到标记上（`MapProvider.select()`：改类 + `setCenter` 平移，不重绘、不改缩放）；
+  点地图标记 → 回写同一个 `selectedElement`、切到它所在的 Day、再 `scrollToItem` 滚到 `#ti-<id>`。
+  路线来源（`amap` 实测 / `estimated` 估算）两侧都要能读到：时间线转场行的徽标 + 地图来源图例（`.map-legend`）与标记徽标（`.m3d-src`）。
 API：`getTrip`/`getItinerary`/`getBudgetExecution`、`undoTrip`、`updateItemStatus`、`getTripReview`/`getTripEvents`（见 `api/trip.ts`）。
 组件：`MapView`、`Timeline`、`ChatPanel`、`PlanDiff`、`BudgetChart`、`BudgetExecution`、`ExpensePanel`。
 P1 交互：`ItineraryCard` 提供「开始 / 完成 / 跳过 / 重置」状态按钮（`statusBusy` 防连点，`status/startedAt/completedAt/visitedAt` 展示实际时间）；
@@ -335,6 +339,11 @@ action：`setAuth(token, user)`（登录成功后写入）、`setUser(user)`（`
 
 `selectedElement`（`{type, id, title}`）是「多模态上下文」：`Timeline` 里点一个条目，`ChatPanel` 发送时带上它，
 后端即可理解“把**这个**换成别的”这类指代。
+
+它同时是**行程时间线 ↔ 地图的唯一选中源**（P1-E 4/4）：写入者只有 `Timeline` 的卡片点击、`MapView` 的标记点击
+（同一个 `setSelectedElement`）与 `ChatPanel` 的「取消选中」；读取者有 `Timeline`（行/卡片高亮）、`MapView`
+（投影成标记高亮 + 相机平移）、`ChatPanel`（上下文与已选中提示）。地图**没有**自己的 `selectedMarkerId` 之类第二套状态，
+`AMapProvider` 里的 `selectedId` 只是「最近一次投影」的记忆，用于重绘后恢复高亮，不是独立数据源。
 
 ### 5.4 statusQueue（离线待同步队列，§7.3 第 4 条 / §10.3）
 
@@ -660,6 +669,11 @@ export interface MapProvider {
   加载完成前 destroy 不会继续建图。
 - **Focus 联动**：`focus.latitude/longitude` 优先；缺失时退回 `focus.itemId` 在 `items` 里找坐标，
   通过 `setZoomAndCenter` 定位；巡航中来了 focus 会先 `stopTour()`。
+- **选中联动**（与时间线共用 `uiStore.selectedElement`）：`MapView` 只订阅这一个字段并调用
+  `provider.select(id)`；`AMapProvider.select()` 只改已画出标记的 `m3d-selected` 类与相机中心
+  （`setCenter`；旧版 SDK 没有该方法时用当前 `getZoom()` 回填 `setZoomAndCenter`），**不调用 `render()`**，
+  所以点击一次时间线不会整图重绘、也不会重置用户缩放。跨 Day 的标记被点击时会切 Day，
+  此时 `focusDay` 参与渲染 key，会重建一次覆盖物（Day 强调色变了），相机仍然不动。
 - **失败与恢复**：加载异常或 12 秒无 `complete` 时显示高德配置/网络提示；失败后若底图恢复，
   `complete` 会再次上报 `ok` 并清除提示。成功之后忽略个别瓦片错误。
 - **替换服务商**：新实现满足 `MapProvider` 即可；`setPitched`/`startTour` 仍是可选扩展。
@@ -727,7 +741,7 @@ return undefined;
 `playwright.config.ts`：`testDir: './e2e'`、`baseURL: 'http://localhost:4173'`、`trace: 'retain-on-failure'`、`locale: 'zh-CN'`、单 chromium project、`timeout: 30_000`；`webServer.command = 'npm run preview'` 自动起 preview（CI 下 `reuseExistingServer: false`）。
 跑法：终端 1 `cd travel-agent-server && mvn spring-boot:run`；终端 2 `cd travel-agent-web && npm run build && npm run e2e`。
 
-当前 **4 个 spec、13 个用例**（`npm run e2e` 实测 13/13 通过：8 条功能 + 5 条无障碍扫描）：
+默认套件（`playwright.config.ts` 的 `DEFAULT_SPECS` 白名单）当前 **7 个 spec、20 个用例**：
 
 - `e2e/smoke.spec.ts` **3 例**：① **未登录访问首页 → 跳登录页**（`browser.newContext()` 显式空 `storageState`，才是真正的匿名访客）；
   ② **登录 → 建行程 → 行程页与路书可达** —— 登录态来自 `globalSetup` 写入的 `storageState`，用 `page.request.post` 建行程（数据准备不走 UI 表单），
@@ -737,6 +751,11 @@ return undefined;
   **从零规划模式**（填目的地与天数 → 生成 → 确认 → 新行程），都走规则路径、不依赖 LLM 与外部服务。
 - `e2e/a11y.spec.ts` **5 例**：`@axe-core/playwright` 扫登录/首页/助手/旅行/回顾，WCAG 2.0/2.1 A+AA，critical/serious 必须为 0。
 - `e2e/maplibre-vendor.spec.ts` **3 例**：地图引擎 vendor 文件可发布、浏览器可 import、worker 与样式相对路径可解析。
+- `e2e/isolation.spec.ts` **1 例**：`/api/system/status` 证明本轮跑在隔离后端上（LLM/Embedding/MCP/AMAP 全关、限流关闭）。
+- `e2e/run-state.spec.ts` **4 例**：模块级失败可重试、地图失败但时间轴可用、预算降级与冲突/重派各自成阶段。
+- `e2e/timeline-map-linkage.spec.ts` **2 例**：点时间线 → 地图选中并平移（断言不动缩放、两侧来源标签都在）；
+  点地图标记 → 时间线选中并滚动到 `#ti-<id>`（跨 Day 会先切 Day）。隔离环境没有高德 Key，标记由
+  `e2e/support-amap.ts` 的替身 SDK 在第三方边界上提供，点击链路仍是应用真实代码。
 
 另有**独立的视觉回归套件**（不在此列，因为不需要后端与登录）：`npm run test:visual`，
 `playwright.visual.config.ts` + `e2e/visual/`，10 张关键页面截图基线，说明见 [frontend-quality.md §6](frontend-quality.md#6-视觉回归截图基线)。
