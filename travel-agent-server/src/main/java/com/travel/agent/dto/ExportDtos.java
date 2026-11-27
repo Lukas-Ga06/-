@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -89,6 +90,14 @@ public class ExportDtos {
         private String createdAt;
         private String updatedAt;
         private List<Message> messages;
+
+        public List<Message> getMessages() {
+            return messages == null ? new ArrayList<>() : new ArrayList<>(messages);
+        }
+
+        public void setMessages(List<Message> messages) {
+            this.messages = messages == null ? new ArrayList<>() : new ArrayList<>(messages);
+        }
     }
 
     @Data

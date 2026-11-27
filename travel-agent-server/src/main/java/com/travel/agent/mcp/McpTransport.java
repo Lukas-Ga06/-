@@ -8,6 +8,10 @@ import com.fasterxml.jackson.databind.JsonNode;
  */
 public interface McpTransport extends AutoCloseable {
 
+    /** 启动后台接收资源；无后台线程的传输可使用默认空实现。 */
+    default void start() {
+    }
+
     /** 发送带 id 的请求并等待匹配的响应；超时/连接失败抛异常 */
     JsonNode request(JsonNode requestBody) throws Exception;
 

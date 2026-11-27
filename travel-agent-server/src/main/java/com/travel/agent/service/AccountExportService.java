@@ -293,6 +293,10 @@ public class AccountExportService {
         if (value instanceof Number number) {
             return number.longValue();
         }
-        return Long.valueOf(value.toString());
+        try {
+            return Long.valueOf(value.toString());
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 }

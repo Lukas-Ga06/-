@@ -98,6 +98,7 @@ public class McpToolBridge implements SmartLifecycle {
             McpTransport transport = server.getUrl() != null && !server.getUrl().isBlank()
                     ? new HttpMcpTransport(server.getUrl(), server.getTimeoutMs())
                     : new StdioMcpTransport(server.getCommand(), server.getEnv(), server.getTimeoutMs());
+            transport.start();
             connection = new McpConnection(transport, objectMapper);
             connection.initialize("travel-agent", "0.1.0");
             int registered = 0;

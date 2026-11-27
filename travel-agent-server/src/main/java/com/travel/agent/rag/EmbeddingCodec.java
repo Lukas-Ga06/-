@@ -25,7 +25,11 @@ public class EmbeddingCodec {
         String[] parts = body.split(",");
         float[] vector = new float[parts.length];
         for (int i = 0; i < parts.length; i++) {
-            vector[i] = Float.parseFloat(parts[i].trim());
+            try {
+                vector[i] = Float.parseFloat(parts[i].trim());
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException("Invalid embedding value at index " + i, e);
+            }
         }
         return vector;
     }

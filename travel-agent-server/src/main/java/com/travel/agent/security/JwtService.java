@@ -29,6 +29,7 @@ public class JwtService {
 
     /** HS256 要求的最小密钥长度（字节） */
     private static final int MIN_KEY_BYTES = 32;
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     private final SecretKey key;
     private final long expireHours;
@@ -42,7 +43,7 @@ public class JwtService {
     private static SecretKey resolveKey(String secret) {
         if (secret == null || secret.isBlank()) {
             byte[] ephemeral = new byte[64];
-            new SecureRandom().nextBytes(ephemeral);
+            SECURE_RANDOM.nextBytes(ephemeral);
             log.warn("未配置环境变量 JWT_SECRET，已生成一次性随机密钥：服务重启后所有已签发 token 将失效。"
                     + "生产环境请注入固定密钥（Base64，>= 32 字节，可用 openssl rand -base64 48 生成）。");
             return Keys.hmacShaKeyFor(ephemeral);

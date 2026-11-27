@@ -47,12 +47,12 @@ public final class MessageTemplates {
      * 没有可用真实天气时的修改文案：<b>不提天气</b>。
      * 拿不到真实天气就绝不写「因为下雨」——那会让用户以为做过天气判断（ADR-006）。
      */
-    public static String modify(List<String> replacements, int day) {
+    public static String modify(List<String> replacements) {
         return modifyText(null, replacements);
     }
 
-    /** 有真实预报时的修改文案（调用方不得传 null：没有天气时走 {@link #modify(List, int)}） */
-    public static String modify(WeatherInfo weather, List<String> replacements, int day) {
+    /** 有真实预报时的修改文案（调用方不得传 null：没有天气时走 {@link #modify(List)}） */
+    public static String modify(WeatherInfo weather, List<String> replacements) {
         return modifyText(weather, replacements);
     }
 

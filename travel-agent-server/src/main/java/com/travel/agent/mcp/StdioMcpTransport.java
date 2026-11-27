@@ -52,8 +52,14 @@ public class StdioMcpTransport implements McpTransport {
         this.timeoutMs = timeoutMs;
         this.readerThread = new Thread(this::readLoop, "mcp-stdio-reader");
         this.readerThread.setDaemon(true);
-        this.readerThread.start();
         log.info("MCP stdio 子进程已启动: {}", describe(resolved));
+    }
+
+    @Override
+    public void start() {
+        if (!this.readerThread.isAlive()) {
+            this.readerThread.start();
+        }
     }
 
     /**

@@ -101,7 +101,12 @@ public final class TrustedProxies {
                     return null;
                 }
             }
-            int octet = Integer.parseInt(part);
+            final int octet;
+            try {
+                octet = Integer.parseInt(part);
+            } catch (NumberFormatException e) {
+                return null;
+            }
             if (octet > 255) {
                 return null;
             }

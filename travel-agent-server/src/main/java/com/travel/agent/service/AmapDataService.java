@@ -275,45 +275,70 @@ public class AmapDataService {
     private AmapRoute restDirection(String restPath, String origin, String destination) {
         String uri = REST_BASE + restPath + "?key=" + enc(amap.getKey())
                 + "&origin=" + origin + "&destination=" + destination;
-        for (int attempt = 0; attempt <= 1; attempt++) {
-            JsonNode resp;
-            try {
-                resp = restClient.get().uri(URI.create(uri)).retrieve().body(JsonNode.class);
-            } catch (Exception e) {
-                String reason = ErrorSummary.describe(e, amap.getKey());
-                log.warn("高德 REST 路径不可用（{}），已降级估算", reason);
+        JsonNode resp = fetchRestResponse(uri);
+        if (resp == null) {
+            return null;
+        }
+        AmapRoute route = successfulRoute(resp);
+        if (route != null) {
+            return route;
+        }
+        if ("1".equals(resp.path("status").asText())) {
+            return null;
+        }
+        if (!"1".equals(resp.path("status").asText())
+                && INFOCODE_QPS_LIMIT.equals(resp.path("infocode").asText(""))) {
+            long delay = nextQpsRetryDelayMs();
+            log.warn("高德路径被 QPS 限流（infocode=10021 CUQPS_HAS_EXCEEDED_THE_LIMIT），{}ms 后重试一次", delay);
+            if (!sleepQuietly(delay)) {
+                String reason = "infocode=10021（重试等待被中断）";
                 markRouteCallFailed(reason);
                 return null;
             }
-            if (resp != null && "1".equals(resp.path("status").asText())) {
-                AmapRoute route = parseRoute(resp);
-                if (route != null) {
-                    markRouteCallSucceeded();
-                    return route;
-                }
-                String reason = "status=1 但 route.paths[0] 缺少 distance/duration";
-                log.warn("高德 REST 路径异常（{}），已降级估算", reason);
-                markRouteCallFailed(reason);
+            resp = fetchRestResponse(uri);
+            if (resp == null) {
                 return null;
             }
-            String infocode = resp == null ? "" : resp.path("infocode").asText("");
-            String info = resp == null ? "" : resp.path("info").asText("");
-            if (INFOCODE_QPS_LIMIT.equals(infocode) && attempt == 0) {
-                long delay = nextQpsRetryDelayMs();
-                log.warn("高德路径被 QPS 限流（infocode=10021 CUQPS_HAS_EXCEEDED_THE_LIMIT），{}ms 后重试一次", delay);
-                if (!sleepQuietly(delay)) {
-                    String reason = "infocode=10021（重试等待被中断）";
-                    markRouteCallFailed(reason);
-                    return null;
-                }
-                continue;
+            route = successfulRoute(resp);
+            if (route != null) {
+                return route;
             }
-            String reason = "infocode=" + dash(infocode) + ", info=" + dash(info);
-            log.warn("高德路径调用失败（{}），已降级估算", reason);
+            if ("1".equals(resp.path("status").asText())) {
+                return null;
+            }
+        }
+        String infocode = resp.path("infocode").asText("");
+        String info = resp.path("info").asText("");
+        String reason = "infocode=" + dash(infocode) + ", info=" + dash(info);
+        log.warn("高德路径调用失败（{}），已降级估算", reason);
+        markRouteCallFailed(reason);
+        return null;
+    }
+
+    private JsonNode fetchRestResponse(String uri) {
+        try {
+            return restClient.get().uri(URI.create(uri)).retrieve().body(JsonNode.class);
+        } catch (Exception e) {
+            String reason = ErrorSummary.describe(e, amap.getKey());
+            log.warn("高德 REST 路径不可用（{}），已降级估算", reason);
             markRouteCallFailed(reason);
             return null;
         }
-        return null; // 理论不可达：循环内每条分支都会 return
+    }
+
+    private AmapRoute successfulRoute(JsonNode resp) {
+        if (resp == null || !"1".equals(resp.path("status").asText())) {
+            return null;
+        }
+        AmapRoute route = parseRoute(resp);
+        if (route != null) {
+            markRouteCallSucceeded();
+            return route;
+        }
+        String reason = "status=1 但 route.paths[0] 缺少 distance/duration";
+        log.warn("高德 REST 路径异常（{}），已降级估算", reason);
+        markRouteCallFailed(reason);
+        return null;
     }
 
     /** 扫描已注册的 mcp_*_{suffix} 工具（server 名任意），未接入返回 null */

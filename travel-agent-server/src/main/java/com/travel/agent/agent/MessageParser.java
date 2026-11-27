@@ -352,7 +352,7 @@ public final class MessageParser {
         // 2) 「2大1小」
         Matcher bigSmall = Pattern.compile("(\\d{1,2})\\s*大\\s*(\\d{1,2})\\s*小").matcher(text);
         if (bigSmall.find()) {
-            return clampParty(Integer.parseInt(bigSmall.group(1)) + Integer.parseInt(bigSmall.group(2)));
+            return clampParty(parseIntSafely(bigSmall.group(1), 0) + parseIntSafely(bigSmall.group(2), 0));
         }
         // 3) 「一家三口」
         Matcher family = Pattern.compile("一家([三四五六七八九十])口").matcher(text);
@@ -365,7 +365,7 @@ public final class MessageParser {
         // 4) 「3人 / 3个人 / 3位」
         Matcher arabic = Pattern.compile("(\\d{1,2})\\s{0,4}(?:个|位)?\\s{0,4}人").matcher(text);
         if (arabic.find()) {
-            return clampParty(Integer.parseInt(arabic.group(1)));
+            return clampParty(parseIntSafely(arabic.group(1), 0));
         }
         // 5) 「三个人 / 两个人」
         Matcher chinese = Pattern.compile("([一两二三四五六七八九十])\\s{0,4}(?:个|位)?\\s{0,4}人").matcher(text);
@@ -384,6 +384,14 @@ public final class MessageParser {
 
     private static int clampParty(int count) {
         return Math.min(Math.max(count, 1), RequirementSlots.MAX_PARTY_SIZE);
+    }
+
+    private static int parseIntSafely(String value, int fallback) {
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
     }
 
     /** 记账请求解析结果 */
@@ -467,12 +475,12 @@ public final class MessageParser {
         java.time.LocalTime time = null;
         Matcher m = Pattern.compile("(上午|下午|中午|晚上|早上)?\\s{0,4}(\\d{1,2})\\s{0,4}[点时：:]\\s{0,4}(\\d{1,2})?\\s{0,4}分?").matcher(text);
         if (m.find()) {
-            int hour = Integer.parseInt(m.group(2));
+            int hour = parseIntSafely(m.group(2), 0);
             String period = m.group(1) == null ? "" : m.group(1);
             if ((period.contains("下午") || period.contains("晚上")) && hour < 12) {
                 hour += 12;
             }
-            int minute = m.group(3) == null ? 0 : Integer.parseInt(m.group(3));
+            int minute = m.group(3) == null ? 0 : parseIntSafely(m.group(3), 0);
             if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
                 time = java.time.LocalTime.of(hour, minute);
             }
