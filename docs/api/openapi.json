@@ -2768,7 +2768,6 @@
             "type" : "integer"
           }
         },
-        "required" : [ "tripId" ],
         "type" : "object"
       },
       "UpdateItemRequest" : {

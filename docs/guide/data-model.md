@@ -76,7 +76,7 @@ erDiagram
 
     trip ||--o{ trip_photo : "旅行照片"
 
-    trip ||--o{ operation_history : "变更快照"
+    trip ||--o{ operation_history : "行程域变更快照（SCHEDULE 域无行程）"
 
     trip ||--o{ pending_plan : "可关联可空"
 
@@ -437,11 +437,13 @@ select coalesce(sum(p.sizeBytes), 0) from TripPhoto p where p.userId = :userId
 
 
 
-### 2.6 `operation_history` — 操作历史（索引 `idx_history_trip_status (trip_id, status)`）
+### 2.6 `operation_history` — 操作历史（索引 `idx_history_trip_status (trip_id, status)`、`idx_history_user_domain (user_id, domain, status)`）
 
 
 
 任何会改变行程的入口都写一条 before/after 快照，`undoLatest` 据此回滚；复合索引服务「取该行程最新的 ACTIVE 记录」。
+V31 起历史分成两个撤销域（`domain`）：`ITINERARY` 挂在行程上（既有三种来源），`SCHEDULE` 不挂在行程上、
+按用户撤销（批量清空日程）。
 
 
 
@@ -451,15 +453,17 @@ select coalesce(sum(p.sizeBytes), 0) from TripPhoto p where p.userId = :userId
 
 | `id` | `BIGINT` | 否 | 主键，自增；同时充当撤销顺序 |
 
-| `trip_id` | `BIGINT` | 否 | 所属行程 |
+| `trip_id` | `BIGINT` | **是** | 所属行程；**V31 起可空**，`SCHEDULE` 域的历史为空 |
 
-| `user_id` | `BIGINT` | 是 | 操作发起人 |
+| `user_id` | `BIGINT` | 是 | 操作发起人（日程撤销按它取最近一条） |
 
-| `operation_type` | `VARCHAR(50)` | 是 | `AGENT_COMMIT` / `TRIP_CREATE` / `MANUAL_EDIT` |
+| `domain` | `VARCHAR(20)` | 是 | V31 新增：`ITINERARY` / `SCHEDULE`；存量行由迁移默认 `ITINERARY`，新行由 `@PrePersist` 兜底 |
 
-| `before_state` | `TEXT` | 是 | 变更前快照（行程条目 DTO 列表的 JSON 数组） |
+| `operation_type` | `VARCHAR(50)` | 是 | `AGENT_COMMIT` / `TRIP_CREATE` / `MANUAL_EDIT` / `SCHEDULE_CLEAR` |
 
-| `after_state` | `TEXT` | 是 | 变更后快照 |
+| `before_state` | `TEXT` | 是 | 变更前快照（行程域是 `ItineraryItemDTO` JSON 数组；日程域是 `ScheduleSnapshot` JSON 数组） |
+
+| `after_state` | `TEXT` | 是 | 变更后快照（日程清空固定 `[]`） |
 
 | `agent_reason` | `TEXT` | 是 | 变更原因 |
 
@@ -469,9 +473,7 @@ select coalesce(sum(p.sizeBytes), 0) from TripPhoto p where p.userId = :userId
 
 
 
-撤销效果：`AGENT_COMMIT` 用 `before_state` 整体替换行程项；`TRIP_CREATE` **删除整个行程**；`MANUAL_EDIT` 还原到本次手工操作前。`TRIP_CREATE` 的 `before_state` 是 `List.of()` 序列化出的 `[]`，所以撤销必须走删除行程分支。
-
-
+撤销效果：`AGENT_COMMIT` 用 `before_state` 整体替换行程项；`TRIP_CREATE` **删除整个行程**；`MANUAL_EDIT` 还原到本次手工操作前；`SCHEDULE_CLEAR` 按快照重新插入日程（id 置空，日期/时间/标题/重复规则等原样还原）。`TRIP_CREATE` 的 `before_state` 是 `List.of()` 序列化出的 `[]`，所以撤销必须走删除行程分支。行程撤销只查 `trip_id` 对应的历史；日程撤销只查 `(user_id, domain='SCHEDULE')`，两条链互不覆盖。
 
 ### 2.7 `pending_plan` — 待确认的 Agent 方案（`idx_pending_plan_user (user_id)`、`idx_pending_plan_created (created_at)`、`idx_pending_plan_claim (status, claimed_at)`）
 
@@ -1356,13 +1358,13 @@ b=<budget>|s=<startDate>|e=<endDate>
 
 
 
-### 6.1 迁移链：V1 基线 → V2–V11（便携）→ V12/V13/V14（按方言分目录）→ V15–V30（便携）
+### 6.1 迁移链：V1 基线 → V2–V11（便携）→ V12/V13/V14（按方言分目录）→ V15–V31（便携）
 
 
 
 **schema 的唯一权威是 Flyway**，两个 profile 的 `ddl-auto` 都是 `validate`（见 6.2）：Hibernate 只校验、不改结构。
 
-共 **30 个版本 / 31 个脚本**（V13 两份、V8/V12 在 MySQL 目录、V14 在 H2 目录）：
+共 **31 个版本 / 32 个脚本**（V13 两份、V8/V12 在 MySQL 目录、V14 在 H2 目录）：
 
 
 
@@ -1430,6 +1432,8 @@ b=<budget>|s=<startDate>|e=<endDate>
 | 29 | `V29__agent_run_spend.sql` | `db/migration` | 建 `agent_run_spend`（唯一键 `uk_agent_run_spend_run (run_id)`，索引 `idx_agent_run_spend_created` / `idx_agent_run_spend_user`） | 每轮花费落库：run 收尾写一条快照，`GET /api/agent/runs/{runId}` 的 `spend` 数据源；随 14 天追踪保留期清理 |
 | 30 | `V30__expense_general_ledger.sql` | `db/migration` | `expense.trip_id` 放开为可空；新增 `expense.schedule_item_id` + 索引 `idx_expense_schedule` | 记账与行程解绑（没有当前行程也能记账）；`schedule_item_id` 为批次 3 发票报销预留。双方言共用：`MODIFY COLUMN / ADD COLUMN / CREATE INDEX` 在 H2(MODE=MySQL) 与 MySQL 8.0 都成立，由 `H2FlywayMigrationTest` 实测 |
 
+| 31 | `V31__operation_history_schedule_domain.sql` | `db/migration` | `operation_history.trip_id` 放开为可空；新增 `domain VARCHAR(20) DEFAULT 'ITINERARY'` + 索引 `idx_history_user_domain (user_id, domain, status)` | 批量清空日程可撤销：日程不挂在行程上，按用户 + `SCHEDULE` 域取最近一条历史还原。双方言共用（`MODIFY COLUMN / ADD COLUMN / CREATE INDEX` 与 V30 同写法），由 `H2FlywayMigrationTest` 实测；MySQL 8.0.46 已在本机临时库实测（建表 → 执行 V31 → 校验可空/默认值/索引 → DROP） |
+
 
 
 **目录与加载**（`application.yml` / `application-mysql.yml` 的 `spring.flyway.locations`）：
@@ -1440,9 +1444,9 @@ b=<budget>|s=<startDate>|e=<endDate>
 
 | --- | --- | --- |
 
-| 默认（H2） | `classpath:db/migration,classpath:db/migration-h2` | V1–V11 + V13（H2 版）+ V14 + V15–V30；**没有 V12**，且缺口 V8 是预期 |
+| 默认（H2） | `classpath:db/migration,classpath:db/migration-h2` | V1–V11 + V13（H2 版）+ V14 + V15–V31；**没有 V12**，且缺口 V8 是预期 |
 
-| `mysql` | `classpath:db/migration,classpath:db/migration-mysql` | V1–V13 全链（V8 / V12 / V13 是 MySQL 版）+ V15–V30；没有 V14（H2 专属） |
+| `mysql` | `classpath:db/migration,classpath:db/migration-mysql` | V1–V13 全链（V8 / V12 / V13 是 MySQL 版）+ V15–V31；没有 V14（H2 专属） |
 
 
 
@@ -1566,9 +1570,9 @@ spring:
 
 | --- | --- | --- |
 
-| 全新库（空库） | `V1` 建全 15 张基础表 + 14 个索引 → `V2`–`V11` 增量 → 当前 profile 的 `V13` 补齐缺口（`mysql` 另有 `V8`/`V12`）→ `V14`–`V30` → Hibernate `validate` 校验 | **什么都不用**：不再需要手工执行 `sql/init.sql`（该文件已标注弃用，见第 8 节） |
+| 全新库（空库） | `V1` 建全 15 张基础表 + 14 个索引 → `V2`–`V11` 增量 → 当前 profile 的 `V13` 补齐缺口（`mysql` 另有 `V8`/`V12`）→ `V14`–`V31` → Hibernate `validate` 校验 | **什么都不用**：不再需要手工执行 `sql/init.sql`（该文件已标注弃用，见第 8 节） |
 
-| 存量库（有表、无历史或历史停在旧版本） | `baseline-on-migrate` 在 V1 打基线标记，**V1 不重跑**，只执行未应用的增量（含 V30）；`V13` 在存量库上逐条命中「已存在」→ 空转 | 升级前**先跑一次 repair**（V4 checksum 变过，见 6.1.1） |
+| 存量库（有表、无历史或历史停在旧版本） | `baseline-on-migrate` 在 V1 打基线标记，**V1 不重跑**，只执行未应用的增量（含 V31）；`V13` 在存量库上逐条命中「已存在」→ 空转 | 升级前**先跑一次 repair**（V4 checksum 变过，见 6.1.1） |
 
 
 
@@ -1770,7 +1774,7 @@ Remove-Item -Recurse -Force travel-agent-server/data -ErrorAction SilentlyContin
 
 # 3) 重启后端：全新库由 Flyway 建 schema —— V1（基线）→ V2–V11 → 当前 profile 的 V13
 
-#    （mysql profile 另含 V8 / V12）→ V14–V30，随后 Hibernate ddl-auto=validate 校验；
+#    （mysql profile 另含 V8 / V12）→ V14–V31，随后 Hibernate ddl-auto=validate 校验；
 
 #    DataInitializer 重建 demo 账号。不需要手工执行 sql/init.sql。
 
@@ -2055,11 +2059,11 @@ P0 之后下表涉及的 6 张旧模块表（`daily_report` / `mail_item` / `mee
 
 | `repository/` 下 Repository 接口 | **25** | 与实体一一对应 |
 
-| 显式 `@Index` 声明 | **39** 条，分布在 22 个实体上 | 源码 `@Index(` 计数（各表索引已在 2–4 节标题中逐条列出；`idx_pending_plan_claim` 只在 V25，不在实体注解） |
+| 显式 `@Index` 声明 | **40** 条，分布在 22 个实体上 | 源码 `@Index(` 计数（各表索引已在 2–4 节标题中逐条列出；`idx_pending_plan_claim` 只在 V25，不在实体注解） |
 
 | `@UniqueConstraint` | **11** 条 | `users.username`（未命名）、`uk_llm_quota_user_date`、`uk_rag_document_key`、`uk_rag_version`、`uk_schedule_source_key`、`uk_conv_turn_role`、`uk_conv_meta_user_conv`、`uk_agent_run_event`、`uk_agent_run_stage`、`uk_plan_outbox_event`、`uk_plan_outbox_plan_module` |
 
-| Flyway 版本 / 脚本文件 | **30 个版本 / 31 个文件**（V1–V30；V13 双方言两份，V8/V12 仅 MySQL，V14 仅 H2） | `db/migration` 26 个 + `db/migration-mysql` 3 个 + `db/migration-h2` 2 个 |
+| Flyway 版本 / 脚本文件 | **31 个版本 / 32 个文件**（V1–V31；V13 双方言两份，V8/V12 仅 MySQL，V14 仅 H2） | `db/migration` 27 个 + `db/migration-mysql` 3 个 + `db/migration-h2` 2 个 |
 
 | V1 基线内容 | **15 张表 + 14 个索引** | `V1__baseline.sql` 的 `CREATE TABLE` / `CREATE INDEX` 计数 |
 
@@ -2068,6 +2072,8 @@ P0 之后下表涉及的 6 张旧模块表（`daily_report` / `mail_item` / `mee
 | V25–V29 增量内容 | **5 列 + 4 张新表 + 13 个索引/唯一键** | `V25`–`V29`；明细见 6.1 与 4.6/4.7 |
 
 | V30 增量内容 | **1 列放开可空 + 1 列 + 1 个索引** | `V30__expense_general_ledger.sql`（`trip_id` 可空、`schedule_item_id`、`idx_expense_schedule`） |
+
+| V31 增量内容 | **1 列放开可空 + 1 列 + 1 个索引** | `V31__operation_history_schedule_domain.sql`（`trip_id` 可空、`domain`、`idx_history_user_domain`） |
 
 | 后端测试 | **以 `mvn test` / CI 输出为准** | 不在本文维护静态用例数 |
 

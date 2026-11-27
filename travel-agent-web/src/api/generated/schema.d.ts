@@ -1921,7 +1921,7 @@ export interface components {
         };
         UndoRequest: {
             /** Format: int64 */
-            tripId: number;
+            tripId?: number;
         };
         UpdateItemRequest: {
             cost?: number;
