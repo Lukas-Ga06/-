@@ -2,6 +2,19 @@
 
 按主题记录行为变化。**第四节是最需要注意的**：其中几项改变了原有的使用习惯。
 
+## 依赖安全：moderate 存量归零，npm audit 收紧到 moderate（2026-11-27）
+
+- **前端依赖漏洞清零**：`npm audit` 从 **7 moderate** 降到 **0**。两处根因分开处理——
+  `vitest` / `@vitest/coverage-v8` 4.1.11 → **4.1.12**（修手动 mock 注入与 `@vitest/mocker` 的 Windows
+  反斜杠绕过，4.1.12 是 4.x 修复版）；`glob` / `minimatch` 是 `workbox-build@7.4.1` 的传递依赖，
+  上游还没发修复版，用 `package.json` 的 `overrides.workbox-build.glob: ^14.0.2` 顶到 **glob 14.0.6**。
+- **override 的证据是产物不变**：升级前后 `dist/sw.js` 均 5289 B / precache 82 项、首屏 JS 合计 598,949 B
+  不变，`npm test` 557/557。glob 只在构建期扫自家 `dist/`，不随产物发布，也不处理用户输入。
+- **门禁收紧**：CI 的 `npm audit` 从 `--audit-level=high` 改为 **`--audit-level=moderate`**
+  （R8「只收紧不放宽」）。以后再出现 moderate，要么修、要么走 [CI §6](guide/ci.md) 的临时豁免流程。
+- 依据与解除条件见 [CI §5.1](guide/ci.md)：`workbox-build`/`vite-plugin-pwa` 一旦依赖 `glob >=14.0.2`，
+  就删掉 override 并重跑三项证据。
+
 ## 花费可见性与 MCP 配额指标（2026-11-26）
 
 - **运行详情现在能看到每轮花费**：运行记录抽屉展开后新增「本轮花费」（LLM 调用 / 工具调用 / 重试 /

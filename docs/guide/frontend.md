@@ -28,7 +28,7 @@
 | 高德 JS API / maplibre-gl | 2.0 / **6.15.0**（精确锁定，无 `^`） | 行程页 2D/3D 地图（高德）/ 足迹球体投影（MapLibre + 高德栅格底图） |
 | zustand | ^4.5.5 | 全局状态（5 个 store，见第 5 节） |
 | dayjs | ^1.11.13 | 日期格式化与 Day 映射 |
-| vitest / happy-dom | ^4.1.11 / ^21.0.4 | 单元测试；组件类用例的 DOM 环境 |
+| vitest / happy-dom | ^4.1.12 / ^21.0.4 | 单元测试；组件类用例的 DOM 环境 |
 | @testing-library/react | ^16.3.3 | 组件测试（现有用例偏逻辑，见第 9 节） |
 | @playwright/test | ^1.64.1 | e2e 冒烟 |
 

@@ -159,7 +159,7 @@ oasdiff breaking /tmp/openapi-base.json docs/api/openapi.json --fail-on ERR
 | 检查 | 触发 | 阈值 | 处置 |
 | --- | --- | --- | --- |
 | dependency-review | PR | `fail-on-severity: high`，只评新增依赖；**2026-11-25 起无 `continue-on-error`，为硬门禁** | 升级到修复版本，或说明为何必须引入并申请豁免 |
-| `npm audit --audit-level=high` | push/PR | high + critical | 升级/low-risk fix；无修复版本时评估替代依赖 |
+| `npm audit --audit-level=moderate` | push/PR | moderate + high + critical（**2026-11-27 起从 high 收紧**） | 升级/low-risk fix；无修复版本时用 `overrides` 顶到已修复的传递版本（须证明构建产物不变），或走 §6 临时豁免 |
 | Trivy（Maven 依赖） | push/PR | CRITICAL,HIGH，`ignore-unfixed` | 升级依赖；确实无修复版本则记录风险与到期时间 |
 | CodeQL | push/PR/每周 | security-and-quality | 公开仓库已上传 SARIF；67 条告警分诊中，误报加抑制注释并说明 |
 | gitleaks | push/PR（`secret-scan` job） | 全历史 `--log-opts=--all`，固定 8.30.1 + SHA-256，命中即失败 | 真实密钥泄露：立即轮换 → 清理历史 → 复盘 |
@@ -174,6 +174,23 @@ gitleaks 放行范围只有四类，全部是**精确值或本地文件**：测�
 2026-11-25 首次 CI 实跑后逐条核实的 7 条历史测试值/占位/文档示例（见
 [安全设置清单 §2.6](../operations/github-security-settings.md)），以及本地 `.env.local` 与验收证据目录
 （`.gitignore` 已排除，存在时也不该阻断）。**不要**把整个 `src/` 或 `docs/` 加进 paths 放行。
+
+### 5.1 前端依赖 override（`workbox-build` → `glob`）
+
+现状（2026-11-27）：
+
+| 包 | 处理 | 原因 |
+| --- | --- | --- |
+| `vitest` / `@vitest/coverage-v8` | 4.1.11 → **4.1.12** | 修 GHSA-qxg6-89mg-rqv8（手动 mock 注入）与 GHSA-xp26-3454-mjgp（`@vitest/mocker` Windows 反斜杠绕过），4.1.12 是 4.x 的修复版 |
+| `glob` / `minimatch`（经 `workbox-build@7.4.1` → `vite-plugin-pwa`） | `package.json` 增加 `overrides.workbox-build.glob: ^14.0.2`，实际解析到 **glob 14.0.6** | 公告区间 glob `9.0.0–14.0.1`、minimatch `7.0.0–<11.0.1`；workbox-build 仍依赖 `glob ^11.0.1`（glob 11 自带 minimatch 10），上游**没有**可用的修复版本，只能把传递依赖顶到已修复的 major |
+
+为什么敢顶 major：`workbox-build` 只用 `globSync(pattern, {cwd, follow, ignore})` 扫 `dist/`，
+输入是自己的构建产物，不是用户输入；glob 14 保留了该 API 与这三个选项。**证据是产物逐项不变**：
+升级前后 `dist/sw.js` 都是 5289 B / precache 82 项，首屏 JS 合计 598,949 B 不变，`npm test` 557/557，
+`npm audit` 归零。override **不影响 ship 出去的代码**（glob 只在构建期运行）。
+
+解除条件：`workbox-build` 或 `vite-plugin-pwa` 发布依赖 `glob >=14.0.2` 的版本后，删掉 `overrides`
+并重跑「build:check 产物对比 + 全量前端用例 + npm audit」三项；不要把 override 当永久补丁留着。
 
 ## 6. 临时豁免流程
 

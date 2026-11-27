@@ -271,11 +271,12 @@ jobs:
           cache: npm
           cache-dependency-path: travel-agent-web/package-lock.json
 
-      # 前端依赖漏洞：high/critical 阻断。当前存量（vite-plugin-pwa 的 glob/minimatch moderate）
-      # 低于该级别，不会误伤；升级后应把级别收紧到 moderate，见 docs/guide/ci.md。
-      - name: npm audit（high+）
+      # 前端依赖漏洞：2026-11-27 起收紧到 moderate（存量已归零：vitest 4.1.12 + workbox-build 的
+      # glob 用 override 提到 ≥14.0.2）。门禁只收紧不放宽；以后出现 moderate 要么修、要么走
+      # docs/guide/ci.md §6 的临时豁免流程。
+      - name: npm audit（moderate+）
         working-directory: travel-agent-web
-        run: npm ci --ignore-scripts && npm audit --audit-level=high
+        run: npm ci --ignore-scripts && npm audit --audit-level=moderate
 
       # Maven 依赖漏洞：Trivy 扫依赖清单，忽略「无修复版本」的条目，避免无解除的告警常驻红灯。
       - name: Trivy dependency scan
