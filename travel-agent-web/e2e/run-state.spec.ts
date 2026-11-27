@@ -210,7 +210,9 @@ test('地图失败但时间轴可用：失败态可重试，主栏照常渲染�
 
 /** 把若干 SSE 帧拼成一段响应体（GET EventSource 一次性读完；事件名走真实监听白名单） */
 function sse(...frames: [string, unknown][]): string {
-  return frames.map(([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`).join('');
+  return frames
+    .map(([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+    .join('');
 }
 
 /** 助手页的真实入口：发一句话，让 streamAgentChat 走桩住的 GET 通道 */
@@ -236,7 +238,10 @@ test('过程时间线：预算降级显示成「降级」阶段与原因，状�
         ['intent', { intent: 'PLAN_TRIP' }],
         ['planning', {}],
         ['budget_degraded', { stage: 'review', detail, remainingMs: 0 }],
-        ['budget_degraded', { stage: 'narration', detail: '预算耗尽，跳过文案润色（使用模板文案）', remainingMs: 0 }],
+        [
+          'budget_degraded',
+          { stage: 'narration', detail: '预算耗尽，跳过文案润色（使用模板文案）', remainingMs: 0 },
+        ],
         ['complete', { status: 'COMPLETED', message: '已按预算优先给出方案，审核被跳过。' }],
       ),
     }),
@@ -280,7 +285,15 @@ test('过程时间线：任务冲突/重派独立成阶段，状态降级但不�
         ['start', {}],
         ['planning', {}],
         ['delegate', { receiver: 'planner-agent', taskType: 'PLAN', dependsOn: [], attempt: 0 }],
-        ['conflict', { receiver: 'reflect-agent', taskType: 'REVIEW', missingDeps: ['t-plan'], reason: '前置未完成' }],
+        [
+          'conflict',
+          {
+            receiver: 'reflect-agent',
+            taskType: 'REVIEW',
+            missingDeps: ['t-plan'],
+            reason: '前置未完成',
+          },
+        ],
         ['complete', { status: 'COMPLETED', message: '已生成方案。' }],
       ),
     }),
@@ -298,16 +311,16 @@ test('过程时间线：任务冲突/重派独立成阶段，状态降级但不�
   );
   await expect(page.getByTestId('agent-activity-degrade')).toHaveCount(0);
 
-  // ② 展开后：冲突行属于「冲突/重派」阶段，阶段标签只出现一次（委派与冲突聚合）
+  // ② 展开后：冲突行属于「冲突/重派」阶段，阶段标签只出现一次
   await page.getByRole('button', { name: '查看运行详情' }).click();
   const conflictRow = page.locator('.aa-row[data-event="conflict"]');
   await expect(conflictRow).toHaveAttribute('data-stage', 'dispatch');
   await expect(conflictRow).toContainText('任务冲突：reflect-agent/REVIEW 前置未完成，已回收');
   await expect(page.locator('.aa-stage[data-stage="dispatch"]')).toHaveCount(1);
   await expect(page.locator('.aa-stage[data-stage="dispatch"]')).toHaveText('冲突/重派');
-  // 委派行与冲突行同属一个阶段
+  // 委派是正常编排，归「规划」而不是「冲突/重派」
   await expect(page.locator('.aa-row[data-event="delegate"]')).toHaveAttribute(
     'data-stage',
-    'dispatch',
+    'plan',
   );
 });

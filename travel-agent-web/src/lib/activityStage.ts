@@ -45,7 +45,7 @@ export const ACTIVITY_STAGE_META: Record<ActivityStage, ActivityStageMeta> = {
   research: { label: '研究检索', hint: '检索攻略与知识库证据' },
   tool: { label: '工具调用', hint: '调用只读工具查天气 / 路线 / 城市数据' },
   plan: { label: '规划', hint: '编排行程、生成方案对比、审核未通过后重规划' },
-  dispatch: { label: '冲突/重派', hint: '子任务委派、前置未完成被拒后回收重派' },
+  dispatch: { label: '冲突/重派', hint: '前置未完成被拒后回收、任务被重派' },
   degrade: { label: '降级', hint: '预算或外部依赖不可用，部分阶段被跳过' },
   confirm: { label: '确认', hint: '等待你确认方案' },
   ledger: { label: '同步台账', hint: '确认后写入日程 / 预算 / 足迹的结果' },
@@ -79,7 +79,10 @@ export function activityStage(event: string): ActivityStage | null {
     case 'replan':
     case 'plan_update':
       return 'plan';
+    // 委派是规划/执行编排的一段（PREVIEW / PLAN / REVIEW 子任务），不是「冲突」；
+    // 把它归进冲突/重派会让正常的「委派 executor-agent：PREVIEW」被读成出了问题。
     case 'delegate':
+      return 'plan';
     case 'recover':
     case 'conflict':
       return 'dispatch';

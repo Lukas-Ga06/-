@@ -24,14 +24,15 @@ describe('activityStage：事件聚合成用户能理解的阶段', () => {
     expect(activityStage('tool_result')).toBe('tool');
   });
 
-  it('规划阶段聚合进入规划、方案预览与重规划（planning / plan_update / replan）', () => {
+  it('规划阶段聚合进入规划、方案预览、重规划与子任务委派（planning / plan_update / replan / delegate）', () => {
     expect(activityStage('planning')).toBe('plan');
     expect(activityStage('plan_update')).toBe('plan');
     expect(activityStage('replan')).toBe('plan');
+    // 委派是正常编排，不是冲突：挂在「冲突/重派」会让用户误读
+    expect(activityStage('delegate')).toBe('plan');
   });
 
-  it('冲突/重派阶段聚合任务 DAG 的委派、重派与被拒（delegate / recover / conflict）', () => {
-    expect(activityStage('delegate')).toBe('dispatch');
+  it('冲突/重派阶段只覆盖被拒后回收与重派（recover / conflict）', () => {
     expect(activityStage('recover')).toBe('dispatch');
     expect(activityStage('conflict')).toBe('dispatch');
   });

@@ -222,6 +222,10 @@ describe('AgentActivityPanel', () => {
     );
 
     expand();
+    // 委派属于规划编排，冲突/重派只留给真正被拒/重派的行
+    expect(container.querySelector('[data-event="delegate"]')?.getAttribute('data-stage')).toBe(
+      'plan',
+    );
     const row = container.querySelector('[data-event="conflict"]');
     expect(row?.getAttribute('data-stage')).toBe('dispatch');
     // 同一阶段只出现一次标签（委派与冲突共用一个标签，不每行重复）

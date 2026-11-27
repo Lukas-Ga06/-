@@ -491,8 +491,8 @@ ChatPanel 输入 → doSend()
 | 准备 | `run` / `start` / `intent` | 已连接、理解需求 |
 | 研究检索 | `rag_result` | 检索攻略与引用来源 |
 | 工具调用 | `tool_call` / `tool_result` | 调了哪个工具、有没有拿到数据 |
-| 规划 | `planning` / `replan` / `plan_update` | 规划、重规划、方案对比 |
-| 冲突/重派 | `delegate` / `recover` / `conflict` | 委派、重派、前置未完成被拒 |
+| 规划 | `planning` / `replan` / `plan_update` / `delegate` | 规划、重规划、方案对比、子任务委派 |
+| 冲突/重派 | `recover` / `conflict` | 前置未完成被拒后回收、任务被重派 |
 | 降级 | `budget_degraded` / `warning` / `resume_timeout` | 哪一步被跳过、为什么 |
 | 确认 | `confirmation` | 等待你确认 |
 | 同步台账 | 非 SSE：`ExecutionSummary`（`lastExecution`） | 确认后日程 / 预算 / 足迹的同步结果与失败原因 |
